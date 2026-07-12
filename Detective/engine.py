@@ -26,8 +26,9 @@ from .equivalence import (
     MutantVerdict,
     SurvivorReport,
     _outcome,
-    candidate_inputs,
     classify_survivor,
+    param_type_names,
+    typed_inputs,
 )
 from .purity import is_pure as _is_pure
 from .scope import ScopeMap, scope_from_profiling
@@ -182,13 +183,15 @@ def classify_survivors(
     if original is None:
         return SurvivorReport((), descs, note="the live original could not be loaded")
 
-    params = [a.arg for a in node.args.args if a.arg not in ("self", "cls")]
-    inputs = candidate_inputs(len(params), max_int)
+    # Typed inputs from annotations, so a str/typed function is exercised with
+    # type-appropriate values (not integers) — otherwise its killable mutants read
+    # as false "equivalent".
+    inputs = typed_inputs(param_type_names(node))
     # Soundness gate: if the original raises on every candidate input, the inputs
     # don't fit this function — any "equivalent" verdict would be spurious.
     if not any(not _outcome(original, args).startswith("<raised") for args in inputs):
         return SurvivorReport(
-            (), descs, note="candidate integer inputs don't exercise this function — killability undetermined"
+            (), descs, note="candidate inputs don't exercise this function — killability undetermined"
         )
 
     pure = _is_pure(node, is_method="." in (qualname or ""))

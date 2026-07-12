@@ -22,9 +22,34 @@ a killable-but-surviving mutant hides).
 
 from __future__ import annotations
 
+import ast
 import itertools
 from dataclasses import dataclass
 from typing import Any, Callable
+
+
+def _type_of(ann) -> str | None:
+    """Base type name of an annotation node: ``int``, ``str``, ``list`` (from
+    ``list[...]``), or the non-None side of ``X | None`` / ``Optional[X]``. None
+    when unannotated or too complex to pick inputs for."""
+    if isinstance(ann, ast.Name):
+        return ann.id
+    if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
+        if ann.value.id == "Optional":  # Optional[X] -> X
+            return _type_of(ann.slice)
+        return ann.value.id  # list[...], dict[...] -> the container
+    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
+        for side in (ann.left, ann.right):  # X | None -> X
+            name = _type_of(side)
+            if name and name != "None":
+                return name
+    return None
+
+
+def param_type_names(node) -> list[str | None]:
+    """The base type name of each positional parameter (excluding self/cls), from
+    its annotation — the shared bridge from a function's AST to typed inputs."""
+    return [_type_of(a.annotation) for a in node.args.args if a.arg not in ("self", "cls")]
 
 
 _TYPE_GRID: dict[str, list] = {

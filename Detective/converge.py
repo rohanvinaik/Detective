@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from .certify import PytestWiring, _write, wire_pytest
 from .engine import _load_original, _resolve, classify_survivors, profile
-from .equivalence import SurvivorReport, typed_inputs
+from .equivalence import SurvivorReport, param_type_names, typed_inputs
 from .purity import is_pure
 from .synthesis.characterization import capture_golden, corroborate_captures
 from .synthesis.oracle_light import ExecutableProperty, generate_executable_property, _import_line
@@ -85,35 +85,12 @@ def property_holds(setup_code: str, assertion_code: str, project_root: str) -> b
             sys.path.remove(root)
 
 
-def _type_of(ann) -> str | None:
-    """Base type name of an annotation node: ``int``, ``str``, ``list`` (from
-    ``list[...]``), or the non-None side of ``X | None`` / ``Optional[X]``. None when
-    unannotated or too complex to pick inputs for."""
-    if isinstance(ann, ast.Name):
-        return ann.id
-    if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
-        if ann.value.id == "Optional":  # Optional[X] -> X
-            return _type_of(ann.slice)
-        return ann.value.id  # list[...], dict[...] -> the container
-    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
-        for side in (ann.left, ann.right):  # X | None -> X
-            name = _type_of(side)
-            if name and name != "None":
-                return name
-    return None
-
-
-def _ann_name(arg: ast.arg) -> str | None:
-    """The annotation's base type name so golden capture picks type-fit inputs."""
-    return _type_of(arg.annotation)
-
-
 def _typed_call_sites(node) -> list[dict]:
     """Call sites for golden capture, using each parameter's ANNOTATION to pick
     type-appropriate literals (a str param gets strings, not ``1``). Integer inputs
     for numeric/unknown params. This is what lets converge generate a real test for a
     string function instead of a false-ceiling crash — surfaced by dogfooding."""
-    param_types = [_ann_name(a) for a in node.args.args if a.arg not in ("self", "cls")]
+    param_types = param_type_names(node)
     if not param_types:
         return [{"positional_args": []}]
     return [{"positional_args": [repr(v) for v in combo]} for combo in typed_inputs(param_types)]
