@@ -29,7 +29,10 @@ classifiers = [
 ]
 
 # One runtime dependency by design: the Wesker mutation engine. No lintgate.
-dependencies = ["Wesker>=0.1.0"]
+# Wesker is a sister repo not yet on PyPI, so it is referenced by git URL — this
+# makes `pip install git+https://github.com/rohanvinaik/Detective` pull Wesker
+# automatically. Swap to `Wesker>=0.1.0` once Wesker is published to PyPI.
+dependencies = ["Wesker @ git+https://github.com/rohanvinaik/Wesker.git"]
 
 # The MCP surface is optional so the core stays Wesker + stdlib only.
 [project.optional-dependencies]
@@ -57,6 +60,10 @@ Wesker = { path = "../Wesker", editable = true }
 # LintGate reference ever enters the runtime import graph.
 [tool.hatch.build.targets.wheel]
 packages = ["Detective"]
+
+# Required so the git-URL Wesker dependency is accepted (drop once Wesker is on PyPI).
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

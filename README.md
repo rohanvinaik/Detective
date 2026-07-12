@@ -21,10 +21,14 @@ Detective was itself built this way — each of its modules was characterized fr
 its LintGate reference, reimplemented clean, and driven past the reference's own
 specification ceiling.
 
-## Install (local dev)
+## Install
 
 ```
-uv sync            # resolves Wesker from ../Wesker (editable)
+# from GitHub — pulls the Wesker engine automatically:
+pip install git+https://github.com/rohanvinaik/Detective.git
+
+# local dev (Wesker resolved from ../Wesker, editable):
+uv sync
 ```
 
 ## Usage
