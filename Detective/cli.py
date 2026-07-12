@@ -137,10 +137,38 @@ def _format_converge(result) -> str:
     return "\n".join(lines)
 
 
+def _format_audit(a) -> str:
+    """Read-only audit of an existing suite: completeness on both axes, the
+    pointless tests to propose removing, and the gaps to propose filling. Nothing
+    is written — every action a real run would take is stated, not taken."""
+    verdict = "✓ complete" if a.complete else "✗ incomplete"
+    lines = [
+        f"{a.function}: {a.test_count} existing test(s) — {verdict}",
+        f"  kills: {a.kill_pct}%  |  mutant-complete={a.mutant_complete}  line-complete={a.line_complete}",
+        f"  minimal cover: {a.minimal_test_count} test(s)"
+        + (f"  (bloat: {a.bloat} redundant)" if a.bloat else "  (no bloat)"),
+    ]
+    if a.killable_gaps:
+        lines.append(f"  ✗ {len(a.killable_gaps)} killable mutant(s) NOT killed — specification gaps:")
+        lines += [f"      · {g}" for g in a.killable_gaps[:8]]
+        if len(a.killable_gaps) > 8:
+            lines.append(f"      … and {len(a.killable_gaps) - 8} more")
+    if a.missing_lines:
+        lines.append(f"  ✗ {len(a.missing_lines)} uncovered line(s): {list(a.missing_lines)}")
+    if a.redundant_tests:
+        lines.append(
+            f"  PROPOSED removals ({len(a.redundant_tests)}, pointless for BOTH kills and lines "
+            f"— confirm to delete, never auto): {', '.join(a.redundant_tests)}"
+        )
+    if a.complete and not a.redundant_tests:
+        lines.append("  nothing to do — suite is complete and minimal")
+    return "\n".join(lines)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="detective", description="Behavioral-scope diagnosis and test synthesis.")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("diagnose", "certify", "converge"):
+    for name in ("diagnose", "certify", "converge", "audit"):
         p = sub.add_parser(name, help=f"{name} a function")
         p.add_argument("target", help="file.py::function")
         p.add_argument("--project-root", default=".")
@@ -172,6 +200,13 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(asdict(result), indent=2, default=str))
         else:
             print(_format_converge(result))
+        return 0
+
+    if args.command == "audit":
+        from .audit import audit_suite
+
+        report = audit_suite(file, function, args.project_root)
+        print(json.dumps(asdict(report), indent=2, default=str) if args.json else _format_audit(report))
         return 0
 
     from .certify import certify
