@@ -19,9 +19,16 @@ from collections.abc import Callable
 from typing import Any
 
 from Wesker.ci import discover_test_callables, walk_functions
-from Wesker.engine import ProfilingResult, run_function_profiling
+from Wesker.engine import ProfilingResult, generate_mutants, run_function_profiling
 from Wesker.filter import filter_categories
 
+from .equivalence import (
+    MutantVerdict,
+    SurvivorReport,
+    _outcome,
+    candidate_inputs,
+    classify_survivor,
+)
 from .purity import is_pure as _is_pure
 from .scope import ScopeMap, scope_from_profiling
 
@@ -128,3 +135,81 @@ def diagnose(
         file, function, project_root, is_pure=is_pure, tests=tests, budget_ms=budget_ms
     )
     return scope_from_profiling(result)
+
+
+def _compile_mutant(mutant: Any, original: Callable[..., Any]) -> Callable[..., Any] | None:
+    """Compile a mutant's AST into a callable, seeded with the original's globals so
+    it resolves sibling helpers/constants/imports. None if it won't build."""
+    try:
+        module_ast = ast.Module(body=[mutant.mutated_node], type_ignores=[])
+        ast.fix_missing_locations(module_ast)
+        code = compile(module_ast, "<mutant>", "exec")
+        namespace: dict[str, Any] = dict(getattr(original, "__globals__", None) or {})
+        exec(code, namespace)  # noqa: S102  # nosec B102 — intentional: compiling an AST mutant
+        name = getattr(mutant.mutated_node, "name", None)
+        return namespace.get(name) if name else None
+    except Exception:  # noqa: BLE001 — a mutant that won't compile simply cannot be witnessed
+        return None
+
+
+def classify_survivors(
+    file: str, function: str, project_root: str = ".", *, max_int: int = 3
+) -> SurvivorReport:
+    """Classify each surviving mutant as killable (with a distinguishing witness),
+    equivalent-candidate, or unclassified — by running the original against the
+    mutant over candidate integer inputs.
+
+    Every survivor is accounted for: a mutant that can't be built lands in
+    ``unclassified``; when the integer inputs don't *exercise* the function (it
+    takes strings, or it's a method needing ``self``) the whole run is unclassified
+    with a ``note``, because a verdict there would be a false "equivalent".
+    """
+    root = os.path.abspath(project_root)
+    full = file if os.path.isabs(file) else os.path.join(root, file)
+    with open(full, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=full)
+    qualname, node = _resolve(tree, function)
+    if node is None:
+        raise LookupError(f"function {function!r} not found in {file}")
+
+    result = profile(file, function, project_root)
+    survivors = result.survivor_records
+    descs = tuple(r.get("mutant", r.get("mutant_id", "?")) for r in survivors)
+    if not survivors:
+        return SurvivorReport((), (), None)
+
+    original = _load_original(full, qualname or function)
+    if original is None:
+        return SurvivorReport((), descs, note="the live original could not be loaded")
+
+    params = [a.arg for a in node.args.args if a.arg not in ("self", "cls")]
+    inputs = candidate_inputs(len(params), max_int)
+    # Soundness gate: if the original raises on every candidate input, the inputs
+    # don't fit this function — any "equivalent" verdict would be spurious.
+    if not any(not _outcome(original, args).startswith("<raised") for args in inputs):
+        return SurvivorReport(
+            (), descs, note="candidate integer inputs don't exercise this function — killability undetermined"
+        )
+
+    pure = _is_pure(node, is_method="." in (qualname or ""))
+    by_id = {m.mutant_id: m for m in generate_mutants(node, filter_categories(node, pure))}  # type: ignore[arg-type]
+
+    verdicts: list[MutantVerdict] = []
+    unclassified: list[str] = []
+    for rec in survivors:
+        mutant = by_id.get(rec.get("mutant_id", ""))
+        mutant_fn = _compile_mutant(mutant, original) if mutant is not None else None
+        if mutant_fn is None:
+            unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
+            continue
+        verdicts.append(
+            classify_survivor(
+                rec.get("mutant_id", ""),
+                rec.get("category", ""),
+                rec.get("diff_summary", ""),
+                original,
+                mutant_fn,
+                inputs,
+            )
+        )
+    return SurvivorReport(tuple(verdicts), tuple(unclassified), None)

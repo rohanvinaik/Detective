@@ -22,8 +22,31 @@ a killable-but-surviving mutant hides).
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from typing import Any, Callable
+
+
+def candidate_inputs(arity: int, max_int: int = 3) -> list[tuple]:
+    """Candidate positional-arg tuples for the witness search.
+
+    Richer inputs distinguish more killable-but-surviving mutants (fewer false
+    'equivalent' verdicts), so for ≤2 params take the full small-integer product
+    (boundary values like 0 and -1 included); for wider signatures fall back to
+    diagonals plus a few varied orderings to stay bounded.
+    """
+    if arity <= 0:
+        return [()]
+    base = [-1, 0, 1, 2, max_int]
+    if arity <= 2:
+        return [tuple(combo) for combo in itertools.product(base, repeat=arity)]
+    diagonals = [tuple([v] * arity) for v in base]
+    varied = [
+        tuple(range(1, arity + 1)),
+        tuple(range(arity, 0, -1)),
+        tuple(i % 3 for i in range(arity)),
+    ]
+    return diagonals + varied
 
 
 @dataclass(frozen=True)
@@ -73,6 +96,30 @@ class MutantVerdict:
     def label(self) -> str:
         """One-word disposition for reports."""
         return "killable" if self.killable else "equivalent-candidate"
+
+
+@dataclass(frozen=True)
+class SurvivorReport:
+    """Per-function classification of every surviving mutant — three grounded
+    dispositions plus an optional function-level reason.
+
+    * ``killable``     — a witness exists; the witness *is* a suggested killing test.
+    * ``equivalent``   — no distinguishing input found; retained and documented.
+    * ``unclassified`` — the mutant could not be built or the search could not run;
+      honest uncertainty, named per mutant, never silently dropped.
+    """
+
+    verdicts: tuple[MutantVerdict, ...]
+    unclassified: tuple[str, ...]  # survivor descriptions with no verdict
+    note: str | None = None  # function-level reason when the search could not run at all
+
+    @property
+    def killable(self) -> tuple[MutantVerdict, ...]:
+        return tuple(v for v in self.verdicts if v.killable)
+
+    @property
+    def equivalent(self) -> tuple[MutantVerdict, ...]:
+        return tuple(v for v in self.verdicts if not v.killable)
 
 
 def classify_survivor(

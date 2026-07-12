@@ -7,11 +7,69 @@ value-assertion ceilings. Plain module-level helper callables, no fixtures.
 from __future__ import annotations
 
 from Detective.equivalence import (
+    MutantVerdict,
+    SurvivorReport,
     Witness,
     _outcome,
+    candidate_inputs,
     classify_survivor,
     find_witness,
 )
+
+
+def _verdict(killable: bool) -> MutantVerdict:
+    w = Witness((1,), "1", "2") if killable else None
+    return MutantVerdict("M", "VALUE", "", killable, w, 3)
+
+
+# ── SurvivorReport ────────────────────────────────────────────────
+def test_survivor_report_splits_killable_from_equivalent():
+    rep = SurvivorReport((_verdict(True), _verdict(False), _verdict(False)), (), None)
+    assert len(rep.killable) == 1
+    assert len(rep.equivalent) == 2
+
+
+def test_survivor_report_carries_unclassified_and_note():
+    rep = SurvivorReport((), ("- a\n+ b",), note="inputs don't exercise this function")
+    assert rep.killable == () and rep.equivalent == ()
+    assert rep.unclassified == ("- a\n+ b",)
+    assert rep.note == "inputs don't exercise this function"
+
+
+# ── candidate_inputs ──────────────────────────────────────────────
+def test_candidate_inputs_arity_zero_is_single_empty_tuple():
+    assert candidate_inputs(0) == [()]
+
+
+def test_candidate_inputs_arity_one_is_the_base_grid():
+    assert candidate_inputs(1) == [(-1,), (0,), (1,), (2,), (3,)]
+
+
+def test_candidate_inputs_arity_two_is_full_product_including_boundaries():
+    got = candidate_inputs(2)
+    assert len(got) == 25
+    assert (0, 0) in got and (-1, 2) in got
+
+
+def test_candidate_inputs_wide_signature_stays_bounded():
+    got = candidate_inputs(3)
+    assert len(got) == 8  # 5 diagonals + 3 varied
+    assert (1, 2, 3) in got and (3, 2, 1) in got
+
+
+def test_candidate_inputs_arity_three_is_pinned_verbatim():
+    # pin the exact grid so the range/modulo arithmetic in the varied tuples is
+    # specified, not just counted
+    assert candidate_inputs(3) == [
+        (-1, -1, -1),
+        (0, 0, 0),
+        (1, 1, 1),
+        (2, 2, 2),
+        (3, 3, 3),
+        (1, 2, 3),
+        (3, 2, 1),
+        (0, 1, 2),
+    ]
 
 
 def _double(x):
