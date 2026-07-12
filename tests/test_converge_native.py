@@ -14,10 +14,35 @@ from Detective.converge import (
     _golden_property,
     _numeric_inputs,
     _progressed,
+    _witness_property,
     converge,
     property_holds,
 )
+from Detective.equivalence import Witness
 from Detective.synthesis.characterization import GoldenCapture
+
+
+# ── _witness_property (mutation-driven — pins the built test verbatim) ─
+def test_witness_property_builds_golden_test_at_the_witness_input():
+    p = _witness_property("m::sign", Witness((0,), "0", "1"))
+    assert p.category == "VALUE" and p.needs_oracle is False
+    assert p.setup_code == "from m import sign"
+    assert p.assertion_code == "result = sign(0)\nassert repr(result) == '0'"
+    assert p.source_lenses == ["witness"] and p.confidence == 0.95
+    assert p.preconditions == ["distinguishing witness (equivalence search)"]
+    assert p.inputs == {}
+
+
+def test_witness_property_reprs_multiple_args():
+    p = _witness_property("m::f", Witness((-1, 2), "3", "0"))
+    assert p.assertion_code == "result = f(-1, 2)\nassert repr(result) == '3'"
+
+
+def test_witness_property_bare_func_key_has_no_import():
+    # no "::" -> mod is empty -> no import line (exercises the fallback branch)
+    p = _witness_property("plainfunc", Witness((1,), "2", "9"))
+    assert p.setup_code == ""
+    assert p.assertion_code == "result = plainfunc(1)\nassert repr(result) == '2'"
 
 
 # ── property_holds ────────────────────────────────────────────────

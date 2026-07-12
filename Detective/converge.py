@@ -109,6 +109,26 @@ def _golden_property(func_key: str, capture) -> ExecutableProperty:
     )
 
 
+def _witness_property(func_key: str, witness) -> ExecutableProperty:
+    """A golden test at a distinguishing input the equivalence search found. The
+    witness proves original(args) != mutant(args), so pinning the original's real
+    output there deterministically kills that mutant — an input the single golden
+    capture missed. (Only for value-returning witnesses; a raising original needs a
+    pytest.raises form and stays a suggestion.)"""
+    mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
+    args = ", ".join(repr(a) for a in witness.args)
+    return ExecutableProperty(
+        category="VALUE",
+        inputs={},
+        setup_code=_import_line(mod, fname),
+        assertion_code=f"result = {fname}({args})\nassert repr(result) == {witness.original!r}",
+        preconditions=["distinguishing witness (equivalence search)"],
+        confidence=0.95,
+        source_lenses=["witness"],
+        needs_oracle=False,
+    )
+
+
 def _golden_properties(
     func_key: str, node, full_path: str, qualname: str
 ) -> list[ExecutableProperty]:
@@ -202,6 +222,29 @@ def converge(
         if not new_sound:  # no NEW sound test this pass -> no further progress possible
             hit_max = False
             break
+
+    # Witness-driven kill pass: the equivalence search tries richer inputs than the
+    # single golden capture, so it finds distinguishing inputs that kill survivors the
+    # loop left standing. A witness is a PROOF of killability, so the golden test at
+    # that input deterministically kills the mutant — auto-write it (auto-apply
+    # principle: deterministically-guaranteed-correct → just do it).
+    if write_dir:
+        pre = classify_survivors(file, function, project_root)
+        witnessed = False
+        for verdict in pre.killable:
+            w = verdict.witness
+            if w is None or w.original.startswith("<raised"):
+                continue  # a raising original needs a pytest.raises form — left as a suggestion
+            prop = _witness_property(func_key, w)
+            if prop.assertion_code not in accumulated and property_holds(
+                prop.setup_code, prop.assertion_code, root
+            ):
+                accumulated[prop.assertion_code] = prop
+                witnessed = True
+        if witnessed:
+            source = render_module(func_key, list(accumulated.values()))
+            target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
+            written_path = _write(source, target, qualname)
 
     # Authoritative final measurement — reflects every written test, including
     # the last pass's, and is the validation of what converge actually achieved.
