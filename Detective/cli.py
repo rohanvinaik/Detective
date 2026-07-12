@@ -44,6 +44,21 @@ def _score(killed: int, total: int) -> str:
     return f"{round(100 * killed / total)}%" if total else "n/a"
 
 
+def _show_written(path: str | None) -> list[str]:
+    """Echo the code Detective actually wrote to disk, so the user sees exactly
+    what was auto-applied — not just a path. Empty when nothing was written."""
+    if not path:
+        return []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            body = fh.read()
+    except OSError:
+        return []
+    lines = ["  ── written to disk (auto-applied) ──"]
+    lines += [f"  │ {ln}" if ln else "  │" for ln in body.rstrip("\n").split("\n")]
+    return lines
+
+
 def _format_converge(result) -> str:
     """Validation report: what converge measured and what it left standing.
 
@@ -68,6 +83,7 @@ def _format_converge(result) -> str:
         lines.append(f"  wrote: {result.written_path}")
     if result.wiring:
         lines.append(f"  {result.wiring.message}")
+    lines += _show_written(result.written_path)
     return "\n".join(lines)
 
 
@@ -122,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  wrote: {result.written_path}")
         if result.wiring:
             print(f"  {result.wiring.message}")
+        for line in _show_written(result.written_path):
+            print(line)
         plan = result.decomposition
         if plan and plan.is_decomposable:
             print(f"  decompose: {plan.rationale}")
