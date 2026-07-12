@@ -10,11 +10,52 @@ from Detective.equivalence import (
     MutantVerdict,
     SurvivorReport,
     Witness,
+    _grid_for,
     _outcome,
     candidate_inputs,
     classify_survivor,
     find_witness,
+    typed_inputs,
 )
+
+
+# ── _grid_for / typed_inputs ──────────────────────────────────────
+def test_grid_for_known_types():
+    assert _grid_for("str") == ["", "a", "abc"]
+    assert _grid_for("bool") == [False, True]
+
+
+def test_grid_for_unknown_or_none_falls_back_to_ints():
+    assert _grid_for(None) == [-1, 0, 1, 2, 3]
+    assert _grid_for("SomeClass") == [-1, 0, 1, 2, 3]
+
+
+def test_typed_inputs_empty_is_single_empty_tuple():
+    assert typed_inputs([]) == [()]
+
+
+def test_typed_inputs_str_param_yields_strings():
+    assert typed_inputs(["str"]) == [("",), ("a",), ("abc",)]
+
+
+def test_typed_inputs_small_signature_is_full_product():
+    assert typed_inputs(["bool", "bool"]) == [
+        (False, False),
+        (False, True),
+        (True, False),
+        (True, True),
+    ]
+
+
+def test_typed_inputs_large_signature_is_zipped_rows():
+    # 5^3 = 125 > cap -> positionally-zipped diagonals (5 rows)
+    assert typed_inputs(["int", "int", "int"]) == [
+        (-1, -1, -1),
+        (0, 0, 0),
+        (1, 1, 1),
+        (2, 2, 2),
+        (3, 3, 3),
+    ]
 
 
 def _verdict(killable: bool) -> MutantVerdict:

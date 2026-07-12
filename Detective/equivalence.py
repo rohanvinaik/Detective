@@ -27,6 +27,38 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 
+_TYPE_GRID: dict[str, list] = {
+    "int": [-1, 0, 1, 2, 3],
+    "float": [-1.0, 0.0, 1.0, 2.5],
+    "bool": [False, True],
+    "str": ["", "a", "abc"],
+}
+
+
+def _grid_for(type_name: str | None) -> list:
+    """Candidate values for a parameter of the given annotation; unknown/unannotated
+    falls back to the integer grid (the most common numeric case)."""
+    return _TYPE_GRID.get(type_name or "", _TYPE_GRID["int"])
+
+
+def typed_inputs(param_types: list[str | None], cap: int = 32) -> list[tuple]:
+    """Type-appropriate candidate arg tuples from parameter annotations, so the
+    witness search exercises non-numeric functions (a str function gets strings,
+    not ints). Full cartesian product when small; otherwise positionally-zipped
+    rows so wide signatures stay bounded.
+    """
+    if not param_types:
+        return [()]
+    grids = [_grid_for(t) for t in param_types]
+    total = 1
+    for grid in grids:
+        total *= len(grid)
+    if total <= cap:
+        return [tuple(combo) for combo in itertools.product(*grids)]
+    longest = max(len(grid) for grid in grids)
+    return [tuple(grid[i % len(grid)] for grid in grids) for i in range(longest)]
+
+
 def candidate_inputs(arity: int, max_int: int = 3) -> list[tuple]:
     """Candidate positional-arg tuples for the witness search.
 
