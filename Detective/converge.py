@@ -15,7 +15,7 @@ import os
 import sys
 from dataclasses import dataclass
 
-from .certify import _write
+from .certify import PytestWiring, _write, wire_pytest
 from .engine import _load_original, _resolve, profile
 from .purity import is_pure
 from .synthesis.characterization import capture_golden, corroborate_captures
@@ -45,6 +45,7 @@ class ConvergeResult:
     total_mutants: int = 0
     killed: int = 0
     remaining: tuple[str, ...] = ()  # e.g. ("2 VALUE", "1 STATE") — the survivors and why
+    wiring: PytestWiring | None = None  # how the written suite was wired to run under pytest
 
     @property
     def mutation_score(self) -> float:
@@ -198,6 +199,9 @@ def converge(
     final_result = profile(file, function, project_root)
     final = final_result.total_survived
     at_ceiling = final == 0
+    # Make the written suite actually runnable in the consumer and state how —
+    # Wesker ran the tests by direct call; a real user runs `pytest`.
+    wiring = wire_pytest(root, written_path) if written_path else None
     return ConvergeResult(
         function=func_key,
         converged=_converged(at_ceiling, hit_max),
@@ -209,4 +213,5 @@ def converge(
         total_mutants=final_result.total_mutants,
         killed=final_result.total_killed,
         remaining=_remaining_summary(final_result.survivor_records),
+        wiring=wiring,
     )

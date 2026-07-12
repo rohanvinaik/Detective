@@ -66,6 +66,8 @@ def _format_converge(result) -> str:
         lines.append(f"  remaining: {', '.join(result.remaining)} (need oracle)")
     if result.written_path:
         lines.append(f"  wrote: {result.written_path}")
+    if result.wiring:
+        lines.append(f"  {result.wiring.message}")
     return "\n".join(lines)
 
 
@@ -118,6 +120,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  certify: {status}")
         if result.written_path:
             print(f"  wrote: {result.written_path}")
+        if result.wiring:
+            print(f"  {result.wiring.message}")
         plan = result.decomposition
         if plan and plan.is_decomposable:
             print(f"  decompose: {plan.rationale}")
