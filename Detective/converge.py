@@ -18,8 +18,9 @@ from dataclasses import dataclass
 from .certify import PytestWiring, _write, wire_pytest
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
 from .equivalence import SourceExpr, SurvivorReport
+from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis
 from .purity import is_pure
-from .synthesis.characterization import capture_golden, corroborate_captures
+from .synthesis.characterization import capture_golden, corroborate_captures, golden_assert_line
 from .synthesis.oracle_light import ExecutableProperty, generate_executable_property, _import_line
 from .synthesis.writer import render_module
 
@@ -49,11 +50,21 @@ class ConvergeResult:
     wiring: PytestWiring | None = None  # how the written suite was wired to run under pytest
     survivor_report: SurvivorReport | None = None  # killable/equivalent/uncertain for leftovers
     functionally_complete: bool = False  # every KILLABLE mutant killed (equivalents may remain)
+    # Second completeness axis + minimality (from Wesker's baseline line-coverage pass).
+    line_complete: bool = True  # every executable target line covered by some test
+    missing_lines: tuple[int, ...] = ()  # executable lines no test covers (the gap)
+    redundant_tests: tuple[str, ...] = ()  # redundant for BOTH kills and lines -> deletion PROPOSALS
+    minimal_test_count: int = 0  # size of the two-axis minimal cover
 
     @property
     def mutation_score(self) -> float:
         """Fraction of mutants killed (0.0–1.0)."""
         return self.killed / self.total_mutants if self.total_mutants else 1.0
+
+    @property
+    def complete(self) -> bool:
+        """The full acceptance bar: mutant-complete AND line-complete."""
+        return self.functionally_complete and self.line_complete
 
 
 def _remaining_summary(survivor_records: list[dict]) -> tuple[str, ...]:
@@ -121,7 +132,7 @@ def _golden_property(func_key: str, capture) -> ExecutableProperty:
         category="VALUE",
         inputs={},
         setup_code=_setup_with_imports(mod, fname, capture.inputs),
-        assertion_code=f"result = {fname}({args})\nassert repr(result) == {capture.output!r}",
+        assertion_code=f"result = {fname}({args})\n{golden_assert_line(capture.output)}",
         preconditions=["golden capture (pure + deterministic)"],
         confidence=0.9,
         source_lenses=["golden_capture"],
@@ -141,7 +152,7 @@ def _witness_property(func_key: str, witness) -> ExecutableProperty:
         category="VALUE",
         inputs={},
         setup_code=_setup_with_imports(mod, fname, witness.args),
-        assertion_code=f"result = {fname}({args})\nassert repr(result) == {witness.original!r}",
+        assertion_code=f"result = {fname}({args})\n{golden_assert_line(witness.original)}",
         preconditions=["distinguishing witness (equivalence search)"],
         confidence=0.95,
         source_lenses=["witness"],
@@ -290,6 +301,13 @@ def converge(
         and not survivor_report.killable
         and not survivor_report.unclassified
     )
+    # Second completeness axis + minimality, from Wesker's baseline line-coverage
+    # pass on the final suite: which executable lines remain uncovered, the smallest
+    # test set that preserves both kills and line coverage, and the tests redundant
+    # for BOTH (deletion proposals — never auto-removed).
+    missing = missing_lines(final_result.executable_lines, final_result.line_coverage)
+    redundant = redundant_2axis(final_result.kill_matrix, final_result.line_coverage)
+    minimal = minimal_cover_2axis(final_result.kill_matrix, final_result.line_coverage)
     return ConvergeResult(
         function=func_key,
         converged=_converged(at_ceiling, hit_max),
@@ -304,4 +322,8 @@ def converge(
         wiring=wiring,
         survivor_report=survivor_report,
         functionally_complete=functionally_complete,
+        line_complete=not missing,
+        missing_lines=tuple(missing),
+        redundant_tests=tuple(sorted(redundant)),
+        minimal_test_count=len(minimal),
     )

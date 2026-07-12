@@ -136,7 +136,7 @@ def generate_golden_test(func_key: str, captures: list[GoldenCapture]) -> str:
         lines.append(f"    {_docstring(cap)}")
         lines.append(f"    result = {fname}({_call_args(cap)})")
         tag = "" if cap.provenance == Provenance.CORROBORATED else f"  # {cap.provenance.value}"
-        lines.append(f"    assert repr(result) == {cap.output!r}{tag}")
+        lines.append(f"    {golden_assert_line(cap.output)}{tag}")
         lines.append("")
 
     return "\n".join(lines)
@@ -209,3 +209,38 @@ def _call_args(cap: GoldenCapture) -> str:
     parts = [repr(a) for a in cap.inputs]
     parts += [f"{k}={v!r}" for k, v in cap.kwargs.items()]
     return ", ".join(parts)
+
+
+def _contains_set(value: Any) -> bool:
+    """True if ``value`` is, or nests, a set/frozenset — whose repr order is not
+    stable across processes."""
+    if isinstance(value, (set, frozenset)):
+        return True
+    if isinstance(value, dict):
+        return any(_contains_set(k) or _contains_set(v) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_set(v) for v in value)
+    return False
+
+
+def _order_sensitive(output_repr: str) -> bool:
+    """True when the captured output is a literal that contains a set/frozenset.
+
+    A ``repr(result) == "<str>"`` assertion is FLAKY for such outputs: set repr
+    order depends on the hash seed, which differs between the capture process and
+    the process that later runs the test. Non-literal reprs (objects) are treated as
+    order-stable — their repr is what it is, and value equality is not available."""
+    try:
+        return _contains_set(ast.literal_eval(output_repr))
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return False
+
+
+def golden_assert_line(output_repr: str) -> str:
+    """The assertion pinning ``result`` to a captured output. Uses VALUE equality
+    (``result == <literal>``) for order-sensitive set-containing outputs so the test
+    is not flaky across processes; otherwise repr-string equality, which is precise
+    (distinguishes ``1`` from ``1.0``) and works for non-literal reprs."""
+    if _order_sensitive(output_repr):
+        return f"assert result == {output_repr}"
+    return f"assert repr(result) == {output_repr!r}"

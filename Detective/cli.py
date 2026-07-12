@@ -113,6 +113,22 @@ def _format_converge(result) -> str:
     if result.remaining:
         lines.append(f"  remaining: {', '.join(result.remaining)}")
     lines += _format_survivor_report(result.survivor_report)
+    # Second completeness axis + minimality (from the baseline line-coverage pass).
+    # Reported only when there is line data (minimal_test_count > 0 or a measured gap).
+    if result.missing_lines:
+        lines.append(
+            f"  ✗ line gap: {len(result.missing_lines)} executable line(s) no test covers: "
+            f"{list(result.missing_lines)}"
+        )
+    elif result.minimal_test_count:
+        lines.append("  ✓ line-complete — every executable line is covered by a test")
+    if result.minimal_test_count:
+        lines.append(f"  minimal suite: {result.minimal_test_count} test(s) cover all kills + lines")
+    if result.redundant_tests:
+        lines.append(
+            f"  PROPOSED removals ({len(result.redundant_tests)}, redundant for BOTH kills and "
+            f"lines — confirm to delete, never auto): {', '.join(result.redundant_tests)}"
+        )
     if result.written_path:
         lines.append(f"  wrote: {result.written_path}")
     if result.wiring:
