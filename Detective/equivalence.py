@@ -243,6 +243,7 @@ class SurvivorReport:
     verdicts: tuple[MutantVerdict, ...]
     unclassified: tuple[str, ...]  # survivor descriptions with no verdict
     note: str | None = None  # function-level reason when the search could not run at all
+    manual_equivalent: tuple[str, ...] = ()  # mutations manually flagged equivalent (the oracle)
 
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:

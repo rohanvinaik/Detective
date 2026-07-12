@@ -41,6 +41,7 @@ class SuiteAudit:
     killable_gaps: tuple[str, ...]  # killable mutants the suite fails to kill
     missing_lines: tuple[int, ...]  # executable lines no test covers
     minimal_test_count: int  # size of the two-axis minimal cover
+    manual_equivalent: int = 0  # survivors manually flagged equivalent (oracle)
 
     @property
     def complete(self) -> bool:
@@ -73,12 +74,14 @@ def audit_suite(file: str, function: str, project_root: str = ".") -> SuiteAudit
     # test can do). Advisory: if classification cannot run, fall back to "any
     # survivor is a gap" so the audit never understates the work.
     killable_gaps: tuple[str, ...]
+    manual_equivalent = 0
     try:
         report = classify_survivors(file, function, project_root)
         killable_gaps = tuple(
             f"{v.category} [{v.mutant_id}]" + (f" — kill with {v.witness.args}" if v.witness else "")
             for v in report.killable
         )
+        manual_equivalent = len(report.manual_equivalent)
         mutant_complete = not report.killable and not report.unclassified
     except Exception:  # noqa: BLE001 — classification is advisory, never fails the audit
         killable_gaps = tuple(
@@ -98,4 +101,5 @@ def audit_suite(file: str, function: str, project_root: str = ".") -> SuiteAudit
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
         minimal_test_count=len(minimal),
+        manual_equivalent=manual_equivalent,
     )

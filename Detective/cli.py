@@ -62,6 +62,10 @@ def _format_survivor_report(rep) -> list[str]:
             f"  equivalent — retained, no test can kill ({len(rep.equivalent)}: {cats}); "
             f"no distinguishing input in {tried} tried"
         )
+    if rep.manual_equivalent:
+        lines.append(
+            f"  ✓ {len(rep.manual_equivalent)} survivor(s) manually-flagged equivalent (oracle — not gaps)"
+        )
     if rep.killable:
         lines.append(f"  killable — SUGGESTED tests (not auto-applied, {len(rep.killable)}):")
         for v in rep.killable:
@@ -193,6 +197,8 @@ def _format_audit(a) -> str:
             f"  PROPOSED removals ({len(a.redundant_tests)}, pointless for BOTH kills and lines "
             f"— confirm to delete, never auto): {', '.join(a.redundant_tests)}"
         )
+    if a.manual_equivalent:
+        lines.append(f"  ✓ {a.manual_equivalent} survivor(s) manually-flagged equivalent (oracle — not gaps)")
     if a.complete and not a.redundant_tests:
         lines.append("  nothing to do — suite is complete and minimal")
     return "\n".join(lines)
@@ -226,6 +232,12 @@ def _build_parser() -> argparse.ArgumentParser:
     purge_p = sub.add_parser("purge", help="delete regeneratable analysis cruft left by old runs")
     purge_p.add_argument("--project-root", default=".")
     purge_p.add_argument("--json", action="store_true", help="emit JSON")
+    flag_p = sub.add_parser("flag", help="mark a surviving mutant as truly equivalent (manual oracle)")
+    flag_p.add_argument("target", help="file.py::function")
+    flag_p.add_argument("mutant_id", help="the surviving mutant id (from `audit`/`diagnose`)")
+    flag_p.add_argument("--note", default="", help="why it is equivalent")
+    flag_p.add_argument("--project-root", default=".")
+    flag_p.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -260,6 +272,25 @@ def _run(args) -> int:
         return 0
 
     file, function = _split_target(args.target)
+
+    if args.command == "flag":
+        from .engine import profile
+        from .equivalents import add_flag
+
+        result = profile(file, function, args.project_root)
+        rec = next(
+            (r for r in result.survivor_records if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))),
+            None,
+        )
+        if rec is None:
+            ids = ", ".join(r.get("mutant_id", "?") for r in result.survivor_records) or "none surviving"
+            print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
+            return 1
+        add_flag(args.project_root, result.function_key, rec.get("diff_summary", ""), note=args.note)
+        suffix = f" ({args.note})" if args.note else ""
+        print(f"flagged {args.mutant_id} as equivalent — {result.function_key}{suffix}")
+        print("  future audit/converge runs will treat it as equivalent (a witness would still override)")
+        return 0
 
     if args.command == "diagnose":
         from .engine import diagnose

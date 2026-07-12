@@ -293,15 +293,35 @@ def classify_survivors(
     if node is None:
         raise LookupError(f"function {function!r} not found in {file}")
 
+    # Human equivalence flags (the oracle execution cannot be) — keyed by the
+    # mutation diff, which embeds the code, so a flag applies only to the exact
+    # version it was made on. A flagged survivor is treated as equivalent UNLESS a
+    # real distinguishing witness is found (proof outranks the flag).
+    from .equivalents import is_flagged_equivalent, load_flags
+
+    flags = load_flags(root)
+    func_key = f"{os.path.relpath(full, root)}::{qualname}"
+
+    def _flagged(rec: dict) -> bool:
+        return bool(flags) and is_flagged_equivalent(flags, func_key, rec.get("diff_summary", ""))
+
+    def _split(recs: list[dict]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """(descriptions still unclassified, diffs manually flagged equivalent)."""
+        return (
+            tuple(r.get("mutant", r.get("mutant_id", "?")) for r in recs if not _flagged(r)),
+            tuple(r.get("diff_summary", "") for r in recs if _flagged(r)),
+        )
+
     result = profile(file, function, project_root)
     survivors = result.survivor_records
-    descs = tuple(r.get("mutant", r.get("mutant_id", "?")) for r in survivors)
     if not survivors:
         return SurvivorReport((), (), None)
 
     original = _load_original(full, qualname or function)
     if original is None:
-        return SurvivorReport((), descs, note="the live original could not be loaded")
+        unclassified_descs, manual_eq = _split(survivors)
+        note = "the live original could not be loaded" if unclassified_descs else None
+        return SurvivorReport((), unclassified_descs, note=note, manual_equivalent=manual_eq)
 
     # Typed + dataclass-synthesized inputs from annotations, so a str/typed/object
     # function is exercised with type-appropriate values (not integers) — otherwise
@@ -310,29 +330,44 @@ def classify_survivors(
     # Soundness gate: if the original raises on every candidate input, the inputs
     # don't fit this function — any "equivalent" verdict would be spurious.
     if not any(not _outcome(original, args).startswith("<raised") for args in inputs):
-        return SurvivorReport(
-            (), descs, note="candidate inputs don't exercise this function — killability undetermined"
+        # Execution can't run here — but a manual flag stands regardless.
+        unclassified_descs, manual_eq = _split(survivors)
+        note = (
+            "candidate inputs don't exercise this function — killability undetermined"
+            if unclassified_descs
+            else None
         )
+        return SurvivorReport((), unclassified_descs, note=note, manual_equivalent=manual_eq)
 
     pure = _is_pure(node, is_method="." in (qualname or ""))
     by_id = {m.mutant_id: m for m in generate_mutants(node, filter_categories(node, pure))}  # type: ignore[arg-type]
 
     verdicts: list[MutantVerdict] = []
     unclassified: list[str] = []
+    manual_equivalent: list[str] = []
     for rec in survivors:
         mutant = by_id.get(rec.get("mutant_id", ""))
         mutant_fn = _compile_mutant(mutant, original) if mutant is not None else None
         if mutant_fn is None:
-            unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
-            continue
-        verdicts.append(
-            classify_survivor(
-                rec.get("mutant_id", ""),
-                rec.get("category", ""),
-                rec.get("diff_summary", ""),
-                original,
-                mutant_fn,
-                inputs,
+            # Un-buildable: the manual flag is the only signal we have.
+            (manual_equivalent if _flagged(rec) else unclassified).append(
+                rec.get("diff_summary", "") if _flagged(rec) else rec.get("mutant", rec.get("mutant_id", "?"))
             )
+            continue
+        verdict = classify_survivor(
+            rec.get("mutant_id", ""),
+            rec.get("category", ""),
+            rec.get("diff_summary", ""),
+            original,
+            mutant_fn,
+            inputs,
         )
-    return SurvivorReport(tuple(verdicts), tuple(unclassified), None)
+        # A real witness is PROOF of killability and outranks the flag (keep the
+        # killable verdict); a flag on a no-witness survivor confirms equivalence.
+        if not verdict.killable and _flagged(rec):
+            manual_equivalent.append(rec.get("diff_summary", ""))
+        else:
+            verdicts.append(verdict)
+    return SurvivorReport(
+        tuple(verdicts), tuple(unclassified), None, manual_equivalent=tuple(manual_equivalent)
+    )
