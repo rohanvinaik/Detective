@@ -137,6 +137,34 @@ def _format_converge(result) -> str:
     return "\n".join(lines)
 
 
+def _format_decompose(r, applied_mode: bool) -> str:
+    """Show what a decomposition did or would do: extractions PROVEN behavior-
+    preserving by execution (auto-applied under --apply, else marked appliable),
+    unvalidated proposals, and blocks skipped as unsafe — with the actual code."""
+    lines = [f"{r.function}: decomposition"]
+    if not r.applied and not r.proposed and not r.unsafe_blocks:
+        return f"{r.function}: no separable blocks — nothing to decompose"
+    for ex in r.applied:
+        lines.append(
+            f"  ✓ APPLIED (behavior-preserved, auto): {ex.helper_name}"
+            f"({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}"
+        )
+        lines += [f"    │ {line}" for line in ex.new_source.splitlines()[:4]]
+        lines.append("    │ …")
+    for dec in r.proposed:
+        ex = dec.extraction
+        tag = "appliable (behavior-preserved) — re-run with --apply" if dec.validated else \
+            "PROPOSED — not auto-validated; review before applying"
+        lines.append(f"  → {tag}: {ex.helper_name}({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}")
+        lines += [f"    │ {line}" for line in ex.new_source.splitlines()[:6]]
+        lines.append("    │ …")
+    for block in r.unsafe_blocks:
+        lines.append(f"  ✗ not extractable: {block}")
+    if not applied_mode and any(d.validated for d in r.proposed):
+        lines.append("  (run `decompose --apply` to write the behavior-preserved extractions)")
+    return "\n".join(lines)
+
+
 def _format_audit(a) -> str:
     """Read-only audit of an existing suite: completeness on both axes, the
     pointless tests to propose removing, and the gaps to propose filling. Nothing
@@ -173,7 +201,7 @@ def _format_audit(a) -> str:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="detective", description="Behavioral-scope diagnosis and test synthesis.")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("diagnose", "certify", "converge", "audit"):
+    for name in ("diagnose", "certify", "converge", "audit", "decompose"):
         p = sub.add_parser(name, help=f"{name} a function")
         p.add_argument("target", help="file.py::function")
         p.add_argument("--project-root", default=".")
@@ -188,6 +216,12 @@ def _build_parser() -> argparse.ArgumentParser:
                 "--remove",
                 action="store_true",
                 help="CONFIRM deletion of the proposed pointless tests (removes them from your files)",
+            )
+        if name == "decompose":
+            p.add_argument(
+                "--apply",
+                action="store_true",
+                help="APPLY the behavior-preserving extractions (rewrites the file); else propose only",
             )
     return parser
 
@@ -231,6 +265,13 @@ def main(argv: list[str] | None = None) -> int:
                 after = audit_suite(file, function, args.project_root)
                 print(f"  after removal: {after.test_count} test(s), "
                       f"complete={after.complete}, minimal cover={after.minimal_test_count}")
+        return 0
+
+    if args.command == "decompose":
+        from .decompose_apply import apply_decomposition
+
+        result = apply_decomposition(file, function, args.project_root, write=args.apply)
+        print(json.dumps(asdict(result), indent=2, default=str) if args.json else _format_decompose(result, args.apply))
         return 0
 
     from .certify import certify
