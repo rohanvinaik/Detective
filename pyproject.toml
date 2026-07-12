@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "Detective"
+version = "0.0.1"
+description = "Behavioral-scope diagnosis and warrant-classed test synthesis for a single Python function, on the Wesker mutation engine."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Rohan Vinaik" }]
+keywords = [
+    "mutation-testing",
+    "test-generation",
+    "code-comprehension",
+    "specification",
+    "ast",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+# One runtime dependency by design: the Wesker mutation engine. No lintgate.
+dependencies = ["Wesker>=0.1.0"]
+
+[project.scripts]
+detective = "Detective.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rohanvinaik/Detective"
+Repository = "https://github.com/rohanvinaik/Detective"
+
+[dependency-groups]
+# ruff pinned so CI's `ruff format --check` gate cannot drift on a newer release.
+dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.14.10"]
+
+# Wesker is the sister repo; consumed as an editable path install in local dev,
+# resolving to the published Wesker on PyPI otherwise.
+[tool.uv.sources]
+Wesker = { path = "../Wesker", editable = true }
+
+# Only the package ships. The dev/ generator tree (which imports LintGate as a
+# dev-time conformance oracle) is deliberately excluded from the wheel so no
+# LintGate reference ever enters the runtime import graph.
+[tool.hatch.build.targets.wheel]
+packages = ["Detective"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-q --strict-markers --strict-config"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.coverage.run]
+source = ["Detective"]
+omit = ["Detective/cli.py", "Detective/__main__.py", "Detective/__init__.py"]

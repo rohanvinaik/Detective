@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.detective/
+.lintgate/
+.wesker/
+.wesker-report.json
+.coverage
+coverage.xml
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.DS_Store
