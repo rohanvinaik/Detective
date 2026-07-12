@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import sys
 from dataclasses import dataclass
 
@@ -144,8 +145,8 @@ def _witness_property(func_key: str, witness) -> ExecutableProperty:
     """A golden test at a distinguishing input the equivalence search found. The
     witness proves original(args) != mutant(args), so pinning the original's real
     output there deterministically kills that mutant — an input the single golden
-    capture missed. (Only for value-returning witnesses; a raising original needs a
-    pytest.raises form and stays a suggestion.)"""
+    capture missed. (For value-returning witnesses; a raising original gets the
+    pytest.raises form from :func:`_raises_witness_property`.)"""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
     args = ", ".join(repr(a) for a in witness.args)
     return ExecutableProperty(
@@ -154,6 +155,34 @@ def _witness_property(func_key: str, witness) -> ExecutableProperty:
         setup_code=_setup_with_imports(mod, fname, witness.args),
         assertion_code=f"result = {fname}({args})\n{golden_assert_line(witness.original)}",
         preconditions=["distinguishing witness (equivalence search)"],
+        confidence=0.95,
+        source_lenses=["witness"],
+        needs_oracle=False,
+    )
+
+
+def _raises_witness_property(func_key: str, witness) -> ExecutableProperty | None:
+    """The killing test for a witness whose ORIGINAL raises: a ``pytest.raises`` form.
+
+    The witness proves original(args) != mutant(args) where the original raised
+    ``<raised ExcType>``; a mutant that returns a value (or raises differently) fails
+    ``with pytest.raises(ExcType): f(args)``, so the form kills it — the error-path
+    coverage a value-assertion can't express. None if the exception type can't be
+    parsed (then it stays a suggestion). The exec-time soundness gate still applies:
+    if the original does NOT actually raise ExcType, ``property_holds`` rejects it."""
+    match = re.fullmatch(r"<raised (\w+)>", witness.original)
+    if match is None:
+        return None
+    exc = match.group(1)
+    mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
+    args = ", ".join(repr(a) for a in witness.args)
+    setup = _setup_with_imports(mod, fname, witness.args) + "\nimport pytest"
+    return ExecutableProperty(
+        category="VALUE",
+        inputs={},
+        setup_code=setup,
+        assertion_code=f"with pytest.raises({exc}):\n    {fname}({args})",
+        preconditions=[f"distinguishing witness (original raises {exc})"],
         confidence=0.95,
         source_lenses=["witness"],
         needs_oracle=False,
@@ -264,9 +293,16 @@ def converge(
         witnessed = False
         for verdict in pre.killable:
             w = verdict.witness
-            if w is None or w.original.startswith("<raised"):
-                continue  # a raising original needs a pytest.raises form — left as a suggestion
-            prop = _witness_property(func_key, w)
+            if w is None:
+                continue
+            # A raising original gets the pytest.raises form (error-path coverage);
+            # a value-returning one gets the golden form. Both are auto-written when
+            # they hold on the unmutated function — the raises form closes the line +
+            # mutant gap that error paths otherwise leave open.
+            prop = _raises_witness_property(func_key, w) if w.original.startswith("<raised") \
+                else _witness_property(func_key, w)
+            if prop is None:
+                continue
             if prop.assertion_code not in accumulated and property_holds(
                 prop.setup_code, prop.assertion_code, root
             ):
