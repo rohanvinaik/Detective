@@ -223,11 +223,42 @@ def _build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="APPLY the behavior-preserving extractions (rewrites the file); else propose only",
             )
+    purge_p = sub.add_parser("purge", help="delete regeneratable analysis cruft left by old runs")
+    purge_p.add_argument("--project-root", default=".")
+    purge_p.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run a command, then print a lightweight memory-telemetry footer (human mode).
+    The footer is best-effort: monitoring must never fail the actual work."""
     args = _build_parser().parse_args(argv)
+    code = _run(args)
+    if not getattr(args, "json", False):
+        try:
+            from Wesker.memory_guard import telemetry
+
+            print(f"  [{telemetry()}]")
+        except Exception:  # noqa: BLE001 — telemetry is advisory, never fatal
+            pass
+    return code
+
+
+def _run(args) -> int:
+    if args.command == "purge":
+        from Wesker.memory_guard import purge_caches
+
+        removed, reclaimed = purge_caches(args.project_root)
+        if args.json:
+            print(json.dumps({"removed": list(removed), "reclaimed_bytes": reclaimed}))
+        elif removed:
+            print(f"purged {len(removed)} cache file(s), reclaimed {reclaimed // 1024} KB:")
+            for path in removed:
+                print(f"  - {path}")
+        else:
+            print("nothing to purge — no cached analysis found (a clean state)")
+        return 0
+
     file, function = _split_target(args.target)
 
     if args.command == "diagnose":
