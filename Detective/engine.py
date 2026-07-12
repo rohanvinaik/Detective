@@ -12,6 +12,7 @@ Mirrors Wesker's own single-function wiring (``ci.profile_function``) but calls
 from __future__ import annotations
 
 import ast
+import dataclasses
 import importlib.util
 import os
 import sys
@@ -25,10 +26,12 @@ from Wesker.filter import filter_categories
 from .equivalence import (
     MutantVerdict,
     SurvivorReport,
+    _grid_for,
     _outcome,
+    bounded_product,
     classify_survivor,
+    is_scalar_type,
     param_type_names,
-    typed_inputs,
 )
 from .purity import is_pure as _is_pure
 from .scope import ScopeMap, scope_from_profiling
@@ -153,6 +156,53 @@ def _compile_mutant(mutant: Any, original: Callable[..., Any]) -> Callable[..., 
         return None
 
 
+_SCALAR_SAMPLE: dict[str, Any] = {
+    "int": 1, "str": "x", "float": 1.0, "bool": True, "tuple": (1,), "list": [1], "dict": {}
+}
+
+
+def _field_type_name(field: Any) -> str | None:
+    """Base type name of a dataclass field, whether its annotation is a live type or
+    a string (``from __future__ import annotations`` makes them strings)."""
+    ann = field.type
+    if isinstance(ann, str):
+        return ann.split("|")[0].split("[")[0].strip() or None
+    return getattr(ann, "__name__", None)
+
+
+def _synth_value(type_name: str | None, namespace: dict, depth: int = 0) -> Any:
+    """One representative value of a type: a scalar sample, or — for a dataclass in
+    scope — an instance with each field recursively synthesized. None (a valid, if
+    weak, value) when the type can't be constructed."""
+    if type_name in _SCALAR_SAMPLE:
+        return _SCALAR_SAMPLE[type_name]
+    cls = namespace.get(type_name) if type_name else None
+    if depth < 4 and isinstance(cls, type) and dataclasses.is_dataclass(cls):
+        try:
+            kwargs = {
+                f.name: _synth_value(_field_type_name(f), namespace, depth + 1)
+                for f in dataclasses.fields(cls)
+            }
+            return cls(**kwargs)
+        except Exception:  # noqa: BLE001 — an unconstructible field just yields no instance
+            return None
+    return None
+
+
+def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
+    """Per-parameter candidate value lists: a built-in grid for scalars, a
+    recursively-synthesized instance for a dataclass param, else the integer
+    fallback — so functions taking custom objects become exercisable."""
+    grids: list[list] = []
+    for type_name in param_type_names(node):
+        if type_name is not None and not is_scalar_type(type_name):
+            instance = _synth_value(type_name, namespace)
+            grids.append([instance] if instance is not None else _grid_for(type_name))
+        else:
+            grids.append(_grid_for(type_name))
+    return grids
+
+
 def classify_survivors(
     file: str, function: str, project_root: str = ".", *, max_int: int = 3
 ) -> SurvivorReport:
@@ -183,10 +233,10 @@ def classify_survivors(
     if original is None:
         return SurvivorReport((), descs, note="the live original could not be loaded")
 
-    # Typed inputs from annotations, so a str/typed function is exercised with
-    # type-appropriate values (not integers) — otherwise its killable mutants read
-    # as false "equivalent".
-    inputs = typed_inputs(param_type_names(node))
+    # Typed + dataclass-synthesized inputs from annotations, so a str/typed/object
+    # function is exercised with type-appropriate values (not integers) — otherwise
+    # its killable mutants read as false "equivalent".
+    inputs = bounded_product(_input_grids(node, getattr(original, "__globals__", {}) or {}))
     # Soundness gate: if the original raises on every candidate input, the inputs
     # don't fit this function — any "equivalent" verdict would be spurious.
     if not any(not _outcome(original, args).startswith("<raised") for args in inputs):

@@ -66,22 +66,32 @@ def _grid_for(type_name: str | None) -> list:
     return _TYPE_GRID.get(type_name or "", _TYPE_GRID["int"])
 
 
-def typed_inputs(param_types: list[str | None], cap: int = 32) -> list[tuple]:
-    """Type-appropriate candidate arg tuples from parameter annotations, so the
-    witness search exercises non-numeric functions (a str function gets strings,
-    not ints). Full cartesian product when small; otherwise positionally-zipped
-    rows so wide signatures stay bounded.
-    """
-    if not param_types:
+def is_scalar_type(type_name: str | None) -> bool:
+    """True when the type has a built-in value grid (so it needs no synthesis)."""
+    return type_name in _TYPE_GRID
+
+
+def bounded_product(grids: list[list], cap: int = 32) -> list[tuple]:
+    """Candidate arg tuples from per-parameter value lists: full cartesian product
+    when small, else positionally-zipped rows so wide signatures stay bounded."""
+    if not grids:
         return [()]
-    grids = [_grid_for(t) for t in param_types]
     total = 1
     for grid in grids:
-        total *= len(grid)
+        total *= max(1, len(grid))
     if total <= cap:
         return [tuple(combo) for combo in itertools.product(*grids)]
     longest = max(len(grid) for grid in grids)
     return [tuple(grid[i % len(grid)] for grid in grids) for i in range(longest)]
+
+
+def typed_inputs(param_types: list[str | None], cap: int = 32) -> list[tuple]:
+    """Type-appropriate candidate arg tuples from parameter annotations, so the
+    witness search exercises non-numeric functions (a str function gets strings,
+    not ints)."""
+    if not param_types:
+        return [()]
+    return bounded_product([_grid_for(t) for t in param_types], cap)
 
 
 def candidate_inputs(arity: int, max_int: int = 3) -> list[tuple]:
