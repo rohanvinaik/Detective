@@ -39,6 +39,36 @@ def _format_scope(scope) -> str:
     return "\n".join(lines)
 
 
+def _score(killed: int, total: int) -> str:
+    """Mutation score as a whole-percent string; ``n/a`` when there are no mutants."""
+    return f"{round(100 * killed / total)}%" if total else "n/a"
+
+
+def _format_converge(result) -> str:
+    """Validation report: what converge measured and what it left standing.
+
+    The score line reports initial→final kill percentage (over the same fixed
+    mutant set, since the function body is untouched) and the killed/total count.
+    A non-empty ``remaining`` names the survivors converge could not kill without
+    an oracle — the exact specification work a human or LLM must still supply.
+    """
+    total = result.total_mutants
+    initial_killed = total - result.initial_survivors
+    lines = [
+        f"{result.function}: {result.initial_survivors} → {result.final_survivors} survivors",
+        f"  mutation score: {_score(initial_killed, total)} → {_score(result.killed, total)}"
+        f"  ({result.killed}/{total} killed)",
+        f"  converged={result.converged}  at_ceiling={result.at_ceiling}",
+    ]
+    for i, it in enumerate(result.iterations):
+        lines.append(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
+    if result.remaining:
+        lines.append(f"  remaining: {', '.join(result.remaining)} (need oracle)")
+    if result.written_path:
+        lines.append(f"  wrote: {result.written_path}")
+    return "\n".join(lines)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="detective", description="Behavioral-scope diagnosis and test synthesis.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -73,12 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             print(json.dumps(asdict(result), indent=2, default=str))
         else:
-            print(f"{result.function}: {result.initial_survivors} → {result.final_survivors} survivors")
-            print(f"  converged={result.converged}  at_ceiling={result.at_ceiling}")
-            for i, it in enumerate(result.iterations):
-                print(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
-            if result.written_path:
-                print(f"  wrote: {result.written_path}")
+            print(_format_converge(result))
         return 0
 
     from .certify import certify

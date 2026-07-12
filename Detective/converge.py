@@ -42,6 +42,22 @@ class ConvergeResult:
     final_survivors: int
     iterations: tuple[ConvergeIteration, ...]
     written_path: str | None
+    total_mutants: int = 0
+    killed: int = 0
+    remaining: tuple[str, ...] = ()  # e.g. ("2 VALUE", "1 STATE") — the survivors and why
+
+    @property
+    def mutation_score(self) -> float:
+        """Fraction of mutants killed (0.0–1.0)."""
+        return self.killed / self.total_mutants if self.total_mutants else 1.0
+
+
+def _remaining_summary(survivor_records: list[dict]) -> tuple[str, ...]:
+    """Group remaining survivors by category, e.g. ('2 VALUE', '1 BOUNDARY')."""
+    from collections import Counter
+
+    counts = Counter(r.get("category", "?") for r in survivor_records)
+    return tuple(f"{n} {cat}" for cat, n in sorted(counts.items()))
 
 
 def property_holds(setup_code: str, assertion_code: str, project_root: str) -> bool:
@@ -177,13 +193,20 @@ def converge(
             hit_max = False
             break
 
-    final = iterations[-1].survivors if iterations else 0
+    # Authoritative final measurement — reflects every written test, including
+    # the last pass's, and is the validation of what converge actually achieved.
+    final_result = profile(file, function, project_root)
+    final = final_result.total_survived
+    at_ceiling = final == 0
     return ConvergeResult(
         function=func_key,
-        converged=_converged(final == 0, hit_max),
-        at_ceiling=final == 0,
+        converged=_converged(at_ceiling, hit_max),
+        at_ceiling=at_ceiling,
         initial_survivors=initial or 0,
         final_survivors=final,
         iterations=tuple(iterations),
         written_path=written_path,
+        total_mutants=final_result.total_mutants,
+        killed=final_result.total_killed,
+        remaining=_remaining_summary(final_result.survivor_records),
     )

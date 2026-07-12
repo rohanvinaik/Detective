@@ -98,6 +98,12 @@ def test_golden_property_pins_exact_repr():
     assert p.inputs == {}
 
 
+def test_golden_property_bare_func_key():
+    p = _golden_property("plainfunc", GoldenCapture(inputs=(1,), output="2", deterministic=True))
+    assert p.setup_code == ""  # no module component -> no import line
+    assert p.assertion_code == "result = plainfunc(1)\nassert repr(result) == '2'"
+
+
 # ── converge (fast guard only) ────────────────────────────────────
 def test_converge_unknown_function_raises():
     with pytest.raises(LookupError):
