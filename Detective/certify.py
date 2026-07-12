@@ -14,6 +14,7 @@ import ast
 import os
 from dataclasses import dataclass
 
+from .decompose import DecompositionPlan, decompose
 from .engine import _resolve, profile
 from .scope import ScopeMap, scope_from_profiling
 from .synthesis.writer import synthesize_test_module
@@ -29,6 +30,7 @@ class CertifyResult:
     at_ceiling: bool
     test_source: str  # "" when at the ceiling or nothing is synthesizable
     written_path: str | None
+    decomposition: DecompositionPlan | None = None  # set for entangled (regime-B) functions
 
 
 def certify(
@@ -58,8 +60,13 @@ def certify(
     if not at_ceiling:
         source = synthesize_test_module(func_key, node, result.survivor_records, call_site_inputs)
 
+    # Entangled functions get a decomposition plan alongside the synthesized tests.
+    plan = None
+    if scope.regime == "B":
+        plan = decompose(node, qualname, tuple(scope.surviving_categories))
+
     written = _write(source, write_dir, qualname) if source and write_dir else None
-    return CertifyResult(func_key, scope, result.total_survived, at_ceiling, source, written)
+    return CertifyResult(func_key, scope, result.total_survived, at_ceiling, source, written, plan)
 
 
 def _write(source: str, write_dir: str, qualname: str) -> str:

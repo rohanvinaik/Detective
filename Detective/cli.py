@@ -75,6 +75,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  certify: {status}")
         if result.written_path:
             print(f"  wrote: {result.written_path}")
+        plan = result.decomposition
+        if plan and plan.is_decomposable:
+            print(f"  decompose: {plan.rationale}")
+            for candidate in plan.candidates:
+                print(f"    - {candidate.suggested_name}: {candidate.reason}")
     return 0
 
 

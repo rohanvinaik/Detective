@@ -85,13 +85,10 @@ def _candidate(stmt: ast.stmt) -> ExtractionCandidate:
 
 
 def _body_size(stmt: ast.stmt) -> int:
-    """Number of statements the block owns (body + else/handlers)."""
-    total = len(getattr(stmt, "body", []))
-    total += len(getattr(stmt, "orelse", []))
-    for handler in getattr(stmt, "handlers", []):
-        total += len(handler.body)
-    total += len(getattr(stmt, "finalbody", []))
-    return total
+    """Total statements the block contains, recursively — its weight. A block that
+    wraps a substantial nested block (a ``for`` around an ``if/else``) is weighed
+    by everything it owns, not just its direct children."""
+    return sum(1 for node in ast.walk(stmt) if isinstance(node, ast.stmt)) - 1
 
 
 def _suggested_name(kind: str, stmt: ast.stmt) -> str:
