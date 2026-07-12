@@ -48,6 +48,7 @@ class ConvergeResult:
     remaining: tuple[str, ...] = ()  # e.g. ("2 VALUE", "1 STATE") — the survivors and why
     wiring: PytestWiring | None = None  # how the written suite was wired to run under pytest
     survivor_report: SurvivorReport | None = None  # killable/equivalent/uncertain for leftovers
+    functionally_complete: bool = False  # every KILLABLE mutant killed (equivalents may remain)
 
     @property
     def mutation_score(self) -> float:
@@ -262,6 +263,14 @@ def converge(
             survivor_report = classify_survivors(file, function, project_root)
         except Exception:  # noqa: BLE001 — classification is advisory; never fail the run
             survivor_report = None
+    # Functionally complete = every KILLABLE mutant killed. Equivalent survivors do
+    # not count against it (no test can kill them); an uncertain survivor does, since
+    # we can't prove it unkillable.
+    functionally_complete = final == 0 or (
+        survivor_report is not None
+        and not survivor_report.killable
+        and not survivor_report.unclassified
+    )
     return ConvergeResult(
         function=func_key,
         converged=_converged(at_ceiling, hit_max),
@@ -275,4 +284,5 @@ def converge(
         remaining=_remaining_summary(final_result.survivor_records),
         wiring=wiring,
         survivor_report=survivor_report,
+        functionally_complete=functionally_complete,
     )

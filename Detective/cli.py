@@ -105,7 +105,8 @@ def _format_converge(result) -> str:
         f"{result.function}: {result.initial_survivors} → {result.final_survivors} survivors",
         f"  mutation score: {_score(initial_killed, total)} → {_score(result.killed, total)}"
         f"  ({result.killed}/{total} killed)",
-        f"  converged={result.converged}  at_ceiling={result.at_ceiling}",
+        f"  converged={result.converged}  at_ceiling={result.at_ceiling}"
+        + ("  functionally_complete=True" if result.functionally_complete and not result.at_ceiling else ""),
     ]
     for i, it in enumerate(result.iterations):
         lines.append(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
