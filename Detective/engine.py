@@ -22,6 +22,7 @@ from Wesker.ci import discover_test_callables, walk_functions
 from Wesker.engine import ProfilingResult, run_function_profiling
 from Wesker.filter import filter_categories
 
+from .purity import is_pure as _is_pure
 from .scope import ScopeMap, scope_from_profiling
 
 
@@ -68,7 +69,7 @@ def profile(
     function: str,
     project_root: str = ".",
     *,
-    is_pure: bool = False,
+    is_pure: bool | None = None,
     tests: list[Callable[..., Any]] | None = None,
     budget_ms: float | None = None,
 ) -> ProfilingResult:
@@ -76,7 +77,8 @@ def profile(
 
     When ``tests`` is None, they are discovered via Wesker's pytest-first backend
     (``discover_test_callables``), so idiomatic parametrized suites are bound and
-    run — not skipped.
+    run — not skipped. When ``is_pure`` is None it is auto-detected (purity module),
+    which lets Wesker drop STATE mutations for pure functions.
     """
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
@@ -87,8 +89,9 @@ def profile(
     if node is None:
         raise LookupError(f"function {function!r} not found in {file}")
 
+    pure = _is_pure(node, is_method="." in (qualname or "")) if is_pure is None else is_pure
     # AsyncFunctionDef has the same shape Wesker's mutators walk.
-    categories = filter_categories(node, is_pure)  # type: ignore[arg-type]
+    categories = filter_categories(node, pure)  # type: ignore[arg-type]
     rel = os.path.relpath(full, root)
     func_key = f"{rel}::{qualname}"
 
@@ -107,7 +110,7 @@ def diagnose(
     function: str,
     project_root: str = ".",
     *,
-    is_pure: bool = False,
+    is_pure: bool | None = None,
     tests: list[Callable[..., Any]] | None = None,
     budget_ms: float | None = None,
 ) -> ScopeMap:
