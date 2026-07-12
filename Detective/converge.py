@@ -16,8 +16,8 @@ import sys
 from dataclasses import dataclass
 
 from .certify import PytestWiring, _write, wire_pytest
-from .engine import _load_original, _resolve, classify_survivors, profile
-from .equivalence import SurvivorReport, param_type_names, typed_inputs
+from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
+from .equivalence import SurvivorReport
 from .purity import is_pure
 from .synthesis.characterization import capture_golden, corroborate_captures
 from .synthesis.oracle_light import ExecutableProperty, generate_executable_property, _import_line
@@ -85,17 +85,6 @@ def property_holds(setup_code: str, assertion_code: str, project_root: str) -> b
             sys.path.remove(root)
 
 
-def _typed_call_sites(node) -> list[dict]:
-    """Call sites for golden capture, using each parameter's ANNOTATION to pick
-    type-appropriate literals (a str param gets strings, not ``1``). Integer inputs
-    for numeric/unknown params. This is what lets converge generate a real test for a
-    string function instead of a false-ceiling crash — surfaced by dogfooding."""
-    param_types = param_type_names(node)
-    if not param_types:
-        return [{"positional_args": []}]
-    return [{"positional_args": [repr(v) for v in combo]} for combo in typed_inputs(param_types)]
-
-
 def _numeric_inputs(params: list[str]) -> list[dict]:
     """Candidate call sites: ``(1, 2, ..., n)`` — enough to pin most pure numeric
     functions' output. capture_golden also tries zero-arg."""
@@ -149,7 +138,8 @@ def _golden_properties(
     live = _load_original(full_path, qualname)
     if live is None:
         return []
-    captures = corroborate_captures(capture_golden(live, _typed_call_sites(node)), is_pure=True)
+    sites = representative_site(node, getattr(live, "__globals__", {}) or {})
+    captures = corroborate_captures(capture_golden(live, sites), is_pure=True)
     return [_golden_property(func_key, c) for c in captures if c.deterministic]
 
 

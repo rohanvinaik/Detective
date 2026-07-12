@@ -235,6 +235,29 @@ def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
     return grids
 
 
+def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
+    """A SINGLE golden call site (not the full grid product): numeric/unannotated
+    params get 1, 2, 3… for order-distinction, other scalars a sample value, and
+    container/dataclass params a synthesized value. Golden capture pins the output at
+    one input; the witness pass adds inputs for killability — so this keeps the
+    generated suite minimal instead of emitting one golden test per grid combination."""
+    args: list[str] = []
+    n = 1
+    for arg in node.args.args:  # type: ignore[attr-defined]
+        if arg.arg in ("self", "cls"):
+            continue
+        name = _type_of(arg.annotation)
+        if name in (None, "int"):
+            args.append(repr(n))
+            n += 1
+        elif is_scalar_type(name):
+            args.append(repr(_grid_for(name)[-1]))
+        else:
+            value = _synth_from_ann(arg.annotation, namespace)
+            args.append(repr(value if value is not None else n))
+    return [{"positional_args": args}]
+
+
 def classify_survivors(
     file: str, function: str, project_root: str = ".", *, max_int: int = 3
 ) -> SurvivorReport:
