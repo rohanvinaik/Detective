@@ -44,6 +44,38 @@ def _score(killed: int, total: int) -> str:
     return f"{round(100 * killed / total)}%" if total else "n/a"
 
 
+def _format_survivor_report(rep) -> list[str]:
+    """Render the grounded disposition of every leftover survivor: equivalent
+    (retained), killable (a suggested test, NOT auto-applied), or uncertain."""
+    if rep is None:
+        return []
+    lines: list[str] = []
+    if rep.equivalent and not rep.killable and not rep.unclassified:
+        lines.append(
+            "  ✓ functionally complete — every killable mutant killed; "
+            f"{len(rep.equivalent)} equivalent mutant(s) retained (provably no test kills them)"
+        )
+    if rep.equivalent:
+        cats = ", ".join(sorted({v.category for v in rep.equivalent}))
+        tried = rep.equivalent[0].searched
+        lines.append(
+            f"  equivalent — retained, no test can kill ({len(rep.equivalent)}: {cats}); "
+            f"no distinguishing input in {tried} tried"
+        )
+    if rep.killable:
+        lines.append(f"  killable — SUGGESTED tests (not auto-applied, {len(rep.killable)}):")
+        for v in rep.killable:
+            w = v.witness
+            args = ", ".join(repr(a) for a in w.args)
+            lines.append(f"    → assert f({args}) == {w.original}   (mutant gives {w.mutant})")
+    if rep.unclassified:
+        tail = f": {rep.note}" if rep.note else ""
+        lines.append(f"  uncertain — {len(rep.unclassified)} survivor(s) not classified{tail}")
+    elif rep.note:
+        lines.append(f"  uncertain — {rep.note}")
+    return lines
+
+
 def _show_written(path: str | None) -> list[str]:
     """Echo the code Detective actually wrote to disk, so the user sees exactly
     what was auto-applied — not just a path. Empty when nothing was written."""
@@ -78,7 +110,8 @@ def _format_converge(result) -> str:
     for i, it in enumerate(result.iterations):
         lines.append(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
     if result.remaining:
-        lines.append(f"  remaining: {', '.join(result.remaining)} (need oracle)")
+        lines.append(f"  remaining: {', '.join(result.remaining)}")
+    lines += _format_survivor_report(result.survivor_report)
     if result.written_path:
         lines.append(f"  wrote: {result.written_path}")
     if result.wiring:

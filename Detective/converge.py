@@ -16,7 +16,8 @@ import sys
 from dataclasses import dataclass
 
 from .certify import PytestWiring, _write, wire_pytest
-from .engine import _load_original, _resolve, profile
+from .engine import _load_original, _resolve, classify_survivors, profile
+from .equivalence import SurvivorReport
 from .purity import is_pure
 from .synthesis.characterization import capture_golden, corroborate_captures
 from .synthesis.oracle_light import ExecutableProperty, generate_executable_property, _import_line
@@ -46,6 +47,7 @@ class ConvergeResult:
     killed: int = 0
     remaining: tuple[str, ...] = ()  # e.g. ("2 VALUE", "1 STATE") — the survivors and why
     wiring: PytestWiring | None = None  # how the written suite was wired to run under pytest
+    survivor_report: SurvivorReport | None = None  # killable/equivalent/uncertain for leftovers
 
     @property
     def mutation_score(self) -> float:
@@ -209,6 +211,14 @@ def converge(
     # Make the written suite actually runnable in the consumer and state how —
     # Wesker ran the tests by direct call; a real user runs `pytest`.
     wiring = wire_pytest(root, written_path) if written_path else None
+    # Classify whatever converge could not kill: killable (a witness = a suggested
+    # test), equivalent (retained), or uncertain — so "remaining" is never opaque.
+    survivor_report: SurvivorReport | None = None
+    if final > 0:
+        try:
+            survivor_report = classify_survivors(file, function, project_root)
+        except Exception:  # noqa: BLE001 — classification is advisory; never fail the run
+            survivor_report = None
     return ConvergeResult(
         function=func_key,
         converged=_converged(at_ceiling, hit_max),
@@ -221,4 +231,5 @@ def converge(
         killed=final_result.total_killed,
         remaining=_remaining_summary(final_result.survivor_records),
         wiring=wiring,
+        survivor_report=survivor_report,
     )
