@@ -28,10 +28,10 @@ from .equivalence import (
     SurvivorReport,
     _grid_for,
     _outcome,
+    _type_of,
     bounded_product,
     classify_survivor,
     is_scalar_type,
-    param_type_names,
 )
 from .purity import is_pure as _is_pure
 from .scope import ScopeMap, scope_from_profiling
@@ -171,35 +171,67 @@ def _field_type_name(field: Any) -> str | None:
 
 
 def _synth_value(type_name: str | None, namespace: dict, depth: int = 0) -> Any:
-    """One representative value of a type: a scalar sample, or — for a dataclass in
-    scope — an instance with each field recursively synthesized. None (a valid, if
-    weak, value) when the type can't be constructed."""
+    """One representative value for a bare type NAME (used for dataclass fields,
+    whose annotations arrive as strings): a scalar sample, or a dataclass instance
+    with each field recursively synthesized. None when not constructible."""
     if type_name in _SCALAR_SAMPLE:
         return _SCALAR_SAMPLE[type_name]
     cls = namespace.get(type_name) if type_name else None
     if depth < 4 and isinstance(cls, type) and dataclasses.is_dataclass(cls):
         try:
-            kwargs = {
+            return cls(**{
                 f.name: _synth_value(_field_type_name(f), namespace, depth + 1)
                 for f in dataclasses.fields(cls)
-            }
-            return cls(**kwargs)
+            })
         except Exception:  # noqa: BLE001 — an unconstructible field just yields no instance
             return None
     return None
 
 
+def _synth_from_ann(ann, namespace: dict, depth: int = 0) -> Any:
+    """One representative value for an annotation NODE, recursing into container
+    element types (``list[str]`` -> ``['x']``, ``dict[str, int]`` -> ``{'x': 1}``)
+    and ``X | None`` unions, then falling back to name-based scalar/dataclass synth."""
+    if depth < 5 and isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
+        container, elt = ann.value.id, ann.slice
+        if container in ("dict", "Dict", "Mapping") and isinstance(elt, ast.Tuple) and len(elt.elts) == 2:
+            return {_synth_from_ann(elt.elts[0], namespace, depth + 1):
+                    _synth_from_ann(elt.elts[1], namespace, depth + 1)}
+        if container in ("list", "List", "Sequence", "Iterable"):
+            return [_synth_from_ann(elt, namespace, depth + 1)]
+        if container in ("set", "Set", "frozenset"):
+            return {_synth_from_ann(elt, namespace, depth + 1)}
+        if container in ("tuple", "Tuple"):
+            elts = elt.elts if isinstance(elt, ast.Tuple) else [elt]
+            return tuple(
+                _synth_from_ann(e, namespace, depth + 1)
+                for e in elts
+                if not (isinstance(e, ast.Constant) and e.value is Ellipsis)
+            )
+        if container == "Optional":
+            return _synth_from_ann(elt, namespace, depth + 1)
+    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
+        for side in (ann.left, ann.right):  # X | None -> synth X
+            if not (isinstance(side, ast.Constant) and side.value is None):
+                return _synth_from_ann(side, namespace, depth + 1)
+    return _synth_value(_type_of(ann), namespace, depth)
+
+
 def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
     """Per-parameter candidate value lists: a built-in grid for scalars, a
-    recursively-synthesized instance for a dataclass param, else the integer
-    fallback — so functions taking custom objects become exercisable."""
+    recursively-synthesized value for a container/dataclass param (element types
+    honored), else the integer fallback — so functions taking structured inputs
+    become exercisable."""
     grids: list[list] = []
-    for type_name in param_type_names(node):
-        if type_name is not None and not is_scalar_type(type_name):
-            instance = _synth_value(type_name, namespace)
-            grids.append([instance] if instance is not None else _grid_for(type_name))
+    for arg in node.args.args:  # type: ignore[attr-defined]
+        if arg.arg in ("self", "cls"):
+            continue
+        name = _type_of(arg.annotation)
+        if name is not None and not is_scalar_type(name):
+            value = _synth_from_ann(arg.annotation, namespace)
+            grids.append([value] if value is not None else _grid_for(name))
         else:
-            grids.append(_grid_for(type_name))
+            grids.append(_grid_for(name))
     return grids
 
 
