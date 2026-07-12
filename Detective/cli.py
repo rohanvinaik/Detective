@@ -178,6 +178,12 @@ def _build_parser() -> argparse.ArgumentParser:
         if name == "converge":
             p.add_argument("--write-dir", default="tests", help="write synthesized tests here")
             p.add_argument("--max-iterations", type=int, default=3)
+        if name == "audit":
+            p.add_argument(
+                "--remove",
+                action="store_true",
+                help="CONFIRM deletion of the proposed pointless tests (removes them from your files)",
+            )
     return parser
 
 
@@ -207,6 +213,19 @@ def main(argv: list[str] | None = None) -> int:
 
         report = audit_suite(file, function, args.project_root)
         print(json.dumps(asdict(report), indent=2, default=str) if args.json else _format_audit(report))
+        if args.remove and report.redundant_tests:
+            from .suite_edit import apply_removals
+
+            result = apply_removals(file, args.project_root, list(report.redundant_tests))
+            print(f"  removed {len(result.removed)}: {', '.join(result.removed)}" if result.removed
+                  else "  removed nothing")
+            if result.not_found:
+                print(f"  could not locate: {', '.join(result.not_found)}")
+            if result.removed:
+                # Re-audit so the user sees the suite is still complete after pruning.
+                after = audit_suite(file, function, args.project_root)
+                print(f"  after removal: {after.test_count} test(s), "
+                      f"complete={after.complete}, minimal cover={after.minimal_test_count}")
         return 0
 
     from .certify import certify
