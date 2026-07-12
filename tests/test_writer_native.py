@@ -74,6 +74,37 @@ def test_needs_oracle_render_has_skip_decorator():
     assert block.startswith('@pytest.mark.skip(reason="needs oracle: result = f()")')
 
 
+def test_bare_func_key_without_double_colon():
+    # rsplit("::", 1)[-1] on a key with no "::" yields the whole name; the [1]
+    # mutation would IndexError.
+    node = _fn("def f(x):\n return x")
+    src = synthesize_test_module("barefunc", node, [{"category": "VALUE", "mutant_id": "V0"}])
+    assert "def test_barefunc_value_0():" in src
+
+
+def test_no_duplicate_pytest_import():
+    # a TYPE property already imports pytest; a needs-oracle property must not
+    # add a second `import pytest`.
+    node = _fn("def f(x):\n return x")
+    props = [
+        {"category": "TYPE", "mutant_id": "T0", "diff_summary": "- isinstance(x, str)\n+ True"},
+        {"category": "VALUE", "mutant_id": "V0"},
+    ]
+    assert synthesize_test_module("m::f", node, props).count("import pytest") == 1
+
+
+def test_blocks_joined_with_one_blank_line():
+    node = _fn("def sub(a, b):\n return a - b")
+    src = synthesize_test_module("m::sub", node, [{"category": "SWAP", "mutant_id": "S0"}, {"category": "SWAP", "mutant_id": "S1"}])
+    assert 'should matter"\n\ndef test_sub_swap_1():' in src  # exactly one blank line between blocks
+
+
+def test_render_preserves_blank_lines():
+    # a blank line inside the assertion stays blank (not turned into content)
+    p = ExecutableProperty("STATE", {}, "", "a = 1\n\nb = 2", [], 0.5)
+    assert "    a = 1\n\n    b = 2" in _render_test("f", 0, p)
+
+
 def test_render_test_exact_block():
     p = ExecutableProperty("STATE", {}, "", "result = f()\nassert result is not None", ["p"], 0.7, mutant_id="STATE_0")
     assert _render_test("f", 3, p) == (

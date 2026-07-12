@@ -180,10 +180,41 @@ def test_generate_round_trip_fallback_when_unresolvable():
     prop = generate_round_trip_test("NoSuchClass", "to_dict", "no_from_dict", "m.py")
     assert "# FILL" in prop.assertion_code
     assert prop.needs_oracle is True and prop.confidence == 0.3
+    # arg order into _round_trip_fallback matters (class_name first):
+    assert prop.setup_code == "from m import NoSuchClass"
+
+
+def test_swap_gate_method_self_with_non_commutative_pair():
+    # `self` is stripped, leaving a non-commutative pair -> emit
+    assert should_emit_swap_test(_fn("def m(self, start, end):\n return end")) is True
+
+
+def test_swap_gate_method_cls_with_non_commutative_pair():
+    assert should_emit_swap_test(_fn("def m(cls, start, end):\n return end")) is True
+
+
+def test_detect_handles_non_method_and_non_function_nodes():
+    # a module-level import/assignment and a non-method class member exercise the
+    # isinstance/`and` guards (mutating them crashes on nodes without `.name`).
+    path = _write(
+        """
+        import os
+        VERSION = 1
+
+        class Point:
+            KIND = "2d"
+            def to_dict(self):
+                return {}
+            def from_dict(cls, d):
+                return cls()
+        """
+    )
+    assert detect_round_trip_pairs(path) == [("Point", "to_dict", "Point.from_dict")]
 
 
 def test_round_trip_fallback_exact():
     prop = _round_trip_fallback("Thing", "to_dict", "thing_from_dict", "pkg.mod")
+    assert prop.category == "ROUND_TRIP"
     assert prop.setup_code == "from pkg.mod import Thing"
     assert prop.assertion_code == (
         "# Round-trip: Thing.to_dict() ↔ thing_from_dict()\n"
