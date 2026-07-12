@@ -121,5 +121,21 @@ pytest, pytest-cov, ruff, and the LintGate import confined to `dev/generators/`.
 
 ## 6. Build status
 
-- Phase 0 — foundation/scaffolding: in progress.
-- Phase 1+ — units built + certified in DAG order (§3), each reviewable.
+Certified through the workflow (each unit mutation-driven to the ceiling):
+
+- ✅ `scope` — ProfilingResult → ScopeMap reshaper.
+- ✅ `engine` — Wesker adapter (self-hosting).
+- ✅ `synthesis/characterization` — golden-capture tests.
+- ✅ `synthesis/typed_synthesis` — annotation → test value.
+- ✅ `synthesis/oracle_light` (core) — relational properties from survivors.
+- ✅ `synthesis/writer` — assemble properties into idiomatic pytest.
+- ✅ `certify` — the diagnose→synthesize spine.
+- ✅ `cli` — `detective diagnose|certify`; `mcp_server` — optional MCP surface.
+
+Along the way, dogfooding surfaced and fixed two real Wesker engine bugs
+(parametrize binding + mutant-namespace seed) — both committed in the Wesker repo.
+
+Deferred follow-ons: `purity` (STATE-mutation gating), `decompose` (regime-B
+split plans), `discovery` (per-function test linkage; largely subsumed by the
+engine's Wesker-backed discovery), and oracle_light's `to_dict` field-enumeration
++ round-trip pair detection.

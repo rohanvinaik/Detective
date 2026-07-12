@@ -31,8 +31,13 @@ classifiers = [
 # One runtime dependency by design: the Wesker mutation engine. No lintgate.
 dependencies = ["Wesker>=0.1.0"]
 
+# The MCP surface is optional so the core stays Wesker + stdlib only.
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+
 [project.scripts]
 detective = "Detective.cli:main"
+detective-mcp = "Detective.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/rohanvinaik/Detective"

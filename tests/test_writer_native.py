@@ -46,6 +46,15 @@ def test_needs_oracle_property_is_skipped_not_failing():
     assert "def test_f_value_0():" in src
 
 
+def test_skip_module_imports_pytest():
+    # A @pytest.mark.skip decorator references pytest, so the module must import
+    # it — otherwise the generated file NameErrors at collection.
+    node = _fn("def f(x):\n return x")
+    src = synthesize_test_module("m::f", node, [{"category": "VALUE", "mutant_id": "VALUE_0"}])
+    assert "import pytest" in src
+    assert src.index("import pytest") < src.index("@pytest.mark.skip")
+
+
 def test_imports_are_deduped():
     node = _fn("def sub(a, b):\n return a - b")
     src = synthesize_test_module("m::sub", node, [{"category": "SWAP"}, {"category": "SWAP"}])
