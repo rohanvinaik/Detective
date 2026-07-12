@@ -130,12 +130,19 @@ Certified through the workflow (each unit mutation-driven to the ceiling):
 - ✅ `synthesis/oracle_light` (core) — relational properties from survivors.
 - ✅ `synthesis/writer` — assemble properties into idiomatic pytest.
 - ✅ `certify` — the diagnose→synthesize spine.
-- ✅ `cli` — `detective diagnose|certify`; `mcp_server` — optional MCP surface.
+- ✅ `converge` — the closed loop (diagnose→synthesize-sound→write→re-profile);
+  `property_holds` verifies each property on the unmutated function before writing.
+  Verified end-to-end: drives a boundary survivor from 2 → 0 to the ceiling.
+- ✅ `purity` — is_pure predicate, wired into engine STATE-gating.
+- ✅ `decompose` — extraction candidates for entangled functions, wired into certify.
+- ✅ `oracle_light` round-trip pair detection + swap-emission gate.
+- ✅ `cli` — `detective diagnose|certify|converge`; `mcp_server` — optional MCP.
 
-Along the way, dogfooding surfaced and fixed two real Wesker engine bugs
-(parametrize binding + mutant-namespace seed) — both committed in the Wesker repo.
+Dogfooding surfaced and fixed **three** real Wesker engine improvements (all in
+the Wesker repo): parametrize binding, mutant-namespace seed, and survivor
+`diff_summary` — the last is what lets the closed loop actually reduce survivors
+(oracle-light boundary/type/state properties need the concrete mutation change).
 
-Deferred follow-ons: `purity` (STATE-mutation gating), `decompose` (regime-B
-split plans), `discovery` (per-function test linkage; largely subsumed by the
-engine's Wesker-backed discovery), and oracle_light's `to_dict` field-enumeration
-+ round-trip pair detection.
+Deferred follow-ons: `discovery` (per-function test linkage; largely subsumed by
+the engine's Wesker-backed discovery), oracle_light's `to_dict` field-enumeration,
+and call-site extraction (to make more synthesized properties concrete/sound).

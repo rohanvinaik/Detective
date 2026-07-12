@@ -42,13 +42,16 @@ def _format_scope(scope) -> str:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="detective", description="Behavioral-scope diagnosis and test synthesis.")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("diagnose", "certify"):
+    for name in ("diagnose", "certify", "converge"):
         p = sub.add_parser(name, help=f"{name} a function")
         p.add_argument("target", help="file.py::function")
         p.add_argument("--project-root", default=".")
         p.add_argument("--json", action="store_true", help="emit JSON")
         if name == "certify":
             p.add_argument("--write-dir", default=None, help="write synthesized tests here")
+        if name == "converge":
+            p.add_argument("--write-dir", default="tests", help="write synthesized tests here")
+            p.add_argument("--max-iterations", type=int, default=3)
     return parser
 
 
@@ -61,6 +64,21 @@ def main(argv: list[str] | None = None) -> int:
 
         scope = diagnose(file, function, args.project_root)
         print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
+        return 0
+
+    if args.command == "converge":
+        from .converge import converge
+
+        result = converge(file, function, args.project_root, write_dir=args.write_dir, max_iterations=args.max_iterations)
+        if args.json:
+            print(json.dumps(asdict(result), indent=2, default=str))
+        else:
+            print(f"{result.function}: {result.initial_survivors} → {result.final_survivors} survivors")
+            print(f"  converged={result.converged}  at_ceiling={result.at_ceiling}")
+            for i, it in enumerate(result.iterations):
+                print(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
+            if result.written_path:
+                print(f"  wrote: {result.written_path}")
         return 0
 
     from .certify import certify
