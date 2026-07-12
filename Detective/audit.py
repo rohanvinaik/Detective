@@ -62,9 +62,14 @@ def audit_suite(file: str, function: str, project_root: str = ".") -> SuiteAudit
     conflated with an *equivalent* survivor (nothing to fix). Never writes.
     """
     result = profile(file, function, project_root)
+    # A test belongs to THIS function's suite only if it discharges an obligation for
+    # it — kills one of its mutants OR covers one of its lines. The baseline pass runs
+    # every discovered test against the original, so tests for OTHER functions appear
+    # in line_coverage with an EMPTY covered-line list; counting those would inflate
+    # test_count and bloat. Require a non-empty contribution.
     test_names = sorted(
         set(t for tests in result.kill_matrix.values() for t in tests)
-        | set(result.line_coverage)
+        | {t for t, lines in result.line_coverage.items() if lines}
     )
     redundant = redundant_2axis(result.kill_matrix, result.line_coverage)
     missing = missing_lines(result.executable_lines, result.line_coverage)
