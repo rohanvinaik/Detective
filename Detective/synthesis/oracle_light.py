@@ -17,6 +17,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .typed_synthesis import _resolve_dataclass, synthesize_value
+
 
 @dataclass
 class ExecutableProperty:
@@ -389,3 +391,175 @@ def _build_call(
         return f"{fname}({boundary_val})"
     args = [str(boundary_val) if p == boundary_var else other_vals.get(p, "...") for p in params]
     return f"{fname}({', '.join(args)})"
+
+
+# ── SWAP emission gate ────────────────────────────────────────────
+
+# Parameter-name pairs whose order is inherently meaningful.
+_NON_COMMUTATIVE_PAIRS = frozenset(
+    {
+        frozenset({"numerator", "denominator"}),
+        frozenset({"start", "end"}),
+        frozenset({"start", "stop"}),
+        frozenset({"lo", "hi"}),
+        frozenset({"minuend", "subtrahend"}),
+        frozenset({"base", "exponent"}),
+    }
+)
+
+
+def should_emit_swap_test(
+    func_node: ast.FunctionDef | ast.AsyncFunctionDef | None, survivors: list[dict] | None = None
+) -> bool:
+    """Whether a cross-parameter swap test is warranted.
+
+    Emits only when a real SWAP survivor exists, the first two params are a
+    known non-commutative pair, or they share a suffix with distinct prefixes
+    (e.g. ``static_level`` vs ``empirical_level``). Never for generic "2+ params".
+    """
+    if survivors and any(s.get("category") == "SWAP" for s in survivors):
+        return True
+    if func_node is None:
+        return False
+    params = [a.arg for a in func_node.args.args if a.arg not in ("self", "cls")]
+    if len(params) < 2:
+        return False
+    if frozenset(params[:2]) in _NON_COMMUTATIVE_PAIRS:
+        return True
+    return _params_have_distinct_prefixes(params[0], params[1])
+
+
+def _params_have_distinct_prefixes(a: str, b: str) -> bool:
+    """True when two names share a trailing segment but differ in the first."""
+    parts_a, parts_b = a.split("_"), b.split("_")
+    if len(parts_a) < 2 or len(parts_b) < 2:
+        return False
+    return parts_a[-1] == parts_b[-1] and parts_a[0] != parts_b[0]
+
+
+# ── Round-trip pair detection ─────────────────────────────────────
+
+
+def detect_round_trip_pairs(source_file: str) -> list[tuple[str, str, str]]:
+    """Detect serialize/deserialize pairs in a file.
+
+    Returns ``(class_name, serialize_method, deserialize_func)`` tuples: a class
+    with ``to_dict`` paired with a same-class ``from_dict`` classmethod, or a
+    module-level deserializer whose name mentions the class or which constructs it.
+    """
+    try:
+        with open(source_file, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename=source_file)
+    except (OSError, SyntaxError):
+        return []
+
+    pairs: list[tuple[str, str, str]] = []
+    to_dict_classes: list[str] = []
+    deserializers: list[tuple[str, set[str]]] = []
+
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == "to_dict":
+                    to_dict_classes.append(node.name)
+                elif isinstance(item, ast.FunctionDef) and item.name == "from_dict":
+                    pairs.append((node.name, "to_dict", f"{node.name}.from_dict"))
+        elif isinstance(node, ast.FunctionDef) and _is_deserializer_name(node.name):
+            deserializers.append((node.name, _returned_constructor_names(node)))
+
+    for cls in to_dict_classes:
+        if any(p[0] == cls and "from_dict" in p[2] for p in pairs):
+            continue
+        for deser, returned in deserializers:
+            if cls.lower() in deser.lower() or cls in returned:
+                pairs.append((cls, "to_dict", deser))
+                break
+
+    return pairs
+
+
+def _is_deserializer_name(name: str) -> bool:
+    return "from_dict" in name or "from_d" in name or "_parse_dict" in name
+
+
+def _returned_constructor_names(node: ast.FunctionDef) -> set[str]:
+    """Class names directly constructed in ``return`` statements."""
+    names: set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Return) and isinstance(child.value, ast.Call):
+            func = child.value.func
+            if isinstance(func, ast.Name):
+                names.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                names.add(func.attr)
+    return names
+
+
+def generate_round_trip_test(
+    class_name: str, serialize_method: str, deserialize_func: str, module_path: str
+) -> ExecutableProperty:
+    """Emit a round-trip property: construct → serialize → deserialize → compare.
+
+    Uses Detective's typed_synthesis to build a non-default constructor; falls
+    back to a FILL skeleton when the dataclass can't be resolved.
+    """
+    from dataclasses import fields as dc_fields
+
+    mod = _module_path(module_path)
+    cls = _resolve_dataclass(class_name, mod)
+    if cls is None:
+        return _round_trip_fallback(class_name, serialize_method, deserialize_func, mod)
+
+    ctor_args = [
+        f"{f.name}={synthesize_value(str(f.type) if f.type else '', f.name, mod).code}"
+        for f in dc_fields(cls)
+    ]
+    is_classmethod = "." in deserialize_func
+    deser_name = deserialize_func.split(".")[-1]
+    deser_call = f"{class_name}.{deser_name}" if is_classmethod else deser_name
+    setup = f"from {mod} import {class_name}" + ("" if is_classmethod else f", {deser_name}")
+
+    field_asserts = "\n".join(
+        f'assert reconstructed.{f.name} == original.{f.name}, "{f.name} mismatch"' for f in dc_fields(cls)
+    )
+    assertion = (
+        f"original = {class_name}({', '.join(ctor_args)})\n"
+        f"serialized = original.{serialize_method}()\n"
+        f"reconstructed = {deser_call}(serialized)\n{field_asserts}"
+    )
+    return ExecutableProperty(
+        category="ROUND_TRIP",
+        inputs={},
+        setup_code=setup,
+        assertion_code=assertion,
+        preconditions=[f"{class_name}.{serialize_method} ↔ {deserialize_func}"],
+        confidence=0.9,
+        source_lenses=["pair_detection", "typed_synthesis"],
+        needs_oracle=False,
+        function_key=f"{module_path}::{class_name}.{serialize_method}",
+    )
+
+
+def _round_trip_fallback(
+    class_name: str, serialize_method: str, deserialize_func: str, mod: str
+) -> ExecutableProperty:
+    return ExecutableProperty(
+        category="ROUND_TRIP",
+        inputs={},
+        setup_code=f"from {mod} import {class_name}",
+        assertion_code=(
+            f"# Round-trip: {class_name}.{serialize_method}() ↔ {deserialize_func}()\n"
+            f"# original = {class_name}(...)\n"
+            f"# reconstructed = {deserialize_func}(original.{serialize_method}())\n"
+            "# assert reconstructed == original  # FILL"
+        ),
+        preconditions=["construct instance with non-default values"],
+        confidence=0.3,
+        source_lenses=["pair_detection"],
+        needs_oracle=True,
+    )
+
+
+def _module_path(module_path: str) -> str:
+    mod = module_path.replace("/", ".").replace("\\", ".")
+    return mod[:-3] if mod.endswith(".py") else mod

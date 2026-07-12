@@ -37,12 +37,20 @@ def _resolve(
 
 
 def _load_original(full_path: str, qualname: str) -> Any | None:
-    """Import the module under test and return the live target object.
+    """Return the live target object from the module under test.
 
     Wesker seeds each mutant's namespace from ``original_func.__globals__`` so the
-    mutant can resolve the module's sibling helpers, constants, and imports. Returns
-    None if the module can't be imported (Wesker degrades to an empty namespace).
+    mutant can resolve the module's sibling helpers, constants, and imports. Prefers
+    the already-imported module (correct package context, so module-level *relative*
+    imports resolve); falls back to loading by path. Returns None if neither works
+    (Wesker then degrades to an empty namespace).
     """
+    real = os.path.abspath(full_path)
+    for mod in list(sys.modules.values()):
+        mod_file = getattr(mod, "__file__", None)
+        if mod_file and os.path.abspath(mod_file) == real:
+            return _attr_path(mod, qualname)
+
     try:
         stem = os.path.splitext(os.path.basename(full_path))[0]
         name = f"_detective_uut_{stem}"
@@ -50,13 +58,14 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
         if spec is None or spec.loader is None:
             return None
         mod = importlib.util.module_from_spec(spec)
-        # Register before exec: dataclass processing (and pickling) resolves the
-        # class's module via sys.modules[cls.__module__].
-        sys.modules[name] = mod
+        sys.modules[name] = mod  # register before exec (dataclass/pickle resolution)
         spec.loader.exec_module(mod)
     except Exception:
         return None
-    obj: Any = mod
+    return _attr_path(mod, qualname)
+
+
+def _attr_path(obj: Any, qualname: str) -> Any | None:
     for part in qualname.split("."):
         obj = getattr(obj, part, None)
         if obj is None:
