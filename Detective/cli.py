@@ -155,6 +155,11 @@ def _format_audit(a) -> str:
             lines.append(f"      … and {len(a.killable_gaps) - 8} more")
     if a.missing_lines:
         lines.append(f"  ✗ {len(a.missing_lines)} uncovered line(s): {list(a.missing_lines)}")
+    if a.failing_tests:
+        lines.append(
+            f"  ⚠ {len(a.failing_tests)} test(s) FAIL on current code — INVESTIGATE "
+            f"(wrong assertion OR a real regression; never auto-removed): {', '.join(a.failing_tests)}"
+        )
     if a.redundant_tests:
         lines.append(
             f"  PROPOSED removals ({len(a.redundant_tests)}, pointless for BOTH kills and lines "

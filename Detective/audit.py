@@ -37,6 +37,7 @@ class SuiteAudit:
     mutant_complete: bool  # kills every KILLABLE mutant (equivalents may survive)
     line_complete: bool  # covers every executable line
     redundant_tests: tuple[str, ...]  # pointless for BOTH axes -> deletion PROPOSALS
+    failing_tests: tuple[str, ...]  # assert-fail on current code -> WARN, never delete
     killable_gaps: tuple[str, ...]  # killable mutants the suite fails to kill
     missing_lines: tuple[int, ...]  # executable lines no test covers
     minimal_test_count: int  # size of the two-axis minimal cover
@@ -93,6 +94,7 @@ def audit_suite(file: str, function: str, project_root: str = ".") -> SuiteAudit
         mutant_complete=mutant_complete,
         line_complete=not missing,
         redundant_tests=tuple(sorted(redundant)),
+        failing_tests=tuple(result.failing_tests),
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
         minimal_test_count=len(minimal),
