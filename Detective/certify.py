@@ -101,8 +101,13 @@ def verify_under_pytest(project_root: str, test_path: str) -> tuple[bool, int]:
     import subprocess
     import sys
 
+    # ``-o addopts=`` neutralizes the CONSUMER's pyproject addopts: a project that
+    # already sets ``-q`` would combine with ours into ``-qq`` (double-quiet), which
+    # suppresses the "N passed" summary this parse depends on — reporting 0 passed
+    # for a suite that in fact passes. Controlling our own output makes the verifier
+    # robust to whatever addopts the target project carries.
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", test_path, "-q", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", test_path, "-o", "addopts=", "-q", "-p", "no:cacheprovider"],
         cwd=project_root,
         capture_output=True,
         text=True,

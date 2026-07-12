@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from ..equivalence import unwrap
+
 
 class Provenance(str, Enum):
     """Maturity of a characterization capture."""
@@ -168,10 +170,17 @@ def _candidate_inputs(call_site_inputs: list[dict]) -> list[tuple[tuple[Any, ...
 def _try_capture(
     func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> GoldenCapture | None:
-    """Call ``func`` twice; capture repr + determinism, or None if it raises."""
+    """Call ``func`` twice; capture repr + determinism, or None if it raises.
+
+    Arguments are unwrapped for the call so a synthesized ``SourceExpr`` (an AST
+    node paired with its source) runs as its live value; the original args — carrier
+    intact — are stored on the capture so the emitted test renders as ``repr`` =
+    the constructor source, not an opaque object repr."""
+    call_args = tuple(unwrap(a) for a in args)
+    call_kwargs = {k: unwrap(v) for k, v in kwargs.items()}
     try:
-        first = repr(func(*args, **kwargs))
-        second = repr(func(*args, **kwargs))
+        first = repr(func(*call_args, **call_kwargs))
+        second = repr(func(*call_args, **call_kwargs))
     except Exception:
         return None
     return GoldenCapture(inputs=args, kwargs=dict(kwargs), output=first, deterministic=first == second)

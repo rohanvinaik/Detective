@@ -25,6 +25,7 @@ from Wesker.filter import filter_categories
 
 from .equivalence import (
     MutantVerdict,
+    SourceExpr,
     SurvivorReport,
     _grid_for,
     _outcome,
@@ -32,6 +33,7 @@ from .equivalence import (
     bounded_product,
     classify_survivor,
     is_scalar_type,
+    synth_ast_input,
 )
 from .purity import is_pure as _is_pure
 from .scope import ScopeMap, scope_from_profiling
@@ -191,7 +193,14 @@ def _synth_value(type_name: str | None, namespace: dict, depth: int = 0) -> Any:
 def _synth_from_ann(ann, namespace: dict, depth: int = 0) -> Any:
     """One representative value for an annotation NODE, recursing into container
     element types (``list[str]`` -> ``['x']``, ``dict[str, int]`` -> ``{'x': 1}``)
-    and ``X | None`` unions, then falling back to name-based scalar/dataclass synth."""
+    and ``X | None`` unions, then falling back to name-based scalar/dataclass synth.
+
+    An ``ast.*``-typed parameter yields a :class:`SourceExpr` (a parsed node paired
+    with the source that rebuilds it), so AST-consuming functions become exercisable
+    and round-trip into a runnable test."""
+    ast_input = synth_ast_input(_type_of(ann))
+    if ast_input is not None:
+        return ast_input
     if depth < 5 and isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
         container, elt = ann.value.id, ann.slice
         if container in ("dict", "Dict", "Mapping") and isinstance(elt, ast.Tuple) and len(elt.elts) == 2:
@@ -254,7 +263,13 @@ def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
             args.append(repr(_grid_for(name)[-1]))
         else:
             value = _synth_from_ann(arg.annotation, namespace)
-            args.append(repr(value if value is not None else n))
+            # A SourceExpr passes through as the OBJECT (eval_call_site skips
+            # non-strings), so it reaches capture intact and renders as its
+            # constructor source; a plain synthesized value renders via repr.
+            if isinstance(value, SourceExpr):
+                args.append(value)
+            else:
+                args.append(repr(value if value is not None else n))
     return [{"positional_args": args}]
 
 

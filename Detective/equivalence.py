@@ -30,10 +30,13 @@ from typing import Any, Callable
 
 def _type_of(ann) -> str | None:
     """Base type name of an annotation node: ``int``, ``str``, ``list`` (from
-    ``list[...]``), or the non-None side of ``X | None`` / ``Optional[X]``. None
-    when unannotated or too complex to pick inputs for."""
+    ``list[...]``), a dotted ``ast.FunctionDef`` (from an ``Attribute``), or the
+    non-None side of ``X | None`` / ``Optional[X]``. None when unannotated or too
+    complex to pick inputs for."""
     if isinstance(ann, ast.Name):
         return ann.id
+    if isinstance(ann, ast.Attribute) and isinstance(ann.value, ast.Name):
+        return f"{ann.value.id}.{ann.attr}"  # ast.FunctionDef, typing.Any, …
     if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
         if ann.value.id == "Optional":  # Optional[X] -> X
             return _type_of(ann.slice)
@@ -44,6 +47,64 @@ def _type_of(ann) -> str | None:
             if name and name != "None":
                 return name
     return None
+
+
+@dataclass(frozen=True, repr=False)
+class SourceExpr:
+    """A synthesized input that is NOT a plain literal (an AST node, a constructed
+    object): it carries the source that reconstructs it *and* the live value.
+
+    The pipeline is literal-only by default — inputs round-trip through ``repr`` and
+    ``ast.literal_eval``. A ``SourceExpr`` bridges the non-literal case in one type:
+      * ``repr(self)`` IS the constructor source, so every render seam that already
+        does ``repr(arg)`` emits round-trippable code with no change;
+      * ``value`` is the pre-built live object, so call sites run the real input via
+        :func:`unwrap` (no ``eval`` in the hot path);
+      * ``imports`` are the module imports that source needs, surfaced so the
+        generated test header can include them.
+    """
+
+    value: Any
+    expr: str
+    imports: tuple[str, ...] = ()
+
+    def __repr__(self) -> str:  # the source seam: repr(arg) -> constructor code
+        return self.expr
+
+
+def unwrap(arg: Any) -> Any:
+    """The live value of an argument — a :class:`SourceExpr`'s built object, or the
+    argument itself. Applied at call sites so a synthesized non-literal input runs
+    as its real value while still rendering as source."""
+    return arg.value if isinstance(arg, SourceExpr) else arg
+
+
+# The representative source for an AST-typed parameter: a snippet to parse and the
+# accessor onto the node the annotation names. Keyed by the dotted type name from
+# ``_type_of``. The value is built by eval-ing the very expr that will be rendered,
+# so the live input and its emitted source are guaranteed identical.
+_AST_SAMPLE: dict[str, tuple[str, str]] = {
+    "ast.FunctionDef": ("def _f(x):\n    return x", "body[0]"),
+    "ast.AsyncFunctionDef": ("async def _f(x):\n    return x", "body[0]"),
+    "ast.Module": ("x = 1", ""),
+    "ast.stmt": ("x = 1", "body[0]"),
+    "ast.expr": ("1 + 1", "body[0].value"),
+    "ast.AST": ("def _f(x):\n    return x", "body[0]"),
+}
+
+
+def synth_ast_input(type_name: str | None) -> SourceExpr | None:
+    """A representative input for an ``ast.*``-typed parameter, or None if the type
+    is not an AST node type. Constructs the node by parsing a small snippet — the
+    natural synthesizer for AST inputs — and pairs it with the source that rebuilds
+    it so the generated test reads ``ast.parse('def _f(x): ...').body[0]``, not an
+    opaque ``<ast.FunctionDef object>`` repr that cannot round-trip."""
+    if not type_name or not type_name.startswith("ast."):
+        return None
+    snippet, accessor = _AST_SAMPLE.get(type_name, _AST_SAMPLE["ast.AST"])
+    expr = f"ast.parse({snippet!r})" + (f".{accessor}" if accessor else "")
+    value = eval(expr, {"ast": ast})  # noqa: S307 — Detective-synthesized expr, not user input
+    return SourceExpr(value=value, expr=expr, imports=("import ast",))
 
 
 def param_type_names(node) -> list[str | None]:
@@ -127,9 +188,12 @@ class Witness:
 
 def _outcome(fn: Callable[..., Any], args: tuple) -> str:
     """The repr of ``fn(*args)``, or a raised-marker — so a mutant that starts
-    raising (or stops raising) counts as an observable difference, not a crash."""
+    raising (or stops raising) counts as an observable difference, not a crash.
+
+    Arguments are unwrapped so a synthesized non-literal input (a ``SourceExpr``
+    wrapping an AST node) runs as its live value, not as the carrier."""
     try:
-        return repr(fn(*args))
+        return repr(fn(*(unwrap(a) for a in args)))
     except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
         return f"<raised {type(exc).__name__}>"
 

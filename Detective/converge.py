@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from .certify import PytestWiring, _write, wire_pytest
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
-from .equivalence import SurvivorReport
+from .equivalence import SourceExpr, SurvivorReport
 from .purity import is_pure
 from .synthesis.characterization import capture_golden, corroborate_captures
 from .synthesis.oracle_light import ExecutableProperty, generate_executable_property, _import_line
@@ -78,7 +78,9 @@ def property_holds(setup_code: str, assertion_code: str, project_root: str) -> b
     try:
         exec(compile(f"{setup_code}\n{assertion_code}", "<verify>", "exec"), {})  # noqa: S102
         return True
-    except Exception:
+    except (KeyboardInterrupt, SystemExit):
+        raise  # never swallow interrupt/exit — only property failures are "unsound"
+    except BaseException:  # noqa: BLE001 — pytest's Failed inherits BaseException, not Exception
         return False
     finally:
         if added and root in sys.path:
@@ -93,6 +95,23 @@ def _numeric_inputs(params: list[str]) -> list[dict]:
     return [{"positional_args": [str(i) for i in range(1, len(params) + 1)]}]
 
 
+def _setup_with_imports(mod: str, fname: str, args) -> str:
+    """The target's import line, plus any imports a synthesized ``SourceExpr``
+    argument needs (e.g. ``import ast`` for an AST-node input). Without this a golden
+    or witness test whose argument is ``ast.parse(...).body[0]`` raises ``NameError``
+    under ``property_holds`` — so it is judged unsound and never auto-applied, even
+    though it is a valid killing test. Deduped, target import first."""
+    lines = [_import_line(mod, fname)]
+    seen: set[str] = set()
+    for arg in args:
+        if isinstance(arg, SourceExpr):
+            for imp in arg.imports:
+                if imp not in seen:
+                    seen.add(imp)
+                    lines.append(imp)
+    return "\n".join(lines)
+
+
 def _golden_property(func_key: str, capture) -> ExecutableProperty:
     """A golden-capture property: pin the exact return value. Sound by
     construction (asserts the real output) and kills any mutant that changes it."""
@@ -101,7 +120,7 @@ def _golden_property(func_key: str, capture) -> ExecutableProperty:
     return ExecutableProperty(
         category="VALUE",
         inputs={},
-        setup_code=_import_line(mod, fname),
+        setup_code=_setup_with_imports(mod, fname, capture.inputs),
         assertion_code=f"result = {fname}({args})\nassert repr(result) == {capture.output!r}",
         preconditions=["golden capture (pure + deterministic)"],
         confidence=0.9,
@@ -121,7 +140,7 @@ def _witness_property(func_key: str, witness) -> ExecutableProperty:
     return ExecutableProperty(
         category="VALUE",
         inputs={},
-        setup_code=_import_line(mod, fname),
+        setup_code=_setup_with_imports(mod, fname, witness.args),
         assertion_code=f"result = {fname}({args})\nassert repr(result) == {witness.original!r}",
         preconditions=["distinguishing witness (equivalence search)"],
         confidence=0.95,
