@@ -154,6 +154,10 @@ def converge(
     initial: int | None = None
     previous: int | None = None
     hit_max = True
+    # Accumulate sound properties ACROSS passes, keyed by assertion (identical
+    # assertions are the same test). Each pass re-renders the UNION — never just
+    # the current pass — so a later pass cannot overwrite an earlier pass's killers.
+    accumulated: dict[str, ExecutableProperty] = {}
 
     for _ in range(max_iterations):
         result = profile(file, function, project_root)
@@ -184,13 +188,16 @@ def converge(
             p for p in props
             if not p.needs_oracle and property_holds(p.setup_code, p.assertion_code, root)
         ]
-        source = render_module(func_key, sound)
+        new_sound = [p for p in sound if p.assertion_code not in accumulated]
+        for p in new_sound:
+            accumulated[p.assertion_code] = p
+        source = render_module(func_key, list(accumulated.values()))
         if source and write_dir:
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, qualname)
-        iterations.append(ConvergeIteration(survivors, len(sound)))
+        iterations.append(ConvergeIteration(survivors, len(new_sound)))
 
-        if not sound:  # nothing sound to add -> no further progress possible
+        if not new_sound:  # no NEW sound test this pass -> no further progress possible
             hit_max = False
             break
 
