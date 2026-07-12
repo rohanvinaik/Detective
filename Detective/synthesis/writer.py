@@ -27,6 +27,11 @@ def synthesize_test_module(
 ) -> str:
     """Return pytest source pinning each survivor, or "" when there is nothing to write."""
     props = [generate_executable_property(s, func_key, func_node, call_site_inputs) for s in survivors]
+    return render_module(func_key, props)
+
+
+def render_module(func_key: str, props: list[ExecutableProperty]) -> str:
+    """Render a pytest module from already-built (and possibly filtered) properties."""
     if not props:
         return ""
 
