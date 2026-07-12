@@ -9,7 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-from Detective.converge import _converged, _progressed, converge, property_holds
+from Detective.converge import (
+    _converged,
+    _golden_property,
+    _numeric_inputs,
+    _progressed,
+    converge,
+    property_holds,
+)
+from Detective.synthesis.characterization import GoldenCapture
 
 
 # ── property_holds ────────────────────────────────────────────────
@@ -68,6 +76,26 @@ def test_converged_true_when_stabilized_before_max():
 
 def test_converged_false_when_hit_max_still_progressing():
     assert _converged(at_ceiling=False, hit_max_iterations=True) is False
+
+
+# ── golden-capture helpers ────────────────────────────────────────
+def test_numeric_inputs_for_params():
+    assert _numeric_inputs(["a", "b", "c"]) == [{"positional_args": ["1", "2", "3"]}]
+
+
+def test_numeric_inputs_empty():
+    assert _numeric_inputs([]) == [{"positional_args": []}]
+
+
+def test_golden_property_pins_exact_repr():
+    cap = GoldenCapture(inputs=(1, 2), output="3", deterministic=True)
+    p = _golden_property("m::add", cap)
+    assert p.category == "VALUE" and p.needs_oracle is False
+    assert p.setup_code == "from m import add"
+    assert p.assertion_code == "result = add(1, 2)\nassert repr(result) == '3'"
+    assert p.source_lenses == ["golden_capture"] and p.confidence == 0.9
+    assert p.preconditions == ["golden capture (pure + deterministic)"]
+    assert p.inputs == {}
 
 
 # ── converge (fast guard only) ────────────────────────────────────

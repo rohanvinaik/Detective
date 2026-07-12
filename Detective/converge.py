@@ -16,8 +16,10 @@ import sys
 from dataclasses import dataclass
 
 from .certify import _write
-from .engine import _resolve, profile
-from .synthesis.oracle_light import generate_executable_property
+from .engine import _load_original, _resolve, profile
+from .purity import is_pure
+from .synthesis.characterization import capture_golden, corroborate_captures
+from .synthesis.oracle_light import ExecutableProperty, generate_executable_property, _import_line
 from .synthesis.writer import render_module
 
 
@@ -61,6 +63,44 @@ def property_holds(setup_code: str, assertion_code: str, project_root: str) -> b
     finally:
         if added and root in sys.path:
             sys.path.remove(root)
+
+
+def _numeric_inputs(params: list[str]) -> list[dict]:
+    """Candidate call sites: ``(1, 2, ..., n)`` — enough to pin most pure numeric
+    functions' output. capture_golden also tries zero-arg."""
+    if not params:
+        return [{"positional_args": []}]
+    return [{"positional_args": [str(i) for i in range(1, len(params) + 1)]}]
+
+
+def _golden_property(func_key: str, capture) -> ExecutableProperty:
+    """A golden-capture property: pin the exact return value. Sound by
+    construction (asserts the real output) and kills any mutant that changes it."""
+    mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
+    args = ", ".join(repr(a) for a in capture.inputs)
+    return ExecutableProperty(
+        category="VALUE",
+        inputs={},
+        setup_code=_import_line(mod, fname),
+        assertion_code=f"result = {fname}({args})\nassert repr(result) == {capture.output!r}",
+        preconditions=["golden capture (pure + deterministic)"],
+        confidence=0.9,
+        source_lenses=["golden_capture"],
+        needs_oracle=False,
+    )
+
+
+def _golden_properties(
+    func_key: str, node, full_path: str, qualname: str
+) -> list[ExecutableProperty]:
+    """Golden-capture properties for a pure function, or [] if it can't be run
+    deterministically on the synthesized inputs."""
+    live = _load_original(full_path, qualname)
+    if live is None:
+        return []
+    params = [a.arg for a in node.args.args if a.arg not in ("self", "cls")]
+    captures = corroborate_captures(capture_golden(live, _numeric_inputs(params)), is_pure=True)
+    return [_golden_property(func_key, c) for c in captures if c.deterministic]
 
 
 def _progressed(previous: int, current: int) -> bool:
@@ -119,6 +159,10 @@ def converge(
             generate_executable_property(s, func_key, node, call_site_inputs)
             for s in result.survivor_records
         ]
+        # Pure functions also get golden-capture properties, which pin the exact
+        # return value and kill the VALUE/ARITHMETIC survivors oracle-light can't.
+        if is_pure(node, is_method="." in (qualname or "")):
+            props += _golden_properties(func_key, node, full, qualname)
         sound = [
             p for p in props
             if not p.needs_oracle and property_holds(p.setup_code, p.assertion_code, root)
