@@ -25,7 +25,8 @@ def _split_target(target: str) -> tuple[str, str]:
 
 
 def _format_scope(scope) -> str:
-    """Human-readable one-block rendering of a ScopeMap."""
+    """One-block rendering of a ScopeMap — the raw read, then a plain-language layer
+    for a user who doesn't care about the theory (what it means + what to run)."""
     spec, kq = scope.specification, scope.kill_quality
     lines = [
         f"{scope.function}  [regime {scope.regime}]",
@@ -36,6 +37,16 @@ def _format_scope(scope) -> str:
     ]
     if scope.surviving_categories:
         lines.append(f"  surviving categories: {', '.join(scope.surviving_categories)}")
+    # Plain-language layer: what this means and what to do next.
+    lines.append("  in plain terms:")
+    if spec.unspecified_dof > 0:
+        lines.append(f"    → {spec.unspecified_dof} behavior(s) no test pins yet — run `converge` to generate tests for them")
+    else:
+        lines.append("    → every behavior this function makes is already pinned by a test")
+    if kq.warning:
+        lines.append("    → tests mostly check it RUNS, not WHAT it returns — return values may be under-tested")
+    if scope.regime == "B":
+        lines.append("    → multiple interleaved responsibilities — `decompose` may split it into simpler pieces")
     return "\n".join(lines)
 
 
@@ -208,11 +219,24 @@ def _format_audit(a) -> str:
     return "\n".join(lines)
 
 
+_COMMAND_HELP = {
+    "converge": "generate a COMPLETE, minimal pytest suite for a function (the flagship)",
+    "audit": "assess an EXISTING suite: complete? minimal? which tests to prune",
+    "decompose": "extract entangled blocks into helpers (behavior-preserving; --apply to write)",
+    "diagnose": "show a function's behavioral scope + what to run next (read-only)",
+    "certify": "one-shot: synthesize tests for current survivors (prefer `converge`)",
+}
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="detective", description="Behavioral-scope diagnosis and test synthesis.")
+    parser = argparse.ArgumentParser(
+        prog="detective",
+        description="Generate/audit a function's pytest suite from its mutation profile. "
+        "Typical use: `detective converge path/to/file.py::function`.",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("diagnose", "certify", "converge", "audit", "decompose"):
-        p = sub.add_parser(name, help=f"{name} a function")
+    for name in ("converge", "audit", "decompose", "diagnose", "certify"):
+        p = sub.add_parser(name, help=_COMMAND_HELP[name])
         p.add_argument("target", help="file.py::function")
         p.add_argument("--project-root", default=".")
         p.add_argument("--json", action="store_true", help="emit JSON")
@@ -360,7 +384,7 @@ def _run(args) -> int:
         if plan and plan.is_decomposable:
             print(f"  decompose: {plan.rationale}")
             for candidate in plan.candidates:
-                print(f"    - {candidate.suggested_name}: {candidate.reason}")
+                print(f"    - {candidate.proposed_name}: {candidate.reason}")
     return 0
 
 

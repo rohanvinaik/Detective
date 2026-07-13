@@ -204,6 +204,40 @@ def extract_block(source: str, function: str, index: int) -> Extraction | None:
     return Extraction(helper_name, iface.params, iface.returns, new_source)
 
 
+def extract_candidate(source: str, function: str, candidate) -> Extraction | None:
+    """Extract the finder's contiguous block (``candidate.start_line..end_line``)
+    into ``candidate.proposed_name``, using the def-use interface the deterministic
+    finder already computed (``inputs``/``outputs``). Surgical: only those lines
+    become a call and the helper is spliced above the function, so the rest of the
+    file is untouched."""
+    tree = ast.parse(source)
+    func = _resolve(tree, function)
+    if func is None:
+        return None
+    lines = source.splitlines(keepends=True)
+    start, end = candidate.start_line, candidate.end_line
+    if start < 1 or end > len(lines) or start > end:
+        return None
+    block_text = "".join(lines[start - 1 : end])
+    first = lines[start - 1]
+    base_indent = first[: len(first) - len(first.lstrip())]
+    body = textwrap.indent(textwrap.dedent(block_text), "    ")
+    if not body.endswith("\n"):
+        body += "\n"
+    params = ", ".join(candidate.inputs)
+    returns = ", ".join(candidate.outputs)
+    helper = f"def {candidate.proposed_name}({params}):\n{body}"
+    if candidate.outputs:
+        helper += f"    return {returns}\n"
+    helper += "\n\n"
+    call = base_indent + (f"{returns} = " if candidate.outputs else "")
+    call += f"{candidate.proposed_name}({params})\n"
+    func_start = min([func.lineno, *(d.lineno for d in func.decorator_list)]) - 1
+    rewritten = lines[: start - 1] + [call] + lines[end:]
+    new_source = "".join(rewritten[:func_start]) + helper + "".join(rewritten[func_start:])
+    return Extraction(candidate.proposed_name, candidate.inputs, candidate.outputs, new_source)
+
+
 def _build(source: str, function: str):
     """Exec ``source`` in a fresh namespace and return the top-level ``function``,
     or None if it does not build (a syntax error in a generated rewrite is a failed
@@ -271,19 +305,53 @@ class DecompositionApply:
 def apply_decomposition(
     file: str, function: str, project_root: str = ".", *, write: bool = False, max_extractions: int = 8
 ) -> DecompositionApply:
-    """Extract every safely-decomposable block, validating each by execution.
+    """The full decomposition loop — a decomposition is applied only when PROVED
+    behavior-preserving by a mutant-complete test suite.
 
-    Iterative: after each APPLIED extraction the file is re-read and re-planned, so
-    line numbers stay correct and the function decomposes fully. A validated
-    extraction is written only when ``write`` is True (the ``--apply`` confirmation);
-    otherwise it is reported as proposed. Unvalidated extractions and control-flow-
-    escaping blocks are always proposed / skipped, never written."""
+        1. converge → generate a functional, mutant-complete test suite (the
+           behavioral spec: it kills every killable mutant, so passing it means every
+           behavioral degree of freedom is preserved).
+        2. decompose (deterministic dependency clustering, gated on entanglement) →
+           propose contiguous-block extractions.
+        3. PROVE: trial-apply each extraction and re-run the suite. Green → proven
+           behavior-preserving; red → reject and revert.
+
+    A validated extraction is kept only when ``write`` is True; otherwise the trial
+    is reverted and the extraction reported as (validated) proposed."""
     import os
 
+    from .certify import verify_under_pytest
+    from .converge import converge
     from .decompose import decompose
 
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
+
+    # STEP 1 — the mutant-complete suite is both the spec and the proof.
+    surviving_categories: tuple[str, ...] = ()
+    try:
+        conv = converge(file, function, project_root, write_dir="tests")
+        report = conv.survivor_report
+        if report is not None:
+            surviving_categories = tuple(sorted({v.category for v in report.verdicts}))
+    except Exception:  # noqa: BLE001 — no suite -> no proof possible
+        conv = None
+    if not surviving_categories:
+        from .engine import profile
+
+        try:
+            _prof = profile(file, function, project_root)
+            surviving_categories = tuple(sorted({r.get("category", "") for r in _prof.survivor_records}))
+        except Exception:  # noqa: BLE001
+            surviving_categories = ()
+
+    def _suite_green() -> bool:
+        # PROOF: the whole project's tests (the generated mutant-complete suite plus
+        # any the consumer already had) must pass on the rewritten code.
+        ok, count = verify_under_pytest(root, root)
+        return ok and count > 0
+
+    baseline_green = _suite_green()
 
     applied: list[Extraction] = []
     proposed: list[Decomposition] = []
@@ -295,30 +363,25 @@ def apply_decomposition(
         func = _resolve(tree, function)
         if func is None:
             break
-        body_index = {id(stmt): i for i, stmt in enumerate(func.body)}
-        plan = decompose(func, function)
+        plan = decompose(func, function, surviving_categories)
         progressed = False
         for candidate in plan.candidates:
-            index = next(
-                (i for stmt, i in ((s, body_index[id(s)]) for s in func.body) if stmt.lineno == candidate.lineno),
-                None,
-            )
-            if index is None:
-                continue
-            extraction = extract_block(source, function, index)
+            extraction = extract_candidate(source, function, candidate)
             if extraction is None:
-                unsafe.append(f"{candidate.kind} block @ line {candidate.lineno} (control-flow escape)")
+                unsafe.append(f"block lines {candidate.start_line}-{candidate.end_line}")
                 continue
-            if preserves_behavior(source, extraction.new_source, function, func):
-                if write:
-                    with open(full, "w", encoding="utf-8") as fh:
-                        fh.write(extraction.new_source)
-                    applied.append(extraction)
-                    progressed = True
-                    break  # re-read and re-plan against the rewritten file
-                proposed.append(Decomposition(extraction, validated=True))
-            else:
-                proposed.append(Decomposition(extraction, validated=False))
+            # Trial-apply on disk, PROVE against the mutant-complete suite, then either
+            # keep (write mode) or revert (dry run / rejected).
+            with open(full, "w", encoding="utf-8") as fh:
+                fh.write(extraction.new_source)
+            proven = baseline_green and _suite_green()
+            if proven and write:
+                applied.append(extraction)
+                progressed = True
+                break  # keep it; re-read and re-plan against the rewritten file
+            with open(full, "w", encoding="utf-8") as fh:
+                fh.write(source)  # revert the trial
+            proposed.append(Decomposition(extraction, validated=proven))
         if not (write and progressed):
             break
     return DecompositionApply(

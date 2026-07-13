@@ -50,7 +50,9 @@ def test_format_scope_core_lines_exact():
     assert _format_scope(_scope()) == (
         "m::f  [regime A]\n"
         "  10 variants; 8 pinned, 2 unspecified, 0 inert\n"
-        "  kill quality: 6 value-assertion, 2 crash"
+        "  kill quality: 6 value-assertion, 2 crash\n"
+        "  in plain terms:\n"
+        "    → 2 behavior(s) no test pins yet — run `converge` to generate tests for them"
     )
 
 
