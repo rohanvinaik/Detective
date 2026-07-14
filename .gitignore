@@ -5,6 +5,7 @@ dist/
 build/
 .detective/
 .lintgate/
+.prism/
 .wesker/
 .wesker-report.json
 .coverage
@@ -15,4 +16,5 @@ coverage.xml
 .pytest_cache/
 .DS_Store
 .serena/
-.detective/verdict_cache.json
+.env
+.env.*
