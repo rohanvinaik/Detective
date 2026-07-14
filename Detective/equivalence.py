@@ -201,14 +201,28 @@ def _outcome(fn: Callable[..., Any], args: tuple) -> str:
 def find_witness(
     original: Callable[..., Any], mutant: Callable[..., Any], candidate_inputs: list[tuple]
 ) -> Witness | None:
-    """The first input on which original and mutant differ, or None if none does.
+    """The first input on which original and mutant differ by a VALUE-killable
+    outcome, or None if none does.
 
-    None does not prove equivalence — it means the search did not distinguish them.
+    A witness must ground a test that pins the return VALUE (crash-as-spec): a
+    value-difference (``assert f(x) == v``) or an original-raises difference
+    (``pytest.raises`` pins the original's raising behaviour). A difference that
+    exists ONLY because the mutant *newly raises* while the original returns is
+    skipped: killing via the mutant's crash is a crash-kill, which the
+    value-specification accounting does not credit — suggesting it would write a
+    value-assertion the mutant never reaches and loop forever. If every
+    difference is of that crash-only kind, the mutant is value-equivalent
+    (crash-only-distinguishable) and None is returned.
+
+    None does not prove equivalence — it means no value-killable input was found.
     """
     for args in candidate_inputs:
         original_outcome, mutant_outcome = _outcome(original, args), _outcome(mutant, args)
-        if original_outcome != mutant_outcome:
-            return Witness(tuple(args), original_outcome, mutant_outcome)
+        if original_outcome == mutant_outcome:
+            continue
+        if mutant_outcome.startswith("<raised ") and not original_outcome.startswith("<raised "):
+            continue  # crash-only kill — not a value-witness (see crash-as-spec)
+        return Witness(tuple(args), original_outcome, mutant_outcome)
     return None
 
 

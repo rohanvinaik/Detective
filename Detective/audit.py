@@ -21,6 +21,7 @@ is a separate, explicit step — audit only observes.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .engine import classify_survivors, profile
@@ -42,6 +43,8 @@ class SuiteAudit:
     missing_lines: tuple[int, ...]  # executable lines no test covers
     minimal_test_count: int  # size of the two-axis minimal cover
     manual_equivalent: int = 0  # survivors manually flagged equivalent (oracle)
+    candidate_equivalent: int = 0  # survivors with no distinguishing input found (UNPROVEN — flag to confirm)
+    unclassified: int = 0  # survivors the search could not classify (may be killable OR equivalent)
 
     @property
     def complete(self) -> bool:
@@ -49,19 +52,36 @@ class SuiteAudit:
         return self.mutant_complete and self.line_complete
 
     @property
+    def complete_modulo_equivalent(self) -> bool:
+        """Complete except for UNPROVEN candidate-equivalent survivors — every killable
+        mutant is killed and every line covered, but some survivors have no distinguishing
+        input found (automated search never proves equivalence; only `flag` or a killing
+        input resolves them). A distinct tier from both '✓ complete' and '✗ incomplete'."""
+        return self.complete and self.candidate_equivalent > 0
+
+    @property
     def bloat(self) -> int:
         """How many tests exceed the minimal cover (candidates to prune)."""
         return max(0, self.test_count - self.minimal_test_count)
 
 
-def audit_suite(file: str, function: str, project_root: str = ".") -> SuiteAudit:
+def audit_suite(
+    file: str,
+    function: str,
+    project_root: str = ".",
+    *,
+    progress: Callable[[int, int, float], None] | None = None,
+    use_parallel: bool | None = None,
+) -> SuiteAudit:
     """Assess the function's existing suite on both completeness axes.
 
     Runs one profile of the CURRENT suite (kill matrix + baseline line coverage),
     then classifies the survivors so a *killable* gap (a specification hole) is not
     conflated with an *equivalent* survivor (nothing to fix). Never writes.
+    ``use_parallel=True`` fans that profile across worker processes (mutually exclusive
+    with ``progress`` — the caller passes one or the other).
     """
-    result = profile(file, function, project_root)
+    result = profile(file, function, project_root, progress=progress, use_parallel=use_parallel)
     # A test belongs to THIS function's suite only if it discharges an obligation for
     # it — kills one of its mutants OR covers one of its lines. The baseline pass runs
     # every discovered test against the original, so tests for OTHER functions appear
@@ -80,6 +100,8 @@ def audit_suite(file: str, function: str, project_root: str = ".") -> SuiteAudit
     # survivor is a gap" so the audit never understates the work.
     killable_gaps: tuple[str, ...]
     manual_equivalent = 0
+    candidate_equivalent = 0
+    unclassified = 0
     try:
         report = classify_survivors(file, function, project_root)
         killable_gaps = tuple(
@@ -87,12 +109,14 @@ def audit_suite(file: str, function: str, project_root: str = ".") -> SuiteAudit
             for v in report.killable
         )
         manual_equivalent = len(report.manual_equivalent)
+        candidate_equivalent = len(report.equivalent)
+        unclassified = len(report.unclassified)
         mutant_complete = not report.killable and not report.unclassified
     except Exception:  # noqa: BLE001 — classification is advisory, never fails the audit
         killable_gaps = tuple(
-            f"{r.get('category', '?')} [{r.get('mutant_id', '?')}]" for r in result.survivor_records
+            f"{r.get('category', '?')} [{r.get('mutant_id', '?')}]" for r in result.value_survivor_records
         )
-        mutant_complete = result.total_survived == 0
+        mutant_complete = result.value_survived == 0
 
     total = result.total_mutants
     return SuiteAudit(
@@ -107,4 +131,6 @@ def audit_suite(file: str, function: str, project_root: str = ".") -> SuiteAudit
         missing_lines=tuple(missing),
         minimal_test_count=len(minimal),
         manual_equivalent=manual_equivalent,
+        candidate_equivalent=candidate_equivalent,
+        unclassified=unclassified,
     )

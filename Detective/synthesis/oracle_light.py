@@ -34,6 +34,10 @@ class ExecutableProperty:
     needs_oracle: bool = False
     function_key: str = ""
     mutant_id: str = ""
+    # For a golden-capture VALUE property with an idiomatic ``==`` assertion: the
+    # ``(args_tuple_repr, expected_repr)`` pair, so the renderer can fold 2+ of them into
+    # one ``@pytest.mark.parametrize`` test. None → render as an individual test.
+    golden_case: tuple[str, str] | None = None
 
 
 def generate_executable_property(
@@ -267,6 +271,26 @@ def _value_property(_survivor, func_key, func_node, call_site_inputs) -> Executa
     )
 
 
+def _stmt_property(_survivor, func_key, func_node, call_site_inputs) -> ExecutableProperty:
+    """STMT: a side-effecting statement was deleted and no test noticed — either the
+    statement is dead code (equivalent, remove it) or its side effect is unobserved.
+    Oracle-required: the test must observe the effect; we never fabricate what it is."""
+    mod, fname, _ = _func_info(func_key, func_node)
+    setup = _import_line(mod, fname)
+    call_args = _call_args_from_sites(call_site_inputs) or "..."
+    assertion = (
+        f"# STMT: a side-effecting statement in {fname} was deleted and no test noticed.\n"
+        "# Either it is dead code (remove it) or its side effect is unobserved.\n"
+        f"# result = {fname}({call_args})\n"
+        "# assert <observable effect of that statement>  # FILL: observe the side effect"
+    )
+    return ExecutableProperty(
+        category="STMT", inputs={}, setup_code=setup, assertion_code=assertion,
+        preconditions=["observe the deleted statement's side effect, or confirm dead code"],
+        confidence=0.3, source_lenses=["mutation"], needs_oracle=True,
+    )
+
+
 def _generic_property(survivor, _func_key, _func_node, _call_site_inputs) -> ExecutableProperty:
     cat = survivor.get("category", "UNKNOWN")
     return ExecutableProperty(
@@ -282,6 +306,7 @@ _GENERATORS = {
     "TYPE": _type_property,
     "STATE": _state_property,
     "VALUE": _value_property,
+    "STMT": _stmt_property,
 }
 
 

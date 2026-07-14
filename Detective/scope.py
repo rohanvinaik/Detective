@@ -81,6 +81,20 @@ class ScopeMap:
     behavioral_dof: list[CategoryScope]
     load_bearing_tests: list[str] = field(default_factory=list)
     unspecified_behaviors: list[str] = field(default_factory=list)
+    # Test callables discovered for this function. 0 means the 0% kill rate is because
+    # there is NOTHING to kill with — a "write a test" signal, not weak tests. -1 = the
+    # profiler did not report it (backward-compatible).
+    tests_discovered: int = -1
+    # Optional learned-weak signal (diagnose --learn): (category, value-survival prior)
+    # ordered weakest-first, aggregated across this project's runs. Empty unless asked —
+    # surfaces which mutation categories this project's OWN code+tests recurrently leave
+    # value-unspecified, so attention/budget go where the gaps actually recur.
+    learned_priors: list[tuple[str, float]] = field(default_factory=list)
+    # Structural decomposition seams: the count of clean single-exit, small-interface
+    # extraction candidates the deterministic clustering finds (independent of tests). It is
+    # the STRUCTURAL half of the "is this two things?" question; regime B is the BEHAVIORAL
+    # (mutation) half. When BOTH fire, two independent methods agree — a high-value target.
+    decompose_seams: int = 0
 
 
 def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -> str | None:
@@ -96,7 +110,9 @@ def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -
 def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
     """Reshape a Wesker profiling result into a behavioral-scope map."""
     killed = result.killed_records
-    survivors = result.survivor_records
+    # Specification-relevant survivors: true survivors PLUS crash/timeout kills (the
+    # value-unspecified DOF). A crash-dominated function is under-specified, not pinned.
+    survivors = result.value_survivor_records
     total_killed = result.total_killed
     universe = result.universe_size or result.total_mutants or total_killed
 
@@ -120,8 +136,8 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         surviving_categories=surviving_categories,
         specification=Specification(
             behavioral_variants=universe,
-            distinctions_pinned=total_killed,
-            unspecified_dof=result.total_survived,
+            distinctions_pinned=result.value_killed,
+            unspecified_dof=result.value_survived,
             inert_freedom=result.total_equivalent,
             sigma_proxy_teaching_set=len(load_bearing),
         ),
@@ -133,6 +149,7 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         behavioral_dof=behavioral_dof,
         load_bearing_tests=load_bearing,
         unspecified_behaviors=[_survivor_desc(s) for s in survivors[:_MAX_UNSPECIFIED]],
+        tests_discovered=getattr(result, "tests_discovered", -1),
     )
 
 
@@ -141,8 +158,10 @@ def _category_scope(cr: CategoryResult, killed: list[dict]) -> CategoryScope:
     cat_killed = [k for k in killed if k.get("category") == cat]
     return CategoryScope(
         category=cat,
-        distinctions_pinned=cr.killed,
-        unspecified=cr.survived,
+        # Specification counts only value-assertion kills; a crash/timeout kill leaves
+        # the return value unspecified, so it counts as unspecified DOF, not pinned.
+        distinctions_pinned=cr.value_killed,
+        unspecified=cr.value_survived,
         inert=cr.equivalent,
         by_value_assertion=sum(1 for k in cat_killed if k.get("killed_by") == "assertion"),
         by_crash_only=sum(1 for k in cat_killed if k.get("killed_by") == "crash"),

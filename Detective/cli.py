@@ -9,6 +9,8 @@ No compute here: parse args, call the library, format the result. Two commands:
 from __future__ import annotations
 
 import argparse
+import ast
+import difflib
 import json
 import sys
 from dataclasses import asdict
@@ -24,6 +26,16 @@ def _split_target(target: str) -> tuple[str, str]:
     return file, function
 
 
+def _parallel_mode(args) -> bool | None:
+    """Resolve the tri-state parallelism choice: ``--parallel`` → True (force fan-out),
+    ``--serial`` → False (force serial), neither → None (adaptive auto — the default)."""
+    if getattr(args, "parallel", False):
+        return True
+    if getattr(args, "serial", False):
+        return False
+    return None
+
+
 def _format_scope(scope) -> str:
     """One-block rendering of a ScopeMap — the raw read, then a plain-language layer
     for a user who doesn't care about the theory (what it means + what to run)."""
@@ -37,6 +49,22 @@ def _format_scope(scope) -> str:
     ]
     if scope.surviving_categories:
         lines.append(f"  surviving categories: {', '.join(scope.surviving_categories)}")
+    # No tests at all: the 0% is "nothing to kill with", not "weak tests". Say so
+    # loudly so a fresh user doesn't read an absent suite as a failing one.
+    if getattr(scope, "tests_discovered", -1) == 0:
+        lines.append(
+            "  ⚠ NO tests discovered for this function — the counts above reflect ABSENT "
+            "tests, not weak ones; run `converge` to generate them"
+        )
+    # Learned-weak (opt-in --learn): this project's OWN recurring value-gaps, highest
+    # value-survival first. It IS learning from the user's code+tests — surface it plainly.
+    priors = getattr(scope, "learned_priors", []) or []
+    if priors:
+        shown = ", ".join(f"{cat} {prior:.0%}" for cat, prior in priors)
+        lines.append(
+            f"  learned-weak (this project's history, value-survival): {shown} "
+            "— weakest first; fast runs spend budget here first"
+        )
     # Plain-language layer: what this means and what to do next.
     lines.append("  in plain terms:")
     if spec.unspecified_dof > 0:
@@ -45,8 +73,28 @@ def _format_scope(scope) -> str:
         lines.append("    → every behavior this function makes is already pinned by a test")
     if kq.warning:
         lines.append("    → tests mostly check it RUNS, not WHAT it returns — return values may be under-tested")
-    if scope.regime == "B":
-        lines.append("    → multiple interleaved responsibilities — `decompose` may split it into simpler pieces")
+    # Decompose guidance from TWO independent signals: regime B (behaviorally entangled by
+    # the mutation profile) and structural seams (a clean single-exit, small-interface block
+    # the deterministic clustering found). Only when BOTH fire is it a genuine decomposition
+    # target — flag that loudly; when they disagree, point at the right tool instead of the
+    # old blanket "decompose may split it" that contradicted itself on flat-but-untested code.
+    seams = getattr(scope, "decompose_seams", 0)
+    if scope.regime == "B" and seams >= 1:
+        lines.append(
+            f"    ★ LOOK HERE FIRST — two independent signals agree this is really >1 thing: "
+            f"behaviorally entangled (regime B) AND {seams} clean structural seam(s). "
+            "`decompose` proves it's behavior-preserving and splits it."
+        )
+    elif scope.regime == "B":
+        lines.append(
+            "    → behaviorally entangled, but structurally one piece (no clean extraction) — "
+            "`converge` to pin the interleaved behaviors; `decompose` has no seam to split here."
+        )
+    elif seams >= 1:
+        lines.append(
+            f"    → behavior looks cohesive, but a clean structural seam ({seams}) exists — "
+            "`decompose` is available and provably safe if you want it simpler."
+        )
     return "\n".join(lines)
 
 
@@ -55,27 +103,184 @@ def _score(killed: int, total: int) -> str:
     return f"{round(100 * killed / total)}%" if total else "n/a"
 
 
-def _format_survivor_report(rep) -> list[str]:
+def _input_template(param_names: tuple[str, ...]) -> str:
+    """A copy-pasteable ``--input`` skeleton shaped to the target's parameters.
+
+    The user replaces each ``<name>`` slot with a literal to exercise the residual; the
+    CLI parses it (``ast.literal_eval``) and the AST builds the test. This is the Zone-2
+    hand-back made concrete — the tool states the exact input shape to supply, so a user
+    never has to reverse-engineer it from prose.
+    """
+    if not param_names:
+        return '--input "(<value>,)"'
+    slots = ", ".join(f"<{n}>" for n in param_names)
+    tail = "," if len(param_names) == 1 else ""
+    return f'--input "({slots}{tail})"'
+
+
+def _concise_diff(diff_summary: str) -> str:
+    """Reduce a mutant's full before/after ``diff_summary`` to just the changed line(s).
+
+    ``diff_summary`` is ``"- <whole original source>\\n+ <whole mutant source>"`` — its
+    stable identity for `flag`, but a wall of text in a residual. Line-diff the two blocks
+    and emit only the lines that actually differ, so the residual names the EXACT mutated
+    branch the user must reach — not the entire function.
+    """
+    marker = "\n+ "
+    if diff_summary.startswith("- ") and marker in diff_summary:
+        idx = diff_summary.index(marker)
+        orig_lines = diff_summary[2:idx].splitlines()
+        mut_lines = diff_summary[idx + len(marker):].splitlines()
+        changed: list[str] = []
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
+            a=orig_lines, b=mut_lines
+        ).get_opcodes():
+            if tag == "equal":
+                continue
+            changed += [f"- {ln.strip()}" for ln in orig_lines[i1:i2]]
+            changed += [f"+ {ln.strip()}" for ln in mut_lines[j1:j2]]
+        if changed:
+            return "  ".join(changed)
+    # Fallback: no parseable before/after — show the first non-empty line, truncated.
+    first = next((ln.strip() for ln in diff_summary.splitlines() if ln.strip()), "")
+    return f"{first[:100]}…" if len(first) > 100 else first
+
+
+def _target_lines(signature: str) -> list[str]:
+    """The residual's ``target:`` signature line, plus a one-line legend when any
+    parameter type was inferred from call sites (rendered ``p: ~Type``) rather than
+    declared — so the ``~`` marker is never unexplained."""
+    if not signature:
+        return []
+    lines = [f"      target:  {signature}"]
+    if "~" in signature:
+        lines.append("      note:    ~Type = inferred from call sites (param un-annotated), approximate")
+    return lines
+
+
+def _stream_progress(label: str):
+    """A throttled progress callback that streams live mutation progress to STDERR, in
+    place — so a long profile never 'looks hung' (fix for the whole-file audit that ran
+    5 min with zero output). stderr keeps stdout clean for the result / --json.
+
+    Telemetry sources, stated honestly:
+      * live ETA/rate = MEASURED this run — remaining × mean-per-mutant-time-so-far — so it
+        reflects the ACTUAL machine (cores, load), self-calibrating within ~1s. No hardware
+        model, no a-priori assumption.
+      * upfront estimate = this machine's OWN recent per-mutant throughput (a rolling EMA
+        cached in ~/.detective/telemetry.json), so before the first mutant you see a grounded
+        ``est ~Xs (this machine)``. First-ever run says 'calibrating' (no prior data — honest).
+      * final line = the reported post-process telemetry (total mutants, elapsed) and updates
+        the cache.
+    """
+    import sys
+
+    prior_ms = _read_per_mutant_ms()
+    state = {"last_ms": -1e9, "started": False}
+
+    def cb(done: int, total: int, elapsed_ms: float) -> None:
+        if not state["started"]:
+            state["started"] = True
+            if prior_ms and total:
+                est = total * prior_ms / 1000.0
+                sys.stderr.write(
+                    f"\r  … {label}: 0/{total} mutants · est ~{est:.1f}s (this machine's recent rate)   "
+                )
+            else:
+                sys.stderr.write(f"\r  … {label}: 0/{total} mutants · calibrating this machine…   ")
+            sys.stderr.flush()
+            if done == 0:
+                return
+        if 0 < done < total and elapsed_ms - state["last_ms"] < 200.0:
+            return  # throttle to ~5 updates/sec, but always emit first + last
+        state["last_ms"] = elapsed_ms
+        secs = elapsed_ms / 1000.0
+        rate = done / secs if secs > 0 else 0.0
+        if done >= total:
+            if total:
+                _update_per_mutant_ms(elapsed_ms / total)  # learn this machine's throughput
+            sys.stderr.write(f"\r  … {label}: {done}/{total} mutants · {rate:.0f}/s · done in {secs:.1f}s\n")
+        else:
+            eta = (total - done) * (elapsed_ms / done) / 1000.0 if done else 0.0
+            sys.stderr.write(f"\r  … {label}: {done}/{total} mutants · {rate:.0f}/s · ETA {eta:.1f}s   ")
+        sys.stderr.flush()
+
+    return cb
+
+
+def _telemetry_cache_path() -> str:
+    import os
+
+    return os.path.join(os.path.expanduser("~"), ".detective", "telemetry.json")
+
+
+def _read_per_mutant_ms() -> float | None:
+    """This machine's recent per-mutant evaluation cost (ms), or None if never measured.
+    Machine-local (throughput depends on the box, not the project), so it lives under ~/."""
+    import json
+
+    try:
+        with open(_telemetry_cache_path(), encoding="utf-8") as fh:
+            val = float(json.load(fh).get("per_mutant_ms", 0.0))
+        return val or None
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _update_per_mutant_ms(observed_ms: float) -> None:
+    """Fold this run's measured per-mutant cost into a rolling EMA, so the upfront estimate
+    tracks the machine's throughput without one anomalous run dominating. Best-effort."""
+    import json
+    import os
+
+    prior = _read_per_mutant_ms()
+    value = observed_ms if prior is None else 0.7 * prior + 0.3 * observed_ms
+    path = _telemetry_cache_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"per_mutant_ms": round(value, 3)}, fh)
+    except OSError:
+        pass
+
+
+def _format_survivor_report(
+    rep, signature: str = "", param_names: tuple[str, ...] = ()
+) -> list[str]:
     """Render the grounded disposition of every leftover survivor: equivalent
-    (retained), killable (a suggested test, NOT auto-applied), or uncertain."""
+    (retained), killable (a suggested test, NOT auto-applied), or uncertain.
+
+    For candidate-equivalent survivors — the Zone-2 residual — emit a PRECISE,
+    copy-pasteable hand-back: the surviving mutant id + category + what it changed, the
+    target's signature, and the exact ``--input`` skeleton to supply to reach the branch
+    and kill it. A user should never have to guess the input from prose.
+    """
     if rep is None:
         return []
     lines: list[str] = []
     if rep.equivalent and not rep.killable and not rep.unclassified:
         lines.append(
-            "  ✓ functionally complete — every killable mutant killed; "
-            f"{len(rep.equivalent)} equivalent mutant(s) retained (provably no test kills them)"
+            "  ✓ every killable mutant killed — remaining survivors have no distinguishing "
+            "input (candidate-equivalent, NOT proven)"
         )
     if rep.equivalent:
         cats = ", ".join(sorted({v.category for v in rep.equivalent}))
         tried = rep.equivalent[0].searched
         lines.append(
-            f"  equivalent — retained, no test can kill ({len(rep.equivalent)}: {cats}); "
-            f"no distinguishing input in {tried} tried"
+            f"  candidate-equivalent — retained, UNPROVEN ({len(rep.equivalent)}: {cats}); "
+            f"no distinguishing input in {tried} tried. To KILL: supply an input reaching a "
+            "mutated branch below (or `flag` if truly equivalent):"
+        )
+        for v in rep.equivalent:
+            lines.append(f"    → mutant {v.mutant_id} [{v.category}]: {_concise_diff(v.diff_summary)}")
+        lines += _target_lines(signature)
+        lines.append(
+            f"      supply:  {_input_template(param_names)}   "
+            "# fill the slots to reach a branch above, then re-run converge"
         )
     if rep.manual_equivalent:
         lines.append(
-            f"  ✓ {len(rep.manual_equivalent)} survivor(s) manually-flagged equivalent (oracle — not gaps)"
+            f"  ✓ {len(rep.manual_equivalent)} survivor(s) flagged equivalent (oracle — PROVEN, not gaps)"
         )
     if rep.killable:
         lines.append(f"  killable — SUGGESTED tests (not auto-applied, {len(rep.killable)}):")
@@ -106,6 +311,24 @@ def _show_written(path: str | None) -> list[str]:
     return lines
 
 
+def _completeness_verdict(result) -> str:
+    """The honest headline. 'COMPLETE' is claimed ONLY when nothing killable remains AND
+    no survivor is merely *candidate*-equivalent (an unproven 'no distinguishing input
+    found' — automated search never proves equivalence; only a manual `flag` or a killing
+    input resolves it). When candidate-equivalents remain, we killed every mutant we could
+    distinguish but cannot claim completeness, and we say exactly that."""
+    if not result.complete:
+        return "✗ INCOMPLETE"
+    rep = result.survivor_report
+    candidate = len(rep.equivalent) if rep is not None else 0
+    if candidate == 0:
+        return "✓ COMPLETE — every mutant killed or oracle-proven-equivalent, line-complete"
+    return (
+        f"✓ every killable mutant killed + line-complete — {candidate} survivor(s) "
+        "candidate-equivalent (UNPROVEN: `flag` if truly equivalent, or add a distinguishing input)"
+    )
+
+
 def _format_converge(result) -> str:
     """Validation report: what converge measured and what it left standing.
 
@@ -119,25 +342,105 @@ def _format_converge(result) -> str:
     # Lead with the plain verdict a user actually wants — COMPLETE means both axes
     # hold (kills every killable mutant AND covers every line). "converged" is loop
     # state, not a completeness claim, so it no longer headlines.
-    verdict = "✓ COMPLETE — mutant-complete AND line-complete" if result.complete else "✗ INCOMPLETE"
+    verdict = _completeness_verdict(result)
     lines = [
         f"{result.function}: {verdict}",
         f"  {result.initial_survivors} → {result.final_survivors} survivors; "
         f"score {_score(initial_killed, total)} → {_score(result.killed, total)} "
         f"({result.killed}/{total} killed)",
-        f"  mutant-complete={result.functionally_complete}  line-complete={result.line_complete}",
+        f"  every-killable-killed={result.functionally_complete}  line-complete={result.line_complete}",
     ]
+    # STATS FLEX: make "mutant-complete" concrete. universe_size is the count of
+    # behavioral degrees of freedom (total possible mutants); killed/universe is the
+    # fraction of that DOF space converge actually pinned down. Fast mode greedily
+    # samples a (1−1/e)-optimal subset per category per pass, so its DOF fraction
+    # exposes the speed/completeness trade honestly rather than hiding it.
+    universe = result.universe_size or total
+    if universe:
+        if result.fast:
+            from .converge import _FAST_MAX_PER_CATEGORY
+
+            passes = len(result.iterations)
+            mode = (
+                f"fast — greedy ≤{_FAST_MAX_PER_CATEGORY}/category × "
+                f"{passes} pass{'es' if passes != 1 else ''}"
+            )
+        else:
+            mode = "comprehensive — full mutant universe"
+        # STATS FLEX tail: the PROVEN greedy coverage floor (Wesker's
+        # greedy_coverage_guarantee) — an a-priori lower bound the measured rate
+        # meets or beats. Comprehensive is exhaustive (100% guaranteed); fast shows
+        # the (1−1/e)-per-pass guarantee, so the speed/certainty trade is explicit.
+        if result.fast:
+            tail = (
+                f"greedy floor ≥ {result.coverage_guarantee:.0%} of coverable DOF "
+                f"(proven, (1−1/e) per pass)"
+            )
+        else:
+            tail = "exhaustive — 100% guaranteed"
+        lines.append(
+            f"  DOF: {universe} behavioral degrees of freedom · {mode} · "
+            f"{result.killed}/{universe} = {_score(result.killed, universe)} of DOF specified · "
+            f"{tail}"
+        )
     for i, it in enumerate(result.iterations):
         lines.append(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
+    # Spec-completeness ETA in PASSES, not seconds (the SSL Semantic Completeness Equation):
+    # converge's tests are the free structural resolution; killable residuals are the
+    # I_solve external facts. When still contracting → "≈N more passes"; when the trajectory
+    # has stalled → structure is exhausted and the residual needs supplied inputs.
+    if not result.complete and universe:
+        from .converge import passes_to_complete
+
+        traj = tuple(it.survivors for it in result.iterations) + (result.final_survivors,)
+        pr = passes_to_complete(traj)
+        killable = (
+            len(result.survivor_report.killable)
+            if result.survivor_report is not None
+            else result.final_survivors
+        )
+        free = f"{_score(result.killed, universe)} resolved by structure for free"
+        # A pass that wrote 0 new sound tests is the tail: structure is exhausted, so the
+        # residual is I_solve (supplied inputs), NOT more passes — no matter how fast the
+        # bulk contracted. Only extrapolate passes while the last pass still made progress.
+        stalled = (not result.iterations) or result.iterations[-1].written == 0
+        if not stalled and pr > 0:
+            lines.append(
+                f"  spec-completeness: {free} · ≈{pr} more pass{'es' if pr != 1 else ''} "
+                "to complete (greedy bulk decay)"
+            )
+        elif killable > 0:
+            # Stalled with real killable residuals: the I_solve external facts.
+            lines.append(
+                f"  spec-completeness: {free} · structure exhausted — {killable} killable "
+                "residual(s) = I_solve (supply --input below to finish)"
+            )
+        # else: complete-modulo-equivalent — the verdict + survivor lines already say so.
     if result.remaining:
         lines.append(f"  remaining: {', '.join(result.remaining)}")
-    lines += _format_survivor_report(result.survivor_report)
+    lines += _format_survivor_report(result.survivor_report, result.signature, result.param_names)
+    # Make the equivalent-mutant escape hatch discoverable: a new user should never have
+    # to read --help to learn `flag`, nor loop forever chasing an unkillable mutant. Emit
+    # the EXACT copy-pasteable command with the mutant id already filled in.
+    _eq = result.survivor_report.equivalent if result.survivor_report is not None else ()
+    if _eq:
+        _ids = [v.mutant_id for v in _eq]
+        lines.append(
+            f"  ▶ if truly equivalent, accept it (stops the unkillable-mutant chase): "
+            f"`detective flag '{result.function}' {_ids[0]} --note \"why-equivalent\"`"
+            + (f"   (repeat for: {', '.join(_ids[1:])})" if len(_ids) > 1 else "")
+        )
     # Second completeness axis + minimality (from the baseline line-coverage pass).
     # Reported only when there is line data (minimal_test_count > 0 or a measured gap).
     if result.missing_lines:
+        gap = list(result.missing_lines)
         lines.append(
-            f"  ✗ line gap: {len(result.missing_lines)} executable line(s) no test covers: "
-            f"{list(result.missing_lines)}"
+            f"  ✗ line gap: {len(result.missing_lines)} executable line(s) no test covers: {gap}"
+        )
+        lines += _target_lines(result.signature)
+        lines.append(
+            f"      supply:  {_input_template(result.param_names)}   "
+            f"# fill the slots to execute line(s) {gap}, then re-run converge"
         )
     elif result.minimal_test_count:
         lines.append("  ✓ line-complete — every executable line is covered by a test")
@@ -152,35 +455,72 @@ def _format_converge(result) -> str:
         lines.append(f"  wrote: {result.written_path}")
     if result.wiring:
         lines.append(f"  {result.wiring.message}")
+    if result.written_path:
+        lines.append(
+            "  ▶ to run these tests: `pytest`   (only the generated ones: `pytest -m detective`; "
+            'only your own: `pytest -m "not detective"`)'
+        )
     lines += _show_written(result.written_path)
     return "\n".join(lines)
 
 
 def _format_decompose(r, applied_mode: bool) -> str:
-    """Show what a decomposition did or would do: extractions PROVEN behavior-
-    preserving by execution (auto-applied under --apply, else marked appliable),
-    unvalidated proposals, and blocks skipped as unsafe — with the actual code."""
+    """Show what a decomposition did or would do: extractions that preserve the
+    SPECIFIED behavior (proven against the target's own MUTATION-complete suite; auto-applied
+    under --apply, else marked appliable), extractions not yet provable (the suite is not
+    mutation-complete — a killable mutant needs an input synthesis could not reach), and
+    blocks skipped as unsafe — with the actual code."""
     lines = [f"{r.function}: decomposition"]
     if not r.applied and not r.proposed and not r.unsafe_blocks:
         return f"{r.function}: no separable blocks — nothing to decompose"
     for ex in r.applied:
         lines.append(
-            f"  ✓ APPLIED (behavior-preserved, auto): {ex.helper_name}"
+            f"  ✓ APPLIED (specified behavior preserved, auto): {ex.helper_name}"
             f"({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}"
         )
         lines += [f"    │ {line}" for line in ex.new_source.splitlines()[:4]]
         lines.append("    │ …")
     for dec in r.proposed:
         ex = dec.extraction
-        tag = "appliable (behavior-preserved) — re-run with --apply" if dec.validated else \
-            "PROPOSED — not auto-validated; review before applying"
+        tag = "appliable — specified behavior preserved — re-run with --apply" if dec.validated else \
+            "can't PROVE preservation yet — the proof suite is not mutation-complete (residual below)"
         lines.append(f"  → {tag}: {ex.helper_name}({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}")
         lines += [f"    │ {line}" for line in ex.new_source.splitlines()[:6]]
         lines.append("    │ …")
     for block in r.unsafe_blocks:
         lines.append(f"  ✗ not extractable: {block}")
+    # The residual hand-back. An unproven extraction means converge could not reach
+    # mutation-completeness — a KILLABLE mutant that synthesis could not distinguish, i.e.
+    # the "semantic prior the AST needs". Surface the EXACT input to supply (converge already
+    # computed it) so the user closes the loop, instead of a dead-end "review it yourself".
+    proof = getattr(r, "proof", None)
+    unproven = any(not d.validated for d in r.proposed)
+    if unproven and proof is not None and not getattr(proof, "functionally_complete", True):
+        # The blockers are the VALUE-survivors — mutants the suite hasn't pinned. Some are
+        # killable-with-a-witness, some couldn't even be classified because the synthesized
+        # input crashes the function; either way the fix is the same: supply a valid input.
+        blocking = getattr(proof, "final_survivors", 0)
+        lines.append(
+            f"  ▶ to prove + auto-apply: {blocking} mutant(s) the suite has not pinned — synthesis "
+            "could not build a valid distinguishing input for this function's parameters."
+        )
+        lines += _target_lines(proof.signature)
+        lines.append(
+            f"      supply:  decompose '{r.function}' --apply {_input_template(proof.param_names)}"
+            "   # a valid input for the slot(s); converge then reaches mutation-completeness and the"
+        )
+        lines.append("               extraction is proven and applied in the same run.")
+    if r.applied or any(d.validated for d in r.proposed):
+        # The information-conservation frame: the transform adds no new behavior, so it
+        # cannot introduce a bug into what is SPECIFIED — and it deliberately does not
+        # bake in behavior nothing specifies. That is a feature, not a caveat.
+        lines.append(
+            "  ℹ preserves every SPECIFIED behavior (information-conservative — introduces no "
+            "new behavior); unspecified DOF are not baked in. `converge` the pieces to ground "
+            "them — a quick pass that SURFACES latent under-specification instead of preserving it."
+        )
     if not applied_mode and any(d.validated for d in r.proposed):
-        lines.append("  (run `decompose --apply` to write the behavior-preserved extractions)")
+        lines.append("  (run `decompose --apply` to write the extractions)")
     return "\n".join(lines)
 
 
@@ -188,9 +528,17 @@ def _format_audit(a) -> str:
     """Read-only audit of an existing suite: completeness on both axes, the
     pointless tests to propose removing, and the gaps to propose filling. Nothing
     is written — every action a real run would take is stated, not taken."""
-    verdict = "✓ complete" if a.complete else "✗ incomplete"
+    # Three tiers, not two: a suite that kills every killable mutant and covers every line
+    # but leaves UNPROVEN candidate-equivalents is not "incomplete" (no real gaps) — say so,
+    # and point at `flag`, instead of a misleading ✗.
+    if a.complete_modulo_equivalent:
+        verdict = f"✓ complete modulo {a.candidate_equivalent} candidate-equivalent (flag to confirm)"
+    elif a.complete:
+        verdict = "✓ complete"
+    else:
+        verdict = "✗ incomplete"
     lines = [
-        f"{a.function}: {a.test_count} existing test(s) — {verdict}",
+        f"{a.function}: {a.test_count} existing test(s) — {verdict}   [audit reads only — writes nothing]",
         f"  kills: {a.kill_pct}%  |  mutant-complete={a.mutant_complete}  line-complete={a.line_complete}",
         f"  minimal cover: {a.minimal_test_count} test(s)"
         + (f"  (bloat: {a.bloat} redundant)" if a.bloat else "  (no bloat)"),
@@ -212,10 +560,27 @@ def _format_audit(a) -> str:
             f"  PROPOSED removals ({len(a.redundant_tests)}, pointless for BOTH kills and lines "
             f"— confirm to delete, never auto): {', '.join(a.redundant_tests)}"
         )
+    if a.candidate_equivalent:
+        lines.append(
+            f"  · {a.candidate_equivalent} survivor(s) candidate-equivalent — no distinguishing input found "
+            "(UNPROVEN: `flag` to confirm equivalent, or add a distinguishing input to kill)"
+        )
+    if a.unclassified and not a.killable_gaps:
+        lines.append(
+            f"  ⚠ {a.unclassified} survivor(s) UNCLASSIFIED — the search could not distinguish them; "
+            "may be equivalent (prove + `flag`) or need a reaching input (not a confirmed gap)"
+        )
     if a.manual_equivalent:
         lines.append(f"  ✓ {a.manual_equivalent} survivor(s) manually-flagged equivalent (oracle — not gaps)")
     if a.complete and not a.redundant_tests:
         lines.append("  nothing to do — suite is complete and minimal")
+    # Forward-chain: name the next command for the state we're in (audit itself writes nothing).
+    if a.killable_gaps or a.missing_lines:
+        lines.append("  ▶ next: `converge` to synthesize the missing tests (WRITES test files + wires conftest)")
+    elif a.candidate_equivalent or a.unclassified:
+        lines.append("  ▶ next: prove equivalence then `flag <mutant_id>`, or add a distinguishing input and `converge`")
+    elif a.redundant_tests:
+        lines.append("  ▶ next: `audit --remove` to delete the redundant tests (confirm — never auto)")
     return "\n".join(lines)
 
 
@@ -226,6 +591,22 @@ _COMMAND_HELP = {
     "diagnose": "show a function's behavioral scope + what to run next (read-only)",
     "certify": "one-shot: synthesize tests for current survivors (prefer `converge`)",
 }
+
+
+def _parse_supplied_inputs(raw: list[str]) -> list[tuple]:
+    """Parse ``--input`` Python-literal strings into positional-argument tuples — the
+    Zone-2 residual a human fills THROUGH the tool when deterministic synthesis provably
+    could not exercise a degree of freedom. Each literal is one call's argument tuple; a
+    bare non-tuple literal is taken as a single positional argument. ``ast.literal_eval``
+    only — no code execution, matching Detective's no-exec discipline."""
+    out: list[tuple] = []
+    for s in raw:
+        try:
+            value = ast.literal_eval(s)
+        except (ValueError, SyntaxError) as exc:
+            raise SystemExit(f"detective: --input is not a valid Python literal: {s!r} ({exc})")
+        out.append(value if isinstance(value, tuple) else (value,))
+    return out
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -245,6 +626,47 @@ def _build_parser() -> argparse.ArgumentParser:
         if name == "converge":
             p.add_argument("--write-dir", default="tests", help="write synthesized tests here")
             p.add_argument("--max-iterations", type=int, default=3)
+            p.add_argument(
+                "--fast",
+                action="store_true",
+                help="greedy-sample a (1−1/e)-optimal subset of mutants per category per pass "
+                "instead of the full universe — faster, converging over passes (default: comprehensive)",
+            )
+            p.add_argument(
+                "--input",
+                action="append",
+                metavar="TUPLE",
+                help="supply a residual input as a Python-literal positional-arg tuple — e.g. "
+                "\"({'a':['t1'],'b':['t1','t2']}, {})\" — to kill a mutant deterministic synthesis "
+                "could not exercise (a Zone-2 residual, filled through the tool). Repeatable; a bare "
+                "non-tuple literal is one positional arg.",
+            )
+        if name in ("converge", "audit", "diagnose"):
+            # Default is ADAPTIVE auto: a small serial probe measures this function's real
+            # per-mutant cost, then it fans out across CPU cores only when the remaining work
+            # justifies it (so small/fast functions never pay the spawn tax). Memory-bounded by
+            # construction (workers × per-worker budget ≤ RAM fraction); verdicts identical to
+            # serial. ``--parallel`` forces the whole run parallel; ``--serial`` forces serial.
+            p.add_argument(
+                "--parallel",
+                action="store_true",
+                help="force fan-out across CPU cores for the whole run (skip the adaptive "
+                "probe). Per-mutant progress streaming is disabled in parallel.",
+            )
+            p.add_argument(
+                "--serial",
+                action="store_true",
+                help="force serial — disable the adaptive auto-parallelization (debugging, or "
+                "a machine where process spawn is constrained).",
+            )
+        if name == "diagnose":
+            p.add_argument(
+                "--learn",
+                action="store_true",
+                help="fold this run's per-category value-survival into the project's "
+                ".wesker/mutation_report.json and show the learned-weak priors — which "
+                "mutation categories THIS project recurrently leaves value-unspecified",
+            )
         if name == "audit":
             p.add_argument(
                 "--remove",
@@ -256,6 +678,14 @@ def _build_parser() -> argparse.ArgumentParser:
                 "--apply",
                 action="store_true",
                 help="APPLY the behavior-preserving extractions (rewrites the file); else propose only",
+            )
+            p.add_argument(
+                "--input",
+                action="append",
+                metavar="TUPLE",
+                help="supply a residual input (Python-literal positional-arg tuple) to the proof suite, "
+                "so a function whose completeness needs a human sample can still reach the "
+                "behavior-preservation gate. Same form as `converge --input`. Repeatable.",
             )
     purge_p = sub.add_parser("purge", help="delete regeneratable analysis cruft left by old runs")
     purge_p.add_argument("--project-root", default=".")
@@ -306,12 +736,15 @@ def _run(args) -> int:
         from .equivalents import add_flag
 
         result = profile(file, function, args.project_root)
+        # Match against value-survivors — the SAME set audit/classify report from — so a
+        # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-
+        # survivor). Using survivor_records here would miss those and read "none surviving".
         rec = next(
-            (r for r in result.survivor_records if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))),
+            (r for r in result.value_survivor_records if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))),
             None,
         )
         if rec is None:
-            ids = ", ".join(r.get("mutant_id", "?") for r in result.survivor_records) or "none surviving"
+            ids = ", ".join(r.get("mutant_id", "?") for r in result.value_survivor_records) or "none surviving"
             print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
             return 1
         add_flag(args.project_root, result.function_key, rec.get("diff_summary", ""), note=args.note)
@@ -323,14 +756,30 @@ def _run(args) -> int:
     if args.command == "diagnose":
         from .engine import diagnose
 
-        scope = diagnose(file, function, args.project_root)
+        _par = _parallel_mode(args)
+        scope = diagnose(
+            file, function, args.project_root, learn=getattr(args, "learn", False),
+            use_parallel=_par, progress=None if _par else _stream_progress(function),
+        )
         print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
         return 0
 
     if args.command == "converge":
         from .converge import converge
 
-        result = converge(file, function, args.project_root, write_dir=args.write_dir, max_iterations=args.max_iterations)
+        supplied = _parse_supplied_inputs(args.input) if getattr(args, "input", None) else None
+        _par = _parallel_mode(args)
+        result = converge(
+            file,
+            function,
+            args.project_root,
+            write_dir=args.write_dir,
+            max_iterations=args.max_iterations,
+            supplied_inputs=supplied,
+            fast=args.fast,
+            use_parallel=_par,
+            progress=None if _par else _stream_progress(function),
+        )
         if args.json:
             print(json.dumps(asdict(result), indent=2, default=str))
         else:
@@ -340,7 +789,11 @@ def _run(args) -> int:
     if args.command == "audit":
         from .audit import audit_suite
 
-        report = audit_suite(file, function, args.project_root)
+        _par = _parallel_mode(args)
+        report = audit_suite(
+            file, function, args.project_root,
+            use_parallel=_par, progress=None if _par else _stream_progress(function),
+        )
         print(json.dumps(asdict(report), indent=2, default=str) if args.json else _format_audit(report))
         if args.remove and report.redundant_tests:
             from .suite_edit import apply_removals
@@ -360,7 +813,10 @@ def _run(args) -> int:
     if args.command == "decompose":
         from .decompose_apply import apply_decomposition
 
-        result = apply_decomposition(file, function, args.project_root, write=args.apply)
+        supplied = _parse_supplied_inputs(args.input) if getattr(args, "input", None) else None
+        result = apply_decomposition(
+            file, function, args.project_root, write=args.apply, supplied_inputs=supplied
+        )
         print(json.dumps(asdict(result), indent=2, default=str) if args.json else _format_decompose(result, args.apply))
         return 0
 

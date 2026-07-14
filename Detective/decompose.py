@@ -263,15 +263,20 @@ def decompose(
     function: str = "",
     surviving_categories: tuple[str, ...] = (),
 ) -> DecompositionPlan:
-    """Detection-gated, deterministic decomposition plan.
+    """Structure-gated, deterministic decomposition plan.
 
-    A function is decomposed only when it is behaviorally ENTANGLED (2+ surviving
-    mutation categories — it is doing more than one thing) AND the deterministic
-    clustering finds at least one clean extraction. Otherwise it is left alone.
+    A function is decomposable when the deterministic dependency clustering finds at least
+    one clean extraction — a single-exit block with a small interface (few reads-from-before,
+    one/two writes-read-after) and enough cognitive complexity to be worth pulling out. That
+    separability is a STRUCTURAL property of the code, independent of test coverage: a block
+    that cleanly detaches IS a distinct responsibility, whereas a cohesive algorithm's
+    internals share too large an interface to pass the clustering. Test survivors are a
+    coverage signal and do NOT gate this — the converge PROOF (the suite stays green after a
+    trial extraction) is the sole safety gate for actually applying one. ``surviving_categories``
+    is retained for context in the rationale only.
     """
-    entangled = len(set(surviving_categories)) >= 2
-    candidates = find_extraction_candidates(func_node) if entangled else ()
-    decomposable = entangled and len(candidates) >= 1
+    candidates = find_extraction_candidates(func_node)
+    decomposable = len(candidates) >= 1
     return DecompositionPlan(
         function=function,
         is_decomposable=decomposable,
@@ -283,12 +288,14 @@ def decompose(
 def _rationale(
     decomposable: bool, candidates: tuple[ExtractionCandidate, ...], surviving: tuple[str, ...]
 ) -> str:
-    cats = sorted(set(surviving))
     if not decomposable:
-        if len(cats) < 2:
-            return f"not entangled — {len(cats)} surviving mutation category; one responsibility, leave it alone"
-        return "entangled, but no clean single-exit extraction with a small interface was found"
+        return (
+            "no clean extraction — no single-exit block with a small interface and enough "
+            "cognitive complexity to be worth pulling out; structurally one piece"
+        )
+    cats = sorted(set(surviving))
+    ctx = f"; still unspecified across {', '.join(cats)}" if cats else ""
     return (
-        f"{len(candidates)} responsibility seam(s); entangled across {len(cats)} "
-        f"categories ({', '.join(cats)}) — extract each, then re-profile"
+        f"{len(candidates)} responsibility seam(s) — each a single-exit, small-interface "
+        f"block worth extracting{ctx}; extract, then re-profile"
     )

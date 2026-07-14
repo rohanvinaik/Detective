@@ -135,7 +135,10 @@ class _SideEffectVisitor(ast.NodeVisitor):
             target = get_name(node.func.value)
             if method in _MUTATING_METHODS and self._external(target):
                 self.reasons.append(f"mutates external via .{method}()")
-            if method in _PATH_WRITE_METHODS:
+            # `.replace()` is overwhelmingly ``str``/``bytes`` (pure, 2+ args); only
+            # ``Path.replace(target)`` — a filesystem move — takes a single positional
+            # arg. Disambiguate by arity so ``s.replace(".", "_")`` is not a false write.
+            if method in _PATH_WRITE_METHODS and not (method == "replace" and len(node.args) != 1):
                 self.reasons.append(f"filesystem write via .{method}()")
         self.generic_visit(node)
 

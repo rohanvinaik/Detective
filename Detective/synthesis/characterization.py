@@ -237,10 +237,15 @@ def _order_sensitive(output_repr: str) -> bool:
 
 
 def golden_assert_line(output_repr: str) -> str:
-    """The assertion pinning ``result`` to a captured output. Uses VALUE equality
-    (``result == <literal>``) for order-sensitive set-containing outputs so the test
-    is not flaky across processes; otherwise repr-string equality, which is precise
-    (distinguishes ``1`` from ``1.0``) and works for non-literal reprs."""
-    if _order_sensitive(output_repr):
-        return f"assert result == {output_repr}"
-    return f"assert repr(result) == {output_repr!r}"
+    """Pin ``result`` to its captured output with idiomatic VALUE equality
+    (``result == <literal>``) — the way a developer actually writes a test. It reads
+    cleanly, is order-independent for sets, and loses NO kill power: no mutation operator
+    produces a result that is value-equal to the original yet a different type (VALUE
+    mutates a constant to a same-type constant; the rest change the value), so ``==``
+    catches exactly what the old ``repr(result) == "<str>"`` form did. Falls back to repr
+    equality only for a non-literal repr (an object), where value equality is unavailable."""
+    try:
+        ast.literal_eval(output_repr)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return f"assert repr(result) == {output_repr!r}"
+    return f"assert result == {output_repr}"

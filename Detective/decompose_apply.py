@@ -18,6 +18,10 @@ from __future__ import annotations
 import ast
 import textwrap
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .converge import ConvergeResult
 
 
 def _names(node: ast.AST, ctx: type | tuple[type, ...]) -> set[str]:
@@ -238,50 +242,6 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
     return Extraction(candidate.proposed_name, candidate.inputs, candidate.outputs, new_source)
 
 
-def _build(source: str, function: str):
-    """Exec ``source`` in a fresh namespace and return the top-level ``function``,
-    or None if it does not build (a syntax error in a generated rewrite is a failed
-    extraction, never a crash)."""
-    target = function.split(".")[-1]
-    namespace: dict = {}
-    try:
-        exec(compile(source, "<decompose>", "exec"), namespace)  # noqa: S102 — our own generated source
-    except Exception:  # noqa: BLE001
-        return None
-    return namespace.get(target)
-
-
-def preserves_behavior(
-    original_source: str,
-    new_source: str,
-    function: str,
-    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> bool:
-    """True iff the decomposed source computes the SAME result as the original on
-    every synthesized input — the deterministic gate for auto-applying.
-
-    Both versions are built and run over the input grid the witness search uses
-    (types honored). Any observable difference fails preservation; so does a rewrite
-    that no input exercises (nothing was actually compared — never claim safety on
-    zero evidence)."""
-    from .engine import _input_grids
-    from .equivalence import _outcome, bounded_product
-
-    original = _build(original_source, function)
-    decomposed = _build(new_source, function)
-    if original is None or decomposed is None:
-        return False
-    inputs = bounded_product(_input_grids(func_node, getattr(original, "__globals__", {}) or {}))
-    exercised = False
-    for args in inputs:
-        original_outcome = _outcome(original, args)
-        if not original_outcome.startswith("<raised"):
-            exercised = True
-        if original_outcome != _outcome(decomposed, args):
-            return False
-    return exercised
-
-
 @dataclass(frozen=True)
 class Decomposition:
     """One candidate's outcome: the generated extraction and whether execution
@@ -299,11 +259,22 @@ class DecompositionApply:
     function: str
     applied: tuple[Extraction, ...]
     proposed: tuple[Decomposition, ...]
-    unsafe_blocks: tuple[str, ...]  # blocks skipped as non-extractable (control escape)
+    unsafe_blocks: tuple[str, ...]
+    # The converge run used as the proof attempt. When it is not ``functionally_complete``
+    # (a KILLABLE mutant synthesis could not reach), the extraction cannot be proven — and
+    # this carries the exact residual (signature, param shape, killable survivors) so the CLI
+    # can hand the user the ``--input`` to supply, instead of a dead-end "review it yourself".
+    proof: ConvergeResult | None = None  # blocks skipped as non-extractable (control escape)
 
 
 def apply_decomposition(
-    file: str, function: str, project_root: str = ".", *, write: bool = False, max_extractions: int = 8
+    file: str,
+    function: str,
+    project_root: str = ".",
+    *,
+    write: bool = False,
+    max_extractions: int = 8,
+    supplied_inputs: list[tuple] | None = None,
 ) -> DecompositionApply:
     """The full decomposition loop — a decomposition is applied only when PROVED
     behavior-preserving by a mutant-complete test suite.
@@ -330,7 +301,14 @@ def apply_decomposition(
     # STEP 1 — the mutant-complete suite is both the spec and the proof.
     surviving_categories: tuple[str, ...] = ()
     try:
-        conv = converge(file, function, project_root, write_dir="tests")
+        # ``supplied_inputs`` are the Zone-2 residual filled through the CLI (`decompose
+        # --input`): the exact inputs deterministic synthesis could not exercise. They flow
+        # into the proof suite so a function whose line-/mutant-completeness needs a human
+        # sample can still reach the `line_complete` gate below — otherwise it could never
+        # be proven decomposable from the CLI.
+        conv = converge(
+            file, function, project_root, write_dir="tests", supplied_inputs=supplied_inputs
+        )
         report = conv.survivor_report
         if report is not None:
             surviving_categories = tuple(sorted({v.category for v in report.verdicts}))
@@ -341,14 +319,32 @@ def apply_decomposition(
 
         try:
             _prof = profile(file, function, project_root)
-            surviving_categories = tuple(sorted({r.get("category", "") for r in _prof.survivor_records}))
+            surviving_categories = tuple(sorted({r.get("category", "") for r in _prof.value_survivor_records}))
         except Exception:  # noqa: BLE001
             surviving_categories = ()
 
+    # The proof suite is the TARGET's own MUTATION-complete suite. The behavior-preservation
+    # proof is mutation-completeness (every KILLABLE mutant killed → every pin-able behavioral
+    # degree of freedom is pinned, so a decomposition that changes any of them fails a test).
+    # LINE-completeness is orthogonal and NOT required: a line whose mutants are all killed is
+    # fully specified whether or not a test "covers" it in the coverage sense, and a covered
+    # line whose mutants survive proves nothing. Gating on ``functionally_complete`` (not
+    # ``line_complete``) is what lets a branchy function be proven+auto-applied without the
+    # user hand-feeding boundary ``--input``s just to satisfy a coverage metric that does not
+    # bear on preservation. (A genuine residual — a KILLABLE mutant synthesis could not reach —
+    # correctly leaves ``functionally_complete`` False, and THAT is the real case to surface an
+    # ``--input`` for.) The suite must still exist and cover the target specifically, so an
+    # unrelated passing test can never stand in for the proof.
+    proof_suite = (
+        conv.written_path
+        if (conv is not None and conv.functionally_complete and conv.written_path)
+        else None
+    )
+
     def _suite_green() -> bool:
-        # PROOF: the whole project's tests (the generated mutant-complete suite plus
-        # any the consumer already had) must pass on the rewritten code.
-        ok, count = verify_under_pytest(root, root)
+        if proof_suite is None:
+            return False
+        ok, count = verify_under_pytest(root, proof_suite)
         return ok and count > 0
 
     baseline_green = _suite_green()
@@ -389,4 +385,5 @@ def apply_decomposition(
         applied=tuple(applied),
         proposed=tuple(proposed),
         unsafe_blocks=tuple(dict.fromkeys(unsafe)),
+        proof=conv,
     )

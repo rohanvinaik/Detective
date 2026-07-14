@@ -35,6 +35,7 @@ from .equivalence import (
     is_scalar_type,
     synth_ast_input,
 )
+from .call_sites import discover_call_site_inputs, infer_param_types
 from .purity import is_pure as _is_pure
 from .scope import ScopeMap, scope_from_profiling
 
@@ -94,6 +95,14 @@ def profile(
     is_pure: bool | None = None,
     tests: list[Callable[..., Any]] | None = None,
     budget_ms: float | None = None,
+    max_per_category: int = 0,
+    pass_index: int = 0,
+    extra_test_dirs: tuple[str, ...] = (),
+    progress: Callable[[int, int, float], None] | None = None,
+    scope_tests: bool = True,
+    use_cache: bool = True,
+    mutant_slice: tuple[int, int] | None = None,
+    use_parallel: bool | None = None,
 ) -> ProfilingResult:
     """Profile one function with Wesker and return the raw ``ProfilingResult``.
 
@@ -101,6 +110,11 @@ def profile(
     (``discover_test_callables``), so idiomatic parametrized suites are bound and
     run — not skipped. When ``is_pure`` is None it is auto-detected (purity module),
     which lets Wesker drop STATE mutations for pure functions.
+
+    ``extra_test_dirs`` are roots OUTSIDE ``project_root`` to also collect tests
+    from — so a re-profile counts tests a caller wrote out-of-tree (converge's
+    ``--write-dir`` on a scratch dir). Without it those tests are invisible and the
+    kill count is a misleading 0%.
     """
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
@@ -117,14 +131,128 @@ def profile(
     rel = os.path.relpath(full, root)
     func_key = f"{rel}::{qualname}"
 
+    tests_auto = tests is None  # workers re-discover; explicit callables can't cross spawn
     if tests is None:
         func_names = [qn for qn, _ in walk_functions(tree)]
-        tests = discover_test_callables(root, rel, func_names)
+        tests = discover_test_callables(
+            root, rel, func_names, extra_dirs=list(extra_test_dirs) or None
+        )
+
+    # Content-hashed verdict cache: an unchanged function + unchanged exercising
+    # tests + same sampling params yield the same profile, so serve it from disk
+    # instead of re-running every mutant — the re-audit-while-editing win. Keyed on
+    # the function's AST dump (position-independent: editing OTHER functions never
+    # invalidates this one) + the tests' sources + (max_per_category, pass_index).
+    # Scope-invariant: scoped and full runs are proven verdict-identical.
+    from . import verdict_cache
+
+    ck = verdict_cache.cache_key(func_key, ast.dump(node), tests, max_per_category, pass_index)
+    if use_cache:
+        hit = verdict_cache.get(root, ck)
+        if hit is not None:
+            return hit
+
+    # Parallel fan-out (model A). Three modes via ``use_parallel``:
+    #   True  → force: fan the whole run out across workers (caller has dropped progress).
+    #   None  → AUTO: MEASURE this function's per-mutant cost with a small serial probe, then
+    #           parallelize the remainder only if the remaining serial work justifies the
+    #           spawn tax — correct across the ~1000x per-mutant range, not a stale-rate guess.
+    #   False → off: plain serial.
+    # Never for a shard (``mutant_slice``), explicit tests (workers re-discover; callables
+    # can't cross spawn), or a budgeted run (a sharded wall-clock budget is not equivalent).
+    # The fleet size is the portable memory guarantee; verdicts are proven bit-identical.
+    if use_parallel is not False and mutant_slice is None and tests_auto and budget_ms is None:
+        from . import parallel
+        from Wesker.memory_guard import worker_count
+
+        workers = worker_count()
+        if workers > 1:
+            # Generate ONCE; the probe and the serial remainder reuse this list rather than
+            # regenerating (~37ms each), so the adaptive measurement is nearly free.
+            _mutants = generate_mutants(  # type: ignore[arg-type]
+                node, categories, max_per_category=max_per_category, pass_index=pass_index
+            )
+            exact = len(_mutants)
+            fanned: ProfilingResult | None = None
+            if use_parallel is True and exact >= 2:
+                fanned = parallel.parallel_profile(
+                    file, function, project_root, end=exact,
+                    max_per_category=max_per_category, pass_index=pass_index,
+                    scope_tests=scope_tests, workers=workers,
+                )
+            elif use_parallel is None and exact >= parallel.PROBE_MIN_MUTANTS:
+                # Adaptive: time a small serial probe (silent), then decide. The probe is ALWAYS
+                # kept as shard 0 — merged with a parallel remainder (slow function) or a serial
+                # remainder that REUSES the probe's baseline line-coverage pass (fast function),
+                # so the measurement adds ~no cost beyond splitting one run into two.
+                probe_n = min(parallel.PROBE_SIZE, exact)
+                _orig = _load_original(full, qualname or function)
+                probe = run_function_profiling(  # type: ignore[arg-type]
+                    node, func_key, categories, tests, _orig,
+                    max_per_category=max_per_category, pass_index=pass_index,
+                    scope_tests=scope_tests, mutant_slice=(0, probe_n),
+                    pregenerated=_mutants,
+                )
+                if exact <= probe_n:
+                    fanned = probe  # the probe was the whole run
+                elif (
+                    parallel.mean_mutant_ms(probe) * (exact - probe_n)
+                    > parallel.PARALLEL_MIN_REMAINING_MS
+                ):
+                    rest = parallel.parallel_profile(
+                        file, function, project_root, start=probe_n, end=exact,
+                        max_per_category=max_per_category, pass_index=pass_index,
+                        scope_tests=scope_tests, workers=workers,
+                    )
+                    fanned = parallel.merge_results([probe, rest])
+                else:
+                    # Cheap enough to stay serial: finish the remainder in-process, REUSING the
+                    # probe's baseline (no second line-coverage trace) and streaming its progress.
+                    rest = run_function_profiling(  # type: ignore[arg-type]
+                        node, func_key, categories, tests, _orig,
+                        max_per_category=max_per_category, pass_index=pass_index,
+                        scope_tests=scope_tests, mutant_slice=(probe_n, exact),
+                        progress=progress,
+                        precomputed_line_data=(probe.line_coverage, probe.failing_tests),
+                        pregenerated=_mutants,
+                    )
+                    fanned = parallel.merge_results([probe, rest])
+            if fanned is not None:
+                if use_cache and not fanned.budget_exhausted:
+                    verdict_cache.put(root, ck, verdict_cache.key_prefix(func_key), fanned)
+                return fanned
 
     # Pass the live target so Wesker seeds the mutant namespace from its
     # __globals__ (module helpers/constants/imports resolve inside the mutant).
     original = _load_original(full, qualname or function)
-    return run_function_profiling(node, func_key, categories, tests, original, budget_ms=budget_ms)  # type: ignore[arg-type]
+    result = run_function_profiling(  # type: ignore[arg-type]
+        node, func_key, categories, tests, original,
+        budget_ms=budget_ms, max_per_category=max_per_category, pass_index=pass_index,
+        progress=progress, scope_tests=scope_tests, mutant_slice=mutant_slice,
+    )
+    # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
+    # later as if it were the whole profile.
+    if use_cache and not result.budget_exhausted:
+        verdict_cache.put(root, ck, verdict_cache.key_prefix(func_key), result)
+    return result
+
+
+def _count_decompose_seams(file: str, function: str, project_root: str = ".") -> int:
+    """Clean structural extraction candidates (single-exit, small-interface, worth-it) the
+    deterministic clustering finds for ``function`` — the STRUCTURAL decomposability signal,
+    read from the AST alone (no tests). Best-effort: any failure returns 0, so a structural
+    read never breaks a diagnose. Paired with regime B in the CLI as the convergent flag."""
+    try:
+        from .decompose import find_extraction_candidates
+
+        root = os.path.abspath(project_root)
+        full = file if os.path.isabs(file) else os.path.join(root, file)
+        with open(full, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename=full)
+        _, node = _resolve(tree, function)
+        return len(find_extraction_candidates(node)) if node is not None else 0  # type: ignore[arg-type]
+    except Exception:  # noqa: BLE001 — a structural read must never fail a diagnose
+        return 0
 
 
 def diagnose(
@@ -135,12 +263,31 @@ def diagnose(
     is_pure: bool | None = None,
     tests: list[Callable[..., Any]] | None = None,
     budget_ms: float | None = None,
+    learn: bool = False,
+    use_parallel: bool | None = None,
+    progress: Callable[[int, int, float], None] | None = None,
 ) -> ScopeMap:
-    """Profile ``function`` and reshape the result into a behavioral-scope map."""
+    """Profile ``function`` and reshape the result into a behavioral-scope map.
+
+    Always attaches the STRUCTURAL decomposition signal (``decompose_seams``) so the CLI can
+    pair it with regime B — the convergent "really two things" flag. ``learn=True`` also folds
+    this run's per-category value-survival into ``.wesker/mutation_report.json`` and attaches
+    the learned-weak priors (see :func:`learn_priors`). ``use_parallel=True`` fans the mutants
+    across worker processes (mutually exclusive with ``progress``).
+    """
     result = profile(
-        file, function, project_root, is_pure=is_pure, tests=tests, budget_ms=budget_ms
+        file, function, project_root, is_pure=is_pure, tests=tests, budget_ms=budget_ms,
+        use_parallel=use_parallel, progress=progress,
     )
-    return scope_from_profiling(result)
+    scope = scope_from_profiling(result)
+
+    from dataclasses import replace
+
+    updates: dict[str, Any] = {"decompose_seams": _count_decompose_seams(file, function, project_root)}
+    if learn:
+        priors = learn_priors(result, project_root)
+        updates["learned_priors"] = [(p.category.value, p.prior) for p in priors]
+    return replace(scope, **updates)
 
 
 def _compile_mutant(mutant: Any, original: Callable[..., Any]) -> Callable[..., Any] | None:
@@ -182,12 +329,49 @@ def _synth_value(type_name: str | None, namespace: dict, depth: int = 0) -> Any:
     if depth < 4 and isinstance(cls, type) and dataclasses.is_dataclass(cls):
         try:
             return cls(**{
-                f.name: _synth_value(_field_type_name(f), namespace, depth + 1)
+                f.name: _synth_field(f, namespace, depth + 1)
                 for f in dataclasses.fields(cls)
             })
         except Exception:  # noqa: BLE001 — an unconstructible field just yields no instance
             return None
     return None
+
+
+def _synth_field(field: Any, namespace: dict, depth: int) -> Any:
+    """Synthesize one dataclass field, honoring PARAMETRIZED annotations
+    (``tuple[str, str]`` -> ``('x', 'x')``, ``list[int]`` -> ``[1]``, ``X | None``) by
+    parsing the annotation string and routing through ``_synth_from_ann`` — not just the
+    coarse base type name, which would give a bare ``(1,)`` for ``tuple[str, str]`` and
+    break callers that unpack it."""
+    ann = field.type
+    if isinstance(ann, str):
+        try:
+            return _synth_from_ann(ast.parse(ann, mode="eval").body, namespace, depth)
+        except (SyntaxError, ValueError):
+            return _synth_value(_field_type_name(field), namespace, depth)
+    return _synth_value(getattr(ann, "__name__", None), namespace, depth)
+
+
+
+def _dataclass_field_variants(value: Any, cap: int = 4) -> list:
+    """A few variants of a synthesized dataclass INSTANCE that differ in their bool and
+    Optional fields — so branches that test those fields (``if x.flag``, ``if x.opt is
+    not None``) are exercised, and mutants on them are distinguished. The base instance
+    plus, per bool field, a flipped copy and, per Optional-typed field, a ``None`` copy;
+    capped. Returns ``[value]`` unchanged when ``value`` is not a dataclass instance."""
+    if not (dataclasses.is_dataclass(value) and not isinstance(value, type)):
+        return [value]
+    variants = [value]
+    for f in dataclasses.fields(value):
+        if len(variants) >= cap:
+            break
+        cur = getattr(value, f.name)
+        ann = f.type if isinstance(f.type, str) else getattr(f.type, "__name__", "")
+        if isinstance(cur, bool):
+            variants.append(dataclasses.replace(value, **{f.name: not cur}))
+        elif isinstance(ann, str) and "None" in ann and cur is not None:
+            variants.append(dataclasses.replace(value, **{f.name: None}))
+    return variants
 
 
 def _synth_from_ann(ann, namespace: dict, depth: int = 0) -> Any:
@@ -227,58 +411,203 @@ def _synth_from_ann(ann, namespace: dict, depth: int = 0) -> Any:
 
 
 def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
-    """Per-parameter candidate value lists: a built-in grid for scalars, a
-    recursively-synthesized value for a container/dataclass param (element types
-    honored), else the integer fallback — so functions taking structured inputs
-    become exercisable."""
+    """Per-parameter candidate value lists: a built-in grid for scalars; for a sequence
+    param a set of LENGTH VARIANTS (empty / single / two field-variant elements); for a
+    bare dataclass param its FIELD VARIANTS (bool flipped, Optional None); else the
+    integer fallback — so functions taking structured inputs become exercisable and their
+    field/length branches are all covered."""
     grids: list[list] = []
     for arg in node.args.args:  # type: ignore[attr-defined]
         if arg.arg in ("self", "cls"):
             continue
         name = _type_of(arg.annotation)
         if name is not None and not is_scalar_type(name):
-            value = _synth_from_ann(arg.annotation, namespace)
-            grids.append([value] if value is not None else _grid_for(name))
+            variants = _seq_length_variants(arg.annotation, namespace)
+            if variants is not None:
+                grids.append(variants)
+            else:
+                value = _synth_from_ann(arg.annotation, namespace)
+                grids.append(
+                    _dataclass_field_variants(value) if value is not None else _grid_for(name)
+                )
         else:
             grids.append(_grid_for(name))
     return grids
 
 
+def _seq_length_variants(ann: ast.AST, namespace: dict) -> list | None:
+    """For a ``list``/``Sequence`` annotation, candidate values at lengths 0, 1, and 2 —
+    the length-2 case pairing two field-variant elements so branches that depend on both
+    sequence LENGTH (empty/single/2+) and on the ELEMENTS' bool/Optional fields are all
+    exercised. None when the annotation is not a recognized sequence."""
+    if not (isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name)):
+        return None
+    if ann.value.id not in ("list", "List", "Sequence", "Iterable"):
+        return None
+    elem = _synth_from_ann(ann.slice, namespace, depth=1)
+    if elem is None:
+        return None
+    variants = _dataclass_field_variants(elem)
+    v0 = variants[0]
+    v1 = variants[1] if len(variants) > 1 else v0
+    return [[], [v0], [v0, v1]]
+
+
 def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
-    """A SINGLE golden call site (not the full grid product): numeric/unannotated
-    params get 1, 2, 3… for order-distinction, other scalars a sample value, and
-    container/dataclass params a synthesized value. Golden capture pins the output at
-    one input; the witness pass adds inputs for killability — so this keeps the
-    generated suite minimal instead of emitting one golden test per grid combination."""
-    args: list[str] = []
+    """Golden call sites: a base site (numeric/unannotated params get 1, 2, 3… for
+    order-distinction, other scalars a sample value, container/dataclass params a
+    synthesized value), PLUS a length-2 variant for each sequence param so
+    length-dependent branches (empty/single/2+) get exercised. Golden capture pins the
+    output at each; the minimize/audit pass then keeps only the sites that uniquely cover
+    a kill or a line — so the suite stays minimal without a per-grid explosion."""
+    base: list = []
+    seq_variants: list[tuple[int, str]] = []  # (arg index, repr of the length-2 value)
     n = 1
     for arg in node.args.args:  # type: ignore[attr-defined]
         if arg.arg in ("self", "cls"):
             continue
         name = _type_of(arg.annotation)
         if name in (None, "int"):
-            args.append(repr(n))
+            base.append(repr(n))
             n += 1
         elif is_scalar_type(name):
-            args.append(repr(_grid_for(name)[-1]))
+            base.append(repr(_grid_for(name)[-1]))
         else:
             value = _synth_from_ann(arg.annotation, namespace)
             # A SourceExpr passes through as the OBJECT (eval_call_site skips
             # non-strings), so it reaches capture intact and renders as its
             # constructor source; a plain synthesized value renders via repr.
-            if isinstance(value, SourceExpr):
-                args.append(value)
-            else:
-                args.append(repr(value if value is not None else n))
-    return [{"positional_args": args}]
+            base.append(value if isinstance(value, SourceExpr) else repr(value if value is not None else n))
+            variants = _seq_length_variants(arg.annotation, namespace)
+            if variants is not None and variants[-1]:  # the [elem, elem] length-2 variant
+                seq_variants.append((len(base) - 1, repr(variants[-1])))
+    sites = [{"positional_args": base}]
+    for idx, two_repr in seq_variants:
+        variant = list(base)
+        variant[idx] = two_repr
+        sites.append({"positional_args": variant})
+    return sites
+
+
+def _unreachable_inputs_note(
+    node: ast.AST, qualname: str, inferred: dict[str, str] | None = None
+) -> str:
+    """Actionable Zone-3 message when synthesized inputs can't exercise a function.
+
+    The opaque "candidate inputs don't exercise this function" leaves the user with
+    nothing to do. Per the three-zone contract, an un-exercisable function is a
+    handoff, not a dead end: name each parameter and its declared type (``unannotated``
+    when the signature omits it, or the call-site-inferred type when we recovered one)
+    and say exactly how to supply a real sample, so the user can resolve the tiny
+    fraction the deterministic layer provably cannot.
+    """
+    inferred = inferred or {}
+    params: list[str] = []
+    args = getattr(node, "args", None)
+    for a in getattr(args, "args", []) or []:
+        if a.arg in ("self", "cls"):
+            continue
+        if a.annotation is not None:
+            ann = ast.unparse(a.annotation)
+        elif a.arg in inferred:
+            ann = f"{inferred[a.arg]} (inferred from call site)"
+        else:
+            ann = "unannotated"
+        params.append(f"{a.arg}: {ann}")
+    sig = ", ".join(params) if params else "no positional params"
+    return (
+        f"synthesized inputs don't exercise {qualname}({sig}) — every candidate raised; "
+        "provide a real sample (pass call_site_inputs to converge, or add a literal "
+        "call site) so killability can be determined"
+    )
+
+
+def _resolve_class(type_name: str, project_root: str) -> type | None:
+    """Resolve a type NAME (``ScopeMap``; ``list[X]`` -> ``list``, so pass a base name)
+    to its class object by finding the ``class`` definition in the repo and importing that
+    module. Synthesis then runs in the DEFINING module's namespace, where the class AND its
+    sibling nested types resolve — the target's own module usually does not import them, so
+    synthesizing there returns None. None if the class is not found or not importable."""
+    base = type_name.split("[")[0].split("|")[0].strip()
+    if not base.isidentifier():
+        return None
+    root = os.path.abspath(project_root)
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "__pycache__"]
+        for fn in filenames:
+            if not fn.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, fn)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    src = fh.read()
+            except OSError:
+                continue
+            if f"class {base}" not in src:  # cheap prefilter before parsing
+                continue
+            try:
+                tree = ast.parse(src)
+            except SyntaxError:
+                continue
+            if any(isinstance(n, ast.ClassDef) and n.name == base for n in tree.body):
+                obj = _load_original(path, base)
+                if isinstance(obj, type):
+                    return obj
+    return None
+
+
+def _synth_inferred_inputs(
+    node: ast.AST, qualname: str, project_root: str, namespace: dict
+) -> tuple[list[tuple], dict[str, str]]:
+    """One correlated input tuple for a function whose UNANNOTATED params have types
+    recoverable from call sites ([[infer_param_types]]). Each inferred type is resolved to
+    its defining module and synthesized there (so nested dataclass / ``list[Dataclass]``
+    fields build correctly); an annotated param synthesizes from its annotation; anything
+    left over gets an integer. Returns ``([tuple] or [], inferred_types)`` — the tuple
+    exercises the formatter/domain-object functions the per-parameter integer grids cannot,
+    and the types feed the actionable note even when a value cannot be built.
+    """
+    args = [
+        a for a in getattr(getattr(node, "args", None), "args", []) or []
+        if a.arg not in ("self", "cls")
+    ]
+    inferred = infer_param_types(qualname, project_root, [a.arg for a in args])
+    if not inferred:
+        return [], {}
+    values: list[Any] = []
+    for a in args:
+        if a.annotation is not None:
+            values.append(_synth_from_ann(a.annotation, namespace))
+        elif a.arg in inferred:
+            cls = _resolve_class(inferred[a.arg], project_root)
+            mod = sys.modules.get(cls.__module__) if cls is not None else None
+            value = _synth_value(cls.__name__, vars(mod)) if (cls is not None and mod is not None) else None
+            if value is None:
+                return [], inferred  # type known (for the note) but no value could be built
+            values.append(value)
+        else:
+            values.append(1)
+    return [tuple(values)], inferred
 
 
 def classify_survivors(
-    file: str, function: str, project_root: str = ".", *, max_int: int = 3
+    file: str,
+    function: str,
+    project_root: str = ".",
+    *,
+    max_int: int = 3,
+    call_site_inputs: list[tuple] | None = None,
+    extra_test_dirs: tuple[str, ...] = (),
 ) -> SurvivorReport:
     """Classify each surviving mutant as killable (with a distinguishing witness),
     equivalent-candidate, or unclassified — by running the original against the
     mutant over candidate integer inputs.
+
+    ``call_site_inputs`` are user-SUPPLIED positional-argument tuples — the Zone-2
+    residual filled in through the CLI when deterministic synthesis provably could not
+    exercise a degree of freedom. They are tried FIRST, so a human-provided sample can
+    kill a mutant that would otherwise read as candidate-equivalent. The human supplies
+    only the input; the witness search and test generation stay deterministic.
 
     Every survivor is accounted for: a mutant that can't be built lands in
     ``unclassified``; when the integer inputs don't *exercise* the function (it
@@ -312,8 +641,16 @@ def classify_survivors(
             tuple(r.get("diff_summary", "") for r in recs if _flagged(r)),
         )
 
-    result = profile(file, function, project_root)
-    survivors = result.survivor_records
+    # Count survivors against the SAME test set the caller's headline profile used —
+    # including any out-of-tree write-dir (extra_test_dirs). Without this, an out-of-tree
+    # written test that already kills a mutant is invisible here, so the survivor report
+    # would classify a mutant the headline count reports as killed (a real inconsistency).
+    result = profile(file, function, project_root, extra_test_dirs=extra_test_dirs)
+    # Value-survivors: true survivors PLUS crash/timeout kills — the mutants whose RETURN
+    # VALUE no test pins. Classifying THESE is how a crash-killed mutant gets a real
+    # value-distinguishing witness (or is judged equivalent), instead of being silently
+    # treated as specified because the code merely raised under some test.
+    survivors = result.value_survivor_records
     if not survivors:
         return SurvivorReport((), (), None)
 
@@ -326,14 +663,31 @@ def classify_survivors(
     # Typed + dataclass-synthesized inputs from annotations, so a str/typed/object
     # function is exercised with type-appropriate values (not integers) — otherwise
     # its killable mutants read as false "equivalent".
-    inputs = bounded_product(_input_grids(node, getattr(original, "__globals__", {}) or {}))
+    # Real call-site inputs FIRST — the honest record of how the function is actually
+    # called, which exercises list/dict/unannotated arguments the per-parameter grids
+    # cannot synthesize — then the synthesized grids. Discovery proposes; the soundness
+    # gate below disposes (a spurious match just raises and is dropped).
+    ns = getattr(original, "__globals__", {}) or {}
+    discovered = discover_call_site_inputs(qualname or function, project_root)
+    # Inputs whose TYPE is recovered from call sites even though the signature is
+    # unannotated (formatters/domain-object fns) — synthesized in the type's defining
+    # module so nested dataclass fields build. Placed after the real call-sites, before
+    # the integer grids, so a genuine sample still wins.
+    inferred_tuples, inferred_types = _synth_inferred_inputs(
+        node, qualname or function, project_root, ns
+    )
+    # User-SUPPLIED inputs FIRST — the Zone-2 residual filled through the CLI. A
+    # human-provided sample is ground truth for a DOF deterministic synthesis could not
+    # exercise, so it wins over discovery, inferred-type synth, and the integer grids.
+    supplied = [tuple(x) for x in (call_site_inputs or [])]
+    inputs = supplied + discovered + inferred_tuples + bounded_product(_input_grids(node, ns))
     # Soundness gate: if the original raises on every candidate input, the inputs
     # don't fit this function — any "equivalent" verdict would be spurious.
     if not any(not _outcome(original, args).startswith("<raised") for args in inputs):
         # Execution can't run here — but a manual flag stands regardless.
         unclassified_descs, manual_eq = _split(survivors)
         note = (
-            "candidate inputs don't exercise this function — killability undetermined"
+            _unreachable_inputs_note(node, qualname or function, inferred_types)
             if unclassified_descs
             else None
         )
@@ -371,3 +725,43 @@ def classify_survivors(
     return SurvivorReport(
         tuple(verdicts), tuple(unclassified), None, manual_equivalent=tuple(manual_equivalent)
     )
+
+
+def learn_priors(result: Any, project_root: str) -> list:
+    """Optional learned-weak signal (opt-in via ``diagnose --learn``): accumulate this
+    run's per-category VALUE-survival into ``.wesker/mutation_report.json`` — a running
+    aggregate across runs — and return the resulting priors, categories ordered by
+    HISTORICAL value-survival (weakest, i.e. highest-survival, first).
+
+    Uses ``value_survived`` (true + crash/timeout kills) rather than raw survivors, so the
+    learned-weak signal measures the same thing the rest of the pipeline does: which
+    categories this project's own code + tests recurrently leave the VALUE unspecified.
+    Reuses Wesker's ``prioritize_categories`` over the accumulated state — the same signal
+    Wesker's own budgeted runs prioritize by — so Detective and Wesker read it identically.
+    """
+    import json
+    from pathlib import Path
+
+    from Wesker.filter import prioritize_categories
+
+    report = Path(project_root) / ".wesker" / "mutation_report.json"
+    state: dict = {}
+    if report.exists():
+        try:
+            state = json.loads(report.read_text())
+        except (OSError, ValueError):
+            state = {}
+    agg: dict[str, dict] = {
+        e["category"]: dict(e)
+        for e in state.get("per_category", [])
+        if isinstance(e, dict) and e.get("category")
+    }
+    for cr in result.per_category:
+        cat = cr.category.value
+        cur = agg.setdefault(cat, {"category": cat, "total": 0, "survived": 0})
+        cur["total"] = cur.get("total", 0) + cr.total
+        cur["survived"] = cur.get("survived", 0) + cr.value_survived
+    state["per_category"] = list(agg.values())
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(json.dumps(state, indent=2))
+    return prioritize_categories({cr.category for cr in result.per_category}, state)
