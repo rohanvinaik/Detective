@@ -18,9 +18,10 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from Wesker.engine import CategoryResult, MutationCategory, ProfilingResult
 
@@ -49,14 +50,14 @@ def tests_fingerprint(tests: list[Callable[..., Any]]) -> str:
 
 
 def cache_key(
-    func_key: str, func_source: str, tests: list[Callable[..., Any]],
-    max_per_category: int, pass_index: int,
+    func_key: str,
+    func_source: str,
+    tests: list[Callable[..., Any]],
+    max_per_category: int,
+    pass_index: int,
 ) -> str:
     """The content-addressed key: identity + fn-hash + tests-hash + sampling params."""
-    return (
-        f"{func_key}:{_sha(func_source)}:{tests_fingerprint(tests)}"
-        f":{max_per_category}:{pass_index}"
-    )
+    return f"{func_key}:{_sha(func_source)}:{tests_fingerprint(tests)}:{max_per_category}:{pass_index}"
 
 
 def key_prefix(func_key: str) -> str:

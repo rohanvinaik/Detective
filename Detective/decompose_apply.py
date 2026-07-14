@@ -40,9 +40,7 @@ def _aug_targets(node: ast.AST) -> set[str]:
     """Names that are augmented-assignment targets (``x += 1``): read AND written,
     so they must be passed IN as well as returned OUT."""
     return {
-        a.target.id
-        for a in ast.walk(node)
-        if isinstance(a, ast.AugAssign) and isinstance(a.target, ast.Name)
+        a.target.id for a in ast.walk(node) if isinstance(a, ast.AugAssign) and isinstance(a.target, ast.Name)
     }
 
 
@@ -106,9 +104,7 @@ class BlockInterface:
     returns: tuple[str, ...]
 
 
-def block_interface(
-    func_node: ast.FunctionDef | ast.AsyncFunctionDef, index: int
-) -> BlockInterface:
+def block_interface(func_node: ast.FunctionDef | ast.AsyncFunctionDef, index: int) -> BlockInterface:
     """Params and returns for extracting ``func_node.body[index]``.
 
     A param is a name the block READS that was defined before it (a function
@@ -306,9 +302,7 @@ def apply_decomposition(
         # into the proof suite so a function whose line-/mutant-completeness needs a human
         # sample can still reach the `line_complete` gate below — otherwise it could never
         # be proven decomposable from the CLI.
-        conv = converge(
-            file, function, project_root, write_dir="tests", supplied_inputs=supplied_inputs
-        )
+        conv = converge(file, function, project_root, write_dir="tests", supplied_inputs=supplied_inputs)
         report = conv.survivor_report
         if report is not None:
             surviving_categories = tuple(sorted({v.category for v in report.verdicts}))
@@ -319,7 +313,9 @@ def apply_decomposition(
 
         try:
             _prof = profile(file, function, project_root)
-            surviving_categories = tuple(sorted({r.get("category", "") for r in _prof.value_survivor_records}))
+            surviving_categories = tuple(
+                sorted({r.get("category", "") for r in _prof.value_survivor_records})
+            )
         except Exception:  # noqa: BLE001
             surviving_categories = ()
 
@@ -336,9 +332,7 @@ def apply_decomposition(
     # ``--input`` for.) The suite must still exist and cover the target specifically, so an
     # unrelated passing test can never stand in for the proof.
     proof_suite = (
-        conv.written_path
-        if (conv is not None and conv.functionally_complete and conv.written_path)
-        else None
+        conv.written_path if (conv is not None and conv.functionally_complete and conv.written_path) else None
     )
 
     def _suite_green() -> bool:

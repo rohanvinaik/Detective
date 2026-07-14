@@ -25,8 +25,19 @@ import ast
 import os
 
 _SKIP_DIRS = {
-    ".git", ".venv", "venv", "env", "__pycache__", ".lintgate", ".serena",
-    "node_modules", ".tox", ".mypy_cache", ".pytest_cache", "build", "dist",
+    ".git",
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    ".lintgate",
+    ".serena",
+    "node_modules",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    "build",
+    "dist",
 }
 
 
@@ -99,9 +110,7 @@ def _local_type_bindings(fn: ast.AST, return_anns: dict[str, str]) -> dict[str, 
     return {name: next(iter(types)) for name, types in seen.items() if len(types) == 1}
 
 
-def infer_param_types(
-    qualname: str, project_root: str, param_names: list[str]
-) -> dict[str, str]:
+def infer_param_types(qualname: str, project_root: str, param_names: list[str]) -> dict[str, str]:
     """Best-effort TYPE-NAME per parameter, inferred from how the target is CALLED across
     the repo — for parameters its signature leaves unannotated. Deterministic (stdlib
     ast, no execution): for a call ``target(...args...)`` inside some function, a positional
@@ -149,9 +158,7 @@ def infer_param_types(
     return resolved
 
 
-def discover_call_site_inputs(
-    qualname: str, project_root: str, max_sites: int = 12
-) -> list[tuple]:
+def discover_call_site_inputs(qualname: str, project_root: str, max_sites: int = 12) -> list[tuple]:
     """Realized positional-arg tuples from every literal call to ``qualname`` in the
     repo, ordered by discovery and deduplicated by value. Empty when the function is
     never called with realizable literals (→ the caller falls back to synthesis, and if
@@ -171,11 +178,7 @@ def discover_call_site_inputs(
             except (OSError, SyntaxError, UnicodeDecodeError):
                 continue
             for node in ast.walk(tree):
-                if (
-                    isinstance(node, ast.Call)
-                    and not node.keywords
-                    and _callee_matches(node.func, target)
-                ):
+                if isinstance(node, ast.Call) and not node.keywords and _callee_matches(node.func, target):
                     realized = _realize_args(node.args)
                     if realized is None:
                         continue

@@ -19,11 +19,29 @@ from dataclasses import dataclass
 
 _IMPURE_BUILTINS = {"print", "open", "input", "exec", "eval"}
 _MUTATING_METHODS = {
-    "append", "extend", "insert", "remove", "pop", "clear", "update",
-    "add", "discard", "sort", "reverse", "setdefault", "popitem",
+    "append",
+    "extend",
+    "insert",
+    "remove",
+    "pop",
+    "clear",
+    "update",
+    "add",
+    "discard",
+    "sort",
+    "reverse",
+    "setdefault",
+    "popitem",
 }
 _PATH_WRITE_METHODS = {
-    "write_text", "write_bytes", "mkdir", "unlink", "rmdir", "touch", "rename", "replace",
+    "write_text",
+    "write_bytes",
+    "mkdir",
+    "unlink",
+    "rmdir",
+    "touch",
+    "rename",
+    "replace",
 }
 
 

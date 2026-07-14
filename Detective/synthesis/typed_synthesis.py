@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import ast
 import importlib
-from dataclasses import MISSING, dataclass
+from dataclasses import MISSING, dataclass, is_dataclass
 from dataclasses import fields as dc_fields
-from dataclasses import is_dataclass
 from typing import Any
 
 _PRIMITIVE_DEFAULTS: dict[str, str] = {
@@ -77,7 +76,11 @@ def synthesize_value(annotation: str, param_name: str = "", module_path: str = "
         return SynthesizedValue("()", type_name="tuple")
 
     if base == "Optional":
-        return synthesize_value(args[0], param_name, module_path) if args else SynthesizedValue("None", type_name="Optional")
+        return (
+            synthesize_value(args[0], param_name, module_path)
+            if args
+            else SynthesizedValue("None", type_name="Optional")
+        )
 
     if base == "Any":
         return _fallback(param_name)

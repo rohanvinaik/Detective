@@ -63,9 +63,7 @@ def render_module(func_key: str, props: list[ExecutableProperty]) -> str:
     return "\n".join(parts) + "\n"
 
 
-def _render_parametrized(
-    test_name: str, call_name: str, goldens: list[ExecutableProperty]
-) -> str:
+def _render_parametrized(test_name: str, call_name: str, goldens: list[ExecutableProperty]) -> str:
     """Fold golden value-captures into one ``@pytest.mark.parametrize`` test — the
     idiomatic data-driven form: one test body, N ``(input, expected)`` rows."""
     rows = "\n".join(

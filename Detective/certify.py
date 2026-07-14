@@ -196,9 +196,7 @@ def certify(
         written = _write(source, target, qualname)
     # Wire the written suite so it runs under real pytest, and state how (see converge).
     wiring = wire_pytest(root, written) if written else None
-    return CertifyResult(
-        func_key, scope, result.value_survived, at_ceiling, source, written, plan, wiring
-    )
+    return CertifyResult(func_key, scope, result.value_survived, at_ceiling, source, written, plan, wiring)
 
 
 def _write(source: str, write_dir: str, qualname: str) -> str:

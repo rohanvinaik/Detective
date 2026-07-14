@@ -19,7 +19,6 @@ from Detective.certify import (
     ensure_conftest,
 )
 
-
 # ── _wiring_message (mutation-driven — the exact CLI wording IS the product) ─
 # The message is the idiot-proof surface a first-time user reads, so its full text
 # is the contract: assert it verbatim (kills every VALUE mutant, incl. the prose).
@@ -32,16 +31,14 @@ _WIRED_TAIL = (
 def test_wiring_message_wired_and_verified_verbatim():
     msg = _wiring_message(conftest_wired="/proj/conftest.py", collects=True, passed=3)
     assert msg == (
-        f"pytest wiring: wired /proj/conftest.py — {_WIRED_TAIL}; "
-        "verified 3 test(s) pass under pytest"
+        f"pytest wiring: wired /proj/conftest.py — {_WIRED_TAIL}; verified 3 test(s) pass under pytest"
     )
 
 
 def test_wiring_message_conftest_already_present_verbatim():
     msg = _wiring_message(conftest_wired=None, collects=True, passed=2)
     assert msg == (
-        "pytest wiring: conftest.py already present — imports resolve; "
-        "verified 2 test(s) pass under pytest"
+        "pytest wiring: conftest.py already present — imports resolve; verified 2 test(s) pass under pytest"
     )
 
 

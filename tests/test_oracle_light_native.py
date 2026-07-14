@@ -15,6 +15,7 @@ import ast
 from Detective.synthesis.oracle_light import (
     _boundary_property,
     _build_call,
+    _call_args_from_sites,
     _distinct_values,
     _extract_assign_rhs,
     _extract_boundary_info,
@@ -23,7 +24,6 @@ from Detective.synthesis.oracle_light import (
     _func_info,
     _generic_property,
     _import_line,
-    _call_args_from_sites,
     _other_param_values,
     _parse_diff_changes,
     _skip,
@@ -44,7 +44,9 @@ def _fn(src: str) -> ast.FunctionDef:
 
 # ── dispatch ──────────────────────────────────────────────────────
 def test_dispatch_sets_function_key_and_mutant_id():
-    prop = generate_executable_property({"category": "VALUE", "mutant_id": "VALUE_3"}, "m::f", _fn("def f(x):\n return x"))
+    prop = generate_executable_property(
+        {"category": "VALUE", "mutant_id": "VALUE_3"}, "m::f", _fn("def f(x):\n return x")
+    )
     assert prop.function_key == "m::f" and prop.mutant_id == "VALUE_3"
 
 
@@ -99,7 +101,9 @@ def test_swap_type_skip_none_when_missing_annotation():
 
 # ── BOUNDARY ──────────────────────────────────────────────────────
 def test_boundary_extractable_full_output():
-    p = _boundary_property({"diff_summary": "- x > 5\n+ x >= 5"}, "m::f", _fn("def f(x):\n return x > 5"), None)
+    p = _boundary_property(
+        {"diff_summary": "- x > 5\n+ x >= 5"}, "m::f", _fn("def f(x):\n return x > 5"), None
+    )
     assert p.assertion_code == (
         "result_at = f(5)\n"
         "result_before = f(4)\n"
@@ -119,7 +123,9 @@ def test_boundary_not_extractable_skips():
 
 # ── TYPE ──────────────────────────────────────────────────────────
 def test_type_with_isinstance_full_output():
-    p = _type_property({"diff_summary": "- isinstance(x, str)\n+ True"}, "m::f", _fn("def f(x):\n return x"), None)
+    p = _type_property(
+        {"diff_summary": "- isinstance(x, str)\n+ True"}, "m::f", _fn("def f(x):\n return x"), None
+    )
     assert p.setup_code == "from m import f\nimport pytest"
     assert p.assertion_code == (
         "# isinstance checks str — wrong type should be rejected\n"
@@ -134,8 +140,7 @@ def test_type_with_isinstance_full_output():
 def test_type_without_isinstance_is_todo():
     p = _type_property({"diff_summary": ""}, "m::f", _fn("def f(x):\n return x"), None)
     assert p.assertion_code == (
-        "with pytest.raises((TypeError, ValueError)):\n"
-        "    f(None)  # TODO: use appropriate invalid type"
+        "with pytest.raises((TypeError, ValueError)):\n    f(None)  # TODO: use appropriate invalid type"
     )
     assert p.preconditions == ["expected type unknown"]
     assert p.confidence == 0.4 and p.needs_oracle is True
@@ -145,8 +150,7 @@ def test_type_without_isinstance_is_todo():
 def test_state_return_none_full_output():
     p = _state_property({"description": "return_none"}, "m::f", _fn("def f(x):\n return x"), None)
     assert p.assertion_code == (
-        "result = f(...)\n"
-        'assert result is not None, "STATE: return value should not be None"'
+        'result = f(...)\nassert result is not None, "STATE: return value should not be None"'
     )
     assert p.preconditions == ["function returns a meaningful value"]
     assert p.confidence == 0.7 and p.needs_oracle is False and p.source_lenses == ["mutation"]
@@ -155,7 +159,9 @@ def test_state_return_none_full_output():
 def test_state_remove_assign_literal_full_output():
     p = _state_property(
         {"description": "remove_assign", "diff_summary": "- self.count = 5\n+ pass"},
-        "m::Counter.reset", _fn("def reset(self):\n self.count = 5"), None,
+        "m::Counter.reset",
+        _fn("def reset(self):\n self.count = 5"),
+        None,
     )
     assert p.setup_code == "from m import Counter"
     assert p.assertion_code == "obj = Counter(...)\nobj.reset(...)\nassert obj.count == 5"
@@ -167,7 +173,9 @@ def test_state_remove_assign_literal_full_output():
 def test_state_remove_assign_general_full_output():
     p = _state_property(
         {"description": "remove_assign", "diff_summary": "- self.x = compute()\n+ pass"},
-        "m::f", _fn("def f(self):\n self.x = 1"), None,
+        "m::f",
+        _fn("def f(self):\n self.x = 1"),
+        None,
     )
     assert p.assertion_code == (
         "# STATE: self.x assignment removed — verify it's set after call\n"
@@ -204,7 +212,11 @@ def test_skip_helper():
 
 # ── helpers ───────────────────────────────────────────────────────
 def test_func_info_strips_self_and_cls():
-    assert _func_info("pkg/mod.py::C.m", _fn("def m(self, a, b):\n return a")) == ("pkg/mod.py", "C.m", ["a", "b"])
+    assert _func_info("pkg/mod.py::C.m", _fn("def m(self, a, b):\n return a")) == (
+        "pkg/mod.py",
+        "C.m",
+        ["a", "b"],
+    )
 
 
 def test_func_info_no_node():
@@ -232,8 +244,16 @@ def test_parse_diff_changes_empty_when_no_marker():
 
 
 def test_extract_boundary_info_int_and_float():
-    assert _extract_boundary_info("- n < 10\n+ n <= 10") == {"variable": "n", "comparator": "<", "boundary_value": 10}
-    assert _extract_boundary_info("- r > 0.5\n+ r >= 0.5") == {"variable": "r", "comparator": ">", "boundary_value": 0.5}
+    assert _extract_boundary_info("- n < 10\n+ n <= 10") == {
+        "variable": "n",
+        "comparator": "<",
+        "boundary_value": 10,
+    }
+    assert _extract_boundary_info("- r > 0.5\n+ r >= 0.5") == {
+        "variable": "r",
+        "comparator": ">",
+        "boundary_value": 0.5,
+    }
 
 
 def test_extract_boundary_info_none():
@@ -277,17 +297,25 @@ def test_build_call_varies_boundary_param():
 # ── targeted branch coverage ──────────────────────────────────────
 def test_type_invalid_value_per_type():
     for typ, invalid in [
-        ("int", "'not_int'"), ("float", "'not_float'"), ("bool", "42"),
-        ("list", "42"), ("dict", "42"), ("tuple", "42"),
+        ("int", "'not_int'"),
+        ("float", "'not_float'"),
+        ("bool", "42"),
+        ("list", "42"),
+        ("dict", "42"),
+        ("tuple", "42"),
     ]:
-        p = _type_property({"diff_summary": f"- isinstance(x, {typ})\n+ True"}, "m::f", _fn("def f(x):\n return x"), None)
+        p = _type_property(
+            {"diff_summary": f"- isinstance(x, {typ})\n+ True"}, "m::f", _fn("def f(x):\n return x"), None
+        )
         assert f"    f({invalid})" in p.assertion_code
         assert p.inputs == {"invalid_type": invalid}
         assert p.preconditions == [f"isinstance checks {typ}"]
 
 
 def test_type_unknown_type_defaults_to_none():
-    p = _type_property({"diff_summary": "- isinstance(x, Widget)\n+ True"}, "m::f", _fn("def f(x):\n return x"), None)
+    p = _type_property(
+        {"diff_summary": "- isinstance(x, Widget)\n+ True"}, "m::f", _fn("def f(x):\n return x"), None
+    )
     assert "    f(None)" in p.assertion_code  # unknown type -> None
 
 
@@ -298,20 +326,26 @@ def test_call_args_from_sites_context():
 
 
 def test_boundary_float_step_and_output():
-    p = _boundary_property({"diff_summary": "- r > 0.5\n+ r >= 0.5"}, "m::f", _fn("def f(r):\n return r > 0.5"), None)
+    p = _boundary_property(
+        {"diff_summary": "- r > 0.5\n+ r >= 0.5"}, "m::f", _fn("def f(r):\n return r > 0.5"), None
+    )
     assert "result_at = f(0.5)" in p.assertion_code
     assert "result_before = f(0.4)" in p.assertion_code
 
 
 def test_boundary_has_unknowns_lowers_confidence():
     # second param has no call-site value -> "..." -> has_unknowns
-    p = _boundary_property({"diff_summary": "- x > 5\n+ x >= 5"}, "m::f", _fn("def f(x, y):\n return x > 5"), None)
+    p = _boundary_property(
+        {"diff_summary": "- x > 5\n+ x >= 5"}, "m::f", _fn("def f(x, y):\n return x > 5"), None
+    )
     assert "..." in p.assertion_code and p.confidence == 0.5 and p.needs_oracle is True
 
 
 def test_state_uses_call_site_args():
     p = _state_property(
-        {"description": "return_none"}, "m::f", _fn("def f(x):\n return x"),
+        {"description": "return_none"},
+        "m::f",
+        _fn("def f(x):\n return x"),
         [{"context": "f(7)"}],
     )
     assert "result = f(7)" in p.assertion_code

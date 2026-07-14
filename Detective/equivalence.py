@@ -24,8 +24,9 @@ from __future__ import annotations
 
 import ast
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 def _type_of(ann) -> str | None:

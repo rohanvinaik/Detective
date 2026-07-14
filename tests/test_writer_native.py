@@ -58,8 +58,6 @@ def test_module_exact_output():
     )
 
 
-
-
 def test_no_duplicate_pytest_import():
     # a TYPE property already imports pytest; a needs-oracle property must not
     # add a second `import pytest`.
@@ -77,9 +75,6 @@ def test_render_preserves_blank_lines():
     assert "    a = 1\n\n    b = 2" in _render_test("f", 0, p)
 
 
-
-
-
 def test_method_name_dots_become_underscores():
     node = _fn("def reset(self):\n self.x = 1")
     src = synthesize_test_module("m::C.reset", node, [{"category": "STATE", "description": "return_none"}])
@@ -87,7 +82,9 @@ def test_method_name_dots_become_underscores():
 
 
 def test_warrant_names_category_mutant_and_confidence():
-    p = generate_executable_property({"category": "SWAP", "mutant_id": "SWAP_2"}, "m::sub", _fn("def sub(a, b):\n return a - b"))
+    p = generate_executable_property(
+        {"category": "SWAP", "mutant_id": "SWAP_2"}, "m::sub", _fn("def sub(a, b):\n return a - b")
+    )
     w = _warrant(p)
     assert "SWAP survivor [SWAP_2]" in w and "confidence 0.6" in w
 
@@ -138,7 +135,9 @@ def test_render_test_indents_multiline_assertion():
 def test_two_properties_numbered_and_joined():
     node = _fn("def f(x):\n return x")
     src = synthesize_test_module(
-        "m::f", node, [{"category": "VALUE", "mutant_id": "V0"}, {"category": "STATE", "description": "return_none"}]
+        "m::f",
+        node,
+        [{"category": "VALUE", "mutant_id": "V0"}, {"category": "STATE", "description": "return_none"}],
     )
     assert "def test_f_value_0():" in src
     assert "def test_f_state_1():" in src
@@ -176,4 +175,3 @@ def test_imports_are_deduped():
     node = _fn("def sub(a, b):\n return a - b")
     src = synthesize_test_module("m::sub", node, [{"category": "SWAP"}, {"category": "SWAP"}])
     assert src.count("from m import sub") == 1
-

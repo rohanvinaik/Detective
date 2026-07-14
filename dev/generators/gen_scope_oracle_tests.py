@@ -23,13 +23,15 @@ import sys
 from dataclasses import asdict
 
 # LintGate (the oracle) lives in the sibling repo. Dev-time path only.
-_LINTGATE = os.environ.get("LINTGATE_ROOT", os.path.join(os.path.dirname(__file__), "..", "..", "..", "lintgate"))
+_LINTGATE = os.environ.get(
+    "LINTGATE_ROOT", os.path.join(os.path.dirname(__file__), "..", "..", "..", "lintgate")
+)
 sys.path.insert(0, os.path.abspath(_LINTGATE))
 
 from mcp_tools._mutation_tools_impl import _scope_from_result as oracle  # noqa: E402
+from Wesker.engine import CategoryResult, MutationCategory, ProfilingResult  # noqa: E402
 
 from Detective.scope import scope_from_profiling  # noqa: E402
-from Wesker.engine import CategoryResult, MutationCategory, ProfilingResult  # noqa: E402
 
 # Fields Detective's ScopeMap owns (the port defers LintGate enrichment fields
 # like is_pure/parameter_count/topology/truth_label, which are not on a
@@ -91,7 +93,9 @@ def _build(raw: dict) -> ProfilingResult:
     )
 
 
-def _raw(function_key, categories, killed_records, survivor_records, equivalent=0, universe=None, mutants=None):
+def _raw(
+    function_key, categories, killed_records, survivor_records, equivalent=0, universe=None, mutants=None
+):
     tk, ts = len(killed_records), len(survivor_records)
     total = tk + ts + equivalent
     return {
@@ -164,7 +168,9 @@ def corpus() -> list[tuple[str, dict]]:
         (
             "universe_fallback_to_total_mutants",
             {
-                **_raw("m::fallback", [_cat("VALUE", 1, 0, 0, 0, 1)], [_k("VALUE", "crash", "t0", "VALUE_0")], []),
+                **_raw(
+                    "m::fallback", [_cat("VALUE", 1, 0, 0, 0, 1)], [_k("VALUE", "crash", "t0", "VALUE_0")], []
+                ),
                 "universe_size": 0,
                 "total_mutants": 1,
             },
@@ -251,7 +257,9 @@ def render(cases: list[tuple[str, dict, dict]]) -> str:
     lines = [_HEADER.format(shared_fields=SHARED_FIELDS)]
     lines.append("CASES = [")
     for case_id, raw, expected in cases:
-        lines.append(f"    pytest.param(\n        {raw!r},\n        {expected!r},\n        id={case_id!r},\n    ),")
+        lines.append(
+            f"    pytest.param(\n        {raw!r},\n        {expected!r},\n        id={case_id!r},\n    ),"
+        )
     lines.append("]\n\n")
     lines.append('@pytest.mark.parametrize("raw, expected", CASES)\n')
     lines.append("def test_scope_conforms_to_reference(raw: dict, expected: dict) -> None:\n")

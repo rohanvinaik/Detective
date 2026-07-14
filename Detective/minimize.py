@@ -71,9 +71,7 @@ def _obligations_by_test(
     return by_test
 
 
-def minimal_cover_2axis(
-    kill_matrix: dict[str, list[str]], line_coverage: dict[str, list[int]]
-) -> set[str]:
+def minimal_cover_2axis(kill_matrix: dict[str, list[str]], line_coverage: dict[str, list[int]]) -> set[str]:
     """Greedy set-cover over BOTH axes: the smallest test set that kills every
     killed mutant AND covers every covered line. A test survives minimization when
     it is the sole killer of a mutant OR the sole coverer of a line — so trimming to
@@ -91,9 +89,7 @@ def minimal_cover_2axis(
     return chosen
 
 
-def redundant_2axis(
-    kill_matrix: dict[str, list[str]], line_coverage: dict[str, list[int]]
-) -> set[str]:
+def redundant_2axis(kill_matrix: dict[str, list[str]], line_coverage: dict[str, list[int]]) -> set[str]:
     """Tests outside the two-axis minimal cover — redundant for BOTH kills and
     lines. This is the set to PROPOSE for deletion (never auto-delete): every test
     here kills no mutant and covers no line that the kept set does not already."""

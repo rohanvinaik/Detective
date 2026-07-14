@@ -165,7 +165,9 @@ def test_returned_constructor_names():
 # ── generate_round_trip_test ──────────────────────────────────────
 def test_generate_round_trip_resolvable_dataclass():
     prop = generate_round_trip_test(
-        "SynthesizedValue", "to_dict", "SynthesizedValue.from_dict",
+        "SynthesizedValue",
+        "to_dict",
+        "SynthesizedValue.from_dict",
         "Detective/synthesis/typed_synthesis.py",
     )
     assert prop.category == "ROUND_TRIP"
@@ -229,7 +231,9 @@ def test_round_trip_fallback_exact():
 
 def test_generate_round_trip_exact_classmethod():
     prop = generate_round_trip_test(
-        "SynthesizedValue", "to_dict", "SynthesizedValue.from_dict",
+        "SynthesizedValue",
+        "to_dict",
+        "SynthesizedValue.from_dict",
         "Detective/synthesis/typed_synthesis.py",
     )
     lines = prop.assertion_code.split("\n")

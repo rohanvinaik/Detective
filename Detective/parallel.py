@@ -28,14 +28,13 @@ from Wesker.memory_guard import _DEFAULT_WORKER_PEAK, apply_address_limit
 
 from . import verdict_cache
 
-
 # Adaptive auto mode. Rather than guess from a stale global rate, MEASURE this function's
 # per-mutant cost with a small serial probe, then parallelize only when the remaining work
 # justifies the fan-out — so the decision is right across the ~1000x per-mutant range (fast
 # pure code vs slow/heavy suites). The probe doubles as shard 0 (its results are kept), so it
 # is never wasted.
-PROBE_SIZE = 4          # mutants to time serially before deciding
-PROBE_MIN_MUTANTS = 8   # below this, just run serial — too few to shard usefully
+PROBE_SIZE = 4  # mutants to time serially before deciding
+PROBE_MIN_MUTANTS = 8  # below this, just run serial — too few to shard usefully
 PARALLEL_MIN_REMAINING_MS = 2000.0  # parallelize only if est. remaining serial time exceeds this
 
 
@@ -43,8 +42,7 @@ def mean_mutant_ms(result: ProfilingResult) -> float:
     """Mean per-mutant evaluation time (ms) from a profile's per-mutant records — the ACTUAL
     cost under the current (scoped) path, excluding the one-off baseline pass. 0.0 if empty."""
     times = [
-        rec.get("elapsed_ms", 0.0)
-        for rec in (list(result.survivor_records) + list(result.killed_records))
+        rec.get("elapsed_ms", 0.0) for rec in (list(result.survivor_records) + list(result.killed_records))
     ]
     return sum(times) / len(times) if times else 0.0
 
@@ -97,9 +95,13 @@ def merge_results(partials: list[ProfilingResult]) -> ProfilingResult:
             agg = by_cat.get(cr.category)
             if agg is None:
                 by_cat[cr.category] = CategoryResult(
-                    category=cr.category, total=cr.total, killed=cr.killed,
-                    survived=cr.survived, killed_by_assertion=cr.killed_by_assertion,
-                    killed_by_crash=cr.killed_by_crash, timed_out=cr.timed_out,
+                    category=cr.category,
+                    total=cr.total,
+                    killed=cr.killed,
+                    survived=cr.survived,
+                    killed_by_assertion=cr.killed_by_assertion,
+                    killed_by_crash=cr.killed_by_crash,
+                    timed_out=cr.timed_out,
                     equivalent=cr.equivalent,
                 )
             else:

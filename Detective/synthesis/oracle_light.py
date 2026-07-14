@@ -188,9 +188,14 @@ def _type_property(survivor, func_key, func_node, _call_site_inputs) -> Executab
             f"    {fname}(None)  # TODO: use appropriate invalid type"
         )
         return ExecutableProperty(
-            category="TYPE", inputs={}, setup_code=setup, assertion_code=assertion,
-            preconditions=["expected type unknown"], confidence=0.4,
-            source_lenses=["mutation"], needs_oracle=True,
+            category="TYPE",
+            inputs={},
+            setup_code=setup,
+            assertion_code=assertion,
+            preconditions=["expected type unknown"],
+            confidence=0.4,
+            source_lenses=["mutation"],
+            needs_oracle=True,
         )
 
     invalid = _INVALID_FOR_TYPE.get(expected_type, "None")
@@ -200,9 +205,14 @@ def _type_property(survivor, func_key, func_node, _call_site_inputs) -> Executab
         f"    {fname}({invalid})"
     )
     return ExecutableProperty(
-        category="TYPE", inputs={"invalid_type": invalid}, setup_code=setup, assertion_code=assertion,
-        preconditions=[f"isinstance checks {expected_type}"], confidence=0.7,
-        source_lenses=["mutation", "diff_analysis"], needs_oracle=False,
+        category="TYPE",
+        inputs={"invalid_type": invalid},
+        setup_code=setup,
+        assertion_code=assertion,
+        preconditions=[f"isinstance checks {expected_type}"],
+        confidence=0.7,
+        source_lenses=["mutation", "diff_analysis"],
+        needs_oracle=False,
     )
 
 
@@ -220,9 +230,14 @@ def _state_property(survivor, func_key, func_node, call_site_inputs) -> Executab
             'assert result is not None, "STATE: return value should not be None"'
         )
         return ExecutableProperty(
-            category="STATE", inputs={}, setup_code=setup, assertion_code=assertion,
-            preconditions=["function returns a meaningful value"], confidence=0.7,
-            source_lenses=["mutation"], needs_oracle=False,
+            category="STATE",
+            inputs={},
+            setup_code=setup,
+            assertion_code=assertion,
+            preconditions=["function returns a meaningful value"],
+            confidence=0.7,
+            source_lenses=["mutation"],
+            needs_oracle=False,
         )
 
     attr = _extract_self_attr(diff)
@@ -237,9 +252,13 @@ def _state_property(survivor, func_key, func_node, call_site_inputs) -> Executab
                 f"assert obj.{attr} == {rhs_info[1]}"
             )
             return ExecutableProperty(
-                category="STATE", inputs={}, setup_code=_import_line(mod, class_name),
-                assertion_code=assertion, preconditions=[f"construct {class_name}"],
-                confidence=0.65, source_lenses=["mutation", "diff_analysis", "state_fast_path"],
+                category="STATE",
+                inputs={},
+                setup_code=_import_line(mod, class_name),
+                assertion_code=assertion,
+                preconditions=[f"construct {class_name}"],
+                confidence=0.65,
+                source_lenses=["mutation", "diff_analysis", "state_fast_path"],
                 needs_oracle=False,
             )
 
@@ -251,10 +270,14 @@ def _state_property(survivor, func_key, func_node, call_site_inputs) -> Executab
         f"# assert obj.{attr or 'ATTR'} == EXPECTED  # FILL"
     )
     return ExecutableProperty(
-        category="STATE", inputs={}, setup_code=setup, assertion_code=assertion,
+        category="STATE",
+        inputs={},
+        setup_code=setup,
+        assertion_code=assertion,
         preconditions=["construct object", f"verify {hint}"],
         confidence=0.4 if attr else 0.2,
-        source_lenses=["mutation"] + (["diff_analysis"] if attr else []), needs_oracle=True,
+        source_lenses=["mutation"] + (["diff_analysis"] if attr else []),
+        needs_oracle=True,
     )
 
 
@@ -265,9 +288,14 @@ def _value_property(_survivor, func_key, func_node, call_site_inputs) -> Executa
     call_args = _call_args_from_sites(call_site_inputs) or "..."
     assertion = f"result = {fname}({call_args})\nassert result == ...  # FILL: expected value"
     return ExecutableProperty(
-        category="VALUE", inputs={}, setup_code=setup, assertion_code=assertion,
-        preconditions=["exact expected value must be determined"], confidence=0.3,
-        source_lenses=["mutation"] + (["call_sites"] if call_site_inputs else []), needs_oracle=True,
+        category="VALUE",
+        inputs={},
+        setup_code=setup,
+        assertion_code=assertion,
+        preconditions=["exact expected value must be determined"],
+        confidence=0.3,
+        source_lenses=["mutation"] + (["call_sites"] if call_site_inputs else []),
+        needs_oracle=True,
     )
 
 
@@ -285,18 +313,28 @@ def _stmt_property(_survivor, func_key, func_node, call_site_inputs) -> Executab
         "# assert <observable effect of that statement>  # FILL: observe the side effect"
     )
     return ExecutableProperty(
-        category="STMT", inputs={}, setup_code=setup, assertion_code=assertion,
+        category="STMT",
+        inputs={},
+        setup_code=setup,
+        assertion_code=assertion,
         preconditions=["observe the deleted statement's side effect, or confirm dead code"],
-        confidence=0.3, source_lenses=["mutation"], needs_oracle=True,
+        confidence=0.3,
+        source_lenses=["mutation"],
+        needs_oracle=True,
     )
 
 
 def _generic_property(survivor, _func_key, _func_node, _call_site_inputs) -> ExecutableProperty:
     cat = survivor.get("category", "UNKNOWN")
     return ExecutableProperty(
-        category=cat, inputs={}, setup_code="",
+        category=cat,
+        inputs={},
+        setup_code="",
         assertion_code=f"# {cat} mutation survived — manual investigation needed",
-        preconditions=[], confidence=0.2, source_lenses=["mutation"], needs_oracle=True,
+        preconditions=[],
+        confidence=0.2,
+        source_lenses=["mutation"],
+        needs_oracle=True,
     )
 
 
@@ -313,8 +351,14 @@ _GENERATORS = {
 def _skip(category: str, setup: str, message: str, confidence: float) -> ExecutableProperty:
     """A no-op property emitted when the category can't produce a sound assertion."""
     return ExecutableProperty(
-        category=category, inputs={}, setup_code=setup, assertion_code=message,
-        preconditions=[], confidence=confidence, source_lenses=["mutation"], needs_oracle=True,
+        category=category,
+        inputs={},
+        setup_code=setup,
+        assertion_code=message,
+        preconditions=[],
+        confidence=confidence,
+        source_lenses=["mutation"],
+        needs_oracle=True,
     )
 
 

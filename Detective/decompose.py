@@ -251,7 +251,9 @@ def find_extraction_candidates(
     found: list[ExtractionCandidate] = []
     for start in range(n):
         for end in range(start + min_statements, min(n + 1, start + _MAX_BLOCK_STMTS)):
-            candidate = _evaluate_block(infos, start, end, param_names, func_node.name, max_params, max_outputs)
+            candidate = _evaluate_block(
+                infos, start, end, param_names, func_node.name, max_params, max_outputs
+            )
             if candidate is not None:
                 found.append(candidate)
     found.sort(key=lambda c: c.cc_reduction, reverse=True)

@@ -21,7 +21,10 @@ from Detective.synthesis.characterization import (
 # ── eval_call_site ────────────────────────────────────────────────
 def test_eval_call_site_parses_literals():
     """Literal positional and keyword args evaluate to Python values."""
-    assert eval_call_site({"positional_args": ["1", "'x'"], "keyword_args": {"n": "2"}}) == ((1, "x"), {"n": 2})
+    assert eval_call_site({"positional_args": ["1", "'x'"], "keyword_args": {"n": "2"}}) == (
+        (1, "x"),
+        {"n": 2},
+    )
 
 
 def test_eval_call_site_rejects_nonliteral_arg():
@@ -116,8 +119,11 @@ def test_corroborate_without_evidence_stays_provisional():
 def test_corroborate_passes_through_already_corroborated():
     """A non-PROVISIONAL capture is returned unchanged."""
     cap = GoldenCapture(
-        inputs=(1,), output="1", deterministic=True,
-        provenance=Provenance.CORROBORATED, corroborating_lens="x",
+        inputs=(1,),
+        output="1",
+        deterministic=True,
+        provenance=Provenance.CORROBORATED,
+        corroborating_lens="x",
     )
     assert corroborate_captures([cap]) == [cap]
 
@@ -159,8 +165,11 @@ def test_generate_golden_test_numbers_multiple_cases():
 def test_generate_golden_test_corroborated_docstring():
     """A corroborated capture emits the exact corroborated docstring with its lens."""
     cap = GoldenCapture(
-        inputs=(1,), output="1", deterministic=True,
-        provenance=Provenance.CORROBORATED, corroborating_lens="pure_deterministic",
+        inputs=(1,),
+        output="1",
+        deterministic=True,
+        provenance=Provenance.CORROBORATED,
+        corroborating_lens="pure_deterministic",
     )
     src = generate_golden_test("m::f", [cap])
     assert '"""Golden capture — corroborated via pure_deterministic."""' in src

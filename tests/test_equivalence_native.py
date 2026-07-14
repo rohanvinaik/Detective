@@ -173,9 +173,7 @@ def test_classify_killable_carries_witness_and_label():
 
 
 def test_classify_equivalent_candidate_has_no_witness():
-    v = classify_survivor(
-        "M1", "VALUE", "- x*1\n+ x", lambda x: x * 1, lambda x: x, [(3,), (0,)]
-    )
+    v = classify_survivor("M1", "VALUE", "- x*1\n+ x", lambda x: x * 1, lambda x: x, [(3,), (0,)])
     assert v.killable is False
     assert v.witness is None
     assert v.label == "equivalent-candidate"
