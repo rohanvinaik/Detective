@@ -342,25 +342,44 @@ def _completeness_verdict(result) -> str:
     )
 
 
+def _rel_path(path: str) -> str:
+    """Display a written path relative to cwd when possible — converge stores absolute
+    paths, but a banner reads far cleaner as `tests/foo.py` than a long /tmp/... string."""
+    import os
+
+    try:
+        rel = os.path.relpath(path, os.getcwd())
+    except ValueError:  # different drive (Windows)
+        return path
+    return rel if not rel.startswith("..") else path
+
+
 def _plain_terms(result) -> str:
-    """The verdict in plain language — mirrors diagnose's strongest section, so
-    converge's headline doesn't lean on jargon (every-killable-killed, DOF) to be read."""
+    """The verdict in plain language — mirrors diagnose's strongest section, so converge's
+    headline doesn't lean on jargon (every-killable-killed, DOF) to be read.
+
+    Names EVERY remaining disposition — killable, uncertain, candidate-equivalent, and a
+    line gap — so INCOMPLETE is never opaque. Candidate-equivalents lead with 'supply an
+    input' (they are usually killable with a richer input), not 'flag' (which is giving up)."""
     rep = result.survivor_report
     cand = len(rep.equivalent) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
     uncertain = len(rep.unclassified) if rep is not None else 0
+    gap = len(result.missing_lines)
     if result.complete and cand == 0:
         return "the suite pins every behavior a test can — nothing killable remains, every line covered"
-    if result.complete:  # complete modulo candidate-equivalent
-        return (
-            f"killed every mutant we can distinguish; {cand} survivor(s) LOOK equivalent but that is "
-            "unproven — `flag` if truly equivalent, or supply an input reaching the branch"
-        )
     parts = []
     if killable:
         parts.append(f"{killable} behavior(s) still killable — supply the input(s) below")
     if uncertain:
         parts.append(f"{uncertain} survivor(s) need a real sample input to classify")
+    if cand:
+        parts.append(
+            f"{cand} survivor(s) LOOK equivalent but UNPROVEN — supply a distinguishing input, "
+            "or `flag` if truly equivalent"
+        )
+    if gap:
+        parts.append(f"{gap} line(s) no test covers — supply an input that reaches them")
     return "; ".join(parts) if parts else "more passes or supplied inputs needed to finish"
 
 
@@ -371,15 +390,20 @@ def _final_banner(result) -> str:
     rep = result.survivor_report
     cand = len(rep.equivalent) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
+    gap = len(result.missing_lines)
     if result.complete and cand == 0:
         status = "✓ COMPLETE"
     elif result.complete:
         status = f"✓ COMPLETE (modulo {cand} unproven-equivalent)"
     else:
-        _res = f" · {killable} killable residual{'s' if killable != 1 else ''}" if killable else ""
-        status = f"✗ INCOMPLETE{_res}"
+        bits = []
+        if killable:
+            bits.append(f"{killable} killable")
+        if gap:
+            bits.append(f"{gap}-line gap")
+        status = "✗ INCOMPLETE" + (f" · {' · '.join(bits)}" if bits else "")
     tests = f" · {result.minimal_test_count} test(s)" if result.minimal_test_count else ""
-    arrow = f" → {result.written_path}" if result.written_path else ""
+    arrow = f" → {_rel_path(result.written_path)}" if result.written_path else ""
     return f"FINAL {result.function}: {status} · {result.killed}/{total} killed{tests}{arrow}"
 
 
@@ -503,7 +527,7 @@ def _format_converge(result, show_tests: bool = False) -> str:
             f"lines — confirm to delete, never auto): {', '.join(result.redundant_tests)}"
         )
     if result.written_path:
-        lines.append(f"  wrote: {result.written_path}")
+        lines.append(f"  wrote: {_rel_path(result.written_path)}")
     if result.wiring:
         lines.append(f"  {result.wiring.message}")
     if result.written_path:
@@ -545,15 +569,25 @@ def _format_converge_terse(result, report_path: str) -> str:
     fn = result.function
     lines = [f"{fn} — converge", f"  {_plain_terms(result)}"]
     rep = result.survivor_report
-    if rep is not None and rep.equivalent:
-        ids = [v.mutant_id for v in rep.equivalent]
-        more = f" (+{len(ids) - 1} more in report)" if len(ids) > 1 else ""
-        lines.append(f"  ▶ resolve: detective flag '{fn}' {ids[0]} --note \"why-equivalent\"{more}")
-    elif rep is not None and (rep.killable or rep.unclassified):
+    template = _input_template(result.param_names)
+    # Lead with the action that makes PROGRESS: supply an input to kill/classify a residual
+    # or to cover a line gap. Only when the sole remaining thing is a candidate-equivalent do
+    # we surface `flag` — and even then supplying a distinguishing input (a kill) comes first,
+    # so the tool never nudges a user to give up on a mutant that a richer input would kill.
+    if rep is not None and (rep.killable or rep.unclassified):
         n = len(rep.killable) + len(rep.unclassified)
         lines.append(
-            f"  ▶ {n} residual(s) need a real input — supply {_input_template(result.param_names)} "
-            "(details in report)"
+            f"  ▶ {n} residual(s) need a real input to kill/classify — supply {template} (details in report)"
+        )
+    elif result.missing_lines:
+        gap = len(result.missing_lines)
+        lines.append(f"  ▶ {gap} line(s) uncovered — supply {template} to reach them (details in report)")
+    elif rep is not None and rep.equivalent:
+        ids = [v.mutant_id for v in rep.equivalent]
+        more = f" (+{len(ids) - 1} more in report)" if len(ids) > 1 else ""
+        lines.append(
+            f"  ▶ {len(ids)} unproven-equivalent — supply a distinguishing input to kill, "
+            f"or `detective flag '{fn}' {ids[0]} --note \"why\"`{more}"
         )
     if report_path:
         lines.append(f"  full report → {report_path}")

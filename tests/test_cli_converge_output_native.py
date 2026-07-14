@@ -63,7 +63,14 @@ def test_banner_incomplete_names_killable_residuals():
     rep = SurvivorReport((_killable(),), ())
     b = _final_banner(_cr(functionally_complete=False, final_survivors=1, killed=8, survivor_report=rep))
     assert b.startswith("FINAL m.py::f: ✗ INCOMPLETE")
-    assert "1 killable residual" in b
+    assert "1 killable" in b
+
+
+def test_banner_incomplete_names_line_gap():
+    # every killable killed, but a line gap remains → INCOMPLETE names the gap, not just kills
+    b = _final_banner(_cr(line_complete=False, missing_lines=(8, 10), killed=8, final_survivors=0))
+    assert "✗ INCOMPLETE" in b
+    assert "2-line gap" in b
 
 
 def test_banner_omits_arrow_when_nothing_written():
@@ -81,7 +88,24 @@ def test_plain_terms_complete_clean_has_no_jargon():
 def test_plain_terms_flags_unproven_equivalent():
     rep = SurvivorReport((_equiv(),), ())
     t = _plain_terms(_cr(final_survivors=1, killed=9, survivor_report=rep))
-    assert "unproven" in t and "flag" in t
+    assert "UNPROVEN" in t and "flag" in t
+
+
+def test_plain_terms_names_line_gap():
+    # a line gap is a first-class remaining disposition — plain-terms must name it
+    t = _plain_terms(_cr(line_complete=False, missing_lines=(8, 10), killed=8, final_survivors=0))
+    assert "2 line(s)" in t
+
+
+def test_terse_line_gap_leads_with_supply_not_flag():
+    # candidate-equivalents + a line gap: lead with 'supply an input' (progress), not 'flag'
+    rep = SurvivorReport((_equiv(),), ())
+    out = _format_converge_terse(
+        _cr(line_complete=False, missing_lines=(8, 10), survivor_report=rep, final_survivors=1, killed=9),
+        "r.txt",
+    )
+    action = [ln for ln in out.splitlines() if ln.strip().startswith("▶")][0]
+    assert "uncovered" in action and "flag" not in action
 
 
 def test_plain_terms_incomplete_points_at_inputs():
