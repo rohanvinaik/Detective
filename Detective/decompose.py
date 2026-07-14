@@ -243,6 +243,12 @@ def find_extraction_candidates(
     """Every contiguous statement block that is a clean, complexity-reducing
     extraction — the deterministic responsibility seams of the function."""
     body = func_node.body
+    # A leading docstring belongs to the FUNCTION, not to any extracted block: sweeping it
+    # into a helper both mis-describes the helper (it would inherit the parent's whole-
+    # function docstring) and strips the parent of its own docstring. Skip it so blocks start
+    # at the first real statement — line numbers still come from each stmt's own lineno.
+    if ast.get_docstring(func_node) is not None:
+        body = body[1:]
     if len(body) <= min_statements:
         return ()
     infos = [_analyze_statement(i, stmt) for i, stmt in enumerate(body)]
