@@ -63,6 +63,20 @@ def render_module(func_key: str, props: list[ExecutableProperty]) -> str:
     return "\n".join(parts) + "\n"
 
 
+def individual_test_names(func_key: str, props: list[ExecutableProperty]) -> dict[str, ExecutableProperty]:
+    """Map each INDIVIDUAL rendered test name back to its property, mirroring render_module's
+    naming EXACTLY — so a caller (converge) can act on a redundant-test finding from the profile,
+    which is keyed by rendered name. Golden captures that fold into the one parametrized test are
+    excluded: they are not individually named/droppable here (each case is already minimal-cover
+    selected), so a value-pin is never silently dropped."""
+    test_name = func_key.rsplit("::", 1)[-1].replace(".", "_")
+    goldens = [p for p in props if p.golden_case is not None]
+    rest = [p for p in props if p.golden_case is None] if len(goldens) >= 2 else props
+    return {
+        f"test_{test_name}_{p.category.lower()}_{i}": p for i, p in enumerate(rest) if p.golden_case is None
+    }
+
+
 def _render_parametrized(test_name: str, call_name: str, goldens: list[ExecutableProperty]) -> str:
     """Fold golden value-captures into one ``@pytest.mark.parametrize`` test — the
     idiomatic data-driven form: one test body, N ``(input, expected)`` rows."""

@@ -14,8 +14,47 @@ from Detective.synthesis.writer import (
     _one_line,
     _render_test,
     _warrant,
+    individual_test_names,
+    render_module,
     synthesize_test_module,
 )
+
+
+def _golden(args: str, expected: str) -> ExecutableProperty:
+    return ExecutableProperty(
+        "VALUE",
+        {},
+        "from m import f",
+        f"assert f{args} == {expected}",
+        [],
+        0.9,
+        golden_case=(args, expected),
+    )
+
+
+def _boundary() -> ExecutableProperty:
+    return ExecutableProperty("BOUNDARY", {}, "from m import f", "assert f(0) != f(-1)", [], 0.85)
+
+
+def test_individual_test_names_excludes_folded_goldens():
+    # 2+ goldens fold into ONE parametrized test; only the non-golden is individually named
+    names = individual_test_names("m.py::f", [_golden("(1,)", "2"), _golden("(0,)", "3"), _boundary()])
+    assert list(names) == ["test_f_boundary_0"]
+
+
+def test_individual_test_names_never_maps_a_lone_golden():
+    # a lone golden renders individually but must NOT be droppable (never drop a value-pin)
+    g, b = _golden("(1,)", "2"), _boundary()
+    names = individual_test_names("m.py::f", [g, b])
+    assert g not in names.values() and b in names.values()
+
+
+def test_individual_test_names_mirror_render_module_exactly():
+    # THE invariant the drop logic relies on: every mapped name is really what render emitted
+    props = [_golden("(1,)", "2"), _golden("(0,)", "3"), _boundary()]
+    src = render_module("m.py::f", props)
+    for name in individual_test_names("m.py::f", props):
+        assert f"def {name}(" in src
 
 
 def _fn(src: str) -> ast.FunctionDef:

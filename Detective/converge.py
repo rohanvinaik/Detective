@@ -28,7 +28,7 @@ from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis
 from .purity import is_pure
 from .synthesis.characterization import capture_golden, corroborate_captures, golden_assert_line
 from .synthesis.oracle_light import ExecutableProperty, _import_line, generate_executable_property
-from .synthesis.writer import render_module
+from .synthesis.writer import individual_test_names, render_module
 
 # Fast mode tests this many greedily-selected mutants per category per pass. Greedy
 # (1−1/e)-optimal coverage means a small budget kills nearly every killable mutant on the
@@ -538,6 +538,33 @@ def converge(
         progress=progress,
         use_parallel=use_parallel,
     )
+    # Don't SHIP a suite our own minimal-cover immediately flags as non-minimal: drop any test
+    # WE generated that is redundant for BOTH kills AND lines (zero marginal contribution), then
+    # re-profile so every reported number reflects what is actually on disk. Only individual
+    # (non-parametrized) properties are droppable — golden captures fold into one parametrized
+    # test and each case is already minimal-cover-selected. This is a NON-generation, not a
+    # deletion of a user's own test, so it honors "deletion never auto".
+    if written_path and write_dir:
+        names = individual_test_names(func_key, list(accumulated.values()))
+        drop = {
+            names[n].assertion_code
+            for n in redundant_2axis(final_result.kill_matrix, final_result.line_coverage)
+            if n in names
+        }
+        if drop:
+            accumulated = {k: v for k, v in accumulated.items() if k not in drop}
+            source = render_module(func_key, list(accumulated.values()))
+            target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
+            written_path = _write(source, target, qualname)
+            say(f"minimizing — dropped {len(drop)} redundant test(s) our own cover flagged")
+            final_result = profile(
+                file,
+                function,
+                project_root,
+                extra_test_dirs=extra_test_dirs,
+                progress=progress,
+                use_parallel=use_parallel,
+            )
     final = final_result.value_survived
     at_ceiling = final == 0
     # Make the written suite actually runnable in the consumer and state how —
