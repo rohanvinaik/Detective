@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Detective's runtime dep is the sibling Wesker repo (resolved via the editable
+# ../Wesker path source in pyproject), so CI checks out both side by side — the same
+# layout as local dev. Requires the matching Wesker on its default branch (or pin a
+# tag via the `ref` below once Wesker is released).
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Detective
+          fetch-depth: 0
+
+      - uses: actions/checkout@v4
+        with:
+          repository: rohanvinaik/Wesker
+          path: Wesker
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        working-directory: Detective
+        run: uv sync
+
+      - name: Lint
+        working-directory: Detective
+        run: uv run ruff check Detective/ tests/
+
+      - name: Format check
+        working-directory: Detective
+        run: uv run ruff format --check Detective/ tests/
+
+      - name: Test with coverage
+        working-directory: Detective
+        run: uv run pytest tests/ --cov=Detective --cov-report=xml:coverage.xml -q

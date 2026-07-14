@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Detective"
-version = "0.0.1"
+version = "0.1.0"
 description = "Behavioral-scope diagnosis and warrant-classed test synthesis for a single Python function, on the Wesker mutation engine."
 readme = "README.md"
 license = "MIT"
@@ -28,11 +28,16 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 
-# One runtime dependency by design: the Wesker mutation engine. No lintgate.
-# Wesker is a sister repo not yet on PyPI, so it is referenced by git URL — this
-# makes `pip install git+https://github.com/rohanvinaik/Detective` pull Wesker
-# automatically. Swap to `Wesker>=0.1.0` once Wesker is published to PyPI.
-dependencies = ["Wesker @ git+https://github.com/rohanvinaik/Wesker.git"]
+# Runtime deps: the Wesker mutation engine (the profiler) AND pytest — Detective's
+# PRODUCT is pytest suites and it runs pytest to wire + verify them, so pytest is a
+# runtime requirement, not dev-only. Wesker is a sister repo not yet on PyPI, so it is
+# pinned to a git TAG for reproducibility (a floating branch ref drifts every install —
+# the exact defect that shipped a Wesker missing the API Detective needs). Requires the
+# matching `v0.2.0` tag on the Wesker remote. Swap to `Wesker>=0.2.0` once Wesker is on PyPI.
+dependencies = [
+    "Wesker @ git+https://github.com/rohanvinaik/Wesker.git@v0.3.0",
+    "pytest>=7",
+]
 
 # The MCP surface is optional so the core stays Wesker + stdlib only.
 [project.optional-dependencies]
