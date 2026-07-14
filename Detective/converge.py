@@ -18,18 +18,17 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .certify import PytestWiring, _write, wire_pytest
 from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
+from .certify import PytestWiring, _write, wire_pytest
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
 from .equivalence import SourceExpr, SurvivorReport
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis
 from .purity import is_pure
 from .synthesis.characterization import capture_golden, corroborate_captures, golden_assert_line
-from .synthesis.oracle_light import ExecutableProperty, generate_executable_property, _import_line
+from .synthesis.oracle_light import ExecutableProperty, _import_line, generate_executable_property
 from .synthesis.writer import render_module
-
 
 # Fast mode tests this many greedily-selected mutants per category per pass. Greedy
 # (1−1/e)-optimal coverage means a small budget kills nearly every killable mutant on the
@@ -347,9 +346,7 @@ def _golden_properties(
     if live is None:
         return []
     namespace = getattr(live, "__globals__", {}) or {}
-    supplied_sites = [
-        {"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])
-    ]
+    supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
     captures = corroborate_captures(capture_golden(live, sites), is_pure=True)
     return [_golden_property(func_key, c) for c in captures if c.deterministic]
@@ -377,6 +374,7 @@ def converge(
     fast: bool = False,
     use_parallel: bool | None = None,
     progress: Callable[[int, int, float], None] | None = None,
+    notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
     """Iterate diagnose→synthesize-sound→write→re-profile until ceiling or floor.
 
@@ -384,8 +382,14 @@ def converge(
     mutants per category per pass instead of the full universe — faster, converging over
     passes; the final validation is always comprehensive so the reported kill rate stays
     honest. ``fast=False`` (default) is comprehensive: every mutant, first pass.
+
+    ``notify`` streams a live phase narrative (survivors found, tests written, kills,
+    the finalize/classify steps) so a long multi-pass run is legible as it runs, not a
+    silent monolith that dumps everything at the end. It is independent of ``progress``
+    (per-mutant counts) and fires even in parallel mode, where the long runs are.
     """
     max_per_cat = _FAST_MAX_PER_CATEGORY if fast else 0
+    say = notify or (lambda _m: None)
     root = os.path.abspath(project_root)
     # When write_dir escapes the project tree (an absolute or ../ path), the
     # re-profile's project-tree test discovery cannot see the tests converge writes
@@ -422,8 +426,14 @@ def converge(
 
     for _pass in range(max_iterations):
         result = profile(
-            file, function, project_root, max_per_category=max_per_cat, pass_index=_pass,
-            extra_test_dirs=extra_test_dirs, progress=progress, use_parallel=use_parallel,
+            file,
+            function,
+            project_root,
+            max_per_category=max_per_cat,
+            pass_index=_pass,
+            extra_test_dirs=extra_test_dirs,
+            progress=progress,
+            use_parallel=use_parallel,
         )
         # Value-survivors: what the suite hasn't pinned the RETURN VALUE of — true
         # survivors plus crash/timeout kills. Converging drives THIS to zero, so a
@@ -435,13 +445,16 @@ def converge(
         if survivors == 0:
             iterations.append(ConvergeIteration(0, 0))
             hit_max = False
+            say(f"pass {_pass}: ✓ every mutant killed")
             break
 
         if previous is not None and not _progressed(previous, survivors):
             iterations.append(ConvergeIteration(survivors, 0))  # no progress -> floor
             hit_max = False
+            say(f"pass {_pass}: {survivors} survivor(s) — no progress, at floor")
             break
         previous = survivors
+        say(f"pass {_pass}: {survivors} value-survivor(s) — synthesizing killing tests…")
 
         props = [
             generate_executable_property(s, func_key, node, call_site_inputs)
@@ -450,12 +463,9 @@ def converge(
         # Pure functions also get golden-capture properties, which pin the exact
         # return value and kill the VALUE/ARITHMETIC survivors oracle-light can't.
         if is_pure(node, is_method="." in (qualname or "")):
-            props += _golden_properties(
-                func_key, node, full, qualname, root, supplied_inputs=supplied_inputs
-            )
+            props += _golden_properties(func_key, node, full, qualname, root, supplied_inputs=supplied_inputs)
         sound = [
-            p for p in props
-            if not p.needs_oracle and property_holds(p.setup_code, p.assertion_code, root)
+            p for p in props if not p.needs_oracle and property_holds(p.setup_code, p.assertion_code, root)
         ]
         new_sound = [p for p in sound if p.assertion_code not in accumulated]
         for p in new_sound:
@@ -465,9 +475,13 @@ def converge(
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, qualname)
         iterations.append(ConvergeIteration(survivors, len(new_sound)))
+        if new_sound:
+            _wrote = f" [{os.path.basename(written_path)}]" if written_path else ""
+            say(f"pass {_pass}: +{len(new_sound)} new killing test(s) written{_wrote}")
 
         if not new_sound:  # no NEW sound test this pass -> no further progress possible
             hit_max = False
+            say(f"pass {_pass}: no new killing test for the remaining survivor(s) — at ceiling")
             break
 
     # Witness-driven kill pass: the equivalence search tries richer inputs than the
@@ -476,11 +490,16 @@ def converge(
     # that input deterministically kills the mutant — auto-write it (auto-apply
     # principle: deterministically-guaranteed-correct → just do it).
     if write_dir:
+        say("witness pass: searching richer inputs for a distinguishing kill…")
         pre = classify_survivors(
-            file, function, project_root, call_site_inputs=supplied_inputs,
+            file,
+            function,
+            project_root,
+            call_site_inputs=supplied_inputs,
             extra_test_dirs=extra_test_dirs,
         )
         witnessed = False
+        n_witnessed = 0
         for verdict in pre.killable:
             w = verdict.witness
             if w is None:
@@ -489,8 +508,11 @@ def converge(
             # a value-returning one gets the golden form. Both are auto-written when
             # they hold on the unmutated function — the raises form closes the line +
             # mutant gap that error paths otherwise leave open.
-            prop = _raises_witness_property(func_key, w) if w.original.startswith("<raised") \
+            prop = (
+                _raises_witness_property(func_key, w)
+                if w.original.startswith("<raised")
                 else _witness_property(func_key, w)
+            )
             if prop is None:
                 continue
             if prop.assertion_code not in accumulated and property_holds(
@@ -498,16 +520,23 @@ def converge(
             ):
                 accumulated[prop.assertion_code] = prop
                 witnessed = True
+                n_witnessed += 1
         if witnessed:
             source = render_module(func_key, list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, qualname)
+            say(f"witness pass: +{n_witnessed} distinguishing kill test(s) auto-written")
 
     # Authoritative final measurement — reflects every written test, including
     # the last pass's, and is the validation of what converge actually achieved.
+    say("finalizing — re-profiling the full mutant universe against the written suite…")
     final_result = profile(
-        file, function, project_root, extra_test_dirs=extra_test_dirs,
-        progress=progress, use_parallel=use_parallel,
+        file,
+        function,
+        project_root,
+        extra_test_dirs=extra_test_dirs,
+        progress=progress,
+        use_parallel=use_parallel,
     )
     final = final_result.value_survived
     at_ceiling = final == 0
@@ -518,9 +547,13 @@ def converge(
     # test), equivalent (retained), or uncertain — so "remaining" is never opaque.
     survivor_report: SurvivorReport | None = None
     if final > 0:
+        say(f"{final} survivor(s) remain — classifying (killable / equivalent / needs-input)…")
         try:
             survivor_report = classify_survivors(
-                file, function, project_root, call_site_inputs=supplied_inputs,
+                file,
+                function,
+                project_root,
+                call_site_inputs=supplied_inputs,
                 extra_test_dirs=extra_test_dirs,
             )
         except Exception:  # noqa: BLE001 — classification is advisory; never fail the run
@@ -529,9 +562,7 @@ def converge(
     # not count against it (no test can kill them); an uncertain survivor does, since
     # we can't prove it unkillable.
     functionally_complete = final == 0 or (
-        survivor_report is not None
-        and not survivor_report.killable
-        and not survivor_report.unclassified
+        survivor_report is not None and not survivor_report.killable and not survivor_report.unclassified
     )
     # Second completeness axis + minimality, from Wesker's baseline line-coverage
     # pass on the final suite: which executable lines remain uncovered, the smallest

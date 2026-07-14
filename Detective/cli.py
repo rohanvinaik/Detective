@@ -68,11 +68,16 @@ def _format_scope(scope) -> str:
     # Plain-language layer: what this means and what to do next.
     lines.append("  in plain terms:")
     if spec.unspecified_dof > 0:
-        lines.append(f"    → {spec.unspecified_dof} behavior(s) no test pins yet — run `converge` to generate tests for them")
+        lines.append(
+            f"    → {spec.unspecified_dof} behavior(s) no test pins yet — "
+            "run `converge` to generate tests for them"
+        )
     else:
         lines.append("    → every behavior this function makes is already pinned by a test")
     if kq.warning:
-        lines.append("    → tests mostly check it RUNS, not WHAT it returns — return values may be under-tested")
+        lines.append(
+            "    → tests mostly check it RUNS, not WHAT it returns — return values may be under-tested"
+        )
     # Decompose guidance from TWO independent signals: regime B (behaviorally entangled by
     # the mutation profile) and structural seams (a clean single-exit, small-interface block
     # the deterministic clustering found). Only when BOTH fire is it a genuine decomposition
@@ -130,11 +135,9 @@ def _concise_diff(diff_summary: str) -> str:
     if diff_summary.startswith("- ") and marker in diff_summary:
         idx = diff_summary.index(marker)
         orig_lines = diff_summary[2:idx].splitlines()
-        mut_lines = diff_summary[idx + len(marker):].splitlines()
+        mut_lines = diff_summary[idx + len(marker) :].splitlines()
         changed: list[str] = []
-        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
-            a=orig_lines, b=mut_lines
-        ).get_opcodes():
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=orig_lines, b=mut_lines).get_opcodes():
             if tag == "equal":
                 continue
             changed += [f"- {ln.strip()}" for ln in orig_lines[i1:i2]]
@@ -208,6 +211,18 @@ def _stream_progress(label: str):
     return cb
 
 
+def _notify_stderr(msg: str) -> None:
+    """Stream converge's live phase narrative — one clean line per phase (survivors
+    found, tests written, kills, finalize/classify) — to STDERR, so a long multi-pass
+    run is legible as it runs instead of a silent monolith. STDERR keeps STDOUT clean
+    for the result / --json; the line is newline-terminated so it never clobbers the
+    in-place per-mutant progress line (which finalizes each pass with a newline)."""
+    import sys
+
+    sys.stderr.write(f"  ▸ {msg}\n")
+    sys.stderr.flush()
+
+
 def _telemetry_cache_path() -> str:
     import os
 
@@ -244,9 +259,7 @@ def _update_per_mutant_ms(observed_ms: float) -> None:
         pass
 
 
-def _format_survivor_report(
-    rep, signature: str = "", param_names: tuple[str, ...] = ()
-) -> list[str]:
+def _format_survivor_report(rep, signature: str = "", param_names: tuple[str, ...] = ()) -> list[str]:
     """Render the grounded disposition of every leftover survivor: equivalent
     (retained), killable (a suggested test, NOT auto-applied), or uncertain.
 
@@ -329,7 +342,48 @@ def _completeness_verdict(result) -> str:
     )
 
 
-def _format_converge(result) -> str:
+def _plain_terms(result) -> str:
+    """The verdict in plain language — mirrors diagnose's strongest section, so
+    converge's headline doesn't lean on jargon (every-killable-killed, DOF) to be read."""
+    rep = result.survivor_report
+    cand = len(rep.equivalent) if rep is not None else 0
+    killable = len(rep.killable) if rep is not None else 0
+    uncertain = len(rep.unclassified) if rep is not None else 0
+    if result.complete and cand == 0:
+        return "the suite pins every behavior a test can — nothing killable remains, every line covered"
+    if result.complete:  # complete modulo candidate-equivalent
+        return (
+            f"killed every mutant we can distinguish; {cand} survivor(s) LOOK equivalent but that is "
+            "unproven — `flag` if truly equivalent, or supply an input reaching the branch"
+        )
+    parts = []
+    if killable:
+        parts.append(f"{killable} behavior(s) still killable — supply the input(s) below")
+    if uncertain:
+        parts.append(f"{uncertain} survivor(s) need a real sample input to classify")
+    return "; ".join(parts) if parts else "more passes or supplied inputs needed to finish"
+
+
+def _final_banner(result) -> str:
+    """A stable, greppable, ALWAYS-LAST line — so `tail`/scroll-to-bottom always lands
+    on the result, never in a generated-test body. Survives truncation by construction."""
+    total = result.total_mutants
+    rep = result.survivor_report
+    cand = len(rep.equivalent) if rep is not None else 0
+    killable = len(rep.killable) if rep is not None else 0
+    if result.complete and cand == 0:
+        status = "✓ COMPLETE"
+    elif result.complete:
+        status = f"✓ COMPLETE (modulo {cand} unproven-equivalent)"
+    else:
+        _res = f" · {killable} killable residual{'s' if killable != 1 else ''}" if killable else ""
+        status = f"✗ INCOMPLETE{_res}"
+    tests = f" · {result.minimal_test_count} test(s)" if result.minimal_test_count else ""
+    arrow = f" → {result.written_path}" if result.written_path else ""
+    return f"FINAL {result.function}: {status} · {result.killed}/{total} killed{tests}{arrow}"
+
+
+def _format_converge(result, show_tests: bool = False) -> str:
     """Validation report: what converge measured and what it left standing.
 
     The score line reports initial→final kill percentage (over the same fixed
@@ -373,8 +427,7 @@ def _format_converge(result) -> str:
         # the (1−1/e)-per-pass guarantee, so the speed/certainty trade is explicit.
         if result.fast:
             tail = (
-                f"greedy floor ≥ {result.coverage_guarantee:.0%} of coverable DOF "
-                f"(proven, (1−1/e) per pass)"
+                f"greedy floor ≥ {result.coverage_guarantee:.0%} of coverable DOF (proven, (1−1/e) per pass)"
             )
         else:
             tail = "exhaustive — 100% guaranteed"
@@ -434,9 +487,7 @@ def _format_converge(result) -> str:
     # Reported only when there is line data (minimal_test_count > 0 or a measured gap).
     if result.missing_lines:
         gap = list(result.missing_lines)
-        lines.append(
-            f"  ✗ line gap: {len(result.missing_lines)} executable line(s) no test covers: {gap}"
-        )
+        lines.append(f"  ✗ line gap: {len(result.missing_lines)} executable line(s) no test covers: {gap}")
         lines += _target_lines(result.signature)
         lines.append(
             f"      supply:  {_input_template(result.param_names)}   "
@@ -460,7 +511,53 @@ def _format_converge(result) -> str:
             "  ▶ to run these tests: `pytest`   (only the generated ones: `pytest -m detective`; "
             'only your own: `pytest -m "not detective"`)'
         )
-    lines += _show_written(result.written_path)
+    # The generated test source is dumped only into the FILE report (show_tests) — never
+    # to the terminal by default, where it buried the verdict. The tests live on disk.
+    if show_tests:
+        lines += _show_written(result.written_path)
+    # The stable banner is ALWAYS the last line, so `tail`/scroll lands on the result.
+    lines.append(_final_banner(result))
+    return "\n".join(lines)
+
+
+def _write_converge_report(root: str, qualname: str, text: str) -> str:
+    """Persist the FULL report to a readable file so the terminal can stay minimal.
+    The complete detail — DOF, per-pass, every survivor, the generated test source — is
+    one `cat` away. Returns a short path relative to root, or '' on failure (best-effort)."""
+    import os
+
+    safe = qualname.replace("::", "__").replace("/", "_").replace(".", "_")
+    d = os.path.join(root, ".detective", "reports")
+    try:
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, f"converge_{safe}.txt")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text + "\n")
+    except OSError:
+        return ""
+    return os.path.relpath(path, root)
+
+
+def _format_converge_terse(result, report_path: str) -> str:
+    """The default terminal view: a clean, minimal block — a plain-language verdict, the ONE
+    quick copy-pasteable action if any, and a pointer to the full report — ending with the
+    greppable ``FINAL`` banner. Everything verbose lives in the report file / the test file."""
+    fn = result.function
+    lines = [f"{fn} — converge", f"  {_plain_terms(result)}"]
+    rep = result.survivor_report
+    if rep is not None and rep.equivalent:
+        ids = [v.mutant_id for v in rep.equivalent]
+        more = f" (+{len(ids) - 1} more in report)" if len(ids) > 1 else ""
+        lines.append(f"  ▶ resolve: detective flag '{fn}' {ids[0]} --note \"why-equivalent\"{more}")
+    elif rep is not None and (rep.killable or rep.unclassified):
+        n = len(rep.killable) + len(rep.unclassified)
+        lines.append(
+            f"  ▶ {n} residual(s) need a real input — supply {_input_template(result.param_names)} "
+            "(details in report)"
+        )
+    if report_path:
+        lines.append(f"  full report → {report_path}")
+    lines.append(_final_banner(result))
     return "\n".join(lines)
 
 
@@ -482,9 +579,14 @@ def _format_decompose(r, applied_mode: bool) -> str:
         lines.append("    │ …")
     for dec in r.proposed:
         ex = dec.extraction
-        tag = "appliable — specified behavior preserved — re-run with --apply" if dec.validated else \
-            "can't PROVE preservation yet — the proof suite is not mutation-complete (residual below)"
-        lines.append(f"  → {tag}: {ex.helper_name}({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}")
+        tag = (
+            "appliable — specified behavior preserved — re-run with --apply"
+            if dec.validated
+            else "can't PROVE preservation yet — the proof suite is not mutation-complete (residual below)"
+        )
+        lines.append(
+            f"  → {tag}: {ex.helper_name}({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}"
+        )
         lines += [f"    │ {line}" for line in ex.new_source.splitlines()[:6]]
         lines.append("    │ …")
     for block in r.unsafe_blocks:
@@ -576,9 +678,14 @@ def _format_audit(a) -> str:
         lines.append("  nothing to do — suite is complete and minimal")
     # Forward-chain: name the next command for the state we're in (audit itself writes nothing).
     if a.killable_gaps or a.missing_lines:
-        lines.append("  ▶ next: `converge` to synthesize the missing tests (WRITES test files + wires conftest)")
+        lines.append(
+            "  ▶ next: `converge` to synthesize the missing tests (WRITES test files + wires conftest)"
+        )
     elif a.candidate_equivalent or a.unclassified:
-        lines.append("  ▶ next: prove equivalence then `flag <mutant_id>`, or add a distinguishing input and `converge`")
+        lines.append(
+            "  ▶ next: prove equivalence then `flag <mutant_id>`, or add a "
+            "distinguishing input and `converge`"
+        )
     elif a.redundant_tests:
         lines.append("  ▶ next: `audit --remove` to delete the redundant tests (confirm — never auto)")
     return "\n".join(lines)
@@ -604,7 +711,7 @@ def _parse_supplied_inputs(raw: list[str]) -> list[tuple]:
         try:
             value = ast.literal_eval(s)
         except (ValueError, SyntaxError) as exc:
-            raise SystemExit(f"detective: --input is not a valid Python literal: {s!r} ({exc})")
+            raise SystemExit(f"detective: --input is not a valid Python literal: {s!r} ({exc})") from None
         out.append(value if isinstance(value, tuple) else (value,))
     return out
 
@@ -631,6 +738,12 @@ def _build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="greedy-sample a (1−1/e)-optimal subset of mutants per category per pass "
                 "instead of the full universe — faster, converging over passes (default: comprehensive)",
+            )
+            p.add_argument(
+                "--full",
+                action="store_true",
+                help="print the full report to the terminal (default: a minimal banner + the one "
+                "quick action; the full report is always written to .detective/reports/ regardless)",
             )
             p.add_argument(
                 "--input",
@@ -700,15 +813,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run a command, then print a lightweight memory-telemetry footer (human mode).
-    The footer is best-effort: monitoring must never fail the actual work."""
+    """Run a command, then emit a lightweight memory-telemetry footer (human mode).
+    The footer is best-effort: monitoring must never fail the actual work. It goes to
+    STDERR — advisory monitoring, like progress — so STDOUT ends on the result banner and
+    stays clean for piping."""
     args = _build_parser().parse_args(argv)
     code = _run(args)
     if not getattr(args, "json", False):
         try:
             from Wesker.memory_guard import telemetry
 
-            print(f"  [{telemetry()}]")
+            sys.stderr.write(f"  [{telemetry()}]\n")
         except Exception:  # noqa: BLE001 — telemetry is advisory, never fatal
             pass
     return code
@@ -740,11 +855,17 @@ def _run(args) -> int:
         # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-
         # survivor). Using survivor_records here would miss those and read "none surviving".
         rec = next(
-            (r for r in result.value_survivor_records if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))),
+            (
+                r
+                for r in result.value_survivor_records
+                if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))
+            ),
             None,
         )
         if rec is None:
-            ids = ", ".join(r.get("mutant_id", "?") for r in result.value_survivor_records) or "none surviving"
+            ids = (
+                ", ".join(r.get("mutant_id", "?") for r in result.value_survivor_records) or "none surviving"
+            )
             print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
             return 1
         add_flag(args.project_root, result.function_key, rec.get("diff_summary", ""), note=args.note)
@@ -758,13 +879,19 @@ def _run(args) -> int:
 
         _par = _parallel_mode(args)
         scope = diagnose(
-            file, function, args.project_root, learn=getattr(args, "learn", False),
-            use_parallel=_par, progress=None if _par else _stream_progress(function),
+            file,
+            function,
+            args.project_root,
+            learn=getattr(args, "learn", False),
+            use_parallel=_par,
+            progress=None if _par else _stream_progress(function),
         )
         print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
         return 0
 
     if args.command == "converge":
+        import os
+
         from .converge import converge
 
         supplied = _parse_supplied_inputs(args.input) if getattr(args, "input", None) else None
@@ -779,11 +906,17 @@ def _run(args) -> int:
             fast=args.fast,
             use_parallel=_par,
             progress=None if _par else _stream_progress(function),
+            notify=_notify_stderr,
         )
         if args.json:
             print(json.dumps(asdict(result), indent=2, default=str))
-        else:
-            print(_format_converge(result))
+            return 0
+        # The full report always goes to a readable file; the terminal stays minimal
+        # (a banner + the one quick action) unless --full is asked for.
+        full = _format_converge(result, show_tests=True)
+        qn = result.function.split("::")[-1]
+        report_path = _write_converge_report(os.path.abspath(args.project_root), qn, full)
+        print(full if args.full else _format_converge_terse(result, report_path))
         return 0
 
     if args.command == "audit":
@@ -791,23 +924,31 @@ def _run(args) -> int:
 
         _par = _parallel_mode(args)
         report = audit_suite(
-            file, function, args.project_root,
-            use_parallel=_par, progress=None if _par else _stream_progress(function),
+            file,
+            function,
+            args.project_root,
+            use_parallel=_par,
+            progress=None if _par else _stream_progress(function),
         )
         print(json.dumps(asdict(report), indent=2, default=str) if args.json else _format_audit(report))
         if args.remove and report.redundant_tests:
             from .suite_edit import apply_removals
 
             result = apply_removals(file, args.project_root, list(report.redundant_tests))
-            print(f"  removed {len(result.removed)}: {', '.join(result.removed)}" if result.removed
-                  else "  removed nothing")
+            print(
+                f"  removed {len(result.removed)}: {', '.join(result.removed)}"
+                if result.removed
+                else "  removed nothing"
+            )
             if result.not_found:
                 print(f"  could not locate: {', '.join(result.not_found)}")
             if result.removed:
                 # Re-audit so the user sees the suite is still complete after pruning.
                 after = audit_suite(file, function, args.project_root)
-                print(f"  after removal: {after.test_count} test(s), "
-                      f"complete={after.complete}, minimal cover={after.minimal_test_count}")
+                print(
+                    f"  after removal: {after.test_count} test(s), "
+                    f"complete={after.complete}, minimal cover={after.minimal_test_count}"
+                )
         return 0
 
     if args.command == "decompose":
@@ -817,7 +958,11 @@ def _run(args) -> int:
         result = apply_decomposition(
             file, function, args.project_root, write=args.apply, supplied_inputs=supplied
         )
-        print(json.dumps(asdict(result), indent=2, default=str) if args.json else _format_decompose(result, args.apply))
+        print(
+            json.dumps(asdict(result), indent=2, default=str)
+            if args.json
+            else _format_decompose(result, args.apply)
+        )
         return 0
 
     from .certify import certify
@@ -828,7 +973,9 @@ def _run(args) -> int:
         print(json.dumps(payload, indent=2, default=str))
     else:
         print(_format_scope(result.scope))
-        status = "at ceiling — nothing to synthesize" if result.at_ceiling else f"{result.survivors} survivor(s)"
+        status = (
+            "at ceiling — nothing to synthesize" if result.at_ceiling else f"{result.survivors} survivor(s)"
+        )
         print(f"  certify: {status}")
         if result.written_path:
             print(f"  wrote: {result.written_path}")

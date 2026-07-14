@@ -23,6 +23,8 @@ from Wesker.ci import discover_test_callables, walk_functions
 from Wesker.engine import ProfilingResult, generate_mutants, run_function_profiling
 from Wesker.filter import filter_categories
 
+from .call_sites import discover_call_site_inputs, infer_param_types
+from .capture import capture_call_inputs
 from .equivalence import (
     MutantVerdict,
     SourceExpr,
@@ -35,7 +37,6 @@ from .equivalence import (
     is_scalar_type,
     synth_ast_input,
 )
-from .call_sites import discover_call_site_inputs, infer_param_types
 from .purity import is_pure as _is_pure
 from .scope import ScopeMap, scope_from_profiling
 
@@ -134,9 +135,7 @@ def profile(
     tests_auto = tests is None  # workers re-discover; explicit callables can't cross spawn
     if tests is None:
         func_names = [qn for qn, _ in walk_functions(tree)]
-        tests = discover_test_callables(
-            root, rel, func_names, extra_dirs=list(extra_test_dirs) or None
-        )
+        tests = discover_test_callables(root, rel, func_names, extra_dirs=list(extra_test_dirs) or None)
 
     # Content-hashed verdict cache: an unchanged function + unchanged exercising
     # tests + same sampling params yield the same profile, so serve it from disk
@@ -162,8 +161,9 @@ def profile(
     # can't cross spawn), or a budgeted run (a sharded wall-clock budget is not equivalent).
     # The fleet size is the portable memory guarantee; verdicts are proven bit-identical.
     if use_parallel is not False and mutant_slice is None and tests_auto and budget_ms is None:
-        from . import parallel
         from Wesker.memory_guard import worker_count
+
+        from . import parallel
 
         workers = worker_count()
         if workers > 1:
@@ -176,9 +176,14 @@ def profile(
             fanned: ProfilingResult | None = None
             if use_parallel is True and exact >= 2:
                 fanned = parallel.parallel_profile(
-                    file, function, project_root, end=exact,
-                    max_per_category=max_per_category, pass_index=pass_index,
-                    scope_tests=scope_tests, workers=workers,
+                    file,
+                    function,
+                    project_root,
+                    end=exact,
+                    max_per_category=max_per_category,
+                    pass_index=pass_index,
+                    scope_tests=scope_tests,
+                    workers=workers,
                 )
             elif use_parallel is None and exact >= parallel.PROBE_MIN_MUTANTS:
                 # Adaptive: time a small serial probe (silent), then decide. The probe is ALWAYS
@@ -188,30 +193,45 @@ def profile(
                 probe_n = min(parallel.PROBE_SIZE, exact)
                 _orig = _load_original(full, qualname or function)
                 probe = run_function_profiling(  # type: ignore[arg-type]
-                    node, func_key, categories, tests, _orig,
-                    max_per_category=max_per_category, pass_index=pass_index,
-                    scope_tests=scope_tests, mutant_slice=(0, probe_n),
+                    node,
+                    func_key,
+                    categories,
+                    tests,
+                    _orig,
+                    max_per_category=max_per_category,
+                    pass_index=pass_index,
+                    scope_tests=scope_tests,
+                    mutant_slice=(0, probe_n),
                     pregenerated=_mutants,
                 )
                 if exact <= probe_n:
                     fanned = probe  # the probe was the whole run
-                elif (
-                    parallel.mean_mutant_ms(probe) * (exact - probe_n)
-                    > parallel.PARALLEL_MIN_REMAINING_MS
-                ):
+                elif parallel.mean_mutant_ms(probe) * (exact - probe_n) > parallel.PARALLEL_MIN_REMAINING_MS:
                     rest = parallel.parallel_profile(
-                        file, function, project_root, start=probe_n, end=exact,
-                        max_per_category=max_per_category, pass_index=pass_index,
-                        scope_tests=scope_tests, workers=workers,
+                        file,
+                        function,
+                        project_root,
+                        start=probe_n,
+                        end=exact,
+                        max_per_category=max_per_category,
+                        pass_index=pass_index,
+                        scope_tests=scope_tests,
+                        workers=workers,
                     )
                     fanned = parallel.merge_results([probe, rest])
                 else:
                     # Cheap enough to stay serial: finish the remainder in-process, REUSING the
                     # probe's baseline (no second line-coverage trace) and streaming its progress.
                     rest = run_function_profiling(  # type: ignore[arg-type]
-                        node, func_key, categories, tests, _orig,
-                        max_per_category=max_per_category, pass_index=pass_index,
-                        scope_tests=scope_tests, mutant_slice=(probe_n, exact),
+                        node,
+                        func_key,
+                        categories,
+                        tests,
+                        _orig,
+                        max_per_category=max_per_category,
+                        pass_index=pass_index,
+                        scope_tests=scope_tests,
+                        mutant_slice=(probe_n, exact),
                         progress=progress,
                         precomputed_line_data=(probe.line_coverage, probe.failing_tests),
                         pregenerated=_mutants,
@@ -226,9 +246,17 @@ def profile(
     # __globals__ (module helpers/constants/imports resolve inside the mutant).
     original = _load_original(full, qualname or function)
     result = run_function_profiling(  # type: ignore[arg-type]
-        node, func_key, categories, tests, original,
-        budget_ms=budget_ms, max_per_category=max_per_category, pass_index=pass_index,
-        progress=progress, scope_tests=scope_tests, mutant_slice=mutant_slice,
+        node,
+        func_key,
+        categories,
+        tests,
+        original,
+        budget_ms=budget_ms,
+        max_per_category=max_per_category,
+        pass_index=pass_index,
+        progress=progress,
+        scope_tests=scope_tests,
+        mutant_slice=mutant_slice,
     )
     # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
     # later as if it were the whole profile.
@@ -276,8 +304,14 @@ def diagnose(
     across worker processes (mutually exclusive with ``progress``).
     """
     result = profile(
-        file, function, project_root, is_pure=is_pure, tests=tests, budget_ms=budget_ms,
-        use_parallel=use_parallel, progress=progress,
+        file,
+        function,
+        project_root,
+        is_pure=is_pure,
+        tests=tests,
+        budget_ms=budget_ms,
+        use_parallel=use_parallel,
+        progress=progress,
     )
     scope = scope_from_profiling(result)
 
@@ -306,7 +340,13 @@ def _compile_mutant(mutant: Any, original: Callable[..., Any]) -> Callable[..., 
 
 
 _SCALAR_SAMPLE: dict[str, Any] = {
-    "int": 1, "str": "x", "float": 1.0, "bool": True, "tuple": (1,), "list": [1], "dict": {}
+    "int": 1,
+    "str": "x",
+    "float": 1.0,
+    "bool": True,
+    "tuple": (1,),
+    "list": [1],
+    "dict": {},
 }
 
 
@@ -328,10 +368,7 @@ def _synth_value(type_name: str | None, namespace: dict, depth: int = 0) -> Any:
     cls = namespace.get(type_name) if type_name else None
     if depth < 4 and isinstance(cls, type) and dataclasses.is_dataclass(cls):
         try:
-            return cls(**{
-                f.name: _synth_field(f, namespace, depth + 1)
-                for f in dataclasses.fields(cls)
-            })
+            return cls(**{f.name: _synth_field(f, namespace, depth + 1) for f in dataclasses.fields(cls)})
         except Exception:  # noqa: BLE001 — an unconstructible field just yields no instance
             return None
     return None
@@ -350,7 +387,6 @@ def _synth_field(field: Any, namespace: dict, depth: int) -> Any:
         except (SyntaxError, ValueError):
             return _synth_value(_field_type_name(field), namespace, depth)
     return _synth_value(getattr(ann, "__name__", None), namespace, depth)
-
 
 
 def _dataclass_field_variants(value: Any, cap: int = 4) -> list:
@@ -388,8 +424,11 @@ def _synth_from_ann(ann, namespace: dict, depth: int = 0) -> Any:
     if depth < 5 and isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
         container, elt = ann.value.id, ann.slice
         if container in ("dict", "Dict", "Mapping") and isinstance(elt, ast.Tuple) and len(elt.elts) == 2:
-            return {_synth_from_ann(elt.elts[0], namespace, depth + 1):
-                    _synth_from_ann(elt.elts[1], namespace, depth + 1)}
+            return {
+                _synth_from_ann(elt.elts[0], namespace, depth + 1): _synth_from_ann(
+                    elt.elts[1], namespace, depth + 1
+                )
+            }
         if container in ("list", "List", "Sequence", "Iterable"):
             return [_synth_from_ann(elt, namespace, depth + 1)]
         if container in ("set", "Set", "frozenset"):
@@ -427,9 +466,7 @@ def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
                 grids.append(variants)
             else:
                 value = _synth_from_ann(arg.annotation, namespace)
-                grids.append(
-                    _dataclass_field_variants(value) if value is not None else _grid_for(name)
-                )
+                grids.append(_dataclass_field_variants(value) if value is not None else _grid_for(name))
         else:
             grids.append(_grid_for(name))
     return grids
@@ -489,9 +526,7 @@ def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
     return sites
 
 
-def _unreachable_inputs_note(
-    node: ast.AST, qualname: str, inferred: dict[str, str] | None = None
-) -> str:
+def _unreachable_inputs_note(node: ast.AST, qualname: str, inferred: dict[str, str] | None = None) -> str:
     """Actionable Zone-3 message when synthesized inputs can't exercise a function.
 
     The opaque "candidate inputs don't exercise this function" leaves the user with
@@ -567,10 +602,7 @@ def _synth_inferred_inputs(
     exercises the formatter/domain-object functions the per-parameter integer grids cannot,
     and the types feed the actionable note even when a value cannot be built.
     """
-    args = [
-        a for a in getattr(getattr(node, "args", None), "args", []) or []
-        if a.arg not in ("self", "cls")
-    ]
+    args = [a for a in getattr(getattr(node, "args", None), "args", []) or [] if a.arg not in ("self", "cls")]
     inferred = infer_param_types(qualname, project_root, [a.arg for a in args])
     if not inferred:
         return [], {}
@@ -673,16 +705,29 @@ def classify_survivors(
     # unannotated (formatters/domain-object fns) — synthesized in the type's defining
     # module so nested dataclass fields build. Placed after the real call-sites, before
     # the integer grids, so a genuine sample still wins.
-    inferred_tuples, inferred_types = _synth_inferred_inputs(
-        node, qualname or function, project_root, ns
-    )
+    inferred_tuples, inferred_types = _synth_inferred_inputs(node, qualname or function, project_root, ns)
     # User-SUPPLIED inputs FIRST — the Zone-2 residual filled through the CLI. A
     # human-provided sample is ground truth for a DOF deterministic synthesis could not
     # exercise, so it wins over discovery, inferred-type synth, and the integer grids.
     supplied = [tuple(x) for x in (call_site_inputs or [])]
     inputs = supplied + discovered + inferred_tuples + bounded_product(_input_grids(node, ns))
-    # Soundness gate: if the original raises on every candidate input, the inputs
-    # don't fit this function — any "equivalent" verdict would be spurious.
+    # When deterministic synthesis provably can't exercise the function — every
+    # candidate raises, i.e. a domain-object parameter no grid can fabricate — reuse
+    # a REAL input the covering tests already pass: capture the actual arguments at
+    # every entry to the target while the discovered tests run, and retry. This
+    # closes structured-input functions to a verdict WITHOUT ever fabricating an
+    # input (the abstention below stays the honest fallback when even the tests do
+    # not exercise the DOF). Captured real inputs rank just behind a human-supplied
+    # residual and ahead of the synthesized grids.
+    if not any(not _outcome(original, args).startswith("<raised") for args in inputs):
+        func_names = [qn for qn, _ in walk_functions(tree)]
+        harvest_tests = discover_test_callables(
+            root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
+        )
+        captured = capture_call_inputs(original, harvest_tests)
+        inputs = supplied + captured + inputs
+    # Soundness gate: if the original STILL raises on every candidate input, the
+    # inputs don't fit this function — any "equivalent" verdict would be spurious.
     if not any(not _outcome(original, args).startswith("<raised") for args in inputs):
         # Execution can't run here — but a manual flag stands regardless.
         unclassified_descs, manual_eq = _split(survivors)
