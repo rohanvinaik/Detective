@@ -81,9 +81,16 @@ def test_parser_diagnose_defaults():
     assert args.project_root == "." and args.json is False
 
 
-def test_parser_certify_write_dir():
-    args = _build_parser().parse_args(["certify", "a.py::f", "--write-dir", "tests", "--json"])
-    assert args.command == "certify" and args.write_dir == "tests" and args.json is True
+def test_parser_reports_version():
+    with pytest.raises(SystemExit) as exc:
+        _build_parser().parse_args(["--version"])
+    assert exc.value.code == 0
+
+
+def test_parser_rejects_removed_certify_command():
+    # certify is no longer a CLI command (converge supersedes it); argparse must reject it
+    with pytest.raises(SystemExit):
+        _build_parser().parse_args(["certify", "a.py::f"])
 
 
 def test_parser_requires_a_command():

@@ -1,9 +1,8 @@
-"""``detective`` command — a thin dispatcher over the diagnose/certify API.
+"""``detective`` command — a thin dispatcher over the library API.
 
-No compute here: parse args, call the library, format the result. Two commands:
+No compute here: parse args, call the library, format the result. Example:
 
-    detective diagnose ./module.py::function [--json]
-    detective certify  ./module.py::function [--write-dir tests] [--json]
+    detective converge ./module.py::function [--json]
 """
 
 from __future__ import annotations
@@ -14,6 +13,8 @@ import difflib
 import json
 import sys
 from dataclasses import asdict
+
+from . import __version__
 
 
 def _split_target(target: str) -> tuple[str, str]:
@@ -790,7 +791,6 @@ _COMMAND_HELP = {
     "audit": "assess an EXISTING suite: complete? minimal? which tests to prune",
     "decompose": "extract entangled blocks into helpers (behavior-preserving; --apply to write)",
     "diagnose": "show a function's behavioral scope + what to run next (read-only)",
-    "certify": "one-shot: synthesize tests for current survivors (prefer `converge`)",
 }
 
 
@@ -816,17 +816,21 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Generate/audit a function's pytest suite from its mutation profile. "
         "Typical use: `detective converge path/to/file.py::function`.",
     )
+    parser.add_argument("--version", action="version", version=f"detective {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("converge", "audit", "decompose", "diagnose", "certify"):
+    for name in ("converge", "audit", "decompose", "diagnose"):
         p = sub.add_parser(name, help=_COMMAND_HELP[name])
         p.add_argument("target", help="file.py::function")
-        p.add_argument("--project-root", default=".")
+        p.add_argument("--project-root", default=".", help="project root the target path is relative to")
         p.add_argument("--json", action="store_true", help="emit JSON")
-        if name == "certify":
-            p.add_argument("--write-dir", default=None, help="write synthesized tests here")
         if name == "converge":
             p.add_argument("--write-dir", default="tests", help="write synthesized tests here")
-            p.add_argument("--max-iterations", type=int, default=3)
+            p.add_argument(
+                "--max-iterations",
+                type=int,
+                default=3,
+                help="max converge passes before stopping (default 3)",
+            )
             p.add_argument(
                 "--fast",
                 action="store_true",
@@ -1059,30 +1063,9 @@ def _run(args) -> int:
         )
         return 0
 
-    from .certify import certify
-
-    result = certify(file, function, args.project_root, write_dir=args.write_dir)
-    if args.json:
-        payload = {**asdict(result), "scope": asdict(result.scope)}
-        print(json.dumps(payload, indent=2, default=str))
-    else:
-        print(_format_scope(result.scope))
-        status = (
-            "at ceiling — nothing to synthesize" if result.at_ceiling else f"{result.survivors} survivor(s)"
-        )
-        print(f"  certify: {status}")
-        if result.written_path:
-            print(f"  wrote: {result.written_path}")
-        if result.wiring:
-            print(f"  {result.wiring.message}")
-        for line in _show_written(result.written_path):
-            print(line)
-        plan = result.decomposition
-        if plan and plan.is_decomposable:
-            print(f"  decompose: {plan.rationale}")
-            for candidate in plan.candidates:
-                print(f"    - {candidate.proposed_name}: {candidate.reason}")
-    return 0
+    # Unreachable: argparse (required subparsers) guarantees args.command is one of the
+    # registered commands, each handled above. Kept as a defensive guard.
+    raise SystemExit(f"detective: unknown command {args.command!r}")
 
 
 if __name__ == "__main__":
