@@ -55,7 +55,7 @@ Detective's "specified/complete" always means *value*-specified:
         └──────────▶ converge · audit · decompose ◀────────────────┘
                           │
                           ▼
-                clean pytest files on disk + a validation report in the CLI
+        clean pytest files on disk + a full report on disk + a terse FINAL banner in the CLI
 ```
 
 Detective **owns one function at a time.** Every command takes `file.py::function`,
@@ -118,6 +118,7 @@ untraced mutation loop.
 | `.detective/equivalents.json` | project root | **manual equivalence flags** (user data — §8); read by `classify_survivors` |
 | `WESKER_MEM_BUDGET_MB` | env var | user-selectable memory ceiling (§7) |
 | existing test files | project `tests/` etc. | the suite `audit` assesses / `converge` augments (Wesker-discovered) |
+| covering tests' runtime inputs | project `tests/` | when synthesis provably can't build a param (a domain object), `capture_call_inputs` reuses the REAL args those tests already pass — never fabricated (the honest alternative to abstaining) |
 
 ---
 
@@ -172,17 +173,19 @@ All in `Detective/`. Frozen dataclasses unless noted.
 | `scope.py` | reshape ProfilingResult → behavioral map | `scope_from_profiling` |
 | `equivalence.py` | classify survivor killable/equivalent BY EXECUTION; typing; SourceExpr | `find_witness`, `classify_survivor`, `_outcome`, `synth_ast_input`, `unwrap` |
 | `purity.py` | is-pure predicate (gates STATE + golden capture) | `is_pure`, `analyze_function` |
-| `call_sites.py` | recover inputs/types from how a fn is CALLED across the repo | `discover_call_site_inputs`, `infer_param_types` |
-| `synthesis/{typed_synthesis,characterization,oracle_light,writer}.py` | make inputs, capture goldens, build properties, render pytest | `synthesize_value`, `capture_golden`, `golden_assert_line`, `generate_executable_property`, `render_module` |
+| `call_sites.py` | recover inputs/types from how a fn is CALLED across the repo (static, literal args) | `discover_call_site_inputs`, `infer_param_types` |
+| `capture.py` | **runtime harvest** of REAL args from the covering tests when synthesis can't build a domain-object input (`sys.setprofile` on the target's code object) | `capture_call_inputs` |
+| `synthesis/{typed_synthesis,characterization,oracle_light,writer}.py` | make inputs, capture goldens, build properties, render pytest | `synthesize_value`, `capture_golden`, `golden_assert_line`, `generate_executable_property`, `render_module`, `individual_test_names` |
 | `converge.py` | **the closed loop**: diagnose→synth-sound→write→re-profile to the ceiling | `converge`, `property_holds`, `passes_to_complete`, `_golden_properties`, `_witness_property`, `_raises_witness_property` |
-| `certify.py` | one-shot synth (older front door) + pytest wiring | `certify`, `wire_pytest`, `verify_under_pytest`, `ensure_conftest` |
+| `certify.py` | one-shot synth (library API, no longer a CLI command) + pytest wiring | `certify`, `wire_pytest`, `verify_under_pytest`, `ensure_conftest` |
 | `minimize.py` | two-axis set cover (kill ∪ line) | `minimal_cover_2axis`, `redundant_2axis`, `missing_lines` |
 | `audit.py` | read-only assessment of an EXISTING suite | `audit_suite` |
 | `suite_edit.py` | apply confirmed test deletions | `apply_removals` |
 | `decompose.py` | propose extraction candidates — **STRUCTURE-gated** (not survivor-gated) | `decompose`, `find_extraction_candidates`, `compute_cognitive_complexity` |
 | `decompose_apply.py` | **extract-function**: converge (proof) → cluster → trial-apply → prove → apply | `apply_decomposition`, `extract_candidate` |
 | `equivalents.py` | persist/read manual equivalence flags | `add_flag`, `load_flags`, `flag_key` |
-| `cli.py` | arg parsing + formatting; **zero compute** | `main`, `_run`, `_build_parser`, `_parallel_mode`, `_format_*` |
+| `cli.py` | arg parsing + formatting (`--version`, streaming narrative, minimal terse view + `--full`); **zero compute** | `main`, `_run`, `_build_parser`, `_parallel_mode`, `_format_converge`/`_format_converge_terse`, `_final_banner`, `_plain_terms`, `_boundary_hint`, `_notify_stderr`, `_write_converge_report` |
+| `mcp_server.py` | optional MCP surface (`detective-mcp`): exposes `diagnose`/`certify`; zero compute | `build_server`, `main` |
 | (Wesker) `memory_guard.py` | RAM budget, fleet sizing, `RLIMIT_AS`, telemetry, purge | `resolve_budget`, `worker_count`, `apply_address_limit`, `over_budget`, `telemetry` |
 
 ---
@@ -190,9 +193,12 @@ All in `Detective/`. Frozen dataclasses unless noted.
 ## 5. The CLI — every command, fully explained
 
 Shape: `detective <command> file.py::function [flags]`. `cli._run` splits the target,
-calls the library, prints a formatter; `cli.main` appends a `memory_guard.telemetry()`
-footer. Live mutation progress streams to **stderr** (stdout stays clean for the result
-/ `--json`). Common to most commands: `--project-root` (default `.`), `--json`.
+calls the library, prints a formatter; `cli.main` emits a `memory_guard.telemetry()` footer
+to **stderr**. `detective --version` reports the package version. Live mutation progress and
+the converge phase narrative also stream to **stderr**, so stdout stays clean for the result
+/ `--json` (and the terse `FINAL` banner stays the last stdout line). Common to most
+commands: `--project-root` (default `.`), `--json`. Commands: `converge`, `audit`,
+`decompose`, `diagnose`, `flag`, `purge` (`certify` is a library API, not a CLI command).
 
 **Parallelism (diagnose · converge · audit).** Default is **adaptive auto**: a tiny
 serial probe measures this function's real per-mutant cost, then it fans mutants across
@@ -216,7 +222,7 @@ next"; and the **decompose guidance from two independent signals**:
 `.wesker/mutation_report.json` and prints the **learned-weak** priors (which categories
 THIS project recurrently leaves value-unspecified).
 
-### `converge file::fn [--write-dir tests] [--max-iterations N] [--fast] [--input "(…)"] [--parallel|--serial]`  — the flagship, writes tests
+### `converge file::fn [--write-dir tests] [--max-iterations N] [--fast] [--full] [--input "(…)"] [--parallel|--serial]`  — the flagship, writes tests
 **Purpose:** generate a **mutation-complete, line-complete, minimal** pytest suite.
 **Operation:**
 1. **Loop** (≤ N passes): `profile` → value-survivors → synthesize `ExecutableProperty`s
@@ -226,17 +232,28 @@ THIS project recurrently leaves value-unspecified).
 2. **Witness pass** (`classify_survivors`): for each *value*-witness, auto-write the
    killing test — a golden for a value-returning original, a `pytest.raises` for a raising
    one (`_raises_witness_property`). Auto-apply because a witness is deterministic proof.
+   When synthesis can't build an input, `classify_survivors` first **harvests a real one**
+   from the covering tests (`capture_call_inputs`) rather than abstain.
 3. **Final authoritative profile** → `functionally_complete`, line/minimal/redundant via
    `minimize`, pytest wiring (`wire_pytest`).
+4. **Minimize before shipping:** drop any test WE generated that is redundant for BOTH
+   kills and lines (`redundant_2axis` + `individual_test_names` maps the finding back to its
+   property), re-render, re-profile — so the written suite IS minimal by construction, not
+   merely accompanied by removal proposals. A non-generation, not a deletion (never auto).
 **Modes:** default **comprehensive** (every mutant, first pass); `--fast` greedy-samples a
 `(1−1/e)`-optimal subset per category per pass. `--max-iterations` caps passes.
-**You see:** a COMPLETE/INCOMPLETE verdict (tiered: complete / complete-modulo-equivalent /
-incomplete); score + the **DOF stats flex** (universe · mode · measured % · proven greedy
-floor); per-pass survivors; the **spec-completeness ETA in passes** (or "structure
-exhausted — supply `--input`"); the written test file + wired `conftest.py`; auto-applied
-tests echoed; and for any residual, the exact `--input "(<slots>)"` to supply.
-`--input` supplies that residual (a valid value for a param synthesis couldn't build) and
-re-runs to close the loop.
+**Output:** live phase narrative streams to stderr (`_notify_stderr`); the default stdout is
+a **minimal terse block** — a plain-language verdict, the one quick action, a report pointer,
+ending in a greppable `FINAL …` banner that is ALWAYS the last line. The full report is
+written to `.detective/reports/converge_<fn>.txt`; `--full` prints it to the terminal too.
+**You see (in the report / `--full`):** a COMPLETE/INCOMPLETE verdict (tiered: complete /
+complete-modulo-equivalent / incomplete, naming the concrete cause — killable residual or
+line gap); score + the **DOF stats flex** (universe · mode · measured % · proven greedy
+floor); per-pass survivors; the **spec-completeness ETA in passes** (or "structure exhausted
+— supply `--input`"); the written test file + wired `conftest.py`; and for any residual, the
+exact `--input "(<slots>)"` to supply — plus, for a BOUNDARY residual, the **distinguishing
+input named** (`_boundary_hint`: the equality edge, e.g. `supply an input where units == 100`).
+`--input` supplies that residual and re-runs to close the loop.
 
 ### `audit file::fn [--remove] [--parallel|--serial]`  — read-only (unless `--remove`)
 **Purpose:** assess an **existing** suite on both axes without changing it.
@@ -271,13 +288,13 @@ surfaces the exact `decompose … --apply --input "(<slots>)"` to supply and clo
 witness overrides it (proof beats opinion). Content-keyed: a code change to that line
 invalidates the flag by design.
 
-### `certify file::fn [--write-dir tests]`  — one-shot (prefer `converge`)
-Diagnose + synthesize tests for the current survivors in a single pass. Superseded by
-`converge`'s loop; kept as a thin front door.
-
 ### `purge [--project-root .]`
 Delete regeneratable analysis cruft (`.wesker/*.json`). Never touches generated tests,
 `conftest.py`, or `.detective/` (user data).
+
+`certify()` is no longer a CLI command (superseded by `converge`'s loop). It remains a
+library API (`from Detective import certify`) and its module still backs the pytest wiring
+(`wire_pytest`, `verify_under_pytest`) that `decompose` depends on.
 
 **MCP** (`detective-mcp`): exposes `diagnose`/`certify` only; zero compute.
 
@@ -296,7 +313,20 @@ annotation ──_type_of──▶ type name
    dataclass                        → _synth_value (build from fields)     (object)
    ast.* (FunctionDef, expr, …)     → synth_ast_input (parse a snippet)    → SourceExpr
    unannotated                      → infer_param_types (call-site) → int fallback (§10)
+   synthesis raises on every grid   → capture_call_inputs: reuse a REAL arg the covering
+                                       tests pass (runtime harvest) → the honest last resort
 ```
+
+- **Harvest, don't fabricate.** When every synthesized candidate raises (a domain object no
+  grid builds), `capture_call_inputs` installs a `sys.setprofile` hook keyed to the target's
+  code object, runs the discovered covering tests, and records the actual bound arguments —
+  reusing a real input instead of guessing one. Fires lazily (only when the soundness gate
+  would otherwise abstain); the abstention stays the honest Zone-3 fallback when even the
+  tests don't exercise the DOF.
+- **Minimal by construction.** After the final profile, converge drops any test it generated
+  that is redundant for both kills and lines (`individual_test_names` maps a `redundant_2axis`
+  finding back to the property) and re-profiles — the written suite is the minimal cover, not
+  the full set plus removal proposals.
 
 - **Call sites** `unwrap(arg)` so a `SourceExpr` runs as its live value; **render sites**
   use `repr(arg)` so `SourceExpr.__repr__` emits round-trippable constructor code, with
@@ -350,6 +380,7 @@ defensively, so Wesker also imports on Windows. `WESKER_MEM_BUDGET_MB` overrides
 |---|---|---|---|
 | `tests/test_<fn>_synth.py` | Detective (product output) | yes | never |
 | `conftest.py` (root) | Detective (pytest wiring) | yes | never |
+| `.detective/reports/converge_<fn>.txt` | Detective (full converge report; terminal stays terse) | yes | (under `.detective/`) |
 | `.detective/equivalents.json` | **user** (manual flags) | **no** | **never** |
 | `.detective/verdict_cache.json` | Detective (profile cache) | yes | (content-invalidated) |
 | `~/.detective/telemetry.json` | Detective (per-machine per-mutant EMA) | yes | — |
@@ -370,11 +401,14 @@ Detective holds **no** cross-run RAM state (MCP server is stateless; CLI frees o
 | `decompose` won't prove a clearly-decomposable fn | `decompose_apply.apply_decomposition` proof gate = `functionally_complete` (NOT `line_complete`) | mutation-completeness is the proof; line-completeness is orthogonal |
 | `decompose` can't prove & gives no way forward | `_format_decompose` residual block (reads `result.proof`) | surface the `--input` the internal converge computed |
 | `diagnose` says "decompose" but decompose finds nothing | `_format_scope` convergent signal (`regime B` **and** `decompose_seams`) | only flag decompose when a structural seam exists |
+| extracted helper carries the PARENT's docstring (and the parent loses its own) | `decompose.find_extraction_candidates` skips a leading docstring (`ast.get_docstring`) | a docstring belongs to the function, never to an extracted block |
+| converge writes a test its own audit then calls redundant | converge step 4 minimize (`redundant_2axis` + `writer.individual_test_names`) | ship the minimal cover, not the full set + removal proposals |
 | Parallel/auto result differs from serial | `parallel.merge_results` (shard-order concat) + `run_function_profiling` `mutant_slice` | records must concatenate in mutant-index order |
 | Cache serves a stale result | `verdict_cache.cache_key` | must hash fn-AST + tests-source + params; content, never path |
 | Generated test is **flaky** (set output) | `characterization.golden_assert_line` | set repr order is hash-seed-dependent → value-equality |
 | `verify_under_pytest` reports 0 passed for a passing suite | `certify.verify_under_pytest` | `-o addopts=` so the target's `-q` doesn't become `-qq` |
-| Survivor reads "uncertain — inputs don't exercise" | `engine._input_grids` / `representative_site` / `call_sites` | synthesis can't build a fitting value (domain-value / unannotated — §10) |
+| Survivor reads "uncertain — inputs don't exercise" | `engine._input_grids` / `representative_site` / `call_sites` / `capture.capture_call_inputs` (runtime harvest) | synthesis can't build a fitting value AND no covering test exercises it (domain-value / unannotated — §10) |
+| a BOUNDARY residual says "supply an input" but not WHICH | `cli._boundary_hint` names the equality edge (`left == right`) | a `>`↔`>=` shift differs exactly when operands are equal — the valid relation, not a generic template |
 | memory grows on a huge run | `run_function_profiling` mutant loop + `memory_guard.over_budget` | guard bounds accumulation; parallel bounds the fleet by construction |
 
 ---
