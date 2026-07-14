@@ -149,6 +149,62 @@ def _concise_diff(diff_summary: str) -> str:
     return f"{first[:100]}…" if len(first) > 100 else first
 
 
+def _comparisons(src: str) -> list[tuple[str, type, str]]:
+    """(left_src, op_class, right_src) for each single-operator comparison in a diff line,
+    normalizing statement headers (`if …:` / `elif …:`) so the fragment parses on its own."""
+    s = src.strip()
+    if s.startswith("elif "):
+        s = "if " + s[len("elif ") :]
+    if s.endswith(":"):
+        s += "\n    pass"
+    try:
+        tree = ast.parse(s)
+    except SyntaxError:
+        return []
+    out: list[tuple[str, type, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare) and len(node.ops) == 1:
+            out.append((ast.unparse(node.left), type(node.ops[0]), ast.unparse(node.comparators[0])))
+    return out
+
+
+_ORDERING_OPS = (ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+
+
+def _boundary_hint(diff_summary: str) -> str | None:
+    """For a BOUNDARY mutant — a strict↔non-strict comparison shift (`>`↔`>=`, `<`↔`<=`) — name
+    the ONE distinguishing input: the EQUALITY edge. Two ordering comparisons differ EXACTLY when
+    their operands are equal, so `left == right` is the valid relation WITH its precondition, not
+    a generic template (BOUNDARY is oracle-light, not oracle-free). Recovers the real operands by
+    matching the comparison whose operator changed between original and mutant; None if none found.
+    """
+    # diff_summary is '- <whole original>\n+ <whole mutant>'; block-diff it (as _concise_diff
+    # does) to isolate the lines that actually changed, then find the comparison whose operator
+    # shifted — not the def line the raw prefixes would otherwise pick up.
+    marker = "\n+ "
+    if not (diff_summary.startswith("- ") and marker in diff_summary):
+        return None
+    idx = diff_summary.index(marker)
+    orig_lines = diff_summary[2:idx].splitlines()
+    mut_lines = diff_summary[idx + len(marker) :].splitlines()
+    o_changed: list[str] = []
+    m_changed: list[str] = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=orig_lines, b=mut_lines).get_opcodes():
+        if tag == "equal":
+            continue
+        o_changed += orig_lines[i1:i2]
+        m_changed += mut_lines[j1:j2]
+    m_cmps = [c for ln in m_changed for c in _comparisons(ln)]
+    for ln in o_changed:
+        for left, op, right in _comparisons(ln):
+            if op not in _ORDERING_OPS:
+                continue
+            for m_left, m_op, m_right in m_cmps:
+                if m_left == left and m_right == right and m_op in _ORDERING_OPS and m_op is not op:
+                    return f"distinguish at the boundary — supply an input where {left} == {right}"
+    return None
+
+
 def _target_lines(signature: str) -> list[str]:
     """The residual's ``target:`` signature line, plus a one-line legend when any
     parameter type was inferred from call sites (rendered ``p: ~Type``) rather than
@@ -286,6 +342,10 @@ def _format_survivor_report(rep, signature: str = "", param_names: tuple[str, ..
         )
         for v in rep.equivalent:
             lines.append(f"    → mutant {v.mutant_id} [{v.category}]: {_concise_diff(v.diff_summary)}")
+            if v.category == "BOUNDARY":
+                hint = _boundary_hint(v.diff_summary)
+                if hint:
+                    lines.append(f"        ↳ {hint}")
         lines += _target_lines(signature)
         lines.append(
             f"      supply:  {_input_template(param_names)}   "

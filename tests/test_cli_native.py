@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from Detective.cli import _build_parser, _format_scope, _split_target
+from Detective.cli import _boundary_hint, _build_parser, _format_scope, _split_target
 from Detective.scope import KillQuality, ScopeMap, Specification
 
 
@@ -89,3 +89,33 @@ def test_parser_certify_write_dir():
 def test_parser_requires_a_command():
     with pytest.raises(SystemExit):
         _build_parser().parse_args([])
+
+
+# ── _boundary_hint (BOUNDARY residual: the distinguishing input is the equality edge) ──
+def _ds(orig: str, mut: str) -> str:
+    """A diff_summary in the '- <whole original>\\n+ <whole mutant>' form the engine emits."""
+    return f"- def f(x):\n    {orig}\n+ def f(x):\n    {mut}"
+
+
+def test_boundary_hint_names_the_equality_edge():
+    h = _boundary_hint(_ds("return x > 10", "return x >= 10"))
+    assert h == "distinguish at the boundary — supply an input where x == 10"
+
+
+def test_boundary_hint_handles_lt_to_lte():
+    h = _boundary_hint(_ds("return a < b", "return a <= b"))
+    assert h is not None and "a == b" in h
+
+
+def test_boundary_hint_handles_a_ternary():
+    h = _boundary_hint(_ds("y = 1 if x > 5 else 0", "y = 1 if x >= 5 else 0"))
+    assert h is not None and "x == 5" in h
+
+
+def test_boundary_hint_none_for_operand_swap_not_a_boundary():
+    # a SWAP (operands reordered) is not a strict↔non-strict shift → no boundary hint
+    assert _boundary_hint(_ds("return a > b", "return b > a")) is None
+
+
+def test_boundary_hint_none_for_non_comparison_mutation():
+    assert _boundary_hint(_ds("return x + 1", "return x - 1")) is None
