@@ -33,7 +33,14 @@ classifiers = [
 # runtime requirement, not dev-only. Wesker is a sister repo not yet on PyPI, so it is
 # pinned to a git TAG for reproducibility (a floating branch ref drifts every install —
 # the exact defect that shipped a Wesker missing the API Detective needs). Requires the
-# matching `v0.2.0` tag on the Wesker remote. Swap to `Wesker>=0.2.0` once Wesker is on PyPI.
+# matching `v0.3.0` tag on the Wesker remote (push + tag Wesker before installing Detective).
+#
+# ── PRE-PyPI-PUBLISH CHECKLIST (do all three, in this order) ────────────────────────────
+#   0. Publish Wesker 0.3.0 to PyPI first (PyPI rejects direct-URL deps).
+#   1. Replace the git-URL below with a plain package spec:  "Wesker>=0.3.0".
+#   2. Remove `[tool.uv.sources] Wesker` (the local ../Wesker path) AND
+#      `[tool.hatch.metadata] allow-direct-references` — both exist ONLY for the git-URL
+#      dev/git-install path; a PyPI package must depend on the PyPI package, not a local repo.
 dependencies = [
     "Wesker @ git+https://github.com/rohanvinaik/Wesker.git@v0.3.0",
     "pytest>=7",
