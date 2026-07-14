@@ -27,7 +27,7 @@ def test_witness_property_builds_golden_test_at_the_witness_input():
     p = _witness_property("m::sign", Witness((0,), "0", "1"))
     assert p.category == "VALUE" and p.needs_oracle is False
     assert p.setup_code == "from m import sign"
-    assert p.assertion_code == "result = sign(0)\nassert repr(result) == '0'"
+    assert p.assertion_code == "result = sign(0)\nassert result == 0"
     assert p.source_lenses == ["witness"] and p.confidence == 0.95
     assert p.preconditions == ["distinguishing witness (equivalence search)"]
     assert p.inputs == {}
@@ -35,14 +35,14 @@ def test_witness_property_builds_golden_test_at_the_witness_input():
 
 def test_witness_property_reprs_multiple_args():
     p = _witness_property("m::f", Witness((-1, 2), "3", "0"))
-    assert p.assertion_code == "result = f(-1, 2)\nassert repr(result) == '3'"
+    assert p.assertion_code == "result = f(-1, 2)\nassert result == 3"
 
 
 def test_witness_property_bare_func_key_has_no_import():
     # no "::" -> mod is empty -> no import line (exercises the fallback branch)
     p = _witness_property("plainfunc", Witness((1,), "2", "9"))
     assert p.setup_code == ""
-    assert p.assertion_code == "result = plainfunc(1)\nassert repr(result) == '2'"
+    assert p.assertion_code == "result = plainfunc(1)\nassert result == 2"
 
 
 # ── property_holds ────────────────────────────────────────────────
@@ -117,7 +117,7 @@ def test_golden_property_pins_exact_repr():
     p = _golden_property("m::add", cap)
     assert p.category == "VALUE" and p.needs_oracle is False
     assert p.setup_code == "from m import add"
-    assert p.assertion_code == "result = add(1, 2)\nassert repr(result) == '3'"
+    assert p.assertion_code == "result = add(1, 2)\nassert result == 3"
     assert p.source_lenses == ["golden_capture"] and p.confidence == 0.9
     assert p.preconditions == ["golden capture (pure + deterministic)"]
     assert p.inputs == {}
@@ -126,7 +126,7 @@ def test_golden_property_pins_exact_repr():
 def test_golden_property_bare_func_key():
     p = _golden_property("plainfunc", GoldenCapture(inputs=(1,), output="2", deterministic=True))
     assert p.setup_code == ""  # no module component -> no import line
-    assert p.assertion_code == "result = plainfunc(1)\nassert repr(result) == '2'"
+    assert p.assertion_code == "result = plainfunc(1)\nassert result == 2"
 
 
 # ── converge (fast guard only) ────────────────────────────────────

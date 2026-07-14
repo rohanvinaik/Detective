@@ -129,7 +129,7 @@ def test_generate_golden_test_pins_exact_value():
     src = generate_golden_test("m::add", [cap])
     assert "from m import add" in src
     assert "result = add(2, 3)" in src
-    assert "assert repr(result) == '5'" in src
+    assert "assert result == 5" in src
 
 
 def test_generate_golden_test_abstains_on_nondeterministic():
