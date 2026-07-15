@@ -78,7 +78,17 @@ $ detective decompose stats.py::anomaly_score --apply
       return round(score, 4)
 ```
 
-Detective wrote the suite, ran it against the original, rewrote the function, ran it again, and kept the change **only because every test still passed**. Had one failed, it would have reverted the file and told you which behavior moved.
+This is not "rewrite the AST and hope." `--apply` is a gate, and the loop behind it is:
+
+1. **converge** the target to a mutation-complete suite — the proof
+2. run that suite against the **unchanged** function — the baseline
+3. **propose** extraction candidates, deterministically, from the function's structure
+4. **trial-write** a candidate to disk and re-run the suite
+5. keep it **only if green** — otherwise revert the file and say which behavior moved
+
+A red baseline can never produce a proof, and nothing reaches your source that step 5 did not clear. Without `--apply`, step 4 never runs: candidates are shown and never written.
+
+**Detective refactors automatically, but only up to the boundary of the behavior your tests actually specify.** Past that boundary it stops and asks.
 
 ---
 
@@ -200,7 +210,7 @@ There are exactly three outcomes, and Detective never blurs them:
 | **`rejected — the suite says behavior changed`** | The rewrite was tried and a test caught it. Your file is untouched. |
 | **`unproven`** | Nothing was tried — there is no complete suite to prove against yet. Your file is untouched. |
 
-Without `--apply`, nothing is ever written: extractions are shown, never applied.
+All three outcomes above assume `--apply`. Without it, no candidate is ever trial-written — you get the proposals and your source is not touched.
 
 ---
 
