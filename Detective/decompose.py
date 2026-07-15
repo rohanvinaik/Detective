@@ -80,19 +80,22 @@ def _collect_writes(node: ast.AST) -> set[str]:
 
 
 def _has_exit_statement(node: ast.AST) -> bool:
-    """True if return/break/continue exists at THIS scope level — a jump that would
-    change meaning if the block moved into a helper. Nested function/class scopes
-    are not descended into (their returns are their own)."""
+    """True if ``node`` IS, or contains at THIS scope level, a return/break/continue — a
+    jump that would change meaning if the block moved into a helper. Nested function/class
+    scopes are not descended into (their returns are their own).
+
+    The node ITSELF must be tested, not only its children. A bare ``return x`` standing as a
+    block's own statement has no ``Return`` among its children — its child is the value
+    expression — so a children-only check called it exit-free. A block could then swallow
+    the function's own exit: the helper took the ``return``, and the caller, whose outputs
+    are ``block_writes & post_reads`` with nothing after the block to read anything, got an
+    empty interface and silently returned None. Only a return NESTED in an ``if`` was caught.
+    """
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         return False
-    for child in ast.iter_child_nodes(node):
-        if isinstance(child, (ast.Return, ast.Break, ast.Continue)):
-            return True
-        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        if _has_exit_statement(child):
-            return True
-    return False
+    if isinstance(node, (ast.Return, ast.Break, ast.Continue)):
+        return True
+    return any(_has_exit_statement(child) for child in ast.iter_child_nodes(node))
 
 
 def _analyze_statement(index: int, stmt: ast.stmt) -> _StmtInfo:

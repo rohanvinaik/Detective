@@ -2,10 +2,13 @@
 
 import ast
 
+import pytest
+
 from Detective.decompose import _has_exit_statement
 
 
+@pytest.mark.detective
 def test__has_exit_statement_value_0():
     """VALUE survivor — golden capture (pure + deterministic) (confidence 0.9)."""
     result = _has_exit_statement(ast.parse("def _f(x):\n    return x").body[0])
-    assert repr(result) == "False"
+    assert result is False

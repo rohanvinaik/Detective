@@ -248,6 +248,11 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str:
     mutates a constant to a same-type constant; the rest change the value), so ``==``
     catches exactly what the old ``repr(result) == "<str>"`` form did.
 
+    The three singletons take ``is``: ``== True`` / ``== False`` / ``== None`` are ruff
+    E712/E711, and a consumer that lints the tests we write (this project does) would
+    reject a suite we emitted. ``is`` is also the stricter pin — identity with the
+    singleton, not merely equality with it (``1 == True``).
+
     A NON-literal repr (an object) has no value-equality form, and repr-equality is sound
     for it — EXCEPT for a set, whose repr order follows element hashes and so differs
     between the capture process and the process that later runs the test. That case is
@@ -265,4 +270,6 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str:
         if isinstance(value, (set, frozenset)) and not any(_contains_set(v) for v in value):
             return f"assert sorted(map(repr, result)) == {sorted(map(repr, value))!r}"
         return f"assert repr(result) == {output_repr!r}"
+    if output_repr in ("True", "False", "None"):
+        return f"assert result is {output_repr}"
     return f"assert result == {output_repr}"
