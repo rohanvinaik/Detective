@@ -763,7 +763,10 @@ def _format_audit(a) -> str:
     elif a.complete:
         verdict = "✓ complete"
     else:
-        verdict = "✗ incomplete"
+        # Not "✗": the gaps are itemised on the lines below, and a suite that pins every
+        # killable behavior but leaves a line uncovered is not a failed run. Matches
+        # `_final_banner` / `_completeness_verdict`, which stopped branding it one.
+        verdict = "incomplete"
     lines = [
         f"{a.function}: {a.test_count} existing test(s) — {verdict}   [audit reads only — writes nothing]",
         f"  kills: {a.kill_pct}%  |  mutant-complete={a.mutant_complete}  line-complete={a.line_complete}",
