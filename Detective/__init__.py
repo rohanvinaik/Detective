@@ -11,7 +11,9 @@ Public API:
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+# Keep in lockstep with pyproject's `version` — this is restated, so it drifts silently.
+# Bump both, or neither. (Wesker shipped 0.3.0 announcing 0.1.0 for exactly this reason.)
+__version__ = "0.1.1"
 
 from .certify import CertifyResult, certify
 from .converge import ConvergeResult, converge

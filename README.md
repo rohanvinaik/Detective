@@ -1,6 +1,6 @@
 # Detective
 
-**Find out what a Python function actually does — then change it, with a proof that behavior survived.**
+**Refactor a Python function and prove you didn't change it.**
 
 <p align="center">
   <a href="https://github.com/rohanvinaik/Detective/actions/workflows/ci.yml"><img src="https://github.com/rohanvinaik/Detective/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -12,7 +12,9 @@
 
 A passing test suite tells you your code runs. It does not tell you what your code *computes*, and it does not tell you whether you can change it.
 
-Detective answers both, one function at a time. Point it at a function and it maps every behavioral distinction the function makes, writes the minimal suite that pins them, and — once that suite exists — refactors the function and applies the change only if the suite proves behavior survived.
+Detective settles both, one function at a time. It uses **mutation analysis** to enumerate every behavioral distinction a function makes, synthesizes the minimal test suite that pins each one, and then rewrites the function — applying the change only if that suite proves the behavior survived.
+
+The suite is not the product. It is the proof artifact that makes the refactor verifiable.
 
 ---
 
@@ -27,6 +29,8 @@ $ detective converge stats.py::anomaly_score
 
   4 behaviors nothing distinguishes — each with the input that would:
 
+    - return round(score, 4)           + return round(4, score)
+
     - if not values or window <= 0:    + if not values or window < 0:
         ↳ distinguish at the boundary — supply an input where window == 0
 
@@ -35,11 +39,9 @@ $ detective converge stats.py::anomaly_score
 
     - if score > 1.0:                  + if score >= 1.0:
         ↳ distinguish at the boundary — supply an input where score == 1.0
-
-    - return round(score, 4)           + return round(4, score)
 ```
 
-Each line is a real edit to your function that **every test still passes**. The last one reverses the arguments to `round()` and nothing notices.
+Read the first one again. Detective reversed the arguments to `round()` — and **every test still passed**. Every line here is a real edit to your function that your suite does not notice, and each boundary case comes with the exact input that would catch it.
 
 Line coverage cannot see any of this. It reports which lines *ran*.
 
@@ -85,6 +87,9 @@ Detective wrote the suite, ran it against the original, rewrote the function, ra
 ```bash
 uv add detective-spec          # or: uv pip install detective-spec
 ```
+
+Installs as `detective-spec`, imports as `Detective`, runs as `detective`. The install
+name differs because PyPI's `detective` was taken years ago by an unrelated project.
 
 <details>
 <summary>From source</summary>
@@ -152,6 +157,16 @@ If a run comes back with a low number and a residual, that's the tool asking a q
 ## Why a suite lets you refactor
 
 Mutation testing measures which *behaviors* your tests require: change the code, see whether a test complains. Every alteration that slips through silently is a behavior nothing constrains. Detective runs on [Wesker](https://github.com/rohanvinaik/Wesker), which makes that measurement fast enough to do per-function, per-command.
+
+**Not every kill counts.** A test can catch a mutant two ways: it can *assert* that the return value is wrong, or it can simply *crash*. Only the first pins what the function computes — a crash proves the code ran differently, nothing more. A tool reporting a 95% kill rate where most kills are crashes has told you almost nothing about your return values, and you cannot refactor against it.
+
+Detective counts only assertion kills as specified behavior. A crash kill is reported as an *unpinned* value — which is why `diagnose` splits the number:
+
+```
+  of the pinned: 18 pin the RETURN VALUE, 2 only prove it runs (crash)
+```
+
+That second number is behavior you do not have a contract for, and Detective will not spend it to make its own score look better.
 
 The claim Detective rests on is narrow and mechanical:
 

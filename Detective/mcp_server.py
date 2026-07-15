@@ -1,6 +1,6 @@
 """Optional MCP surface — a thin projection of the diagnose/certify API.
 
-Requires the ``mcp`` extra (``pip install Detective[mcp]``); ``mcp`` is imported
+Requires the ``mcp`` extra (``uv pip install 'detective-spec[mcp]'``); ``mcp`` is imported
 lazily so the core package stays Wesker + stdlib only. No compute here — each
 tool calls the library and returns plain dicts.
 
@@ -38,7 +38,24 @@ def build_server() -> Any:
 
 
 def main() -> None:
-    build_server().run()
+    """Entry point for the ``detective-mcp`` console script.
+
+    The script is installed unconditionally — a wheel cannot make a console script
+    depend on an extra — so on a plain ``detective-spec`` install it is present but its
+    dependency is not. Left alone, it dies on a raw ModuleNotFoundError traceback and
+    reads like a broken package. Say what is missing and how to get it instead.
+    """
+    try:
+        server = build_server()
+    except ModuleNotFoundError as exc:  # pragma: no cover — depends on the extra being absent
+        if exc.name != "mcp" and not str(exc).startswith("No module named 'mcp"):
+            raise
+        raise SystemExit(
+            "detective-mcp: the optional MCP server dependency is not installed.\n"
+            "  install it with:  uv pip install 'detective-spec[mcp]'\n"
+            "  (the `detective` CLI itself needs nothing extra — this is only for the MCP surface)"
+        ) from None
+    server.run()
 
 
 if __name__ == "__main__":
