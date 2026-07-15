@@ -20,6 +20,14 @@ from collections.abc import Callable
 from typing import Any
 
 from Wesker.ci import discover_test_callables, walk_functions
+
+try:  # older Wesker without the live-session seam: no live suite can be active
+    from Wesker.ci import live_suite_active as _live_suite_active
+except ImportError:  # pragma: no cover
+
+    def _live_suite_active() -> bool:
+        return False
+
 from Wesker.engine import ProfilingResult, generate_mutants, run_function_profiling
 from Wesker.filter import filter_categories
 
@@ -177,9 +185,24 @@ def profile(
     #           spawn tax — correct across the ~1000x per-mutant range, not a stale-rate guess.
     #   False → off: plain serial.
     # Never for a shard (``mutant_slice``), explicit tests (workers re-discover; callables
-    # can't cross spawn), or a budgeted run (a sharded wall-clock budget is not equivalent).
+    # can't cross spawn), a budgeted run (a sharded wall-clock budget is not equivalent),
+    # or a LIVE pytest session — the live suite is closures over live pytest items, bound
+    # to this interpreter's session/fixtures/conftest, so it cannot cross spawn either. A
+    # worker started from inside one re-discovers with the collect-only backend, silently
+    # drops every fixture-taking test, and reports its shard's mutants as survivors; the
+    # parent then merges that into an otherwise-correct result. Measured on Prism:
+    # 1/131 behaviors "pinned" fanned out, versus 16/16 in-session — the fan-out was
+    # reporting a fully-specified function as almost entirely unspecified. Staying serial
+    # is not a loss here: the session baseline is already paid once, so per-function cost
+    # is small (~2.3s), whereas each spawned worker would re-pay it in full.
     # The fleet size is the portable memory guarantee; verdicts are proven bit-identical.
-    if use_parallel is not False and mutant_slice is None and tests_auto and budget_ms is None:
+    if (
+        use_parallel is not False
+        and mutant_slice is None
+        and tests_auto
+        and budget_ms is None
+        and not _live_suite_active()
+    ):
         from Wesker.memory_guard import worker_count
 
         from . import parallel

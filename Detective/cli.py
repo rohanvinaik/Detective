@@ -953,7 +953,7 @@ def main(argv: list[str] | None = None) -> int:
     STDERR — advisory monitoring, like progress — so STDOUT ends on the result banner and
     stays clean for piping."""
     args = _build_parser().parse_args(argv)
-    code = _run(args)
+    code = _run_live(args)
     if not getattr(args, "json", False):
         try:
             from Wesker.memory_guard import telemetry
@@ -961,6 +961,58 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"  [{telemetry()}]\n")
         except Exception:  # noqa: BLE001 — telemetry is advisory, never fatal
             pass
+    return code
+
+
+def _run_live(args) -> int:
+    """Run the command inside a LIVE pytest session, so profiling sees the REAL suite.
+
+    Wesker's default discovery collects with ``--collect-only``, which tears the session
+    down immediately — every fixture-taking test is then SKIPPED because its fixtures can
+    no longer be supplied. For Detective that is not a speed issue but a correctness one:
+    a mutant that only a fixture-taking test could kill is reported as a surviving
+    behavioral gap, so the diagnosis claims a dimension is unspecified when the suite
+    already pins it, and a warrant-classed test gets synthesised for behavior that was
+    never unspecified. On a fixture-heavy target that is most of the suite (measured on
+    Prism: 0 of 445 tests bound the old way, 445 the new way).
+
+    ONE wrap upgrades everything underneath: ``Wesker.ci.run_with_live_suite`` publishes
+    the live suite to Wesker's own discovery, so ``profile_function`` and ``suite_edit``
+    keep calling ``discover_test_callables`` with unchanged signatures and simply receive
+    real, runnable tests. The inversion of control is pytest's — the loop cannot be handed
+    out and left open — which is exactly why it is wrapped here once rather than
+    re-derived at each call site.
+
+    ``purge`` runs no tests, so it never pays for a session. Degrading is LOUD: silently
+    falling back to the weaker discovery is what makes a well-tested suite look
+    under-specified.
+    """
+    root = getattr(args, "project_root", None)
+    if getattr(args, "command", None) == "purge" or not root:
+        return _run(args)
+    try:
+        from Wesker.ci import run_with_live_suite
+    except ImportError:  # older Wesker without the live-session seam
+        return _run(args)
+
+    # The file under analysis, so the suite-global baseline is traced once for it
+    # rather than re-derived per profiled function.
+    targets: list[str] | None = None
+    target_arg = getattr(args, "target", None)
+    if target_arg:
+        try:
+            targets = [_split_target(target_arg)[0]]
+        except Exception:  # noqa: BLE001 — a command whose target isn't file::function
+            targets = None
+
+    code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
+    if code is None:
+        sys.stderr.write(
+            "WARNING: no live pytest session (pytest missing, or collection failed /\n"
+            "         collected nothing). Falling back to collect-only discovery:\n"
+            "         fixture-taking tests cannot run, so surviving DOF may be overstated.\n"
+        )
+        return _run(args)
     return code
 
 
