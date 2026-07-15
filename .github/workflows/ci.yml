@@ -6,10 +6,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# Detective's runtime dep is the sibling Wesker repo (resolved via the editable
-# ../Wesker path source in pyproject), so CI checks out both side by side — the same
-# layout as local dev. Requires the matching Wesker on its default branch (or pin a
-# tag via the `ref` below once Wesker is released).
+# Wesker resolves from PyPI (`Wesker>=0.4.0`), so CI no longer checks it out beside
+# Detective — the sibling checkout existed only for the editable `../Wesker` path source,
+# which the PyPI publish removed. `uv sync` therefore REQUIRES Wesker >= 0.4.0 to be
+# published; until it is, this job cannot resolve its dependencies.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,11 +18,6 @@ jobs:
         with:
           path: Detective
           fetch-depth: 0
-
-      - uses: actions/checkout@v4
-        with:
-          repository: rohanvinaik/Wesker
-          path: Wesker
 
       - uses: astral-sh/setup-uv@v4
         with:
