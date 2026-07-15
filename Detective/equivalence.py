@@ -283,6 +283,30 @@ _AST_GRID: dict[str, list[tuple[str, str]]] = {
         ),
         # A method: exercises is_method / self-state paths that a bare function cannot.
         ("class C:\n    def _f(self, v):\n        self.v = v\n        return self.v", "body[0].body[0]"),
+        # Assignment TARGET shapes: tuple unpack, starred, annotated. An analyser that
+        # walks targets branches on each of these, and a Name-only sample reaches none of
+        # them — the branches are then unreachable, so their mutants survive and get
+        # reported "equivalent but UNPROVEN".
+        (
+            "def _f(xs, n):\n    a, b = 1, 2\n    a, b = b, a\n    *rest, last = xs\n"
+            "    c: int = n\n    c: int = n + 1\n    return (a, b, rest, last, c)",
+            "body[0]",
+        ),
+        # Nested blocks: else / finally / handler bodies are separate statement lists, and
+        # a function that only walks `body` silently skips all three.
+        (
+            "def _f(x):\n    try:\n        y = int(x)\n    except (TypeError, ValueError):\n"
+            "        y = 0\n    else:\n        y = y + 1\n    finally:\n        pass\n"
+            "    for i in range(2):\n        y = y + i\n    else:\n        y = y * 2\n"
+            "    while y > 100:\n        y = y - 1\n    return y",
+            "body[0]",
+        ),
+        # Parameter KINDS: positional-only, defaults, *args, keyword-only, **kwargs. A
+        # signature reader that only walks `args.args` misses posonlyargs/vararg/kwarg.
+        (
+            "def _f(p, /, q=1, *args, r=2, **kwargs):\n    q = abs(q)\n    return (p, q, args, r, kwargs)",
+            "body[0]",
+        ),
     ],
     "ast.AsyncFunctionDef": [
         ("async def _f(x, y):\n" + _RICH_FUNC.split("\n", 1)[1], "body[0]"),

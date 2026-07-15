@@ -620,12 +620,24 @@ def _seq_length_variants(ann: ast.AST, namespace: dict) -> list | None:
 def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
     """Golden call sites: a base site (numeric/unannotated params get 1, 2, 3… for
     order-distinction, other scalars a sample value, container/dataclass params a
-    synthesized value), PLUS a length-2 variant for each sequence param so
-    length-dependent branches (empty/single/2+) get exercised. Golden capture pins the
-    output at each; the minimize/audit pass then keeps only the sites that uniquely cover
-    a kill or a line — so the suite stays minimal without a per-grid explosion."""
+    synthesized value), PLUS a variant site for each param whose domain has genuinely
+    distinct shapes — a length-2 value for a sequence param, each further grid node for
+    an AST param. Golden capture pins the output at each; the minimize/audit pass then
+    keeps only the sites that uniquely cover a kill or a line — so the suite stays
+    minimal without a per-grid explosion.
+
+    AST PARAMS NEED VARIANTS FOR THE SAME REASON SEQUENCES DO. A sequence param's
+    length-2 variant exists because empty/single/many are different branches; an AST
+    param's node shapes are different branches in exactly the same way (a tuple-unpack
+    target, an except handler, a ``*args`` signature), and one representative reaches
+    none of them. Without this the witness search could PROVE a mutant killable while
+    the written tests never executed the line it lives on — measured on Wesker's
+    ``_deletable_stmt_ids``: 29 mutants proven killable, a 22-line gap that would not
+    close, and 11/68 killed no matter how rich the grid got, because generation drew
+    one input while classification drew eight.
+    """
     base: list = []
-    seq_variants: list[tuple[int, str]] = []  # (arg index, repr of the length-2 value)
+    variant_sites: list[tuple[int, Any]] = []  # (arg index, alternative value for it)
     n = 1
     for arg in node.args.args:  # type: ignore[attr-defined]
         if arg.arg in ("self", "cls"):
@@ -636,19 +648,27 @@ def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
             n += 1
         elif is_scalar_type(name):
             base.append(repr(_grid_for(name)[-1]))
-        else:
-            value = _synth_from_ann(arg.annotation, namespace)
+        elif name is not None and name.startswith("ast."):
+            grid = ast_grid(name)
+            if not grid:
+                base.append(repr(n))
+                n += 1
+                continue
             # A SourceExpr passes through as the OBJECT (eval_call_site skips
             # non-strings), so it reaches capture intact and renders as its
-            # constructor source; a plain synthesized value renders via repr.
+            # constructor source.
+            base.append(grid[0])
+            variant_sites.extend((len(base) - 1, alt) for alt in grid[1:])
+        else:
+            value = _synth_from_ann(arg.annotation, namespace)
             base.append(value if isinstance(value, SourceExpr) else repr(value if value is not None else n))
             variants = _seq_length_variants(arg.annotation, namespace)
             if variants is not None and variants[-1]:  # the [elem, elem] length-2 variant
-                seq_variants.append((len(base) - 1, repr(variants[-1])))
+                variant_sites.append((len(base) - 1, repr(variants[-1])))
     sites = [{"positional_args": base}]
-    for idx, two_repr in seq_variants:
+    for idx, alt in variant_sites:
         variant = list(base)
-        variant[idx] = two_repr
+        variant[idx] = alt
         sites.append({"positional_args": variant})
     return sites
 
