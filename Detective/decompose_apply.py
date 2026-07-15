@@ -462,7 +462,15 @@ def apply_decomposition(
             with open(full, "w", encoding="utf-8") as fh:
                 fh.write(extraction.new_source)
             proven = baseline_green and _suite_green()
-            verdict = "PROVEN — behavior preserved" if proven else "rejected — behavior changed"
+            # Three outcomes, never two: with no proof suite nothing was REJECTED, it was
+            # never tried. Collapsing "could not prove" into "behavior changed" accuses a
+            # rewrite the tool never actually tested.
+            if proven:
+                verdict = "PROVEN — behavior preserved"
+            elif proof_suite is None:
+                verdict = "unproven — no suite to prove against; proposed, not applied"
+            else:
+                verdict = "rejected — the suite says behavior changed"
             say(f"{verdict}: {extraction.helper_name}")
             if proven and write:
                 applied.append(extraction)
