@@ -474,12 +474,54 @@ def _synth_from_ann(ann, namespace: dict, depth: int = 0) -> Any:
     return _synth_value(_type_of(ann), namespace, depth)
 
 
+def _literal_values(node: ast.AST) -> list:
+    """The constant value(s) a comparator denotes: a bare literal, or the elements of a
+    literal tuple/list/set (``x in ("a", "b")``). A non-literal yields nothing."""
+    if isinstance(node, ast.Constant):
+        return [node.value]
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return [e.value for e in node.elts if isinstance(e, ast.Constant)]
+    return []
+
+
+def _compared_literals(node: ast.AST) -> dict[str, list]:
+    """Per parameter, the literal values the function's own body tests it AGAINST.
+
+    ``if plan == "pro"`` is not a semantic prior. The domain of ``plan`` is written in the
+    source — it is a fact in the symbol table, free to read. Without this an unannotated
+    string-dispatch parameter fell to the int grid, every candidate died on the function's
+    own ``raise ValueError(f"unknown plan: {plan}")``, and the CLI handed the user a
+    ``--input`` residual for a value the AST already held. §10 counted that as the Zone-3
+    domain-value boundary; it is not one. The boundary is where a value appears NOWHERE in
+    the text — a valid ProfilingResult, a domain object — not where the function spells its
+    own domain out in equality tests.
+
+    Only equality/membership ops: ``>``/``>=`` describe an ORDER, not a domain, and belong
+    to the BOUNDARY mutator, which already names the edge it needs.
+    """
+    found: dict[str, list] = {}
+    for cmp_node in ast.walk(node):
+        if not isinstance(cmp_node, ast.Compare) or not isinstance(cmp_node.left, ast.Name):
+            continue
+        name = cmp_node.left.id
+        for op, comparator in zip(cmp_node.ops, cmp_node.comparators, strict=False):
+            if not isinstance(op, (ast.Eq, ast.NotEq, ast.In, ast.NotIn)):
+                continue
+            for value in _literal_values(comparator):
+                bucket = found.setdefault(name, [])
+                if value not in bucket:
+                    bucket.append(value)
+    return found
+
+
 def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
-    """Per-parameter candidate value lists: a built-in grid for scalars; for a sequence
-    param a set of LENGTH VARIANTS (empty / single / two field-variant elements); for a
-    bare dataclass param its FIELD VARIANTS (bool flipped, Optional None); else the
+    """Per-parameter candidate value lists: the literals the function tests the parameter
+    against (its own declared domain) first, then a built-in grid for scalars; for a
+    sequence param a set of LENGTH VARIANTS (empty / single / two field-variant elements);
+    for a bare dataclass param its FIELD VARIANTS (bool flipped, Optional None); else the
     integer fallback — so functions taking structured inputs become exercisable and their
     field/length branches are all covered."""
+    domain = _compared_literals(node)
     grids: list[list] = []
     for arg in node.args.args:  # type: ignore[attr-defined]
         if arg.arg in ("self", "cls"):
@@ -488,12 +530,18 @@ def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
         if name is not None and not is_scalar_type(name):
             variants = _seq_length_variants(arg.annotation, namespace)
             if variants is not None:
-                grids.append(variants)
+                grid = variants
             else:
                 value = _synth_from_ann(arg.annotation, namespace)
-                grids.append(_dataclass_field_variants(value) if value is not None else _grid_for(name))
+                grid = _dataclass_field_variants(value) if value is not None else _grid_for(name)
         else:
-            grids.append(_grid_for(name))
+            grid = _grid_for(name)
+        # The function's own equality literals LEAD: they are the values it actually
+        # distinguishes between, and a synthesized int can only ever reach the else/raise.
+        declared = domain.get(arg.arg, [])
+        if declared:
+            grid = declared + [v for v in grid if v not in declared]
+        grids.append(grid)
     return grids
 
 
