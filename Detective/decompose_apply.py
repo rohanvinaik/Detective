@@ -24,6 +24,72 @@ if TYPE_CHECKING:
     from .converge import ConvergeResult
 
 
+def _kill_matrix(file: str, function: str, project_root: str) -> dict[str, list[str]]:
+    """The target's ``mutant -> tests that killed it`` map. Served from the content-hashed
+    verdict cache whenever the function and its tests are unchanged, so this costs ~nothing
+    right after converge profiled the same target."""
+    from .engine import profile
+
+    try:
+        return profile(file, function, project_root).kill_matrix
+    except Exception:  # noqa: BLE001 — no profile -> no proof suite -> propose, never apply
+        return {}
+
+
+def _wanted_test_names(kill_matrix: dict[str, list[str]]) -> set[str]:
+    """The test names that killed a mutant OF THIS TARGET, as the names their ``def``s
+    carry: a parametrize id is stripped, since ``t[case-a]`` is defined by ``def t``.
+
+    ``kill_matrix`` maps mutant -> the tests that killed it, so every name here provably
+    exercises the target. That is what "covers the target specifically" means, and it is
+    why the whole discovered suite must NOT be used instead — ``discover_test_callables``
+    returns every test in the project, which would let an unrelated passing test stand in
+    for the proof.
+    """
+    return {t.split("[", 1)[0] for tests in kill_matrix.values() for t in tests}
+
+
+def _test_names_in_source(source: str) -> set[str]:
+    """The function names a test module's source DEFINES. Source that does not parse
+    defines nothing — a malformed file specifies no behavior, so it is not proof."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    return {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+
+
+def _covering_test_files(root: str, kill_matrix: dict[str, list[str]]) -> tuple[str, ...]:
+    """The PRE-EXISTING test files that provably specify this target — the proof suite
+    when converge wrote nothing because the hand-written suite was already complete.
+
+    The walk is deliberately thin; the decisions live in the two pure helpers above.
+    Names resolve to files by reading the source, never ``inspect.getfile``: Wesker binds
+    parametrized cases through a wrapper, so a callable's file is its wrapper's file.
+    """
+    import os
+
+    wanted = _wanted_test_names(kill_matrix)
+    if not wanted:
+        return ()
+
+    files: set[str] = set()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith((".", "__")) and d != "node_modules"]
+        for name in filenames:
+            if not (name.startswith("test_") and name.endswith(".py")):
+                continue
+            full = os.path.join(dirpath, name)
+            try:
+                with open(full, encoding="utf-8") as fh:
+                    source = fh.read()
+            except OSError:
+                continue
+            if _test_names_in_source(source) & wanted:
+                files.add(os.path.relpath(full, root))
+    return tuple(sorted(files))
+
+
 def _names(node: ast.AST, ctx: type | tuple[type, ...]) -> set[str]:
     """The ``Name`` ids used with the given context (Load / Store) anywhere in
     ``node``, not descending into nested function scopes (their locals are theirs)."""
@@ -331,9 +397,18 @@ def apply_decomposition(
     # correctly leaves ``functionally_complete`` False, and THAT is the real case to surface an
     # ``--input`` for.) The suite must still exist and cover the target specifically, so an
     # unrelated passing test can never stand in for the proof.
-    proof_suite = (
-        conv.written_path if (conv is not None and conv.functionally_complete and conv.written_path) else None
-    )
+    # The suite that proves preservation is whichever one is mutation-complete — Detective
+    # does not have to be its author. When converge wrote nothing BECAUSE the pre-existing
+    # hand-written suite already killed every killable mutant (``written_path`` None with
+    # ``functionally_complete`` True — the BEST case, a function already fully specified),
+    # the proof is those hand-written files. Gating on ``written_path`` alone rejected
+    # exactly that case, and misreported the cause as "not mutation-complete".
+    proof_suite: str | tuple[str, ...] | None = None
+    if conv is not None and conv.functionally_complete:
+        if conv.written_path:
+            proof_suite = conv.written_path
+        else:
+            proof_suite = _covering_test_files(root, _kill_matrix(file, function, project_root)) or None
 
     def _suite_green() -> bool:
         if proof_suite is None:

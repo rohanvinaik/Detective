@@ -273,7 +273,12 @@ mutation-complete suite = the behavioral spec/proof; (2) **cluster** the body in
 extraction candidates (`find_extraction_candidates`: single-exit, small interface,
 cognitive-complexity ≥3) — this is **structure-gated**, independent of test coverage;
 (3) trial-apply each, re-run the suite, keep only what stays green (proof of preservation).
-The proof gate is **mutation-completeness** (not line-completeness). **You see:** `✓ APPLIED
+The proof gate is **mutation-completeness** (not line-completeness) — and **Detective need
+not be the suite's author**: when converge writes nothing *because the pre-existing
+hand-written suite already kills every killable mutant* (the best case), the proof is those
+files. `_covering_test_files` resolves them from the `kill_matrix`, so only tests that
+provably killed a mutant OF THIS TARGET can stand as proof — never the whole discovered
+suite, which would let an unrelated passing test stand in. **You see:** `✓ APPLIED
 (specified behavior preserved, auto)` with the extracted helper + thinned caller — but only
 when the suite proved it. If converge could not reach mutation-completeness (a killable
 mutant synthesis couldn't reach — the genuine "semantic prior" case), it says so and
@@ -399,6 +404,8 @@ Detective holds **no** cross-run RAM state (MCP server is stateless; CLI frees o
 | `find_witness` suggests a crash input as "killable" | `equivalence.find_witness` (skips "mutant newly raises") | a crash-kill doesn't pin value; keep searching for a value-witness |
 | `decompose` says "no separable blocks" on a big fn | `decompose.find_extraction_candidates` gates (single-exit, ≤4in/≤2out, CC≥3) | flat/wide fns (dict-builders) have no small-interface block — correct, not a bug |
 | `decompose` won't prove a clearly-decomposable fn | `decompose_apply.apply_decomposition` proof gate = `functionally_complete` (NOT `line_complete`) | mutation-completeness is the proof; line-completeness is orthogonal |
+| `decompose` refuses a fn whose EXISTING suite already specifies it | `decompose_apply._covering_test_files` — the proof falls back to the hand-written covering files when converge writes nothing (`written_path` None ∧ `functionally_complete`) | the proof is mutation-completeness, not authorship; gating on "Detective wrote it" rejected the best case |
+| `decompose` says "not mutation-complete" but converge reports COMPLETE | `cli._format_decompose` — a complete suite that rejects the rewrite reads `REJECTED … PROVES this extraction changes behavior` | the three causes (no suite / incomplete suite / disproved) are distinct verdicts and must not share one message |
 | `decompose` can't prove & gives no way forward | `_format_decompose` residual block (reads `result.proof`) | surface the `--input` the internal converge computed |
 | `diagnose` says "decompose" but decompose finds nothing | `_format_scope` convergent signal (`regime B` **and** `decompose_seams`) | only flag decompose when a structural seam exists |
 | extracted helper carries the PARENT's docstring (and the parent loses its own) | `decompose.find_extraction_candidates` skips a leading docstring (`ast.get_docstring`) | a docstring belongs to the function, never to an extracted block |

@@ -672,13 +672,22 @@ def _format_decompose(r, applied_mode: bool) -> str:
         )
         lines += [f"    │ {line}" for line in ex.new_source.splitlines()[:4]]
         lines.append("    │ …")
+    # WHY an extraction is unproven decides what the user should do, so the three causes must
+    # not share one message. A suite that IS mutation-complete and still rejects the rewrite has
+    # PROVEN it changes behavior — a verdict, not a gap; telling that user to supply an `--input`
+    # sends them to close a hole that isn't there.
+    proof = getattr(r, "proof", None)
+    proof_incomplete = proof is not None and not getattr(proof, "functionally_complete", False)
     for dec in r.proposed:
         ex = dec.extraction
-        tag = (
-            "appliable — specified behavior preserved — re-run with --apply"
-            if dec.validated
-            else "can't PROVE preservation yet — the proof suite is not mutation-complete (residual below)"
-        )
+        if dec.validated:
+            tag = "appliable — specified behavior preserved — re-run with --apply"
+        elif proof is None:
+            tag = "can't PROVE preservation — no suite specifies this function yet (run `converge` first)"
+        elif proof_incomplete:
+            tag = "can't PROVE preservation yet — the proof suite is not mutation-complete (residual below)"
+        else:
+            tag = "REJECTED — the mutation-complete suite PROVES this extraction changes behavior"
         lines.append(
             f"  → {tag}: {ex.helper_name}({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}"
         )
@@ -690,9 +699,10 @@ def _format_decompose(r, applied_mode: bool) -> str:
     # mutation-completeness — a KILLABLE mutant that synthesis could not distinguish, i.e.
     # the "semantic prior the AST needs". Surface the EXACT input to supply (converge already
     # computed it) so the user closes the loop, instead of a dead-end "review it yourself".
-    proof = getattr(r, "proof", None)
+    # Only for a genuinely INCOMPLETE proof: a complete suite that rejects the rewrite has
+    # nothing for the user to supply.
     unproven = any(not d.validated for d in r.proposed)
-    if unproven and proof is not None and not getattr(proof, "functionally_complete", True):
+    if unproven and proof is not None and proof_incomplete:
         # The blockers are the VALUE-survivors — mutants the suite hasn't pinned. Some are
         # killable-with-a-witness, some couldn't even be classified because the synthesized
         # input crashes the function; either way the fix is the same: supply a valid input.

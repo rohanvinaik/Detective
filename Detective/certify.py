@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .decompose import DecompositionPlan, decompose
@@ -116,12 +117,20 @@ def _wiring_message(
     return f"pytest wiring: {fix}; {proof}"
 
 
-def verify_under_pytest(project_root: str, test_path: str) -> tuple[bool, int]:
-    """Run the written test file under REAL pytest (the consumer path, which
-    Wesker's direct-call runner bypasses). Returns (collected_and_passed, count)."""
+def verify_under_pytest(project_root: str, test_path: str | Sequence[str]) -> tuple[bool, int]:
+    """Run the test file(s) under REAL pytest (the consumer path, which Wesker's
+    direct-call runner bypasses). Returns (collected_and_passed, count).
+
+    ``test_path`` is one path or several: a suite Detective wrote is a single file,
+    but the PRE-EXISTING suite that proves a decomposition can span several
+    hand-written files (`decompose_apply._covering_test_files`)."""
     import re
     import subprocess
     import sys
+
+    paths = [test_path] if isinstance(test_path, str) else list(test_path)
+    if not paths:
+        return False, 0
 
     # ``-o addopts=`` neutralizes the CONSUMER's pyproject addopts: a project that
     # already sets ``-q`` would combine with ours into ``-qq`` (double-quiet), which
@@ -129,7 +138,7 @@ def verify_under_pytest(project_root: str, test_path: str) -> tuple[bool, int]:
     # for a suite that in fact passes. Controlling our own output makes the verifier
     # robust to whatever addopts the target project carries.
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", test_path, "-o", "addopts=", "-q", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", *paths, "-o", "addopts=", "-q", "-p", "no:cacheprovider"],
         cwd=project_root,
         capture_output=True,
         text=True,
