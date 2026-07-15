@@ -58,6 +58,15 @@ classifiers = [
 dependencies = [
     "Wesker>=0.5.0",
     "pytest>=7",
+    # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
+    # else's repo, and that file has to pass that repo's `ruff format --check` or it
+    # turns their CI red — so the formatter is part of shipping the product, the same
+    # way pytest is (Detective runs the suites it writes). Hand-matching ruff's layout
+    # was the alternative and it does not converge: the line breaks in a parametrize
+    # over 200-character AST snippets are the formatter's algorithm, not a style choice,
+    # and it moves between versions. A wheel with no system toolchain; see
+    # synthesis/writer._ruff_format.
+    "ruff>=0.6",
 ]
 
 # The MCP surface is optional so the core stays Wesker + stdlib only.

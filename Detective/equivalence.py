@@ -146,8 +146,7 @@ def reject_unsafe_expression(node: ast.AST, src: str) -> None:
             )
         if isinstance(sub, ast.Name) and sub.id not in INPUT_MODULES:
             raise InputExpressionError(
-                f"only [{', '.join(sorted(INPUT_MODULES))}] are available — "
-                f"{sub.id!r} is not, in {src!r}"
+                f"only [{', '.join(sorted(INPUT_MODULES))}] are available — {sub.id!r} is not, in {src!r}"
             )
 
 
@@ -277,8 +276,7 @@ _AST_GRID: dict[str, list[tuple[str, str]]] = {
         ("def _f(items, x):\n    items.append(x)\n    return len(items)", "body[0]"),
         # Exception handling: the try/except surface, with a non-trivial handler body.
         (
-            "def _f(x):\n    try:\n        return int(x)\n    except ValueError:\n"
-            "        return 0",
+            "def _f(x):\n    try:\n        return int(x)\n    except ValueError:\n        return 0",
             "body[0]",
         ),
         # A method: exercises is_method / self-state paths that a bare function cannot.
