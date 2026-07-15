@@ -436,7 +436,20 @@ tuning of the adaptive-parallel thresholds (`PROBE_SIZE`, `PARALLEL_MIN_REMAININ
 
 **The decompose↔spec coupling (design, not bug).** A function converge can fully specify
 (pure, simple inputs) decomposes cleanly cold; one it can't (dicts/methods) needs a supplied
-`--input` first — the tool now surfaces exactly that input, so the loop always closes.
+`--input` first — the tool surfaces exactly that input, and the loop closes **whenever the
+residual is expressible as a Python literal**.
+
+**Where the `--input` loop does NOT close (the scope of the hand-back).** `--input` is
+`ast.literal_eval` only — deliberately: no code execution (§6). So it can carry a scalar,
+container, dict or string, but *not an instance* — a `ProfilingResult`, a `SourceExpr`, any
+domain object. The residual is still printed for those (`--input "(<result>,)"`); it simply
+cannot be filled. The complement is `capture_call_inputs` (§6, "harvest, don't fabricate"),
+which reuses a REAL argument from the covering tests — so an object-parameter function is
+specifiable *iff some test already passes it one*. A cold function whose parameter is a
+domain object is reachable by neither, and that is the honest Zone-3 abstention, not a
+defect. Detective's own core is largely in this class (it passes `ProfilingResult` around),
+which is why `scope.py::scope_from_profiling` is its own top decompose candidate and still
+needs a covering test to harvest from.
 
 ---
 

@@ -209,10 +209,22 @@ def certify(
 
 
 def _write(source: str, write_dir: str, qualname: str) -> str:
-    """Write synthesized source to ``write_dir/test_<qualname>_synth.py``."""
+    """Write synthesized source to ``write_dir/test_<qualname>_synth.py``; return the path,
+    or "" when there was nothing to write.
+
+    Empty source means we contribute no test — e.g. converge's minimize pass dropped every
+    test it generated as redundant against a suite that already covers the target. Writing a
+    0-byte file there would claim a product that does not exist, and leaving a stale one from
+    an earlier pass of the SAME run would ship the pre-minimize content the pass just
+    rejected. This path is Detective's own regeneratable product (§8), never user data, so
+    clearing it is ours to do."""
     os.makedirs(write_dir, exist_ok=True)
     safe = qualname.replace(".", "_")
     path = os.path.join(write_dir, f"test_{safe}_synth.py")
+    if not source.strip():
+        if os.path.exists(path):
+            os.remove(path)
+        return ""
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(source)
     return path

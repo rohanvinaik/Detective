@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
 
@@ -36,6 +36,11 @@ class GoldenCapture:
     inputs: tuple[Any, ...]
     kwargs: dict[str, Any] = field(default_factory=dict)
     output: str = ""  # repr of the result
+    # The result ITSELF. The repr alone cannot answer "is this an unordered container",
+    # and that question decides whether repr-equality is a sound assertion or a flaky one
+    # (`golden_assert_line`). Carried, never rendered; ``compare=False`` because ``output``
+    # already summarises it for identity, and a live value may not compare cleanly.
+    value: Any = field(default=None, compare=False)
     deterministic: bool = False
     provenance: Provenance = Provenance.PROVISIONAL
     corroborating_lens: str = ""
@@ -136,7 +141,7 @@ def generate_golden_test(func_key: str, captures: list[GoldenCapture]) -> str:
         lines.append(f"    {_docstring(cap)}")
         lines.append(f"    result = {fname}({_call_args(cap)})")
         tag = "" if cap.provenance == Provenance.CORROBORATED else f"  # {cap.provenance.value}"
-        lines.append(f"    {golden_assert_line(cap.output)}{tag}")
+        lines.append(f"    {golden_assert_line(cap.output, cap.value)}{tag}")
         lines.append("")
 
     return "\n".join(lines)
@@ -175,26 +180,38 @@ def _try_capture(
     Arguments are unwrapped for the call so a synthesized ``SourceExpr`` (an AST
     node paired with its source) runs as its live value; the original args — carrier
     intact — are stored on the capture so the emitted test renders as ``repr`` =
-    the constructor source, not an opaque object repr."""
+    the constructor source, not an opaque object repr.
+
+    ``deterministic`` asks whether the VALUE is stable, and compares reprs to decide. Both
+    calls share one process, so this cannot observe hash-seed effects — which is correct,
+    not a gap: a set's repr ORDER varies across processes while its value does not, so it
+    belongs to assertion rendering (`golden_assert_line` emits an order-independent form),
+    not here. What the two calls DO catch is genuine instability, including an id-bearing
+    repr (``<Foo object at 0x…>``), where two calls build two objects and disagree."""
     call_args = tuple(unwrap(a) for a in args)
     call_kwargs = {k: unwrap(v) for k, v in kwargs.items()}
     try:
-        first = repr(func(*call_args, **call_kwargs))
+        result = func(*call_args, **call_kwargs)
+        first = repr(result)
         second = repr(func(*call_args, **call_kwargs))
     except Exception:
         return None
-    return GoldenCapture(inputs=args, kwargs=dict(kwargs), output=first, deterministic=first == second)
+    return GoldenCapture(
+        inputs=args,
+        kwargs=dict(kwargs),
+        output=first,
+        value=result,
+        deterministic=first == second,
+    )
 
 
 def _corroborate(cap: GoldenCapture, lens: str) -> GoldenCapture:
-    return GoldenCapture(
-        inputs=cap.inputs,
-        kwargs=cap.kwargs,
-        output=cap.output,
-        deterministic=cap.deterministic,
-        provenance=Provenance.CORROBORATED,
-        corroborating_lens=lens,
-    )
+    """Re-stamp provenance, carrying every other field. ``replace`` rather than a
+    field-by-field rebuild: the rebuild silently dropped whatever it did not enumerate, so
+    a field added to GoldenCapture arrived as None here — for ``value`` that meant the
+    assertion renderer could not tell a set from an object and shipped a flaky repr
+    assertion for every CORROBORATED capture."""
+    return replace(cap, provenance=Provenance.CORROBORATED, corroborating_lens=lens)
 
 
 def _docstring(cap: GoldenCapture) -> str:
@@ -223,29 +240,29 @@ def _contains_set(value: Any) -> bool:
     return False
 
 
-def _order_sensitive(output_repr: str) -> bool:
-    """True when the captured output is a literal that contains a set/frozenset.
-
-    A ``repr(result) == "<str>"`` assertion is FLAKY for such outputs: set repr
-    order depends on the hash seed, which differs between the capture process and
-    the process that later runs the test. Non-literal reprs (objects) are treated as
-    order-stable — their repr is what it is, and value equality is not available."""
-    try:
-        return _contains_set(ast.literal_eval(output_repr))
-    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
-        return False
-
-
-def golden_assert_line(output_repr: str) -> str:
+def golden_assert_line(output_repr: str, value: Any = None) -> str:
     """Pin ``result`` to its captured output with idiomatic VALUE equality
     (``result == <literal>``) — the way a developer actually writes a test. It reads
     cleanly, is order-independent for sets, and loses NO kill power: no mutation operator
     produces a result that is value-equal to the original yet a different type (VALUE
     mutates a constant to a same-type constant; the rest change the value), so ``==``
-    catches exactly what the old ``repr(result) == "<str>"`` form did. Falls back to repr
-    equality only for a non-literal repr (an object), where value equality is unavailable."""
+    catches exactly what the old ``repr(result) == "<str>"`` form did.
+
+    A NON-literal repr (an object) has no value-equality form, and repr-equality is sound
+    for it — EXCEPT for a set, whose repr order follows element hashes and so differs
+    between the capture process and the process that later runs the test. That case is
+    neither literal nor order-stable, and pinning it by repr ships a test that passes or
+    fails on the hash seed. Comparing the SORTED element reprs is order-independent and
+    needs no constructor source for the elements. ``value`` is the result itself: the repr
+    string alone cannot answer "is this a set", which is why it is threaded here.
+    """
     try:
         ast.literal_eval(output_repr)
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        # Elements that themselves nest a set have unstable reprs of their own, so sorting
+        # them does not recover stability — leave those on the repr form rather than emit a
+        # different flaky assertion dressed as a fix.
+        if isinstance(value, (set, frozenset)) and not any(_contains_set(v) for v in value):
+            return f"assert sorted(map(repr, result)) == {sorted(map(repr, value))!r}"
         return f"assert repr(result) == {output_repr!r}"
     return f"assert result == {output_repr}"

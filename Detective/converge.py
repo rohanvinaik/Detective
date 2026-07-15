@@ -57,7 +57,12 @@ class ConvergeResult:
     iterations: tuple[ConvergeIteration, ...]
     written_path: str | None
     total_mutants: int = 0
-    killed: int = 0
+    killed: int = 0  # TOTAL kills — the standard mutation score (assertion + crash/timeout)
+    # Assertion kills only. NOT interchangeable with ``killed``: a crash/timeout kill proves
+    # the code RUNS, not what it computes, so it is an unspecified value-DOF. Anything the
+    # UI words as "specified" must read this one — "N killed" and "N specified" are
+    # different claims and legitimately differ by the crash kills.
+    value_killed: int = 0
     remaining: tuple[str, ...] = ()  # e.g. ("2 VALUE", "1 STATE") — the survivors and why
     wiring: PytestWiring | None = None  # how the written suite was wired to run under pytest
     survivor_report: SurvivorReport | None = None  # killable/equivalent/uncertain for leftovers
@@ -221,6 +226,15 @@ def _dataclass_imports(value: object) -> list[str]:
     imports: list[str] = []
 
     def walk(v: object) -> None:
+        if isinstance(v, SourceExpr):
+            # The transport, not the payload: ``repr`` renders a SourceExpr as its
+            # own ``expr`` (the constructor source), so the wrapper TYPE never
+            # appears in the emitted test and importing it is not just redundant but
+            # wrong — it makes the generated suite depend on Detective, which a
+            # target that Detective itself builds on (Wesker) cannot import without
+            # inverting the dependency. The imports its source genuinely needs are
+            # carried in ``.imports`` and collected by ``_setup_with_imports``.
+            return
         if dataclasses.is_dataclass(v) and not isinstance(v, type):
             t = type(v)
             imports.append(f"from {t.__module__} import {t.__name__}")
@@ -243,7 +257,7 @@ def _golden_property(func_key: str, capture) -> ExecutableProperty:
     construction (asserts the real output) and kills any mutant that changes it."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
     args = ", ".join(repr(a) for a in capture.inputs)
-    assertion = golden_assert_line(capture.output)
+    assertion = golden_assert_line(capture.output, capture.value)
     # Parametrizable only when the assertion is idiomatic value-equality (a literal
     # output); methods (dotted qualname) need a receiver, so they are not folded.
     golden_case = (
@@ -276,7 +290,9 @@ def _witness_property(func_key: str, witness) -> ExecutableProperty:
         category="VALUE",
         inputs={},
         setup_code=_setup_with_imports(mod, fname, witness.args),
-        assertion_code=f"result = {fname}({args})\n{golden_assert_line(witness.original)}",
+        assertion_code=(
+            f"result = {fname}({args})\n{golden_assert_line(witness.original, witness.original_value)}"
+        ),
         preconditions=["distinguishing witness (equivalence search)"],
         confidence=0.95,
         source_lenses=["witness"],
@@ -473,7 +489,7 @@ def converge(
         source = render_module(func_key, list(accumulated.values()))
         if source and write_dir:
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname)
+            written_path = _write(source, target, qualname) or None
         iterations.append(ConvergeIteration(survivors, len(new_sound)))
         if new_sound:
             _wrote = f" [{os.path.basename(written_path)}]" if written_path else ""
@@ -524,7 +540,7 @@ def converge(
         if witnessed:
             source = render_module(func_key, list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname)
+            written_path = _write(source, target, qualname) or None
             say(f"witness pass: +{n_witnessed} distinguishing kill test(s) auto-written")
 
     # Authoritative final measurement — reflects every written test, including
@@ -555,7 +571,7 @@ def converge(
             accumulated = {k: v for k, v in accumulated.items() if k not in drop}
             source = render_module(func_key, list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname)
+            written_path = _write(source, target, qualname) or None
             say(f"minimizing — dropped {len(drop)} redundant test(s) our own cover flagged")
             final_result = profile(
                 file,
@@ -620,6 +636,7 @@ def converge(
         written_path=written_path,
         total_mutants=final_result.total_mutants,
         killed=final_result.total_killed,
+        value_killed=final_result.value_killed,
         remaining=_remaining_summary(final_result.value_survivor_records),
         wiring=wiring,
         survivor_report=survivor_report,

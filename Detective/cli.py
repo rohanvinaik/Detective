@@ -516,10 +516,14 @@ def _format_converge(result, show_tests: bool = False) -> str:
             )
         else:
             tail = "exhaustive — 100% guaranteed"
+        # SPECIFIED reads value_killed, not killed: a crash/timeout kill proves the code runs,
+        # not what it computes (§0), so crediting it here would overstate the specification —
+        # and disagree with `diagnose`, which counts value-pins. This number is therefore
+        # allowed to sit below the "N killed" above it; they are different claims.
         lines.append(
             f"  DOF: {universe} behavioral degrees of freedom · {mode} · "
-            f"{result.killed}/{universe} = {_score(result.killed, universe)} of DOF specified · "
-            f"{tail}"
+            f"{result.value_killed}/{universe} = {_score(result.value_killed, universe)} "
+            f"of DOF specified · {tail}"
         )
     for i, it in enumerate(result.iterations):
         lines.append(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
@@ -537,7 +541,9 @@ def _format_converge(result, show_tests: bool = False) -> str:
             if result.survivor_report is not None
             else result.final_survivors
         )
-        free = f"{_score(result.killed, universe)} resolved by structure for free"
+        # Also a specification claim (what deterministic synthesis pinned without a human), so
+        # value_killed — a crash kill resolved nothing about the value.
+        free = f"{_score(result.value_killed, universe)} resolved by structure for free"
         # A pass that wrote 0 new sound tests is the tail: structure is exhausted, so the
         # residual is I_solve (supplied inputs), NOT more passes — no matter how fast the
         # bulk contracted. Only extrapolate passes while the last pass still made progress.

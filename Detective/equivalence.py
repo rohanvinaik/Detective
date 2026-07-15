@@ -25,7 +25,7 @@ from __future__ import annotations
 import ast
 import itertools
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -185,6 +185,15 @@ class Witness:
     args: tuple
     original: str  # repr of the original's outcome
     mutant: str  # repr of the mutant's outcome
+    # The original's outcome ITSELF (None when it raised — the raises-witness path pins
+    # that instead). A repr cannot answer "is this a set", and that question decides
+    # whether pinning the outcome by repr is sound or hash-seed flaky
+    # (`characterization.golden_assert_line`). Carried, never rendered.
+    #
+    # ``compare=False``: a witness IS (args, original repr, mutant repr) — the live value is
+    # a payload for rendering, not identity, and it is already summarised by ``original``.
+    # Including it would also hand __eq__ a value that may not compare cleanly (an array).
+    original_value: Any = field(default=None, compare=False)
 
 
 def _outcome(fn: Callable[..., Any], args: tuple) -> str:
@@ -197,6 +206,19 @@ def _outcome(fn: Callable[..., Any], args: tuple) -> str:
         return repr(fn(*(unwrap(a) for a in args)))
     except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
         return f"<raised {type(exc).__name__}>"
+
+
+def _outcome_value(fn: Callable[..., Any], args: tuple) -> Any:
+    """The LIVE outcome of ``fn(*args)``, or None if it raised.
+
+    Companion to ``_outcome``, which yields only a repr — and a repr cannot answer "is
+    this a set", the question that decides whether pinning the outcome by repr is sound or
+    hash-seed flaky. Called once, when a witness is actually constructed, not for every
+    candidate input."""
+    try:
+        return fn(*(unwrap(a) for a in args))
+    except Exception:  # noqa: BLE001 — a raise carries no value; `_outcome` already marked it
+        return None
 
 
 def find_witness(
@@ -223,7 +245,7 @@ def find_witness(
             continue
         if mutant_outcome.startswith("<raised ") and not original_outcome.startswith("<raised "):
             continue  # crash-only kill — not a value-witness (see crash-as-spec)
-        return Witness(tuple(args), original_outcome, mutant_outcome)
+        return Witness(tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args))
     return None
 
 
