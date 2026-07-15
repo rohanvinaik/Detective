@@ -83,7 +83,27 @@ class _SideEffectVisitor(ast.NodeVisitor):
         self.func = func
         self.is_method = is_method
         self.reasons: list[str] = []
-        self.local_names = _param_names(func.args)
+        # PARAMETERS ARE NOT LOCAL. A parameter name is an ALIAS to an object the CALLER
+        # owns; mutating through it (``items.append(x)``, ``cfg[k] = v``, ``obj.attr = v``)
+        # is a side effect the caller observes. Seeding ``local_names`` with the parameters
+        # made ``_external()`` False for every argument, so NO argument mutation could ever
+        # be a reason and ``is_pure`` returned True for all of them — measured: list append,
+        # dict write, in-place sort and attribute writes all reported pure, with only
+        # globals/nonlocals caught. That mislabelling is worse than a miss: ``is_pure``
+        # gates STATE off and steers golden capture to the return value alone, so the one
+        # behavior no assertion sees gets certified as absent.
+        #
+        # A param REBOUND to a local value stops being an alias, and ``visit_Assign``
+        # already adds it to ``local_names`` when it is. So ``items = list(items)`` followed
+        # by ``items.append(x)`` is correctly pure — which is precisely the refactor
+        # (copy instead of alias) this predicate must be able to tell apart from the
+        # original. Order is source order, so the rebinding is seen before the use.
+        self.local_names: set[str] = set()
+        if is_method:
+            # ``self``/``cls`` route through ``_mutates_instance``, which carries the
+            # ``__init__`` exemption. Treating them as external here would flag every
+            # constructor as impure.
+            self.local_names |= {"self", "cls"} & set(_param_names(func.args))
         self._check_mutable_defaults()
 
     def _external(self, name: str | None) -> bool:

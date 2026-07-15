@@ -17,9 +17,10 @@ Literal-only, matching `--input` itself: what is written here round-trips throug
 
 from __future__ import annotations
 
-import ast
 import json
 import os
+
+from .equivalence import InputExpressionError, parse_input_expression
 
 _FILE = os.path.join(".detective", "inputs.json")
 
@@ -30,7 +31,17 @@ def _path(project_root: str) -> str:
 
 def load(project_root: str, func_key: str) -> list[tuple]:
     """The samples remembered for ``func_key``, or [] — never raising: a missing or
-    corrupt store means "nothing remembered", which is exactly the cold-start behavior."""
+    corrupt store means "nothing remembered", which is exactly the cold-start behavior.
+
+    Parses with :func:`equivalence.parse_input_expression`, the SAME definition the CLI
+    accepts inputs under, so the store is not write-only. ``remember`` records
+    ``repr(args)``, which for a non-literal is its constructor source; a literal-only
+    reader dropped on reload precisely what the writer had just saved, so a supplied
+    ``--input`` for an AST-typed parameter worked once and then silently evaporated —
+    the recall message even reported it as remembered. An entry that fails the grammar
+    gate is skipped, not executed: the store is a file on disk and is treated as
+    untrusted input, exactly as a CLI argument is.
+    """
     try:
         with open(_path(project_root), encoding="utf-8") as fh:
             data = json.load(fh)
@@ -39,10 +50,9 @@ def load(project_root: str, func_key: str) -> list[tuple]:
     out: list[tuple] = []
     for entry in data.get(func_key, []) or []:
         try:
-            value = ast.literal_eval(entry)
-        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
-            continue  # not a literal -> not something we wrote -> ignore, never exec
-        out.append(tuple(value) if isinstance(value, tuple) else (value,))
+            out.append(parse_input_expression(entry))
+        except InputExpressionError:
+            continue  # not something we can rebuild safely -> ignore, never exec
     return out
 
 

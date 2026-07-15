@@ -14,7 +14,30 @@ import json
 import sys
 from dataclasses import asdict
 
+# Imported, never restated: the engine owns this number, and a second copy would drift silently.
+from Wesker.engine import DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S
+from Wesker.engine import (
+    DEFAULT_TRACE_SESSION_BUDGET_S as _DEFAULT_TRACE_SESSION_BUDGET_S,
+)
+
 from . import __version__
+
+
+def _trace_budget(args) -> float | None:
+    """The CLI's `--trace-budget SECONDS` → the engine's `trace_budget_s`. 0 (or negative) means
+    the user explicitly wants the historical UNBOUNDED pass, which the engine spells `None` — so
+    the opt-out is one documented value on the CLI rather than a sentinel a caller has to know."""
+    v = getattr(args, "trace_budget", _WESKER_DEFAULT_TRACE_BUDGET_S)
+    return None if v is not None and v <= 0 else v
+
+
+def _trace_session_budget(args) -> float | None:
+    """The CLI's `--trace-session-budget SECONDS` → the engine's `trace_session_budget_s`. Same
+    0 = unbounded convention as `--trace-budget`. Separate from it because they bound DIFFERENT
+    things: per-test caps the worst single test, this caps the whole baseline. A suite of 2000
+    tests under a 50s per-test cap is still a day of tracing — only this makes the phase finite."""
+    v = getattr(args, "trace_session_budget", _DEFAULT_TRACE_SESSION_BUDGET_S)
+    return None if v is not None and v <= 0 else v
 
 
 def _split_target(target: str) -> tuple[str, str]:
@@ -64,6 +87,17 @@ def _format_scope(scope) -> str:
         lines.append(
             "  ⚠ NO tests discovered for this function — the counts above reflect ABSENT "
             "tests, not weak ones; run `converge` to generate them"
+        )
+    # A budget-CUT trace under-counts coverage, and an under-counted line is indistinguishable
+    # from an uncovered one in the numbers below. Name the cut tests so a line gap is never read
+    # as a real hole when it is a timing artifact — and so the reader knows the knob exists.
+    cut = getattr(scope, "trace_truncated", []) or []
+    if cut:
+        lines.append(
+            f"  ⚠ {len(cut)} test(s) hit the trace budget and were CUT: {', '.join(sorted(cut)[:5])}"
+            + (" …" if len(cut) > 5 else "")
+            + " — their line coverage is UNDER-COUNTED, so a line gap below may be the budget, "
+            "not a hole; raise --trace-budget (or pass 0 for unbounded) to measure them fully"
         )
     # Learned-weak (opt-in --learn): this project's OWN recurring value-gaps, highest
     # value-survival first. It IS learning from the user's code+tests — surface it plainly.
@@ -224,6 +258,35 @@ def _target_lines(signature: str) -> list[str]:
     if "~" in signature:
         lines.append("      note:    ~Type = inferred from call sites (param un-annotated), approximate")
     return lines
+
+
+def _stream_trace_progress(label: str):
+    """Live progress for the TRACED BASELINE pass — the phase that runs BEFORE the first mutant.
+
+    `_stream_progress` below already fixed "looks hung" for the mutation loop; this is the same
+    fix one phase earlier, and it is the phase that actually dominates a big suite's wall clock
+    (89% of it, measured — see Wesker's `trace_suite`). Because it runs first, a silent trace means
+    the mutation reporter has not printed even once, so the whole run looks dead from the outside:
+    zero output at 99% CPU, indistinguishable from a crash. Same stderr + in-place + throttle as
+    the mutation reporter, so the two phases read as one continuous stream.
+    """
+    import sys
+
+    state = {"last_ms": -1e9}
+
+    def cb(done: int, total: int, elapsed_ms: float) -> None:
+        if 0 < done < total and elapsed_ms - state["last_ms"] < 200.0:
+            return  # ~5 updates/sec, but always emit the last
+        state["last_ms"] = elapsed_ms
+        secs = elapsed_ms / 1000.0
+        if done >= total:
+            sys.stderr.write(f"\r  … {label}: baseline traced · {total} tests · {secs:.1f}s          \n")
+        else:
+            eta = (total - done) * (elapsed_ms / done) / 1000.0 if done else 0.0
+            sys.stderr.write(f"\r  … {label}: tracing baseline {done}/{total} tests · ETA {eta:.0f}s   ")
+        sys.stderr.flush()
+
+    return cb
 
 
 def _stream_progress(label: str):
@@ -828,18 +891,33 @@ _COMMAND_HELP = {
 
 
 def _parse_supplied_inputs(raw: list[str]) -> list[tuple]:
-    """Parse ``--input`` Python-literal strings into positional-argument tuples — the
-    Zone-2 residual a human fills THROUGH the tool when deterministic synthesis provably
-    could not exercise a degree of freedom. Each literal is one call's argument tuple; a
-    bare non-tuple literal is taken as a single positional argument. ``ast.literal_eval``
-    only — no code execution, matching Detective's no-exec discipline."""
+    """Parse ``--input`` strings into positional-argument tuples — the Zone-2 residual a
+    human fills THROUGH the tool when deterministic synthesis provably could not exercise
+    a degree of freedom. Each string is one call's argument tuple; a bare non-tuple value
+    is taken as a single positional argument.
+
+    A LITERAL is the fast path. Beyond that an argument may be a CONSTRUCTOR EXPRESSION
+    over an allowlisted module — ``ast.parse('def f(): ...').body[0]``. Without it the
+    residual is unfillable for precisely the parameters that most need it: an
+    ``ast.FunctionDef`` has no literal form, so a literal-only parser rejects every input
+    a human could offer, and the tool ends up printing ``supply --input "(<func_node>,)"``
+    for a slot no ``--input`` could ever fill. Measured on Wesker's
+    ``_deletable_stmt_ids``: 23 behaviors proven killable, not one of them expressible.
+
+    The grammar, the allowlist and the safety boundary live in
+    :func:`equivalence.parse_input_expression` — ONE definition, shared with
+    ``samples.load``, so what a human may supply and what the store may recall cannot
+    drift apart. Errors become a usage message here; the library raises rather than
+    exiting, so it stays usable off the CLI.
+    """
+    from .equivalence import InputExpressionError, parse_input_expression
+
     out: list[tuple] = []
     for s in raw:
         try:
-            value = ast.literal_eval(s)
-        except (ValueError, SyntaxError) as exc:
-            raise SystemExit(f"detective: --input is not a valid Python literal: {s!r} ({exc})") from None
-        out.append(value if isinstance(value, tuple) else (value,))
+            out.append(parse_input_expression(s))
+        except InputExpressionError as exc:
+            raise SystemExit(f"detective: --input {exc}") from None
     return out
 
 
@@ -860,6 +938,31 @@ def _build_parser() -> argparse.ArgumentParser:
         p.add_argument("target", help="file.py::function")
         p.add_argument("--project-root", default=".", help="project root the target path is relative to")
         p.add_argument("--json", action="store_true", help="emit JSON")
+        # The traced baseline runs BEFORE any mutant, and tracing costs a callback per executed
+        # line — so a computationally heavy test in the suite used to present as a hang with no
+        # output at all. Bounded by default; 0 restores the old unbounded pass. Cut tests are
+        # always named, never dropped quietly.
+        p.add_argument(
+            "--trace-budget",
+            type=float,
+            default=_WESKER_DEFAULT_TRACE_BUDGET_S,
+            metavar="SECONDS",
+            help=(
+                f"per-test cap on the traced baseline pass (default {_WESKER_DEFAULT_TRACE_BUDGET_S:g}s; "
+                "0 = unbounded). A cut test's line coverage is under-counted and is reported by name."
+            ),
+        )
+        p.add_argument(
+            "--trace-session-budget",
+            type=float,
+            default=_DEFAULT_TRACE_SESSION_BUDGET_S,
+            metavar="SECONDS",
+            help=(
+                f"cap on the WHOLE traced baseline pass (default {_DEFAULT_TRACE_SESSION_BUDGET_S:g}s; "
+                "0 = unbounded). Bounds the aggregate, which the per-test cap cannot: tests not "
+                "reached are reported by name."
+            ),
+        )
         if name == "converge":
             p.add_argument("--write-dir", default="tests", help="write synthesized tests here")
             p.add_argument(
@@ -1005,7 +1108,20 @@ def _run_live(args) -> int:
         except Exception:  # noqa: BLE001 — a command whose target isn't file::function
             targets = None
 
-    code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
+    # The suite-global baseline is traced HERE, before `_run` — so this callback, not the one
+    # `diagnose` gets, is what makes the first (and on a large suite, longest) phase visible.
+    # Without it the live path is silent at 100% CPU until the first mutant, which is the whole
+    # "looks hung" failure one layer further up than it looked.
+    label = _split_target(target_arg)[1] if target_arg else "baseline"
+    try:
+        code = run_with_live_suite(
+            root,
+            lambda: _run(args),
+            target_files=targets,
+            trace_progress=_stream_trace_progress(label),
+        )
+    except TypeError:  # older Wesker: seam exists, but without the progress parameter
+        code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
     if code is None:
         sys.stderr.write(
             "WARNING: no live pytest session (pytest missing, or collection failed /\n"
@@ -1072,6 +1188,10 @@ def _run(args) -> int:
             learn=getattr(args, "learn", False),
             use_parallel=_par,
             progress=None if _par else _stream_progress(function),
+            # The traced baseline runs in THIS process even when the mutation loop fans out, so
+            # the trace reporter is wired regardless of `_par` — it is the phase that was silent.
+            trace_progress=_stream_trace_progress(function),
+            trace_session_budget_s=_trace_session_budget(args),
         )
         print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
         return 0

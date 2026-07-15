@@ -95,6 +95,12 @@ class ScopeMap:
     # the STRUCTURAL half of the "is this two things?" question; regime B is the BEHAVIORAL
     # (mutation) half. When BOTH fire, two independent methods agree — a high-value target.
     decompose_seams: int = 0
+    # Tests whose TRACED baseline pass hit the engine's `trace_budget_s` and was CUT (Wesker
+    # >=0.5.0). Their line coverage is under-counted, so a line gap this run reports MAY be an
+    # artifact of the budget rather than a real hole — and the two are indistinguishable from the
+    # numbers alone. Surfaced so the reader can tell; a completeness verdict that quietly rests on
+    # a truncated measurement is the one failure this tool cannot afford.
+    trace_truncated: list[str] = field(default_factory=list)
 
 
 def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -> str | None:
@@ -150,6 +156,9 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         load_bearing_tests=load_bearing,
         unspecified_behaviors=[_survivor_desc(s) for s in survivors[:_MAX_UNSPECIFIED]],
         tests_discovered=getattr(result, "tests_discovered", -1),
+        # getattr-defaulted: an older engine simply does not report it (same contract as
+        # tests_discovered above), and a missing field must never read as "nothing was cut".
+        trace_truncated=list(getattr(result, "trace_truncated", ()) or ()),
     )
 
 

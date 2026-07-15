@@ -140,6 +140,12 @@ def merge_results(partials: list[ProfilingResult]) -> ProfilingResult:
         executable_lines=base.executable_lines,
         failing_tests=base.failing_tests,
         tests_discovered=base.tests_discovered,
+        # A baseline field, so shard 0's is authoritative — for the same reason as the three
+        # above, and precisely BECAUSE the merged line_coverage is shard 0's: it is shard 0's
+        # trace that the reported coverage describes, so shard 0's cut is the one that makes it
+        # under-counted. Unioning every shard's cuts would flag runs whose reported numbers are
+        # complete (another shard's timing never entered them).
+        trace_truncated=list(getattr(base, "trace_truncated", ()) or ()),
     )
 
 

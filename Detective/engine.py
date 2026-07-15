@@ -28,6 +28,10 @@ except ImportError:  # pragma: no cover
     def _live_suite_active() -> bool:
         return False
 
+
+from Wesker.engine import (
+    DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S,  # imported, never restated — one owner
+)
 from Wesker.engine import ProfilingResult, generate_mutants, run_function_profiling
 from Wesker.filter import filter_categories
 
@@ -40,6 +44,7 @@ from .equivalence import (
     _grid_for,
     _outcome,
     _type_of,
+    ast_grid,
     bounded_product,
     classify_survivor,
     is_scalar_type,
@@ -131,6 +136,9 @@ def profile(
     use_cache: bool = True,
     mutant_slice: tuple[int, int] | None = None,
     use_parallel: bool | None = None,
+    trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
+    trace_progress: Callable[[int, int, float], None] | None = None,
+    trace_session_budget_s: float | None = None,
 ) -> ProfilingResult:
     """Profile one function with Wesker and return the raw ``ProfilingResult``.
 
@@ -245,6 +253,10 @@ def profile(
                     scope_tests=scope_tests,
                     mutant_slice=(0, probe_n),
                     pregenerated=_mutants,
+                    # only the probe traces; `rest` reuses its precomputed_line_data
+                    trace_budget_s=trace_budget_s,
+                    trace_progress=trace_progress,
+                    trace_session_budget_s=trace_session_budget_s,
                 )
                 if exact <= probe_n:
                     fanned = probe  # the probe was the whole run
@@ -305,6 +317,9 @@ def profile(
         progress=progress,
         scope_tests=scope_tests,
         mutant_slice=mutant_slice,
+        trace_budget_s=trace_budget_s,
+        trace_progress=trace_progress,
+        trace_session_budget_s=trace_session_budget_s,
     )
     # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
     # later as if it were the whole profile.
@@ -342,6 +357,9 @@ def diagnose(
     learn: bool = False,
     use_parallel: bool | None = None,
     progress: Callable[[int, int, float], None] | None = None,
+    trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
+    trace_progress: Callable[[int, int, float], None] | None = None,
+    trace_session_budget_s: float | None = None,
 ) -> ScopeMap:
     """Profile ``function`` and reshape the result into a behavioral-scope map.
 
@@ -360,6 +378,9 @@ def diagnose(
         budget_ms=budget_ms,
         use_parallel=use_parallel,
         progress=progress,
+        trace_budget_s=trace_budget_s,
+        trace_progress=trace_progress,
+        trace_session_budget_s=trace_session_budget_s,
     )
     scope = scope_from_profiling(result)
 
@@ -539,18 +560,28 @@ def _compared_literals(node: ast.AST) -> dict[str, list]:
 
 def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
     """Per-parameter candidate value lists: the literals the function tests the parameter
-    against (its own declared domain) first, then a built-in grid for scalars; for a
-    sequence param a set of LENGTH VARIANTS (empty / single / two field-variant elements);
-    for a bare dataclass param its FIELD VARIANTS (bool flipped, Optional None); else the
-    integer fallback — so functions taking structured inputs become exercisable and their
-    field/length branches are all covered."""
+    against (its own declared domain) first, then a built-in grid for scalars; for an
+    AST-typed param a GRID of real nodes; for a sequence param a set of LENGTH VARIANTS
+    (empty / single / two field-variant elements); for a bare dataclass param its FIELD
+    VARIANTS (bool flipped, Optional None); else the integer fallback — so functions
+    taking structured inputs become exercisable and their field/length branches are all
+    covered.
+    """
     domain = _compared_literals(node)
     grids: list[list] = []
     for arg in node.args.args:  # type: ignore[attr-defined]
         if arg.arg in ("self", "cls"):
             continue
         name = _type_of(arg.annotation)
-        if name is not None and not is_scalar_type(name):
+        if name is not None and name.startswith("ast."):
+            # An AST parameter needs MANY nodes, not one. Going through
+            # ``_synth_from_ann`` yields a single representative, and one input can only
+            # distinguish a mutant on a line it happens to reach — every other survivor
+            # is then reported "equivalent but UNPROVEN", which is a fact about the
+            # synthesizer masquerading as a fact about the code. Measured on Wesker's
+            # ``_deletable_stmt_ids``: 64 of 68 behaviors unprovable from one sample.
+            grid = list(ast_grid(name))
+        elif name is not None and not is_scalar_type(name):
             variants = _seq_length_variants(arg.annotation, namespace)
             if variants is not None:
                 grid = variants
