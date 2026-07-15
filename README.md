@@ -10,11 +10,18 @@
 
 `Deterministic · No LLM · Applies nothing it cannot prove`
 
-A passing test suite tells you your code runs. It does not tell you what your code *computes*, and it does not tell you whether you can change it.
+Every refactor is a bet. You read the function, you believe you understand it, you change it, the suite goes green, and you ship. The green is not evidence. It is the absence of evidence, and it looks exactly the same.
 
-Detective settles both, one function at a time. It uses **mutation analysis** to enumerate every behavioral distinction a function makes, synthesizes the minimal test suite that pins each one, and then rewrites the function — applying the change only if that suite proves the behavior survived.
+The bet is unavoidable because **your tests are not a contract**. Nobody wrote them to be one. They accumulated — a regression here, a bug report there, a happy path from the afternoon the function was born. What they collectively require of your code is not a thing anyone decided. It is a residue. And you are about to bet a refactor on it.
 
-The suite is not the product. It is the proof artifact that makes the refactor verifiable.
+Detective's claim is narrow and mechanical:
+
+> **A suite that kills every killable mutant of a function is that function's behavioral contract.**
+> A rewrite that keeps it green preserved the behavior the contract pins.
+
+So it builds the contract you never wrote. It enumerates every behavioral distinction the function makes, synthesizes the minimal suite that pins each one, and then rewrites the function — applying the change only if that suite proves the behavior survived.
+
+The suite is not the product. It is the receipt.
 
 ---
 
@@ -164,25 +171,25 @@ If a run comes back with a low number and a residual, that's the tool asking a q
 
 ---
 
-## Why a suite lets you refactor
+## The number that lies
 
 Mutation testing measures which *behaviors* your tests require: change the code, see whether a test complains. Every alteration that slips through silently is a behavior nothing constrains. Detective runs on [Wesker](https://github.com/rohanvinaik/Wesker), which makes that measurement fast enough to do per-function, per-command.
 
-**Not every kill counts.** A test can catch a mutant two ways: it can *assert* that the return value is wrong, or it can simply *crash*. Only the first pins what the function computes — a crash proves the code ran differently, nothing more. A tool reporting a 95% kill rate where most kills are crashes has told you almost nothing about your return values, and you cannot refactor against it.
+Which would be the whole story, except that **a kill rate can lie the same way a green suite can.**
 
-Detective counts only assertion kills as specified behavior. A crash kill is reported as an *unpinned* value — which is why `diagnose` splits the number:
+A test catches a mutant two ways. It can *assert* the return value is wrong — or it can simply *crash*. Only the first pins what your function computes. A crash proves the code ran differently. It says nothing about what the code is *for*.
+
+The two are indistinguishable in a kill rate. A tool reporting 95% where most kills are crashes has told you almost nothing about your return values, and you cannot refactor against it — you would be betting on a contract that only ever asserted *this line executes*. That is the green suite's lie again, wearing a percentage.
+
+So Detective counts only assertion kills as specified behavior, and reports the crashes separately, against itself:
 
 ```
   of the pinned: 18 pin the RETURN VALUE, 2 only prove it runs (crash)
 ```
 
-That second number is behavior you do not have a contract for, and Detective will not spend it to make its own score look better.
+That second number is behavior you have no contract for. Detective will not spend it to make its own score look better. It is the same discipline everywhere else in the tool: a survivor nothing could distinguish is `candidate-equivalent — UNPROVEN`, never `equivalent`; an input it cannot derive is a question, never a guess.
 
-The claim Detective rests on is narrow and mechanical:
-
-> **A suite that kills every killable mutant of a function is that function's behavioral contract.** A rewrite that keeps it green preserved the behavior the contract pins.
-
-That is why `decompose` writes the suite first. The suite is not the product. It is the receipt.
+This is why `decompose` writes the suite *first*. Not as a courtesy. As the thing being proved against.
 
 ---
 
@@ -273,6 +280,10 @@ Detective is one function at a time, deterministic, and narrow on purpose.
 - **Automated search does not prove equivalence.** Survivors nothing could distinguish are reported `candidate-equivalent — UNPROVEN`, never as equivalent. `detective flag` records a human judgment; a later distinguishing input overrides it.
 - **One function, not a repo.** There is no `detective src/`.
 - **Python 3.11+.**
+
+Detective was pointed at the engine it runs on. It reported that one of that engine's own functions could not be specified at all — the return value was a set of `id()`s, different every run, so no assertion could ever hold. It declined to write the test. It was right, and the function was changed.
+
+A tool that will tell you that about its author's code will tell you anything.
 
 ---
 
