@@ -313,7 +313,7 @@ wheels = [
 ]
 
 [[package]]
-name = "detective"
+name = "detective-spec"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -337,7 +337,7 @@ dev = [
 requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
     { name = "pytest", specifier = ">=7" },
-    { name = "wesker", editable = "../Wesker" },
+    { name = "wesker", specifier = ">=0.4.0" },
 ]
 provides-extras = ["mcp"]
 
@@ -995,15 +995,8 @@ wheels = [
 [[package]]
 name = "wesker"
 version = "0.4.0"
-source = { editable = "../Wesker" }
-
-[package.metadata]
-requires-dist = [{ name = "pytest", marker = "extra == 'pytest'", specifier = ">=7" }]
-provides-extras = ["pytest"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=7" },
-    { name = "pytest-cov", specifier = ">=4" },
-    { name = "ruff", specifier = "==0.14.10" },
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/2b/f5ccf10589fa2a09e9f473d1e16980a3a92108fd9838002faf40f1edbcf0/wesker-0.4.0.tar.gz", hash = "sha256:c270074e2f7beb030fe0f1dea0103783d5ae628523a5710995c860db6376ea56", size = 198625, upload-time = "2026-07-15T03:02:57.785Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/aa/bf895db350f93479687199d3e953bbb2fa182d2d592fe7c41e7b53eb1027/wesker-0.4.0-py3-none-any.whl", hash = "sha256:203193530d744a32b8444da5559d9a908b98e2b5b8f68af5c0d664e5cfaf257c", size = 74001, upload-time = "2026-07-15T03:02:59.304Z" },
 ]

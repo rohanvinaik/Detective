@@ -3,7 +3,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "Detective"
+# The DISTRIBUTION name (what you install). The IMPORT name stays `Detective` — see
+# [tool.hatch.build.targets.wheel] below. PyPI normalizes `Detective` to `detective`,
+# which is taken by an unrelated project, so the two names cannot be the same string.
+name = "detective-spec"
 version = "0.1.0"
 description = "Behavioral-scope diagnosis and warrant-classed test synthesis for a single Python function, on the Wesker mutation engine."
 readme = "README.md"
@@ -30,19 +33,24 @@ classifiers = [
 
 # Runtime deps: the Wesker mutation engine (the profiler) AND pytest — Detective's
 # PRODUCT is pytest suites and it runs pytest to wire + verify them, so pytest is a
-# runtime requirement, not dev-only. Wesker is a sister repo not yet on PyPI, so it is
-# pinned to a git TAG for reproducibility (a floating branch ref drifts every install —
-# the exact defect that shipped a Wesker missing the API Detective needs). Requires the
-# matching `v0.4.0` tag on the Wesker remote (push + tag Wesker before installing Detective).
+# runtime requirement, not dev-only.
 #
-# ── PRE-PyPI-PUBLISH CHECKLIST (do all three, in this order) ────────────────────────────
-#   0. Publish Wesker to PyPI first (PyPI rejects direct-URL deps).
-#   1. Replace the git-URL below with a plain package spec:  "Wesker>=0.4.0".
-#   2. Remove `[tool.uv.sources] Wesker` (the local ../Wesker path) AND
-#      `[tool.hatch.metadata] allow-direct-references` — both exist ONLY for the git-URL
-#      dev/git-install path; a PyPI package must depend on the PyPI package, not a local repo.
+# The PRE-PyPI-PUBLISH CHECKLIST that stood here is DONE, in its documented order:
+# Wesker went to PyPI first, the git-URL became a plain package spec, and
+# `[tool.uv.sources] Wesker` + `[tool.hatch.metadata] allow-direct-references` are gone.
+# Both existed only for the git-URL dev path; a PyPI package depends on the PyPI package.
+#
+# >= 0.4.0 is a CORRECTNESS floor, not housekeeping. 0.3.0 gates `return_none` behind
+# `not is_pure and (self_assigns or globals)`, so 92% of functions never have their return
+# value questioned, and its kill attribution silently discards every kill a parametrized
+# test earns. Detective's verdicts are only as honest as the engine underneath them.
+#
+# Local dev now resolves Wesker from PyPI like everyone else. To make edits in a sibling
+# ../Wesker checkout live again, add back (uv-only; it never reaches the wheel metadata):
+#     [tool.uv.sources]
+#     Wesker = { path = "../Wesker", editable = true }
 dependencies = [
-    "Wesker @ git+https://github.com/rohanvinaik/Wesker.git@v0.4.0",
+    "Wesker>=0.4.0",
     "pytest>=7",
 ]
 
@@ -62,20 +70,11 @@ Repository = "https://github.com/rohanvinaik/Detective"
 # ruff pinned so CI's `ruff format --check` gate cannot drift on a newer release.
 dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.14.10"]
 
-# Wesker is the sister repo; consumed as an editable path install in local dev,
-# resolving to the published Wesker on PyPI otherwise.
-[tool.uv.sources]
-Wesker = { path = "../Wesker", editable = true }
-
 # Only the package ships. The dev/ generator tree (which imports LintGate as a
 # dev-time conformance oracle) is deliberately excluded from the wheel so no
 # LintGate reference ever enters the runtime import graph.
 [tool.hatch.build.targets.wheel]
 packages = ["Detective"]
-
-# Required so the git-URL Wesker dependency is accepted (drop once Wesker is on PyPI).
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
