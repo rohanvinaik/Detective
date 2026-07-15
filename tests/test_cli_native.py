@@ -35,25 +35,34 @@ def test_split_target_rejects_empty_sides():
 
 
 # ── _format_scope ─────────────────────────────────────────────────
-def _scope(regime="A", surviving=None, warning=None, by_a=6, by_c=2):
+def _scope(regime="A", surviving=None, warning=None, by_a=6, by_c=2, inert=0):
     return ScopeMap(
         function="m::f",
         regime=regime,
         surviving_categories=surviving or [],
-        specification=Specification(10, 8, 2, 0, 3),
+        specification=Specification(10, 8, 2, inert, 3),
         kill_quality=KillQuality(by_a, by_c, warning),
         behavioral_dof=[],
     )
 
 
 def test_format_scope_core_lines_exact():
+    # Every term carries its own gloss: a first-time reader meets this block BEFORE the
+    # "in plain terms" layer, so "regime A", "inert" and "value-assertion" cannot be the
+    # only words on offer. `0 inert` is omitted entirely rather than shown as jargon
+    # whose value is zero.
     assert _format_scope(_scope()) == (
-        "m::f  [regime A]\n"
-        "  10 variants; 8 pinned, 2 unspecified, 0 inert\n"
-        "  kill quality: 6 value-assertion, 2 crash\n"
+        "m::f  [regime A — tractable]\n"
+        "  10 distinct behaviors; 8 pinned by a test, 2 unpinned\n"
+        "  of the pinned: 6 pin the RETURN VALUE, 2 only prove it runs (crash)\n"
         "  in plain terms:\n"
         "    → 2 behavior(s) no test pins yet — run `converge` to generate tests for them"
     )
+
+
+def test_format_scope_names_inert_freedom_when_present():
+    out = _format_scope(_scope(inert=3))
+    assert "3 inert (no test could ever tell)" in out
 
 
 def test_format_scope_shows_warning():
@@ -67,7 +76,7 @@ def test_format_scope_no_warning_no_marker():
 
 def test_format_scope_lists_surviving_categories():
     out = _format_scope(_scope(regime="B", surviving=["VALUE", "TYPE"]))
-    assert "surviving categories: VALUE, TYPE" in out
+    assert "unpinned kinds: VALUE, TYPE" in out
 
 
 def test_format_scope_omits_categories_when_none():

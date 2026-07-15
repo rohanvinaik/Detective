@@ -60,16 +60,20 @@ def test_banner_complete_modulo_unproven_equivalent():
 
 
 def test_banner_incomplete_names_killable_residuals():
+    # "Incomplete", not "✗ INCOMPLETE": the residual is named right here, and a ✗ brands a
+    # run that pinned every killable behavior as a failure.
     rep = SurvivorReport((_killable(),), ())
     b = _final_banner(_cr(functionally_complete=False, final_survivors=1, killed=8, survivor_report=rep))
-    assert b.startswith("FINAL m.py::f: ✗ INCOMPLETE")
+    assert b.startswith("FINAL m.py::f: Incomplete")
+    assert "✗" not in b
     assert "1 killable" in b
 
 
 def test_banner_incomplete_names_line_gap():
-    # every killable killed, but a line gap remains → INCOMPLETE names the gap, not just kills
+    # every killable killed, but a line gap remains → Incomplete names the gap, not just kills
     b = _final_banner(_cr(line_complete=False, missing_lines=(8, 10), killed=8, final_survivors=0))
-    assert "✗ INCOMPLETE" in b
+    assert "Incomplete" in b
+    assert "✗" not in b
     assert "2-line gap" in b
 
 

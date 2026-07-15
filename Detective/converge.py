@@ -424,6 +424,16 @@ def converge(
     if qualname is None:
         raise LookupError(f"function {function!r} not found in {file}")
     func_key = f"{os.path.relpath(full, root)}::{qualname}"
+    # A supplied input is the ONE thing here a human had to know — the semantic prior
+    # synthesis provably could not build. Union it with anything remembered for this
+    # function and record it, so it is asked for once, not once per command: `decompose`
+    # runs its own converge and used to re-print a residual the user had just filled.
+    from . import samples
+
+    recalled = len(samples.load(root, func_key))
+    supplied_inputs = samples.merge(root, func_key, supplied_inputs) or None
+    if recalled and supplied_inputs:
+        say(f"recalled {recalled} supplied input(s) from a previous run")
     # The mutant UNIVERSE (behavioral degrees of freedom) — a cheap AST count, the
     # denominator of specification completeness; reported so the user sees how much of the
     # space was covered. Comprehensive tests all of it; fast samples a greedy subset/pass.

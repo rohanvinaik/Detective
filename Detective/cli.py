@@ -39,17 +39,25 @@ def _parallel_mode(args) -> bool | None:
 
 def _format_scope(scope) -> str:
     """One-block rendering of a ScopeMap — the raw read, then a plain-language layer
-    for a user who doesn't care about the theory (what it means + what to run)."""
+    for a user who doesn't care about the theory (what it means + what to run).
+
+    The raw layer names its own terms. "regime B", "inert", "kill quality: value-assertion"
+    and a bare category list are precise and mean nothing to a first-time reader, who meets
+    them BEFORE the plain-language layer that would have explained them. Each carries its
+    gloss inline instead: same numbers, same precision, no glossary lookup.
+    """
     spec, kq = scope.specification, scope.kill_quality
+    regime = "entangled" if scope.regime == "B" else "tractable"
     lines = [
-        f"{scope.function}  [regime {scope.regime}]",
-        f"  {spec.behavioral_variants} variants; {spec.distinctions_pinned} pinned, "
-        f"{spec.unspecified_dof} unspecified, {spec.inert_freedom} inert",
-        f"  kill quality: {kq.by_value_assertion} value-assertion, {kq.by_crash} crash"
-        + (f"  ⚠ {kq.warning}" if kq.warning else ""),
+        f"{scope.function}  [regime {scope.regime} — {regime}]",
+        f"  {spec.behavioral_variants} distinct behaviors; {spec.distinctions_pinned} pinned by a test, "
+        f"{spec.unspecified_dof} unpinned"
+        + (f", {spec.inert_freedom} inert (no test could ever tell)" if spec.inert_freedom else ""),
+        f"  of the pinned: {kq.by_value_assertion} pin the RETURN VALUE, "
+        f"{kq.by_crash} only prove it runs (crash)" + (f"  ⚠ {kq.warning}" if kq.warning else ""),
     ]
     if scope.surviving_categories:
-        lines.append(f"  surviving categories: {', '.join(scope.surviving_categories)}")
+        lines.append(f"  unpinned kinds: {', '.join(scope.surviving_categories)}")
     # No tests at all: the 0% is "nothing to kill with", not "weak tests". Say so
     # loudly so a fresh user doesn't read an absent suite as a failing one.
     if getattr(scope, "tests_discovered", -1) == 0:
@@ -392,7 +400,9 @@ def _completeness_verdict(result) -> str:
     input resolves it). When candidate-equivalents remain, we killed every mutant we could
     distinguish but cannot claim completeness, and we say exactly that."""
     if not result.complete:
-        return "✗ INCOMPLETE"
+        # Not "✗": the residual is stated on the lines that follow, and marking a run that
+        # pinned every killable behavior as a failure misreads the tool's own result.
+        return "Incomplete"
     rep = result.survivor_report
     candidate = len(rep.equivalent) if rep is not None else 0
     if candidate == 0:
@@ -462,7 +472,11 @@ def _final_banner(result) -> str:
             bits.append(f"{killable} killable")
         if gap:
             bits.append(f"{gap}-line gap")
-        status = "✗ INCOMPLETE" + (f" · {' · '.join(bits)}" if bits else "")
+        # "✗ INCOMPLETE" reads as FAILURE, and the common case it labels is not one: every
+        # killable mutant pinned with a couple of lines left over is the tool working. The
+        # ✗ made a good result look like a broken run. State the residual plainly instead —
+        # what is missing is already named in `bits`.
+        status = "Incomplete" + (f": {' · '.join(bits)}" if bits else "")
     tests = f" · {result.minimal_test_count} test(s)" if result.minimal_test_count else ""
     arrow = f" → {_rel_path(result.written_path)}" if result.written_path else ""
     return f"FINAL {result.function}: {status} · {result.killed}/{total} killed{tests}{arrow}"
@@ -803,10 +817,10 @@ def _format_audit(a) -> str:
 
 
 _COMMAND_HELP = {
-    "converge": "generate a COMPLETE, minimal pytest suite for a function (the flagship)",
+    "diagnose": "START HERE — what does this function actually do, and what to run next (read-only)",
+    "converge": "write a complete, minimal pytest suite for a function (the flagship; writes files)",
+    "decompose": "split a tangled function into helpers — applied only when PROVEN behavior-preserving",
     "audit": "assess an EXISTING suite: complete? minimal? which tests to prune",
-    "decompose": "extract entangled blocks into helpers (behavior-preserving; --apply to write)",
-    "diagnose": "show a function's behavioral scope + what to run next (read-only)",
 }
 
 
@@ -829,12 +843,16 @@ def _parse_supplied_inputs(raw: list[str]) -> list[tuple]:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="detective",
-        description="Generate/audit a function's pytest suite from its mutation profile. "
-        "Typical use: `detective converge path/to/file.py::function`.",
+        description="Read what a function actually does, pin it with tests, and split it "
+        "SAFELY — every rewrite is applied only when a generated suite proves behavior "
+        "survived. Start read-only: `detective diagnose path/to/file.py::function`.",
     )
     parser.add_argument("--version", action="version", version=f"detective {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("converge", "audit", "decompose", "diagnose"):
+    # diagnose leads: it is the only read-only entry point, and the previous order
+    # recommended `converge` first — which WRITES test files into someone's repo before they
+    # have any idea what the tool does. Earning that comes after showing the map.
+    for name in ("diagnose", "converge", "decompose", "audit"):
         p = sub.add_parser(name, help=_COMMAND_HELP[name])
         p.add_argument("target", help="file.py::function")
         p.add_argument("--project-root", default=".", help="project root the target path is relative to")
@@ -1070,7 +1088,14 @@ def _run(args) -> int:
 
         supplied = _parse_supplied_inputs(args.input) if getattr(args, "input", None) else None
         result = apply_decomposition(
-            file, function, args.project_root, write=args.apply, supplied_inputs=supplied
+            file,
+            function,
+            args.project_root,
+            write=args.apply,
+            supplied_inputs=supplied,
+            # decompose's work IS a converge plus a trial-apply per candidate — the slowest
+            # command in the CLI, and until now the only one that printed nothing while it ran.
+            notify=None if args.json else _notify_stderr,
         )
         print(
             json.dumps(asdict(result), indent=2, default=str)

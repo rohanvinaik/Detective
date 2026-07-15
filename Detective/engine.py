@@ -88,6 +88,25 @@ def _attr_path(obj: Any, qualname: str) -> Any | None:
     return obj
 
 
+def _shift_progress(
+    progress: Callable[[int, int, float], None] | None, done_already: int, universe: int
+) -> Callable[[int, int, float], None] | None:
+    """Re-base a slice's progress onto the FULL mutant universe.
+
+    A sliced run counts itself from zero, so the adaptive probe's already-evaluated mutants
+    fall off the axis and the stream under-reports: "72/72 mutants" for a function the same
+    run reports as 76 variants. Nothing is wrong with either number — they are just measured
+    against different denominators, which a reader cannot know. Shifting by the probe's count
+    makes the live stream and the final verdict describe the same universe."""
+    if progress is None:
+        return None
+
+    def _shifted(done: int, _slice_total: int, rate: float) -> None:
+        progress(done_already + done, universe, rate)
+
+    return _shifted
+
+
 def profile(
     file: str,
     function: str,
@@ -222,6 +241,12 @@ def profile(
                 else:
                     # Cheap enough to stay serial: finish the remainder in-process, REUSING the
                     # probe's baseline (no second line-coverage trace) and streaming its progress.
+                    #
+                    # The remainder is a SLICE, so Wesker counts it 0..(exact - probe_n): the
+                    # stream said "72/72 mutants" for a function the same run then reports as 76
+                    # variants, because the probe's mutants are already done and never appear on
+                    # the axis. Shift the counts back onto the TRUE universe so the two numbers a
+                    # user sees in one run cannot disagree.
                     rest = run_function_profiling(  # type: ignore[arg-type]
                         node,
                         func_key,
@@ -232,7 +257,7 @@ def profile(
                         pass_index=pass_index,
                         scope_tests=scope_tests,
                         mutant_slice=(probe_n, exact),
-                        progress=progress,
+                        progress=_shift_progress(progress, probe_n, exact),
                         precomputed_line_data=(probe.line_coverage, probe.failing_tests),
                         pregenerated=_mutants,
                     )

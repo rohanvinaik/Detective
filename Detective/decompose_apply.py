@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import textwrap
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -337,6 +338,7 @@ def apply_decomposition(
     write: bool = False,
     max_extractions: int = 8,
     supplied_inputs: list[tuple] | None = None,
+    notify: Callable[[str], None] | None = None,
 ) -> DecompositionApply:
     """The full decomposition loop — a decomposition is applied only when PROVED
     behavior-preserving by a mutant-complete test suite.
@@ -359,6 +361,9 @@ def apply_decomposition(
 
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
+    # decompose's cost IS the converge below (mutating + running the suite), so without this
+    # the slowest command is also the only silent one — it looks hung while doing the most.
+    say = notify or (lambda _m: None)
 
     # STEP 1 — the mutant-complete suite is both the spec and the proof.
     surviving_categories: tuple[str, ...] = ()
@@ -368,7 +373,15 @@ def apply_decomposition(
         # into the proof suite so a function whose line-/mutant-completeness needs a human
         # sample can still reach the `line_complete` gate below — otherwise it could never
         # be proven decomposable from the CLI.
-        conv = converge(file, function, project_root, write_dir="tests", supplied_inputs=supplied_inputs)
+        say("proving: converging the target to a mutation-complete suite (the proof)…")
+        conv = converge(
+            file,
+            function,
+            project_root,
+            write_dir="tests",
+            supplied_inputs=supplied_inputs,
+            notify=notify,
+        )
         report = conv.survivor_report
         if report is not None:
             surviving_categories = tuple(sorted({v.category for v in report.verdicts}))
@@ -416,6 +429,10 @@ def apply_decomposition(
         ok, count = verify_under_pytest(root, proof_suite)
         return ok and count > 0
 
+    if proof_suite is None:
+        say("no proof suite — nothing can be proven; extractions will be proposed only")
+    else:
+        say("baseline: running the proof suite against the UNCHANGED function…")
     baseline_green = _suite_green()
 
     applied: list[Extraction] = []
@@ -437,9 +454,16 @@ def apply_decomposition(
                 continue
             # Trial-apply on disk, PROVE against the mutant-complete suite, then either
             # keep (write mode) or revert (dry run / rejected).
+            say(
+                f"trialling: {extraction.helper_name}"
+                f"({', '.join(extraction.params)}) -> {', '.join(extraction.returns) or 'None'} "
+                "— re-running the proof suite against the rewrite…"
+            )
             with open(full, "w", encoding="utf-8") as fh:
                 fh.write(extraction.new_source)
             proven = baseline_green and _suite_green()
+            verdict = "PROVEN — behavior preserved" if proven else "rejected — behavior changed"
+            say(f"{verdict}: {extraction.helper_name}")
             if proven and write:
                 applied.append(extraction)
                 progressed = True

@@ -387,6 +387,7 @@ defensively, so Wesker also imports on Windows. `WESKER_MEM_BUDGET_MB` overrides
 | `conftest.py` (root) | Detective (pytest wiring) | yes | never |
 | `.detective/reports/converge_<fn>.txt` | Detective (full converge report; terminal stays terse) | yes | (under `.detective/`) |
 | `.detective/equivalents.json` | **user** (manual flags) | **no** | **never** |
+| `.detective/inputs.json` | **user** (supplied `--input` samples — `samples.py`) | **no** | **never** |
 | `.detective/verdict_cache.json` | Detective (profile cache) | yes | (content-invalidated) |
 | `~/.detective/telemetry.json` | Detective (per-machine per-mutant EMA) | yes | — |
 | `.wesker/function_cache.json`, `.wesker/*_report.json` | Wesker | yes | yes |
