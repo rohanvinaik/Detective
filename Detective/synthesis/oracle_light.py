@@ -175,44 +175,51 @@ def _boundary_property(survivor, func_key, func_node, call_site_inputs) -> Execu
     )
 
 
-def _type_property(survivor, func_key, func_node, _call_site_inputs) -> ExecutableProperty:
-    """TYPE: a wrong type should be rejected (raise)."""
-    mod, fname, _ = _func_info(func_key, func_node)
+def _type_property(survivor, func_key, func_node, call_site_inputs) -> ExecutableProperty:
+    """TYPE: a wrong type should be rejected (raise).
+
+    The call must be FULL-ARITY and the invalid value must land in the guarded parameter.
+    A short call raises ``TypeError`` on arity alone — which ``property_holds`` cannot tell
+    apart from the type rejection it is meant to prove (an arity TypeError *is* a
+    TypeError), so a one-arg call to an n-arg function passes the soundness gate while
+    proving nothing. Hence the two abstentions below.
+    """
+    mod, fname, params = _func_info(func_key, func_node)
     imp = _import_line(mod, fname)
     setup = f"{imp}\nimport pytest" if imp else "import pytest"
-    expected_type = _extract_isinstance_type(survivor.get("diff_summary", ""))
+    target, expected_type = _extract_isinstance_target(survivor.get("diff_summary", ""))
 
     if not expected_type:
-        assertion = (
-            "with pytest.raises((TypeError, ValueError)):\n"
-            f"    {fname}(None)  # TODO: use appropriate invalid type"
-        )
-        return ExecutableProperty(
-            category="TYPE",
-            inputs={},
-            setup_code=setup,
-            assertion_code=assertion,
-            preconditions=["expected type unknown"],
-            confidence=0.4,
-            source_lenses=["mutation"],
-            needs_oracle=True,
-        )
+        return _skip("TYPE", setup, "# TYPE survived but the checked type is not extractable", 0.3)
+    if not params:
+        return _skip("TYPE", setup, f"# TYPE skipped: no parameter list for {fname}", 0.2)
+    if target not in params:
+        # The guard is on a LOCAL (a loop variable, a derived value). No argument can make
+        # it the wrong type, so no input pins this mutant — abstaining is the honest answer;
+        # any call we emit here would raise for an unrelated reason and prove nothing.
+        return _skip("TYPE", setup, f"# TYPE skipped: isinstance guards local '{target}', not a param", 0.2)
 
     invalid = _INVALID_FOR_TYPE.get(expected_type, "None")
+    other_vals = _other_param_values(params, target, call_site_inputs)
+    call = _build_call(fname, params, target, invalid, other_vals)
+    # An unfilled slot renders as `...`: the Zone-2 residual. Flagged needs_oracle so it is
+    # never written, and the CLI hands the user the exact `--input` to supply.
+    has_unknowns = "..." in call
+
     assertion = (
-        f"# isinstance checks {expected_type} — wrong type should be rejected\n"
+        f"# isinstance checks {expected_type} on '{target}' — wrong type should be rejected\n"
         "with pytest.raises((TypeError, ValueError)):\n"
-        f"    {fname}({invalid})"
+        f"    {call}"
     )
     return ExecutableProperty(
         category="TYPE",
         inputs={"invalid_type": invalid},
         setup_code=setup,
         assertion_code=assertion,
-        preconditions=[f"isinstance checks {expected_type}"],
-        confidence=0.7,
+        preconditions=[f"isinstance checks {expected_type} on {target}"],
+        confidence=0.7 if not has_unknowns else 0.4,
         source_lenses=["mutation", "diff_analysis"],
-        needs_oracle=False,
+        needs_oracle=has_unknowns,
     )
 
 
@@ -378,12 +385,23 @@ def _extract_boundary_info(diff: str) -> dict[str, Any] | None:
     return None
 
 
-def _extract_isinstance_type(diff: str) -> str | None:
+def _extract_isinstance_target(diff: str) -> tuple[str | None, str | None]:
+    """The ``(variable, type)`` an ``isinstance`` guard checks.
+
+    The VARIABLE is what decides whether a TYPE mutant is reachable at all: a guard on a
+    parameter can be reached by passing the wrong type, one on a local (a loop variable, a
+    derived value) cannot be reached by any argument.
+    """
     for orig, _ in _parse_diff_changes(diff):
-        m = re.search(r"isinstance\(\s*\w+\s*,\s*(\w+(?:\.\w+)*)", orig)
+        m = re.search(r"isinstance\(\s*(\w+)\s*,\s*(\w+(?:\.\w+)*)", orig)
         if m:
-            return m.group(1)
-    return None
+            return m.group(1), m.group(2)
+    return None, None
+
+
+def _extract_isinstance_type(diff: str) -> str | None:
+    """The type an ``isinstance`` guard checks (the variable: `_extract_isinstance_target`)."""
+    return _extract_isinstance_target(diff)[1]
 
 
 def _extract_self_attr(diff: str) -> str | None:

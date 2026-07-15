@@ -128,22 +128,52 @@ def test_type_with_isinstance_full_output():
     )
     assert p.setup_code == "from m import f\nimport pytest"
     assert p.assertion_code == (
-        "# isinstance checks str — wrong type should be rejected\n"
+        "# isinstance checks str on 'x' — wrong type should be rejected\n"
         "with pytest.raises((TypeError, ValueError)):\n"
         "    f(42)"
     )
     assert p.inputs == {"invalid_type": "42"}
-    assert p.preconditions == ["isinstance checks str"]
+    assert p.preconditions == ["isinstance checks str on x"]
     assert p.confidence == 0.7 and p.needs_oracle is False
 
 
-def test_type_without_isinstance_is_todo():
-    p = _type_property({"diff_summary": ""}, "m::f", _fn("def f(x):\n return x"), None)
-    assert p.assertion_code == (
-        "with pytest.raises((TypeError, ValueError)):\n    f(None)  # TODO: use appropriate invalid type"
+def test_type_fills_every_param_not_just_the_guarded_one():
+    # A short call raises TypeError on ARITY, which property_holds cannot tell apart from
+    # the type rejection — it would pass the gate while proving nothing. Every slot is filled.
+    p = _type_property(
+        {"diff_summary": "- isinstance(a, str)\n+ True"},
+        "m::f",
+        _fn("def f(a, b):\n return a"),
+        [{"positional_args": ["'x'", "9"]}],
     )
-    assert p.preconditions == ["expected type unknown"]
+    assert p.assertion_code.endswith("f(42, 9)")
+    assert p.needs_oracle is False
+
+
+def test_type_abstains_when_a_slot_cannot_be_filled():
+    # No call sites -> the sibling param renders as the `...` Zone-2 residual, so the
+    # property is flagged for the CLI to hand back an --input rather than written.
+    p = _type_property(
+        {"diff_summary": "- isinstance(a, str)\n+ True"}, "m::f", _fn("def f(a, b):\n return a"), None
+    )
+    assert "..." in p.assertion_code
     assert p.confidence == 0.4 and p.needs_oracle is True
+
+
+def test_type_abstains_when_isinstance_guards_a_local():
+    # `n` is a loop variable, not a parameter: no argument can make it the wrong type, so
+    # no test can pin this mutant. Emitting one would raise for an unrelated reason.
+    p = _type_property(
+        {"diff_summary": "- isinstance(n, str)\n+ True"}, "m::f", _fn("def f(x):\n return x"), None
+    )
+    assert p.assertion_code == "# TYPE skipped: isinstance guards local 'n', not a param"
+    assert p.needs_oracle is True
+
+
+def test_type_without_isinstance_abstains():
+    p = _type_property({"diff_summary": ""}, "m::f", _fn("def f(x):\n return x"), None)
+    assert p.assertion_code == "# TYPE survived but the checked type is not extractable"
+    assert p.confidence == 0.3 and p.needs_oracle is True
 
 
 # ── STATE ─────────────────────────────────────────────────────────
@@ -309,7 +339,7 @@ def test_type_invalid_value_per_type():
         )
         assert f"    f({invalid})" in p.assertion_code
         assert p.inputs == {"invalid_type": invalid}
-        assert p.preconditions == [f"isinstance checks {typ}"]
+        assert p.preconditions == [f"isinstance checks {typ} on x"]
 
 
 def test_type_unknown_type_defaults_to_none():
