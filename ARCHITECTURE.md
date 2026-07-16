@@ -78,12 +78,50 @@ Detective imports exactly these from Wesker (the *entire* dependency surface):
 | `generate_mutants(func_node, categories, *, max_per_category, pass_index)` → `list[Mutant]` | `Wesker.engine` | the deterministic mutant set (reused across probe/shards; witness search) |
 | `estimate_universe_size`, `greedy_coverage_guarantee` | `Wesker.engine` | DOF count + the a-priori greedy coverage floor (the converge "stats flex") |
 | `ProfilingResult`, `CategoryResult`, `MutationCategory` | `Wesker.engine` | the result type (see §3) |
-| `discover_test_callables(root, rel, func_names, extra_dirs)` → `list[Callable]` | `Wesker.ci` | find the real tests exercising a function (pytest-aware, binds parametrize) |
+| `discover_test_callables(root, rel, func_names, extra_dirs)` → `list[Callable]` | `Wesker.ci` | find the real tests exercising a function (pytest-aware, binds parametrize). **Inside a live session it returns the session's callables and ignores every other argument** |
+| `run_with_live_suite(root, fn, target_files, paths, trace_progress, trace_budget_s, trace_session_budget_s)` | `Wesker.ci` | **THE session seam.** `cli._run_live` wraps the whole command in it once; everything underneath transparently upgrades. Returns `None` — and ONLY `None` — when no session could start |
+| `refresh_live_suite(root, path)` → `int` | `Wesker.ci` | tell the session a test file changed on disk. Called from `certify._write`, the one choke point every generated test passes through |
+| `live_suite_active()` → `bool` | `Wesker.ci` | is a session live? (`engine.profile` refuses to fan out inside one — the callables cannot cross a process spawn) |
 | `walk_functions(tree)` → `[(qualname, node), …]` | `Wesker.ci` | enumerate functions in a module |
 | `filter_categories(node, pure)` → `set[MutationCategory]` | `Wesker.filter` | which mutation categories apply (drops STATE for pure fns) |
 | `prioritize_categories(cats, state)` | `Wesker.filter` | learned-weak ordering (`diagnose --learn`) |
-| `worker_count`, `apply_address_limit` | `Wesker.memory_guard` | parallel fleet size (portable memory guarantee) + best-effort `RLIMIT_AS` |
-| `telemetry`, `purge_caches` | `Wesker.memory_guard` | CLI footer + `purge` command |
+| `DEFAULT_TRACE_BUDGET_S`, `DEFAULT_TRACE_SESSION_BUDGET_S` | `Wesker.engine` | the trace caps. **Imported, never restated** — a second copy would drift silently |
+| `worker_count`, `apply_address_limit`, `_DEFAULT_WORKER_PEAK` | `Wesker.memory_guard` | parallel fleet size (portable memory guarantee) + best-effort `RLIMIT_AS` |
+| `telemetry`, `purge_caches` | `Wesker.memory_guard` | CLI footer + the `.wesker/` HALF of `purge` (§8) |
+
+**The live session is the load-bearing seam, and it is a correctness feature, not a speed one.**
+Wesker's fallback discovery collects with `--collect-only`, which tears the session down at once,
+so every fixture-taking test is skipped. A mutant only such a test could kill then reports as a
+surviving behavioral gap — Detective claims a dimension is unspecified when the suite already pins
+it, and `converge` writes a test for behavior that was never unspecified. Measured on Prism: 0 of
+445 tests bound the old way, 445 the new way. `cli._run_live` and `mcp_server._in_session` are the
+only two entry points, and both degrade **loudly**; a silent fallback is the exact failure the seam
+exists to end.
+
+Three things ride on that same seam, and all three are Detective's job to pass:
+
+* **`paths`** — pytest's own collection argument, narrowed by `reachability.reachable_test_paths`
+  to the files that could execute the target's lines. The session baseline traces EVERYTHING it
+  collects before a single mutant runs, so an unscoped collection makes cost scale with the
+  **suite**, not the function (Regenesis: 2134 test functions traced for one 13-line function,
+  1928 of them in modules that cannot reach it even transitively). `None` = collect everything =
+  byte-identical to before.
+* **The trace budgets** — they bound the pass that traces the suite, and on the live path that
+  pass runs *inside this seam*, not in `profile()`. Sent only to `profile()` they reached the
+  per-function path a live session never uses, so raising the flag changed nothing.
+* **`refresh_live_suite`** — see below.
+
+**The session's collection is a SNAPSHOT, and Detective writes tests.** `discover_test_callables`
+short-circuits to the session's callables, which is right for a consumer that only READS a suite
+and silently wrong for one whose product is writing tests: `converge` writes, re-profiles, and is
+handed a list that predates its own work. `certify._write` therefore calls `refresh_live_suite`
+after every write **and every delete** — it is the single choke point through which generated tests
+reach disk, which is what makes "the suite changed" impossible to forget at a call site. That call
+does two things, and needs both: it replaces the callables from that file, **and** invalidates the
+`SessionBaseline`, whose trace decides which tests are run against which mutant. Refreshing the
+list alone changes what is *discovered* and nothing about what is *run* — the count stays exactly
+as wrong (measured: 18 mutants killed by tests on disk, reported as 2, with the user asked to
+supply inputs for the 14 already dead).
 
 **What Detective gets back — `ProfilingResult`** (the single most important object):
 
@@ -168,7 +206,8 @@ All in `Detective/`. Frozen dataclasses unless noted.
 | Module | Responsibility | Key functions |
 |---|---|---|
 | `engine.py` | **THE Wesker adapter** + caching + adaptive parallelism + witness classification + input synthesis | `profile`, `diagnose`, `classify_survivors`, `representative_site`, `learn_priors`, `_count_decompose_seams`, `_load_original` |
-| `verdict_cache.py` | **content-hashed profile cache** (§7) | `cache_key`, `get`, `put`, `_to_json`/`_from_json`, `tests_fingerprint` |
+| `verdict_cache.py` | **content-hashed profile cache** (§7) + purges Detective's own regeneratable state (§8) | `cache_key`, `params_suffix`, `get`, `put`, `purge`, `_to_json`/`_from_json`, `tests_fingerprint` |
+| `reachability.py` | **static test-impact scoping**: which test files could execute a target's lines, for the session's `paths` (§2a, §7). Conservative in ONE direction — any doubt returns `None` = collect everything | `reachable_test_paths`, `module_name` |
 | `parallel.py` | **model-A fan-out** + adaptive merge (§7) | `parallel_profile`, `merge_results`, `shard_bounds`, `mean_mutant_ms` |
 | `scope.py` | reshape ProfilingResult → behavioral map | `scope_from_profiling` |
 | `equivalence.py` | classify survivor killable/equivalent BY EXECUTION; typing; SourceExpr | `find_witness`, `classify_survivor`, `_outcome`, `synth_ast_input`, `unwrap` |
@@ -184,8 +223,8 @@ All in `Detective/`. Frozen dataclasses unless noted.
 | `decompose.py` | propose extraction candidates — **STRUCTURE-gated** (not survivor-gated) | `decompose`, `find_extraction_candidates`, `compute_cognitive_complexity` |
 | `decompose_apply.py` | **extract-function**: converge (proof) → cluster → trial-apply → prove → apply | `apply_decomposition`, `extract_candidate` |
 | `equivalents.py` | persist/read manual equivalence flags | `add_flag`, `load_flags`, `flag_key` |
-| `cli.py` | arg parsing + formatting (`--version`, streaming narrative, minimal terse view + `--full`); **zero compute** | `main`, `_run`, `_build_parser`, `_parallel_mode`, `_format_converge`/`_format_converge_terse`, `_final_banner`, `_plain_terms`, `_boundary_hint`, `_notify_stderr`, `_write_converge_report` |
-| `mcp_server.py` | optional MCP surface (`detective-mcp`): exposes `diagnose`/`certify`; zero compute | `build_server`, `main` |
+| `cli.py` | arg parsing + formatting (`--version`, streaming narrative, minimal terse view + `--full`); wraps every command in the live session; **zero compute** | `main`, `_run_live`, `_run`, `_build_parser`, `_reachable_paths`, `_trace_budget`/`_trace_session_budget`, `_parallel_mode`, `_format_converge`/`_format_converge_terse`, `_final_banner`, `_plain_terms`, `_boundary_hint`, `_notify_stderr`, `_write_converge_report` |
+| `mcp_server.py` | optional MCP surface (`detective-mcp`, §5a): `diagnose`/`converge`/`decompose`/`audit`/`deep_context`, each inside a live session; **zero compute** | `build_server`, `_in_session`, `_rendered`, `_render_diagnose`/`_render_converge`/`_render_decompose`, `_ask_for_input`, `main` |
 | (Wesker) `memory_guard.py` | RAM budget, fleet sizing, `RLIMIT_AS`, telemetry, purge | `resolve_budget`, `worker_count`, `apply_address_limit`, `over_budget`, `telemetry` |
 
 ---
@@ -294,14 +333,54 @@ witness overrides it (proof beats opinion). Content-keyed: a code change to that
 invalidates the flag by design.
 
 ### `purge [--project-root .]`
-Delete regeneratable analysis cruft (`.wesker/*.json`). Never touches generated tests,
-`conftest.py`, or `.detective/` (user data).
+Delete regeneratable analysis cruft from **both** packages: `.wesker/*_report.json` (via
+`memory_guard.purge_caches`) **and** `.detective/verdict_cache.json` + `.detective/reports/`
+(via `verdict_cache.purge`). Never touches generated tests, `conftest.py`, or the two user-data
+files — `inputs.json` and `equivalents.json` (§8). Prints every path it removed; a purge that
+claims cleanliness it did not achieve is worse than none.
 
 `certify()` is no longer a CLI command (superseded by `converge`'s loop). It remains a
 library API (`from Detective import certify`) and its module still backs the pytest wiring
-(`wire_pytest`, `verify_under_pytest`) that `decompose` depends on.
+(`wire_pytest`, `verify_under_pytest`) that `decompose` depends on — **and** `certify._write`, the
+one choke point every generated test passes through on its way to disk, which is why the live
+session's refresh (§2a) is published from there.
 
-**MCP** (`detective-mcp`): exposes `diagnose`/`certify` only; zero compute.
+---
+
+## 5a. The MCP surface — `detective-mcp` (`mcp_server.py`)
+
+Five tools: `diagnose`, `converge`, `decompose`, `audit`, `deep_context`. Optional (`[mcp]`
+extra); `mcp` is imported lazily so the core stays Wesker + stdlib. Zero compute — each tool calls
+the same library the CLI does, inside the same live session (`_in_session` → `run_with_live_suite`,
+scoping included). It went without that wrap once, calling the library directly, and every verdict
+it returned on a fixture-driven repo was wrong in the tool's least honest direction: MORE
+unspecified behavior than exists.
+
+**It is not the CLI's text.** That was tried. `cli.py` renders every result correctly and
+completely *for a human*, and relaying it verbatim to an LLM failed — the same bytes, in full,
+went to stdout and were piped to `tail -3` unread. The CLI's rendering is a **theorem**: every
+clause as true as the engine can make it. This surface's output is a **prompt**: correctness is
+whether it is *effective*, not whether it is *true*, and it deliberately says things the CLI would
+not. Both objects are right; they answer to different criteria.
+
+| Choice | Why |
+|---|---|
+| **No score in the default view** | a ratio is the most reliable way to make an LLM caller reach outside the tool and grind. The numbers are real and correct — behind `full=True` / `deep_context`, where reading them is deliberate |
+| **The mutant kinds ARE shown** | the failure is symmetrical: too terse and the task reads as scut work to shortcut. The behavioral distinctions are the interesting *and* honest part |
+| **One next action, an imperative, never a menu** | not because the world is unambiguous — the equivalents fork is undecidable — but because the *caller's legal move set* is singular even when the epistemics are not |
+| **Flat prohibitions** ("more passes will not help") | strictly these overclaim. They are the load-bearing sentences |
+| **No `flag` tool, no `purge` tool** | `flag` is a human oracle on an undecidable question — the renderer routes it to the user instead. `purge` is a delete-state button, and handing one to a grinding caller invites "the number didn't move, purge and retry" |
+| **A header on every CLI-rendered report** | `full=True`/`deep_context` return the CLI's text, which says `--input "(…)"`, `--apply`, `detective flag …` — terminal syntax the caller cannot invoke. The header says: read the detail, ignore the imperatives |
+
+**The engine's epistemics are untouched — and that is checked, not assumed.** Nothing here
+re-decides a verdict, softens an UNPROVEN, or spends a crash kill to flatter a number. The
+renderers use **direct attribute access, never `getattr(obj, name, default)`**: a default silently
+absorbs a wrong field name, and this file did exactly that — it asked `SurvivorReport` for
+`candidate_equivalent` (the field is `equivalent`), got `()` forever, and reported *"the suite is
+complete, nothing to derive"* over nine UNPROVEN survivors. The engine had classified them
+honestly; the renderer promoted UNPROVEN to done. `trace_truncated` is surfaced first for the same
+reason: a completeness verdict resting quietly on a truncated measurement is the one failure this
+tool cannot afford, and a surface that drops the warning commits it while looking tidier.
 
 ---
 
@@ -355,10 +434,24 @@ exactly identical to a full run.
 
 **Content-hashed verdict cache** (`verdict_cache.py`, `.detective/verdict_cache.json`):
 `profile()` serves an unchanged function's result from disk. Key = `func_key : AST-dump-hash
-: tests-source-hash : max_per_category : pass_index`. The AST hash is position-independent
-(editing *other* functions never invalidates this one); any edit to the function or its
-tests misses. Single-valid-copy: a new hash purges the function's prior entry. A cache hit
-is byte-for-byte identical to a fresh run; only complete (non-budget-exhausted) runs cache.
+: tests-source-hash : max_per_category : pass_index : trace_budgets`. The AST hash is
+position-independent (editing *other* functions never invalidates this one); any edit to the
+function or its tests misses. A cache hit is byte-for-byte identical to a fresh run; only
+complete (non-budget-exhausted) runs cache.
+
+The **trace budgets are in the key** because they change the answer: a budget cuts the traced
+baseline, and what it cut lands in the result as `truncated` and as absent `line_coverage`. A key
+blind to them serves the tighter run's coverage to the looser one — which made the CLI's own
+remedy ("raise `--trace-budget` to measure them fully") unfollowable: you raised it and the cached
+under-count came back unchanged. Scoping is deliberately **not** in the key: scoped and full runs
+are proven verdict-identical, so `paths` cannot change what a result says.
+
+**The key is a positional contract with two readers** — `cache_key` builds it, `put` re-parses it
+for single-valid-copy (drop this function's entries for the same *question* whose content hash no
+longer matches, so the file stays bounded at one row per function/params). They must agree, so the
+field count lives in `_PARAM_FIELDS` beside the builder and `put` calls `params_suffix()` rather
+than slicing inline. Appending a field without that is not theoretical: it silently redefined the
+slice, and a `--fast` run evicted the comprehensive entry it should have sat beside.
 
 **Adaptive parallelism** (`parallel.py`, model A): the default. A small serial **probe**
 times this function's real per-mutant cost (killing the stale-rate guessing problem), and —
@@ -383,16 +476,32 @@ defensively, so Wesker also imports on Windows. `WESKER_MEM_BUDGET_MB` overrides
 
 | Path | Owner | Regeneratable? | Purged by `purge`? |
 |---|---|---|---|
-| `tests/test_<fn>_synth.py` | Detective (product output) | yes | never |
+| `tests/test_<fn>_synth.py` | Detective (product output) | yes | **never** — it is the product |
 | `conftest.py` (root) | Detective (pytest wiring) | yes | never |
-| `.detective/reports/converge_<fn>.txt` | Detective (full converge report; terminal stays terse) | yes | (under `.detective/`) |
+| `.detective/reports/converge_<fn>.txt` | Detective (full converge report; terminal stays terse) | yes | **yes** |
+| `.detective/verdict_cache.json` | Detective (profile cache) | yes | **yes** |
 | `.detective/equivalents.json` | **user** (manual flags) | **no** | **never** |
 | `.detective/inputs.json` | **user** (supplied `--input` samples — `samples.py`) | **no** | **never** |
-| `.detective/verdict_cache.json` | Detective (profile cache) | yes | (content-invalidated) |
-| `~/.detective/telemetry.json` | Detective (per-machine per-mutant EMA) | yes | — |
-| `.wesker/function_cache.json`, `.wesker/*_report.json` | Wesker | yes | yes |
+| `~/.detective/telemetry.json` | Detective (per-machine per-mutant EMA) | yes | no (machine-global, not project state) |
+| `.wesker/mutation_report.json`, `.wesker/mcdc_report.json` | Wesker | yes | yes (via `Wesker.memory_guard.purge_caches`) |
 
-Detective holds **no** cross-run RAM state (MCP server is stateless; CLI frees on exit).
+**`purge` spans BOTH packages, because neither can purge the other's.** `cli` calls
+`memory_guard.purge_caches` for `.wesker/` **and** `verdict_cache.purge` for `.detective/`. It
+used to delegate only to Wesker — written back when Wesker owned all the state — so it purged a
+file that (outside Wesker's own tests) is never written, missed the multi-MB one that is, and
+reported *"a clean state"* over it. A command that purges one of two caches while announcing
+cleanliness is worse than one that purges neither: the user acts on the claim.
+
+**The user/regeneratable split is the invariant, not a nicety.** `inputs.json` and
+`equivalents.json` are the two things in the pipeline Detective **cannot derive** — the semantic
+prior synthesis provably could not build, and a human's equivalence judgement on an undecidable
+question. Purging them asks the person to redo the only irreducible work, which is the opposite of
+this command's purpose. Everything else here is rebuilt from current code on the next run, so
+purging can only ever cost time.
+
+**Cross-run RAM state: none.** The two ContextVars (`_LIVE_SUITE`, `_SESSION_BASELINE`) live in
+Wesker and exist only for the duration of one `run_with_live_suite` call; both are reset in its
+`finally`. The MCP server holds nothing between calls — each tool opens its own session (§5a).
 
 ---
 
@@ -412,7 +521,13 @@ Detective holds **no** cross-run RAM state (MCP server is stateless; CLI frees o
 | extracted helper carries the PARENT's docstring (and the parent loses its own) | `decompose.find_extraction_candidates` skips a leading docstring (`ast.get_docstring`) | a docstring belongs to the function, never to an extracted block |
 | converge writes a test its own audit then calls redundant | converge step 4 minimize (`redundant_2axis` + `writer.individual_test_names`) | ship the minimal cover, not the full set + removal proposals |
 | Parallel/auto result differs from serial | `parallel.merge_results` (shard-order concat) + `run_function_profiling` `mutant_slice` | records must concatenate in mutant-index order |
-| Cache serves a stale result | `verdict_cache.cache_key` | must hash fn-AST + tests-source + params; content, never path |
+| Cache serves a stale result | `verdict_cache.cache_key` | must hash fn-AST + tests-source + params + **trace budgets**; content, never path. Anything that can change the answer belongs in the key |
+| **The command prints NOTHING and exits 0** (in CI: an empty artifact, a green check) | `Wesker.engine._run_test_with_timeout` — `_abandon` + the unwind join must happen INSIDE the redirect | the baseline runs the target's own suite; a test over its cap is abandoned, and the abandoned frame unwinds through any `redirect_stdout` IT entered, reinstalling that buffer AFTER the engine restored the real one. `sys.stdout` is then a dead buffer for the rest of the PROCESS. Belt-and-braces: `ci._body` re-enters the streams around the baseline. **Not a crash — the analysis is correct and posted to a discarded buffer** |
+| `converge` reports a tiny kill count, calls itself Incomplete, and asks for inputs it does not need | `certify._write` → `Wesker.ci.refresh_live_suite` | the live session's collection is a SNAPSHOT; converge writes tests, re-profiles, and is handed a list predating its own work (measured: 18 killed on disk, 2 reported). The refresh must ALSO invalidate the `SessionBaseline` — refreshing the list alone changes what is *discovered*, not what is *run*, and the count stays exactly as wrong |
+| `--trace-budget` / `--trace-session-budget` change nothing | `cli._run_live` must pass them to `run_with_live_suite`, not only to `profile()` | on the live path the suite is traced inside the seam; the per-function path a session never uses was the only thing hearing the flag |
+| A warm cache is still slow (full trace before an instant answer) | `Wesker.engine.LazySessionBaseline` — the baseline must stay demand-driven | built eagerly it is the whole cost of a run, paid *outside* the region the cache protects, then dropped unread (Regenesis: 486s → 3.6s once lazy) |
+| `diagnose` on a big repo traces the whole suite for one small function | `cli._reachable_paths` → `reachability.reachable_test_paths` → the session's `paths` | scoping must happen at pytest COLLECTION, before anything is imported — `scope_tests` selection is derived FROM the trace, so it cannot save the trace |
+| An MCP tool reports "complete / nothing to derive" over UNPROVEN survivors | `mcp_server` — direct attribute access, never `getattr(obj, name, default)` | a default silently absorbs a wrong field name; `SurvivorReport.equivalent` was asked for as `candidate_equivalent` and returned `()` forever. A rename must break loudly, not promote UNPROVEN to done |
 | Generated test is **flaky** (set output) | `characterization.golden_assert_line` | set repr order is hash-seed-dependent → value-equality |
 | `verify_under_pytest` reports 0 passed for a passing suite | `certify.verify_under_pytest` | `-o addopts=` so the target's `-q` doesn't become `-qq` |
 | Survivor reads "uncertain — inputs don't exercise" | `engine._input_grids` / `representative_site` / `call_sites` / `capture.capture_call_inputs` (runtime harvest) | synthesis can't build a fitting value AND no covering test exercises it (domain-value / unannotated — §10) |

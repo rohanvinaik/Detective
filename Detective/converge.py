@@ -499,7 +499,7 @@ def converge(
         source = render_module(func_key, list(accumulated.values()))
         if source and write_dir:
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname) or None
+            written_path = _write(source, target, qualname, root) or None
         iterations.append(ConvergeIteration(survivors, len(new_sound)))
         if new_sound:
             _wrote = f" [{os.path.basename(written_path)}]" if written_path else ""
@@ -550,7 +550,7 @@ def converge(
         if witnessed:
             source = render_module(func_key, list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname) or None
+            written_path = _write(source, target, qualname, root) or None
             say(f"witness pass: +{n_witnessed} distinguishing kill test(s) auto-written")
 
     # Authoritative final measurement — reflects every written test, including
@@ -581,7 +581,7 @@ def converge(
             accumulated = {k: v for k, v in accumulated.items() if k not in drop}
             source = render_module(func_key, list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname) or None
+            written_path = _write(source, target, qualname, root) or None
             say(f"minimizing — dropped {len(drop)} redundant test(s) our own cover flagged")
             final_result = profile(
                 file,

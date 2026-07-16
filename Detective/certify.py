@@ -202,13 +202,13 @@ def certify(
         # Resolve write_dir against the project root (not CWD) so tests land in
         # the consumer's tree where their imports resolve — matches converge.
         target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-        written = _write(source, target, qualname)
+        written = _write(source, target, qualname, root)
     # Wire the written suite so it runs under real pytest, and state how (see converge).
     wiring = wire_pytest(root, written) if written else None
     return CertifyResult(func_key, scope, result.value_survived, at_ceiling, source, written, plan, wiring)
 
 
-def _write(source: str, write_dir: str, qualname: str) -> str:
+def _write(source: str, write_dir: str, qualname: str, project_root: str | None = None) -> str:
     """Write synthesized source to ``write_dir/test_<qualname>_synth.py``; return the path,
     or "" when there was nothing to write.
 
@@ -217,14 +217,43 @@ def _write(source: str, write_dir: str, qualname: str) -> str:
     0-byte file there would claim a product that does not exist, and leaving a stale one from
     an earlier pass of the SAME run would ship the pre-minimize content the pass just
     rejected. This path is Detective's own regeneratable product (§8), never user data, so
-    clearing it is ours to do."""
+    clearing it is ours to do.
+
+    ``project_root`` publishes the change to a live pytest session, and is the ONLY reason this
+    function takes it. Every write here mutates the suite that the very next `profile()` will
+    score, but a live session hands out the collection it took when it OPENED — so without this,
+    a re-profile is answered from a snapshot that predates the file we just wrote, and converge
+    grades the suite it had before it did its work. Measured: 18 mutants killed by tests on
+    disk, reported as 2, with the user asked to supply inputs for the 14 already dead. This is
+    the single choke point through which every generated test reaches disk, so telling the
+    session HERE is what makes "the suite changed" impossible to forget at a call site.
+    Omitted (or no live session) it is a no-op and discovery re-collects per call as before."""
     os.makedirs(write_dir, exist_ok=True)
     safe = qualname.replace(".", "_")
     path = os.path.join(write_dir, f"test_{safe}_synth.py")
     if not source.strip():
         if os.path.exists(path):
             os.remove(path)
+            _publish_suite_change(project_root, path)  # a DELETION changes the suite too
         return ""
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(source)
+    _publish_suite_change(project_root, path)
     return path
+
+
+def _publish_suite_change(project_root: str | None, path: str) -> None:
+    """Tell a live pytest session that ``path``'s tests changed on disk.
+
+    Best-effort by construction: an older Wesker has no such seam, and a refresh that fails
+    must never fail the run that wrote the file. The cost of it not happening is a stale
+    verdict, which is exactly what the caller then reports — so it is worth doing, and never
+    worth raising over."""
+    if not project_root:
+        return
+    try:
+        from Wesker.ci import refresh_live_suite
+
+        refresh_live_suite(project_root, path)
+    except Exception:  # noqa: BLE001 — older Wesker, or a collection hiccup; degrade quietly
+        pass

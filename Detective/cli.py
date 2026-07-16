@@ -40,6 +40,24 @@ def _trace_session_budget(args) -> float | None:
     return None if v is not None and v <= 0 else v
 
 
+def _reachable_paths(root: str, targets: list[str] | None) -> list[str] | None:
+    """pytest collection paths scoped to the target, or None to collect everything.
+
+    Wrapped so the scoping can NEVER be the thing that breaks a run: any failure in the
+    static analysis degrades to None, i.e. exactly today's full collection. A speedup that
+    can turn a verdict wrong is not a speedup, and this one is only ever allowed to make the
+    tool faster or leave it alone.
+    """
+    if not targets or len(targets) != 1:
+        return None
+    try:
+        from .reachability import reachable_test_paths
+
+        return reachable_test_paths(root, targets[0])
+    except Exception:  # noqa: BLE001 — scoping is an optimisation; never fail the run for it
+        return None
+
+
 def _split_target(target: str) -> tuple[str, str]:
     """Split ``path/to/file.py::function`` into ``(file, function)``."""
     if "::" not in target:
@@ -1113,14 +1131,31 @@ def _run_live(args) -> int:
     # Without it the live path is silent at 100% CPU until the first mutant, which is the whole
     # "looks hung" failure one layer further up than it looked.
     label = _split_target(target_arg)[1] if target_arg else "baseline"
+
+    # Collect only the test files that could execute the target's lines. The session baseline
+    # traces EVERYTHING it collects, before a single mutant runs, so an unscoped collection
+    # makes the cost scale with the SUITE rather than the function: measured on Regenesis,
+    # 2134 test functions traced for one 13-line function, of which 1928 are in modules that
+    # cannot import the target even transitively. `paths` is pytest's own collection argument,
+    # so the scoping happens before anything is imported, not after everything is traced.
+    # `None` (analysis unsure, or no target) collects everything — byte-identical to before.
+    paths = _reachable_paths(root, targets)
+    # `--trace-budget` / `--trace-session-budget` bound the pass that traces the whole suite, and
+    # on the live path that pass runs HERE — inside the seam — not in `profile`. Sent only to
+    # `profile`, they reached the per-function baseline the live path never uses, so raising them
+    # changed nothing and the phase stayed capped at the engine's default: a documented opt-out
+    # that could not reach the thing it opts out of.
     try:
         code = run_with_live_suite(
             root,
             lambda: _run(args),
             target_files=targets,
+            paths=paths,
             trace_progress=_stream_trace_progress(label),
+            trace_budget_s=_trace_budget(args),
+            trace_session_budget_s=_trace_session_budget(args),
         )
-    except TypeError:  # older Wesker: seam exists, but without the progress parameter
+    except TypeError:  # older Wesker: seam exists, but without the progress/paths parameters
         code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
     if code is None:
         sys.stderr.write(
@@ -1136,7 +1171,15 @@ def _run(args) -> int:
     if args.command == "purge":
         from Wesker.memory_guard import purge_caches
 
-        removed, reclaimed = purge_caches(args.project_root)
+        from . import verdict_cache as _vc
+
+        # BOTH packages. Wesker's purge knows `.wesker/`; ours knows `.detective/`. Neither can
+        # know the other's, and a command that purges one of two caches while announcing "a clean
+        # state" is worse than one that purges neither — the user acts on the claim.
+        w_removed, w_reclaimed = purge_caches(args.project_root)
+        d_removed, d_reclaimed = _vc.purge(args.project_root)
+        removed = tuple(w_removed) + tuple(d_removed)
+        reclaimed = w_reclaimed + d_reclaimed
         if args.json:
             print(json.dumps({"removed": list(removed), "reclaimed_bytes": reclaimed}))
         elif removed:
@@ -1191,6 +1234,12 @@ def _run(args) -> int:
             # The traced baseline runs in THIS process even when the mutation loop fans out, so
             # the trace reporter is wired regardless of `_par` — it is the phase that was silent.
             trace_progress=_stream_trace_progress(function),
+            # BOTH budgets, always. `--trace-budget` used to stop here while its session sibling
+            # went through, so the per-test cap silently stayed at the default however the user
+            # set it. It also has to arrive for the verdict cache to be keyed honestly: the key
+            # identifies the budget regime a result was measured under, and a flag that reaches
+            # the seam but not this call would change the answer without changing the key.
+            trace_budget_s=_trace_budget(args),
             trace_session_budget_s=_trace_session_budget(args),
         )
         print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))

@@ -29,7 +29,13 @@ _CACHE_REL = (".detective", "verdict_cache.json")
 
 
 def _sha(text: str) -> str:
-    """Stable 16-hex content hash — same construction as Wesker's ``_code_hash``."""
+    """Stable 16-hex content hash.
+
+    Was documented as "same construction as Wesker's ``_code_hash``" — a symbol removed in
+    Wesker 0.6.0 along with the per-function cache it served, which nothing outside its own
+    tests ever called and which invalidated on the function's hash but NOT its tests'. This
+    module is that idea done once, keyed on everything that can change the answer.
+    """
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
@@ -49,15 +55,52 @@ def tests_fingerprint(tests: list[Callable[..., Any]]) -> str:
     return _sha("\n".join(sorted(parts)))
 
 
+# The key is a POSITIONAL CONTRACT with two readers: `cache_key` builds it, `put` re-parses it
+# to find which entries are stale copies of the same question. Nothing tied them together, so
+# `put` hardcoded "the last two fields are :max:pass" as a bare `rfind`. Appending the trace
+# budgets silently redefined that slice as ":pass:budgets", and a `--fast` run then evicted the
+# comprehensive entry it should have sat beside — same function, different question, one copy
+# destroyed. The field count lives HERE, beside the builder, and any new trailing param must
+# bump it. Better still: keep params trailing and content leading, so this stays a count.
+_PARAM_FIELDS = 3  # max_per_category, pass_index, trace_budgets
+
+
+def params_suffix(key: str) -> str:
+    """The trailing param fields of ``key``.
+
+    Two entries sharing this suffix answer the SAME question about the same function, so the
+    older one is a stale copy. Two entries differing in it answer DIFFERENT questions (a fast
+    sample vs a comprehensive run; one trace budget vs another) and must coexist.
+    """
+    return ":" + ":".join(key.rsplit(":", _PARAM_FIELDS)[1:])
+
+
 def cache_key(
     func_key: str,
     func_source: str,
     tests: list[Callable[..., Any]],
     max_per_category: int,
     pass_index: int,
+    trace_budgets: tuple[float | None, float | None] = (None, None),
 ) -> str:
-    """The content-addressed key: identity + fn-hash + tests-hash + sampling params."""
-    return f"{func_key}:{_sha(func_source)}:{tests_fingerprint(tests)}:{max_per_category}:{pass_index}"
+    """The content-addressed key: identity + fn-hash + tests-hash + sampling + trace budgets.
+
+    ``trace_budgets`` is ``(per_test, session)``. They are in the key because they CHANGE THE
+    ANSWER: a budget cuts the traced baseline, and what it cut lands in the result as
+    ``truncated`` and as absent ``line_coverage``. Two runs of identical code and identical tests
+    under different budgets are therefore different results, and a key blind to them serves the
+    tighter run's coverage to the looser one.
+
+    That is not a stale-data nuisance, it is an unfollowable instruction: the CLI's own remedy for
+    a cut trace is "raise --trace-budget (or pass 0 for unbounded) to measure them fully", and
+    doing so returned the cached under-count unchanged — measured on Regenesis, 152 cuts served
+    where a fresh run computes 210. The user does the one thing the tool asks for and nothing
+    moves. A verdict must be keyed on everything that could have produced it.
+    """
+    budgets = ",".join("∞" if b is None else f"{b:g}" for b in trace_budgets)
+    return (
+        f"{func_key}:{_sha(func_source)}:{tests_fingerprint(tests)}:{max_per_category}:{pass_index}:{budgets}"
+    )
 
 
 def key_prefix(func_key: str) -> str:
@@ -98,6 +141,39 @@ def _cache_path(project_root: str) -> Path:
     return Path(project_root, *_CACHE_REL)
 
 
+def purge(project_root: str) -> tuple[tuple[str, ...], int]:
+    """Delete THIS package's regeneratable state. Returns ``(removed_paths, reclaimed_bytes)``.
+
+    `detective purge` used to call only Wesker's ``purge_caches``, which by construction knows
+    only ``.wesker/`` — written back when Wesker owned all the state. Detective's own cache
+    arrived later and nothing extended the contract, so the command purged a file that (outside
+    Wesker's tests) is never written, missed the 3.1 MB one that is, and reported "a clean state"
+    over it. That is not merely untidy: it removes the only escape from a stale entry, and a
+    cached verdict is exactly the thing a user reaches for purge to be rid of.
+
+    ONLY regeneratable things. ``inputs.json`` and ``equivalents.json`` are USER DATA — the
+    semantic prior synthesis provably could not derive, and a human's equivalence judgement.
+    Purging those would ask the person to do the one irreducible piece of work over again, which
+    is the opposite of this command's purpose (see :mod:`Detective.samples` §8). Everything named
+    here is rebuilt from the current code on the next run, so purging can only ever cost time.
+    """
+    removed: list[str] = []
+    reclaimed = 0
+    targets: list[Path] = [_cache_path(project_root)]
+    reports = Path(project_root, ".detective", "reports")
+    if reports.is_dir():
+        targets += sorted(p for p in reports.iterdir() if p.is_file())
+    for path in targets:
+        try:
+            size = path.stat().st_size
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(str(path))
+        reclaimed += size
+    return tuple(removed), reclaimed
+
+
 def load(project_root: str) -> dict:
     """Load the raw cache map (``key -> result-dict``); empty on any read failure."""
     path = _cache_path(project_root)
@@ -125,8 +201,11 @@ def put(project_root: str, key: str, prefix: str, result: ProfilingResult) -> No
     (single-valid-copy) so the file cannot grow unbounded across edits."""
     cache = load(project_root)
     # Drop any OTHER entry for the same function/params prefix — those are prior versions
-    # that can never be served again (their hash won't match current source).
-    same_params_suffix = key[key.rfind(":", 0, key.rfind(":")) :]  # ":max:pass"
+    # that can never be served again (their hash won't match current source). The suffix comes
+    # from `params_suffix`, NOT an inline slice: this is the second reader of the key's field
+    # layout, and the two drifting apart is exactly how a `--fast` run started evicting the
+    # comprehensive entry beside it.
+    same_params_suffix = params_suffix(key)
     cache = {
         k: v
         for k, v in cache.items()

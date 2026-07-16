@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # [tool.hatch.build.targets.wheel] below. PyPI normalizes `Detective` to `detective`,
 # which is taken by an unrelated project, so the two names cannot be the same string.
 name = "detective-spec"
-version = "0.2.0"
+version = "0.3.0"
 description = "Behavioral-scope diagnosis and warrant-classed test synthesis for a single Python function, on the Wesker mutation engine."
 readme = "README.md"
 license = "MIT"
@@ -40,13 +40,37 @@ classifiers = [
 # `[tool.uv.sources] Wesker` + `[tool.hatch.metadata] allow-direct-references` are gone.
 # Both existed only for the git-URL dev path; a PyPI package depends on the PyPI package.
 #
-# >= 0.5.0 is a CORRECTNESS floor, not housekeeping. Below it the traced baseline pass — which
+# >= 0.6.0 is a CORRECTNESS floor, and the sharpest one yet: below it Detective can produce NO
+# OUTPUT AT ALL and exit 0. The engine runs the target's own suite to build its baseline; a test
+# that overruns its cap is abandoned, and an abandoned frame unwinds through any `redirect_stdout`
+# it had entered, reinstalling that buffer AFTER the engine restored the real one. From then on
+# `sys.stdout` is a dead buffer for the rest of the process, so the entire report is written to
+# nothing while the command exits 0 — in CI, an empty artifact and a green check, which is exactly
+# the "green suite's lie" this project exists to refuse, in the tool itself. Measured on Regenesis
+# (2134 tests, one JVM-backed test over the 5s cap): `diagnose` printed 0 bytes, exit 0. 0.6.0
+# unwinds inside the redirect so the engine's restore is last.
+#
+# 0.6.0 also carries the two seam fixes this floor depends on. `--trace-budget` /
+# `--trace-session-budget` now reach `run_with_live_suite`, which is where the suite is actually
+# traced — before, they reached only the per-function path the live session never uses, so raising
+# them changed nothing. And the session baseline is LAZY: it was built eagerly before the consumer
+# got control, so a run answered from Detective's own cache still paid the full trace and dropped
+# it unread (Regenesis, warm cache: 486s → 3.6s once demand-driven).
+#
+# It is a MINOR bump, not a patch, because it REMOVES public API: `profile_function_cached` and
+# `single_valid_copy` (plus `_code_hash` and the `.wesker/function_cache.json` subsystem) are gone.
+# Nothing outside Wesker's own tests ever called them, but they were documented, and the cache they
+# served keyed on the function's hash and NOT its tests' — so editing a test served a stale verdict
+# to anyone who believed the docs. This package's `verdict_cache` is that idea done once, keyed on
+# everything that can change the answer.
+#
+# >= 0.5.0 was the previous floor. Below it the traced baseline pass — which
 # runs BEFORE any mutant and costs a callback per executed line — has no budget at all, so a
 # computationally heavy test in the target's suite makes `diagnose` hang with zero output: not a
 # slow answer, no answer. 0.5.0 also stops abandoning timed-out test threads, which used to leak a
 # live thread per timeout and make LATER mutants time out because earlier ones were still running.
 #
-# >= 0.4.0 was the previous floor. 0.3.0 gates `return_none` behind
+# >= 0.4.0 was the floor before that. 0.3.0 gates `return_none` behind
 # `not is_pure and (self_assigns or globals)`, so 92% of functions never have their return
 # value questioned, and its kill attribution silently discards every kill a parametrized
 # test earns. Detective's verdicts are only as honest as the engine underneath them.
@@ -56,7 +80,7 @@ classifiers = [
 #     [tool.uv.sources]
 #     Wesker = { path = "../Wesker", editable = true }
 dependencies = [
-    "Wesker>=0.5.0",
+    "Wesker>=0.6.0",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it

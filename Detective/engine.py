@@ -173,14 +173,23 @@ def profile(
         tests = discover_test_callables(root, rel, func_names, extra_dirs=list(extra_test_dirs) or None)
 
     # Content-hashed verdict cache: an unchanged function + unchanged exercising
-    # tests + same sampling params yield the same profile, so serve it from disk
-    # instead of re-running every mutant — the re-audit-while-editing win. Keyed on
+    # tests + same sampling params + same trace budgets yield the same profile, so serve it
+    # from disk instead of re-running every mutant — the re-audit-while-editing win. Keyed on
     # the function's AST dump (position-independent: editing OTHER functions never
-    # invalidates this one) + the tests' sources + (max_per_category, pass_index).
-    # Scope-invariant: scoped and full runs are proven verdict-identical.
+    # invalidates this one) + the tests' sources + (max_per_category, pass_index) + the trace
+    # budgets, which decide how much of the baseline was measured at all and therefore what
+    # `truncated`/`line_coverage` say. Scope-invariant: scoped and full runs are proven
+    # verdict-identical, so `paths`-scoped collection does NOT belong in the key.
     from . import verdict_cache
 
-    ck = verdict_cache.cache_key(func_key, ast.dump(node), tests, max_per_category, pass_index)
+    ck = verdict_cache.cache_key(
+        func_key,
+        ast.dump(node),
+        tests,
+        max_per_category,
+        pass_index,
+        (trace_budget_s, trace_session_budget_s),
+    )
     if use_cache:
         hit = verdict_cache.get(root, ck)
         if hit is not None:
