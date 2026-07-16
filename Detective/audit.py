@@ -87,10 +87,10 @@ def audit_suite(
     # every discovered test against the original, so tests for OTHER functions appear
     # in line_coverage with an EMPTY covered-line list; counting those would inflate
     # test_count and bloat. Require a non-empty contribution.
-    test_names = sorted(
-        set(t for tests in result.kill_matrix.values() for t in tests)
-        | {t for t, lines in result.line_coverage.items() if lines}
-    )
+    suite = set(t for tests in result.kill_matrix.values() for t in tests) | {
+        t for t, lines in result.line_coverage.items() if lines
+    }
+    test_names = sorted(suite)
     redundant = redundant_2axis(result.kill_matrix, result.line_coverage)
     missing = missing_lines(result.executable_lines, result.line_coverage)
     minimal = minimal_cover_2axis(result.kill_matrix, result.line_coverage)
@@ -126,7 +126,23 @@ def audit_suite(
         mutant_complete=mutant_complete,
         line_complete=not missing,
         redundant_tests=tuple(sorted(redundant)),
-        failing_tests=tuple(result.failing_tests),
+        # Scoped by `suite` for the SAME reason test_names is, and it must stay that way:
+        # `result.failing_tests` is the baseline's REPO-WIDE list (the baseline runs every
+        # discovered test, for every function), so passing it through raw put thousands of
+        # unrelated names into a report whose whole contract is ONE function. Measured on
+        # Regenesis: 2153 names, 2126 of them for other functions, 56KB on one line — which
+        # both buried the real finding and exceeded an MCP client's token ceiling, so `audit`
+        # returned nothing usable at all. It also read as "your suite is broken" when the
+        # suite was 2154-green: the names came from a live-session baseline whose re-runs
+        # poison each other (pytest_runner._reset_item leaves fixture _finalizers uncleared,
+        # so setup eventually dies on pytest's own `assert not self._finalizers` and the
+        # wrapper relabels that setup failure as an AssertionError). Scoping does not fix
+        # THAT — it bounds the blast radius to this function's own tests, where a false
+        # positive is visible and investigable instead of 2126 names of unrelated noise.
+        # Scoping cannot hide a genuine one: a test that fails BECAUSE of this function
+        # executed its lines, so it is in `suite` via line_coverage; one that fails elsewhere
+        # touches none of them and is not this report's business.
+        failing_tests=tuple(f for f in result.failing_tests if f in suite),
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
         minimal_test_count=len(minimal),

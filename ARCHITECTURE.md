@@ -156,7 +156,7 @@ supply inputs for the 14 already dead).
 | `survivor_records` / `killed_records` | list[dict] | each carries `mutant_id`, `category`, `diff_summary`, `killed_by`, `elapsed_ms` |
 | `line_coverage` | dict[test → list[int]] | which target lines each test covers (baseline pass) |
 | `executable_lines` | list[int] | statement lines of the target (the denominator) |
-| `failing_tests` | list[str] | tests that `assert`-fail on the UNMUTATED function → audit ⚠ |
+| `failing_tests` | list[str] | tests that `assert`-fail on the UNMUTATED function → audit ⚠ — REPO-WIDE (the baseline runs every discovered test, for every function); `audit_suite` scopes it to this function's own suite before reporting |
 | `tests_discovered` | int | how many test callables were found (`0` = "nothing to kill with", `-1` = unknown) |
 | `budget_exhausted` | bool | time/MEMORY budget stopped the run early |
 | **DERIVED properties** (never stored — cannot drift) | | |
@@ -213,7 +213,12 @@ All in `Detective/`. Frozen dataclasses unless noted.
 - **`SuiteAudit`** (`audit.py`) — audit output: `mutant_complete`, `line_complete`,
   `redundant_tests`, `failing_tests`, `killable_gaps`, `missing_lines`, `minimal_test_count`,
   `candidate_equivalent`/`unclassified`/`manual_equivalent`, `.complete`,
-  `.complete_modulo_equivalent`, `.bloat`.
+  `.complete_modulo_equivalent`, `.bloat`. EVERY emitted test list is scoped to THIS function's
+  suite (a test that kills one of its mutants or covers one of its lines) — the rule is stated
+  once in `audit_suite` as `suite` and every field derives from it. Wesker's baseline is
+  repo-wide, so an unscoped field silently reports other functions' tests as this one's:
+  `failing_tests` was that field, and it put 2126 unrelated names (56KB) into a one-function
+  report until it was bound by the same rule as its siblings.
 - **`Extraction` / `Decomposition` / `DecompositionApply`** (`decompose_apply.py`) — a
   generated helper (`helper_name`, `params`, `returns`, `new_source`) and the outcome
   (`applied`, `proposed`, `unsafe_blocks`, **`proof`** = the converge run, so the CLI can

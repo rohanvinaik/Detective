@@ -93,6 +93,21 @@ classifiers = [
 # ../Wesker checkout live again, add back (uv-only; it never reaches the wheel metadata):
 #     [tool.uv.sources]
 #     Wesker = { path = "../Wesker", editable = true }
+# >= 0.7.2 is a CORRECTNESS floor of the same family as 0.6.0, and it is what makes `audit`'s
+# ⚠ line trustworthy at all. Below it, `pytest_runner._reset_item` invalidates a fixture by
+# assigning `cached_result = None` instead of calling `FixtureDef.finish()`. Only `finish()`
+# empties `_finalizers`, and it early-returns when `cached_result is None` — so nulling the cache
+# makes the fixture LOOK finished while its finalizers stay queued. They accumulate across the
+# re-runs one collection serves, until `FixtureDef.execute` trips its own
+# `assert not self._finalizers` during SETUP. The item then never reaches its CALL phase, the
+# runner's wrapper finds a failed report with no captured exception and raises `AssertionError`,
+# and the engine's assertion-vs-crash precedence reads that as "this test's expectation is wrong
+# on correct code". Measured on Regenesis (2154-green, 2162 items): 2135 tests reported as failing,
+# 2154 on a second pass, the count drifting run to run because it tracks accumulated finalizers
+# rather than behaviour. Detective renders that list verbatim, so below this floor `audit` accuses
+# a green suite — silently, plausibly, and at a scale that buries every real finding. Fixed, three
+# consecutive passes are byte-identical.
+#
 # >=0.7.0 is REQUIRED, not preferred: `engine.profile` keys its verdict cache on
 # `Wesker.engine.session_budgets()` — the budgets the live session's baseline is actually built
 # under. Inside a session the per-call `trace_budget_s` arguments describe nothing (the baseline
@@ -104,7 +119,7 @@ classifiers = [
 # preference. 0.7.0 also carries the trace-session-budget default (300s -> 1800s) that stops a
 # real suite being cut mid-baseline and reporting its own pinned behaviour as unpinned.
 dependencies = [
-    "Wesker>=0.7.1",
+    "Wesker>=0.7.2",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it
