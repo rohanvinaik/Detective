@@ -387,18 +387,82 @@ def _in_session(
 
     targets = [file] if file else None
     paths = _reachable_paths(root, targets)
-    result = run_with_live_suite(
-        root, fn, target_files=targets, paths=paths, **_budget_kwargs(trace_budget, trace_session_budget)
-    )
+    diagnostic: dict[str, Any] = {}
+    try:
+        result = run_with_live_suite(
+            root,
+            fn,
+            target_files=targets,
+            paths=paths,
+            diagnostic=diagnostic,
+            **_budget_kwargs(trace_budget, trace_session_budget),
+        )
+    except TypeError:  # older Wesker without the `diagnostic` param
+        result = run_with_live_suite(
+            root, fn, target_files=targets, paths=paths, **_budget_kwargs(trace_budget, trace_session_budget)
+        )
     if result is None:
         # `None` means exactly one thing here: no live session could be started. Re-run without
-        # one so the caller still gets an answer, but SAY the answer is weaker.
-        return fn(), (
-            "⚠ NO live pytest session (pytest missing, or collection failed). Fixture-taking\n"
-            "  tests could not run, so behaviour below may read as unspecified when a test does\n"
-            "  pin it. Treat these counts as an UPPER BOUND, not a finding."
-        )
+        # one so the caller still gets an answer, but SAY the answer is weaker — and NAME the
+        # reason. The old generic "pytest missing, or collection failed" sent users to reinstall
+        # pytest for problems that were actually duplicate-conftest ImportPathMismatchErrors in
+        # mutants/ shadow trees. `diagnostic["reason"]` distinguishes the four cases and, for
+        # collection errors, hands back the first failing nodeids and the standard fix hint.
+        return fn(), _format_session_warning_mcp(diagnostic)
     return result, None
+
+
+def _format_session_warning_mcp(diagnostic: dict[str, Any]) -> str:
+    """MCP-surface twin of the CLI's `_format_session_warning`.
+
+    Same reason discrimination, formatted for the MCP tool-result view (leading
+    `⚠` glyph, tighter margins). Kept separate from the CLI version so each
+    surface can evolve its own idiom without the other one drifting; both read
+    the same ``diagnostic["reason"]`` contract from ``Wesker.run_in_session``.
+    """
+    reason = diagnostic.get("reason", "unknown")
+    if reason == "pytest_missing":
+        return (
+            "⚠ pytest is not importable in the interpreter that runs the live suite.\n"
+            "  Install it (e.g. `pip install pytest`) or run Detective from an interpreter\n"
+            "  that has it. Counts below are collect-only UPPER BOUNDS, not findings."
+        )
+    if reason == "collection_errors":
+        errors = diagnostic.get("errors", [])
+        header = (
+            f"⚠ pytest collection failed with {len(errors)} error(s). The live suite could not\n"
+            "  start; fixture-taking tests could not run, so counts below are UPPER BOUNDS.\n"
+            "  First failures:\n"
+        )
+        lines = []
+        for nodeid, detail in errors[:3]:
+            first_line = detail.strip().splitlines()[0][:200] if detail.strip() else "(no detail)"
+            lines.append(f"    · {nodeid}: {first_line}\n")
+        tail = ""
+        if len(errors) > 3:
+            tail = f"    ... and {len(errors) - 3} more.\n"
+        hint = (
+            '  Common fix: set `[tool.pytest.ini_options] testpaths = ["tests"]` in\n'
+            "  pyproject.toml to exclude generated / mutants / shadow trees from discovery."
+        )
+        return header + "".join(lines) + tail + hint
+    if reason == "empty_collection":
+        return (
+            "⚠ pytest collected no tests — the live suite has nothing to run.\n"
+            "  Check `testpaths` / conftest / discovery patterns. Counts below are\n"
+            "  collect-only UPPER BOUNDS, not findings."
+        )
+    if reason == "pytest_crashed":
+        return (
+            "⚠ pytest raised an unexpected exception during collection. Falling back to\n"
+            "  collect-only discovery; fixture-taking tests cannot run."
+        )
+    # Older Wesker without diagnostic support falls here — keep the legacy message.
+    return (
+        "⚠ NO live pytest session (pytest missing, or collection failed). Fixture-taking\n"
+        "  tests could not run, so behaviour below may read as unspecified when a test does\n"
+        "  pin it. Treat these counts as an UPPER BOUND, not a finding."
+    )
 
 
 # Prepended to any CLI-rendered report handed back through this surface. That text is written

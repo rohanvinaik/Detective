@@ -104,7 +104,7 @@ classifiers = [
 # preference. 0.7.0 also carries the trace-session-budget default (300s -> 1800s) that stops a
 # real suite being cut mid-baseline and reporting its own pinned behaviour as unpinned.
 dependencies = [
-    "Wesker>=0.7.0",
+    "Wesker>=0.7.1",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it

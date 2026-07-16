@@ -13,6 +13,7 @@ import difflib
 import json
 import sys
 from dataclasses import asdict
+from typing import Any
 
 # Imported, never restated: the engine owns this number, and a second copy would drift silently.
 from Wesker.engine import DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S
@@ -1168,6 +1169,7 @@ def _run_live(args) -> int:
     # `profile`, they reached the per-function baseline the live path never uses, so raising them
     # changed nothing and the phase stayed capped at the engine's default: a documented opt-out
     # that could not reach the thing it opts out of.
+    diagnostic: dict[str, Any] = {}
     try:
         code = run_with_live_suite(
             root,
@@ -1177,17 +1179,81 @@ def _run_live(args) -> int:
             trace_progress=_stream_trace_progress(label),
             trace_budget_s=_trace_budget(args),
             trace_session_budget_s=_trace_session_budget(args),
+            diagnostic=diagnostic,
         )
-    except TypeError:  # older Wesker: seam exists, but without the progress/paths parameters
-        code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
+    except TypeError:  # older Wesker: seam without diagnostic (or the older progress/paths)
+        try:
+            code = run_with_live_suite(
+                root,
+                lambda: _run(args),
+                target_files=targets,
+                paths=paths,
+                trace_progress=_stream_trace_progress(label),
+                trace_budget_s=_trace_budget(args),
+                trace_session_budget_s=_trace_session_budget(args),
+            )
+        except TypeError:
+            code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
     if code is None:
-        sys.stderr.write(
-            "WARNING: no live pytest session (pytest missing, or collection failed /\n"
-            "         collected nothing). Falling back to collect-only discovery:\n"
-            "         fixture-taking tests cannot run, so surviving DOF may be overstated.\n"
-        )
+        sys.stderr.write(_format_session_warning(diagnostic))
         return _run(args)
     return code
+
+
+def _format_session_warning(diagnostic: dict[str, Any]) -> str:
+    """Render the "no live pytest session" fallback warning with the actual reason.
+
+    Wesker's ``run_in_session`` populates ``diagnostic["reason"]`` with one of
+    ``pytest_missing`` / ``collection_errors`` / ``empty_collection`` /
+    ``pytest_crashed`` (or leaves it empty on older Wesker). The old catch-all
+    "pytest missing, or collection failed" sent users chasing the wrong fix
+    for hours when the true cause was a duplicate ``conftest`` importable name
+    in a ``mutants/`` shadow tree. This surfaces the actual reason and, for
+    collection errors, shows the first three failing nodeids with the fix hint.
+    """
+    reason = diagnostic.get("reason", "unknown")
+    if reason == "pytest_missing":
+        return (
+            "WARNING: pytest is not importable in the interpreter that runs the live suite.\n"
+            "         Install it (e.g. `pip install pytest`) in that environment, or run\n"
+            "         Detective from an interpreter that has it.\n"
+        )
+    if reason == "collection_errors":
+        errors = diagnostic.get("errors", [])
+        header = (
+            f"WARNING: pytest collection failed with {len(errors)} error(s); the live suite\n"
+            "         could not start. Fixture-taking tests cannot run, so surviving DOF\n"
+            "         may be overstated. First failures:\n"
+        )
+        lines = []
+        for nodeid, detail in errors[:3]:
+            first_line = detail.strip().splitlines()[0][:200] if detail.strip() else "(no detail)"
+            lines.append(f"           · {nodeid}: {first_line}\n")
+        tail = ""
+        if len(errors) > 3:
+            tail = f"           ... and {len(errors) - 3} more.\n"
+        hint = (
+            '         Common fix: set `[tool.pytest.ini_options] testpaths = ["tests"]`\n'
+            "         in pyproject.toml to exclude generated / mutants / shadow trees.\n"
+        )
+        return header + "".join(lines) + tail + hint
+    if reason == "empty_collection":
+        return (
+            "WARNING: pytest collected no tests — the live suite has nothing to run.\n"
+            "         Check `testpaths` / conftest / discovery patterns.\n"
+        )
+    if reason == "pytest_crashed":
+        return (
+            "WARNING: pytest raised an unexpected exception during collection.\n"
+            "         Falling back to collect-only discovery; fixture-taking tests cannot run.\n"
+        )
+    # `unknown` covers older Wesker without diagnostic support: keep the original
+    # legacy message so the fallback still tells the user what happened.
+    return (
+        "WARNING: no live pytest session (pytest missing, or collection failed /\n"
+        "         collected nothing). Falling back to collect-only discovery:\n"
+        "         fixture-taking tests cannot run, so surviving DOF may be overstated.\n"
+    )
 
 
 def _run(args) -> int:
