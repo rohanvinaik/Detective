@@ -93,8 +93,18 @@ classifiers = [
 # ../Wesker checkout live again, add back (uv-only; it never reaches the wheel metadata):
 #     [tool.uv.sources]
 #     Wesker = { path = "../Wesker", editable = true }
+# >=0.7.0 is REQUIRED, not preferred: `engine.profile` keys its verdict cache on
+# `Wesker.engine.session_budgets()` — the budgets the live session's baseline is actually built
+# under. Inside a session the per-call `trace_budget_s` arguments describe nothing (the baseline
+# is the seam's, and `_build_test_scope` never consults them), so keying on them writes a
+# tightly-budgeted measurement under the DEFAULTS' key and serves it back to a run that asked for
+# the defaults. `session_budgets` does not exist before 0.7.0; the import is guarded, so an older
+# engine does not crash — it silently reverts to keying on numbers that had no bearing on the
+# answer. A dependency whose absence downgrades correctness in silence is a requirement, not a
+# preference. 0.7.0 also carries the trace-session-budget default (300s -> 1800s) that stops a
+# real suite being cut mid-baseline and reporting its own pinned behaviour as unpinned.
 dependencies = [
-    "Wesker>=0.6.2",
+    "Wesker>=0.7.0",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it
