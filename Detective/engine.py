@@ -29,8 +29,11 @@ except ImportError:  # pragma: no cover
         return False
 
 
+from Wesker.engine import (  # imported, never restated — one owner for each of these numbers
+    DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S,
+)
 from Wesker.engine import (
-    DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S,  # imported, never restated — one owner
+    DEFAULT_TRACE_SESSION_BUDGET_S as _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
 )
 from Wesker.engine import ProfilingResult, generate_mutants, run_function_profiling
 from Wesker.filter import filter_categories
@@ -138,7 +141,7 @@ def profile(
     use_parallel: bool | None = None,
     trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
     trace_progress: Callable[[int, int, float], None] | None = None,
-    trace_session_budget_s: float | None = None,
+    trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
 ) -> ProfilingResult:
     """Profile one function with Wesker and return the raw ``ProfilingResult``.
 
@@ -172,6 +175,16 @@ def profile(
         func_names = [qn for qn, _ in walk_functions(tree)]
         tests = discover_test_callables(root, rel, func_names, extra_dirs=list(extra_test_dirs) or None)
 
+    # The budgets above default to the ENGINE's, imported — not to `None`. `None` is a real
+    # value meaning "unbounded", so restating the session default as None claimed every
+    # library/MCP run was unbounded when the baseline had actually used the engine's 300s. The
+    # key then recorded `∞` for a bounded run — a false statement about how the verdict was
+    # measured — and, because the key differs, the CLI (`:50,300`) and every library caller
+    # (`:50,∞`) wrote SEPARATE rows for the identical question. Neither could ever warm the
+    # other: alternating the two surfaces paid the full cold trace every time, ~100x, silently,
+    # and it read as "the tool is slow". One number, one owner; a default that disagrees with
+    # the engine's is a second copy wearing a default's clothes.
+    #
     # Content-hashed verdict cache: an unchanged function + unchanged exercising
     # tests + same sampling params + same trace budgets yield the same profile, so serve it
     # from disk instead of re-running every mutant — the re-audit-while-editing win. Keyed on
@@ -368,7 +381,7 @@ def diagnose(
     progress: Callable[[int, int, float], None] | None = None,
     trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
     trace_progress: Callable[[int, int, float], None] | None = None,
-    trace_session_budget_s: float | None = None,
+    trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
 ) -> ScopeMap:
     """Profile ``function`` and reshape the result into a behavioral-scope map.
 

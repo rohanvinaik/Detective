@@ -112,7 +112,7 @@ def _render_diagnose(scope: Any, file: str, function: str) -> str:
         out.append(f"⚠ {len(cut)} test(s) were CUT by the trace budget, so their line coverage is")
         out.append("  UNDER-COUNTED. Anything below may be the budget rather than a real hole.")
         out.append("  This is a measurement limit, not a finding — do not act on it as one.")
-        out.append("  Raise it from the CLI (`--trace-budget 0` = unbounded) if it matters.")
+        out.append("  If it matters, re-run with trace_budget=0 (unbounded). Slower, and exact.")
     if unspec:
         kinds: dict[str, int] = {}
         for b in unspec:
@@ -293,7 +293,32 @@ def _render_decompose(r: Any, file: str, function: str, wrote: bool) -> str:
 # ── the live session ─────────────────────────────────────────────────────────────────
 
 
-def _in_session(root: str, file: str | None, fn: Callable[[], Any]) -> tuple[Any, str | None]:
+def _budget_kwargs(trace_budget: float | None, trace_session_budget: float | None) -> dict[str, Any]:
+    """MCP budget params -> ``run_with_live_suite`` kwargs. THREE states, not two.
+
+    The seam distinguishes: omitted (use the engine's default), ``None`` (explicitly unbounded),
+    a number (that budget). Collapsing "the caller said nothing" into ``None`` would read as
+    "unbounded" and silently remove the only bound on the baseline pass — the pass that makes a
+    large suite finite. So an unspecified budget is not forwarded AT ALL.
+
+    ``0`` means unbounded, matching ``cli._trace_budget``'s documented convention exactly rather
+    than inventing a second one for this surface. One tool, one meaning for the same number.
+    """
+    out: dict[str, Any] = {}
+    if trace_budget is not None:
+        out["trace_budget_s"] = None if trace_budget <= 0 else float(trace_budget)
+    if trace_session_budget is not None:
+        out["trace_session_budget_s"] = None if trace_session_budget <= 0 else float(trace_session_budget)
+    return out
+
+
+def _in_session(
+    root: str,
+    file: str | None,
+    fn: Callable[[], Any],
+    trace_budget: float | None = None,
+    trace_session_budget: float | None = None,
+) -> tuple[Any, str | None]:
     """Run ``fn()`` inside a LIVE pytest session. Returns ``(result, warning_or_None)``.
 
     NOT an optimisation — a correctness requirement, and the single most important line in this
@@ -308,14 +333,36 @@ def _in_session(root: str, file: str | None, fn: Callable[[], Any]) -> tuple[Any
     reporting MORE unspecified behaviour than exists.
 
     Scoping rides along for free — it belongs to this same seam, so collection is narrowed to
-    the files that could execute the target's lines before anything is imported. The trace
-    budgets are deliberately NOT passed: this surface exposes no knob for them, so they take the
-    engine's defaults, and forwarding `None` here would read as "unbounded" and remove the only
-    bound on the baseline pass. A caller who needs to change them wants the CLI.
+    the files that could execute the target's lines before anything is imported.
+
+    The trace budgets ride along TOO, and they did not always. This surface used to skip them on
+    the reasoning that "a caller who needs to change them wants the CLI" — while its own output
+    told that caller, in the same breath, to fix an under-counted measurement with
+    ``--trace-budget 0``. A remedy that only exists on a surface you are not using is not a
+    remedy; it is the tool describing an escape it does not offer. That is the same defect this
+    release removed from three other places (budget flags that reached only the path a live
+    session never uses; a purge that could not see its own cache; a cache key blind to the budget
+    that produced it): a documented opt-out that cannot reach the thing it opts out of.
 
     A missing session is returned as a WARNING, never swallowed: degrading quietly to a weaker
     test set is what makes a well-specified suite look under-specified, and a caller that cannot
     tell the difference will act on the wrong number.
+
+    ``project_root`` is REQUIRED on every tool of this surface, and has no default, because there
+    is no honest one. It used to default to ``"."`` — which for a STDIO server does not mean "the
+    project", it means "wherever the client happened to launch this process", fixed for the
+    process's whole life and never updated when the caller moves to another repo. Analyse a
+    project that is not that directory and every write lands somewhere else: the verdict cache
+    lives at ``<project_root>/.detective/``, so a wrong root does not fail — it silently gets its
+    own cache file and is therefore COLD ON EVERY CALL, forever. Cold is minutes on a large suite,
+    and a tool call that outlives the client's timeout takes the whole server down with it. A
+    default that is right only when the client's cwd happens to be the target is not a default;
+    it is a coin flip with a slow, silent, self-inflicted failure on one face. Make the caller say
+    it.
+
+    (Not the cache KEY — that is cwd-independent: the seam chdirs to ``project_root`` before
+    anything is collected, and two cwds with the same absolute root produce byte-identical keys.
+    Measured. The path is the whole story.)
     """
     try:
         from Wesker.ci import run_with_live_suite
@@ -324,7 +371,9 @@ def _in_session(root: str, file: str | None, fn: Callable[[], Any]) -> tuple[Any
 
     targets = [file] if file else None
     paths = _reachable_paths(root, targets)
-    result = run_with_live_suite(root, fn, target_files=targets, paths=paths)
+    result = run_with_live_suite(
+        root, fn, target_files=targets, paths=paths, **_budget_kwargs(trace_budget, trace_session_budget)
+    )
     if result is None:
         # `None` means exactly one thing here: no live session could be started. Re-run without
         # one so the caller still gets an answer, but SAY the answer is weaker.
@@ -353,10 +402,27 @@ _CLI_REPORT_HEADER = (
 )
 
 
-def _rendered(root: str, file: str | None, produce: Callable[[], str]) -> str:
+def _rendered(
+    root: str,
+    file: str | None,
+    produce: Callable[[], str],
+    trace_budget: float | None = None,
+    trace_session_budget: float | None = None,
+) -> str:
     """``produce()`` inside a live session, with any session warning prepended to its text."""
-    text, warning = _in_session(root, file, produce)
+    text, warning = _in_session(root, file, produce, trace_budget, trace_session_budget)
     return f"{warning}\n\n{text}" if warning else text
+
+
+# Every tool takes these, because every tool traces. Documented once here and referenced from
+# each, so the surface cannot drift back into recommending a knob it does not have.
+_BUDGET_DOC = """
+        trace_budget: seconds to spend tracing EACH test in the baseline. Omitted = the engine's
+            default. ``0`` = unbounded (exact, slower). Raise this when the response says tests
+            were CUT and their coverage is under-counted — that warning names this knob.
+        trace_session_budget: seconds for the WHOLE baseline pass. Omitted = the engine's
+            default. ``0`` = unbounded. A per-test cap times N tests is still unbounded in
+            aggregate; only this bounds the phase."""
 
 
 # ── server ───────────────────────────────────────────────────────────────────────────
@@ -374,13 +440,27 @@ def build_server() -> Any:
     server = FastMCP("Detective")
 
     @server.tool()
-    def diagnose(file: str, function: str, project_root: str = ".", full: bool = False) -> str:
+    def diagnose(
+        file: str,
+        function: str,
+        project_root: str,
+        full: bool = False,
+        trace_budget: float | None = None,
+        trace_session_budget: float | None = None,
+    ) -> str:
         """START HERE for any function you are about to change. Writes nothing.
 
         Reports every behavioural distinction the function makes and which ones no test
         pins, then names the single next call. Read the whole response; it is the product,
         not a log. Do not grep the source to check its findings — it ran the mutants and
         you did not.
+
+        FIRST RUN ON A BIG SUITE IS SLOW. Before answering anything, the engine traces the
+        target's suite once — minutes on a large repo, seconds after. Your client's tool
+        timeout may be shorter than that, and a timeout here kills the whole server, discards
+        the trace, and leaves the next call just as cold. If this call dies: run
+        `detective diagnose file.py::function` in a terminal ONCE to warm the cache, then come
+        back. Nothing is wrong with the tool; the work simply outlives the call.
         """
         from .cli import _format_scope
         from .engine import diagnose as _diagnose
@@ -391,15 +471,17 @@ def build_server() -> Any:
                 return _CLI_REPORT_HEADER + "\n" + _format_scope(scope)
             return _render_diagnose(scope, file, function)
 
-        return _rendered(project_root, file, _go)
+        return _rendered(project_root, file, _go, trace_budget, trace_session_budget)
 
     @server.tool()
     def converge(
         file: str,
         function: str,
-        project_root: str = ".",
+        project_root: str,
         inputs: list[str] | None = None,
         full: bool = False,
+        trace_budget: float | None = None,
+        trace_session_budget: float | None = None,
     ) -> str:
         """Write the minimal pytest suite that pins this function's behaviour. WRITES FILES.
 
@@ -410,6 +492,14 @@ def build_server() -> Any:
         Calling this repeatedly with no new ``inputs`` is inert. If the answer did not change,
         that is not a bug and not a reason to look inside .detective/ — it means the engine
         already told you what it needs and is still waiting for it.
+
+        COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
+        answer — minutes on a large repo, seconds thereafter. If this call dies with a transport
+        error, the server died with it and the trace was discarded, so retrying is identically
+        cold. Warm it once from a terminal (`detective converge file.py::function`), or raise your
+        client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
+        and a relative "." resolves against THIS SERVER's cwd — which is the client's, not
+        necessarily the project's, so a wrong root silently means a permanently cold cache.
         """
         from .cli import _format_converge, _parse_supplied_inputs
         from .converge import converge as _converge
@@ -422,16 +512,18 @@ def build_server() -> Any:
             )
             return _render_converge(result, file, function, full_text)
 
-        return _rendered(project_root, file, _go)
+        return _rendered(project_root, file, _go, trace_budget, trace_session_budget)
 
     @server.tool()
     def decompose(
         file: str,
         function: str,
-        project_root: str = ".",
+        project_root: str,
         apply: bool = False,
         inputs: list[str] | None = None,
         full: bool = False,
+        trace_budget: float | None = None,
+        trace_session_budget: float | None = None,
     ) -> str:
         """Split a tangled function into helpers. Applied ONLY when proven behaviour-preserving.
 
@@ -439,6 +531,14 @@ def build_server() -> Any:
         against the unchanged function for a baseline, trial-writes each extraction, re-runs,
         and keeps it only if green. An unproven extraction is never written, with or without
         the flag. A refusal here is the tool working, not an obstacle to route around.
+
+        COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
+        answer — minutes on a large repo, seconds thereafter. If this call dies with a transport
+        error, the server died with it and the trace was discarded, so retrying is identically
+        cold. Warm it once from a terminal (`detective decompose file.py::function`), or raise your
+        client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
+        and a relative "." resolves against THIS SERVER's cwd — which is the client's, not
+        necessarily the project's, so a wrong root silently means a permanently cold cache.
         """
         from .cli import _format_decompose, _parse_supplied_inputs
         from .decompose_apply import apply_decomposition
@@ -450,13 +550,27 @@ def build_server() -> Any:
                 return _CLI_REPORT_HEADER + "\n" + _format_decompose(result, apply)
             return _render_decompose(result, file, function, apply)
 
-        return _rendered(project_root, file, _go)
+        return _rendered(project_root, file, _go, trace_budget, trace_session_budget)
 
     @server.tool()
-    def audit(file: str, function: str, project_root: str = ".") -> str:
+    def audit(
+        file: str,
+        function: str,
+        project_root: str,
+        trace_budget: float | None = None,
+        trace_session_budget: float | None = None,
+    ) -> str:
         """Assess the suite that already exists: complete? minimal? what is safe to delete?
 
         Writes nothing, ever. Deletions are proposals; the user confirms them.
+
+        COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
+        answer — minutes on a large repo, seconds thereafter. If this call dies with a transport
+        error, the server died with it and the trace was discarded, so retrying is identically
+        cold. Warm it once from a terminal (`detective audit file.py::function`), or raise your
+        client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
+        and a relative "." resolves against THIS SERVER's cwd — which is the client's, not
+        necessarily the project's, so a wrong root silently means a permanently cold cache.
         """
         from .audit import audit_suite
         from .cli import _format_audit
@@ -465,14 +579,30 @@ def build_server() -> Any:
             project_root,
             file,
             lambda: _CLI_REPORT_HEADER + "\n" + _format_audit(audit_suite(file, function, project_root)),
+            trace_budget,
+            trace_session_budget,
         )
 
     @server.tool()
-    def deep_context(file: str, function: str, project_root: str = ".") -> str:
+    def deep_context(
+        file: str,
+        function: str,
+        project_root: str,
+        trace_budget: float | None = None,
+        trace_session_budget: float | None = None,
+    ) -> str:
         """The full analysis: every survivor, its exact diff, the scores, the written tests.
 
         Call this when you are curious, or when the user asks for the numbers. You do not need
         it to act — the other tools already told you the next call. This is a door, not a step.
+
+        COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
+        answer — minutes on a large repo, seconds thereafter. If this call dies with a transport
+        error, the server died with it and the trace was discarded, so retrying is identically
+        cold. Warm it once from a terminal (`detective diagnose file.py::function`), or raise your
+        client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
+        and a relative "." resolves against THIS SERVER's cwd — which is the client's, not
+        necessarily the project's, so a wrong root silently means a permanently cold cache.
         """
         from .cli import _format_converge
         from .converge import converge as _converge
@@ -483,6 +613,8 @@ def build_server() -> Any:
             lambda: _CLI_REPORT_HEADER
             + "\n"
             + _format_converge(_converge(file, function, project_root, write_dir=None), show_tests=True),
+            trace_budget,
+            trace_session_budget,
         )
 
     return server

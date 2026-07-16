@@ -45,8 +45,17 @@ classifiers = [
 # `[tool.uv.sources] Wesker` + `[tool.hatch.metadata] allow-direct-references` are gone.
 # Both existed only for the git-URL dev path; a PyPI package depends on the PyPI package.
 #
-# >= 0.6.0 is a CORRECTNESS floor, and the sharpest one yet: below it Detective can produce NO
-# OUTPUT AT ALL and exit 0. The engine runs the target's own suite to build its baseline; a test
+# >= 0.6.2 is what the MCP surface REQUIRES TO EXIST AT ALL. Below it, running pytest in-process
+# uses pytest's default fd-level capture, which replaces file descriptor 1 — and for a stdio MCP
+# server descriptor 1 IS the JSON-RPC channel. pytest's own progress output ("." per test, the
+# summary) is written straight into the response frame, the client reads `.{"jsonrpc":…`, fails to
+# parse it, and closes the connection. The server disappears mid-session with no traceback,
+# because nothing crashed. Reproduced directly: identical server, identical call — fd capture dies
+# on `McpError: Connection closed`, `--capture=sys` returns rc=0. It is NOT a timeout, and raising
+# MCP_TOOL_TIMEOUT (which defaults to ~28 hours) fixes nothing.
+#
+# >= 0.6.0 was a CORRECTNESS floor, and the sharpest until this one: below it Detective can produce
+# NO OUTPUT AT ALL and exit 0. The engine runs the target's own suite to build its baseline; a test
 # that overruns its cap is abandoned, and an abandoned frame unwinds through any `redirect_stdout`
 # it had entered, reinstalling that buffer AFTER the engine restored the real one. From then on
 # `sys.stdout` is a dead buffer for the rest of the process, so the entire report is written to
@@ -85,7 +94,7 @@ classifiers = [
 #     [tool.uv.sources]
 #     Wesker = { path = "../Wesker", editable = true }
 dependencies = [
-    "Wesker>=0.6.0",
+    "Wesker>=0.6.2",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it

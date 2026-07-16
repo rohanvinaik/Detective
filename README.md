@@ -309,6 +309,34 @@ In CI:
     detective audit src/pricing.py::compute_invoice --json > audit.json
 ```
 
+---
+
+## For agents — the MCP surface
+
+```bash
+uv pip install 'detective-spec[mcp]'   # then run: detective-mcp   (stdio)
+```
+
+Five tools — `diagnose`, `converge`, `decompose`, `audit`, `deep_context` — over the same library the CLI uses. Every response ends in exactly one of `DO THIS:` (a literal next call), `STOP.` (a verdict), or `DONE:`. There is no score in the default view; the numbers are real and they are behind `deep_context`, because a ratio is an invitation to grind and the remaining work is not the caller's to compute.
+
+**Three things a first-time caller needs to know, and they are all about the first run.**
+
+**`project_root` is required, and must be absolute.** There is no default, deliberately. A stdio server's cwd is *wherever the client launched it*, fixed for the life of the process — it is not "the project", and it does not follow you to another repo. The verdict cache lives at `<project_root>/.detective/`, so a wrong root does not fail loudly; it quietly gets its own cache file and is **cold on every call, forever**.
+
+**The first run on a large suite takes minutes.** Before it can answer anything, the engine traces the target's suite once — that is the measurement everything else rests on. It is seconds thereafter. On a 2134-test repo: **486s cold, 3.6s warm.**
+
+**If the tool call dies, it is almost certainly not a timeout.** `MCP_TOOL_TIMEOUT` defaults to ~28 hours and `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` to 30 minutes for stdio — raising them fixes nothing, and the 60-second figure you may have seen applies to *network* MCP servers, not this one. Detective needs **Wesker >= 0.6.2**: below it, running pytest in-process wrote pytest's own progress output onto file descriptor 1 — which for a stdio server *is* the JSON-RPC channel — so the client read `.{"jsonrpc":…`, failed to parse it, and closed the connection. The server vanished mid-session with no traceback, because nothing had crashed.
+
+If you are on an older Wesker and cannot upgrade, warm the cache from a terminal once and the MCP call is then fast enough to survive:
+
+```bash
+detective diagnose path/to/file.py::function     # once, in a terminal
+```
+
+**The knobs the responses mention are on the tools.** When a response says tests were CUT and their coverage is under-counted, that is `trace_budget` — pass `trace_budget=0` for unbounded. It is a real parameter on every tool, not something you have to go to the CLI for.
+
+---
+
 [ARCHITECTURE.md](./ARCHITECTURE.md) documents the module layout, the full per-command reference, the performance and memory layers, and a symptom→cause debug map.
 
 ---
