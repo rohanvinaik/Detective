@@ -101,6 +101,14 @@ class ScopeMap:
     # numbers alone. Surfaced so the reader can tell; a completeness verdict that quietly rests on
     # a truncated measurement is the one failure this tool cannot afford.
     trace_truncated: list[str] = field(default_factory=list)
+    # Whether this verdict was REPLAYED from the on-disk cache rather than measured by this run.
+    # Only meaningful next to `trace_truncated`, and it is what makes that field reportable: a cut
+    # is a fact about the run that traced the suite, and a cache hit traces nothing. Replaying
+    # "152 tests were CUT" in the present tense describes a measurement this call never made, taken
+    # under a machine load that is gone — the budgets are WALL-CLOCK, so what got cut depends on
+    # what else was running at the time. The reader cannot act on that the way they can act on a
+    # fresh cut, so the two must not render identically.
+    served_from_cache: bool = False
 
 
 def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -> str | None:
@@ -159,6 +167,10 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         # getattr-defaulted: an older engine simply does not report it (same contract as
         # tests_discovered above), and a missing field must never read as "nothing was cut".
         trace_truncated=list(getattr(result, "trace_truncated", ()) or ()),
+        # Tagged by `verdict_cache.get` on a hit; absent (False) on a fresh measurement. Same
+        # getattr contract as above, and for the same reason: unset must read as "this run
+        # measured it", which is the claim the renderer can safely make in the present tense.
+        served_from_cache=bool(getattr(result, "served_from_cache", False)),
     )
 
 

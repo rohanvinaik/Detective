@@ -108,11 +108,27 @@ def _render_diagnose(scope: Any, file: str, function: str) -> str:
     # tidier for it. On Regenesis this was 152 of 240 tests.
     cut = list(scope.trace_truncated)
     if cut:
+        # A hit traced nothing, so the present tense would describe a measurement this call never
+        # made. Name the run that was actually cut — otherwise the reader tunes budgets against a
+        # recording, which is an hour that buys nothing.
+        cached = getattr(scope, "served_from_cache", False)
         out.append("")
-        out.append(f"⚠ {len(cut)} test(s) were CUT by the trace budget, so their line coverage is")
+        if cached:
+            out.append(f"⚠ This verdict is REPLAYED FROM CACHE, and {len(cut)} test(s) were CUT by")
+            out.append("  the trace budget WHEN IT WAS MEASURED. This call traced nothing. The")
+            out.append("  budgets are wall-clock, so the machine load that cut it is gone and is")
+            out.append("  not reproducible — the cut is a fact about that run, not about your")
+            out.append("  code. Those tests' line coverage is")
+        else:
+            out.append(f"⚠ {len(cut)} test(s) were CUT by the trace budget, so their line coverage is")
         out.append("  UNDER-COUNTED. Anything below may be the budget rather than a real hole.")
         out.append("  This is a measurement limit, not a finding — do not act on it as one.")
-        out.append("  If it matters, re-run with trace_budget=0 (unbounded). Slower, and exact.")
+        out.append("  Re-run with trace_session_budget=0 AND trace_budget=0 (0 = unbounded).")
+        out.append("  The SESSION budget is what cuts: it caps the WHOLE pass, so raising the")
+        out.append("  per-test trace_budget alone changes nothing (measured: identical cut).")
+        if cached:
+            out.append("  Those budgets are a DIFFERENT cache row, so that re-run re-measures")
+            out.append("  rather than serving this same row back to you.")
     if unspec:
         kinds: dict[str, int] = {}
         for b in unspec:
@@ -414,15 +430,35 @@ def _rendered(
     return f"{warning}\n\n{text}" if warning else text
 
 
-# Every tool takes these, because every tool traces. Documented once here and referenced from
-# each, so the surface cannot drift back into recommending a knob it does not have.
+# Every tool takes these, because every tool traces. Documented once here and APPLIED to each by
+# `_with_budget_doc` below, so the surface cannot drift back into recommending a knob it does not
+# have. It drifted anyway, and the reason is worth keeping: this block existed, said the right
+# thing, and was never referenced by anything — a constant defined and dropped. So every tool
+# published these two parameters with NO description at all, the only guidance a caller ever saw
+# was a CUT warning that named the per-test knob, and the knob it named is not the one that cuts.
+# A documentation mechanism that nothing applies documents nothing; wiring it is the fix.
 _BUDGET_DOC = """
         trace_budget: seconds to spend tracing EACH test in the baseline. Omitted = the engine's
-            default. ``0`` = unbounded (exact, slower). Raise this when the response says tests
-            were CUT and their coverage is under-counted — that warning names this knob.
+            default. ``0`` = unbounded (exact, slower). This bounds ONE pathological test; it is
+            rarely what cut you.
         trace_session_budget: seconds for the WHOLE baseline pass. Omitted = the engine's
             default. ``0`` = unbounded. A per-test cap times N tests is still unbounded in
-            aggregate; only this bounds the phase."""
+            aggregate; only this bounds the phase — so THIS is almost always the knob that cut
+            you, and the one to raise when a response says tests were CUT. Measured on a real
+            2000-test repo: (50, 300) and (unbounded, 300) cut an identical 152 tests, i.e.
+            raising the per-test knob alone changed nothing at all. Set both to ``0`` to be sure.
+            A CUT warning is not cosmetic: a cut test's coverage is under-counted, so tests that
+            DO pin a behaviour cannot be credited, and the report calls already-specified
+            behaviour unpinned (measured: 0 of 45 reported, 22 of 45 true). Re-measure, then act."""
+
+
+def _with_budget_doc(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Append `_BUDGET_DOC` to ``fn``'s docstring. Applied UNDER ``@server.tool()`` so the
+    decorator below it sees the finished text — FastMCP reads ``__doc__`` when it registers the
+    tool, so appending after registration would publish the original and silently change nothing.
+    """
+    fn.__doc__ = (fn.__doc__ or "") + _BUDGET_DOC
+    return fn
 
 
 # ── server ───────────────────────────────────────────────────────────────────────────
@@ -440,6 +476,7 @@ def build_server() -> Any:
     server = FastMCP("Detective")
 
     @server.tool()
+    @_with_budget_doc
     def diagnose(
         file: str,
         function: str,
@@ -456,11 +493,19 @@ def build_server() -> Any:
         you did not.
 
         FIRST RUN ON A BIG SUITE IS SLOW. Before answering anything, the engine traces the
-        target's suite once — minutes on a large repo, seconds after. Your client's tool
+        target's suite once — minutes on a large repo, seconds after for THAT EXACT QUESTION.
+        Warm means one question, not one repo: what persists is a single function's profile under
+        a single set of budgets. The trace is never persisted, so a different function — or the
+        same one under different budgets — misses and re-pays it in full. Your client's tool
         timeout may be shorter than that, and a timeout here kills the whole server, discards
         the trace, and leaves the next call just as cold. If this call dies: run
         `detective diagnose file.py::function` in a terminal ONCE to warm the cache, then come
-        back. Nothing is wrong with the tool; the work simply outlives the call.
+        back — same budgets, same cache key, so the terminal run genuinely warms this one.
+        Nothing is wrong with the tool; the work simply outlives the call.
+
+        Profiling MANY functions? Do it from the CLI in ONE process: the trace amortises across
+        functions within a session, and one tool call is a session of exactly one function — so
+        N functions here cost N traces.
         """
         from .cli import _format_scope
         from .engine import diagnose as _diagnose
@@ -474,6 +519,7 @@ def build_server() -> Any:
         return _rendered(project_root, file, _go, trace_budget, trace_session_budget)
 
     @server.tool()
+    @_with_budget_doc
     def converge(
         file: str,
         function: str,
@@ -494,9 +540,12 @@ def build_server() -> Any:
         already told you what it needs and is still waiting for it.
 
         COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
-        answer — minutes on a large repo, seconds thereafter. If this call dies with a transport
-        error, the server died with it and the trace was discarded, so retrying is identically
-        cold. Warm it once from a terminal (`detective converge file.py::function`), or raise your
+        answer — minutes on a large repo, seconds thereafter for THAT EXACT QUESTION. Warm means
+        one question, not one repo: what persists is a single function's profile under a single set
+        of budgets. The trace itself is never persisted, so a different function — or the same one
+        under different budgets — misses and re-pays the whole trace. If this call dies with a
+        transport error, the server died with it and the trace was discarded, so retrying is
+        identically cold. Warm it once from a terminal (`detective converge file.py::function`), or raise your
         client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
         and a relative "." resolves against THIS SERVER's cwd — which is the client's, not
         necessarily the project's, so a wrong root silently means a permanently cold cache.
@@ -515,6 +564,7 @@ def build_server() -> Any:
         return _rendered(project_root, file, _go, trace_budget, trace_session_budget)
 
     @server.tool()
+    @_with_budget_doc
     def decompose(
         file: str,
         function: str,
@@ -533,10 +583,13 @@ def build_server() -> Any:
         the flag. A refusal here is the tool working, not an obstacle to route around.
 
         COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
-        answer — minutes on a large repo, seconds thereafter. If this call dies with a transport
-        error, the server died with it and the trace was discarded, so retrying is identically
-        cold. Warm it once from a terminal (`detective decompose file.py::function`), or raise your
-        client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
+        answer — minutes on a large repo, seconds thereafter for THAT EXACT QUESTION. Warm means
+        one question, not one repo: what persists is a single function's profile under a single set
+        of budgets. The trace itself is never persisted, so a different function — or the same one
+        under different budgets — misses and re-pays the whole trace. If this call dies with a
+        transport error, the server died with it and the trace was discarded, so retrying is
+        identically cold. Warm it once from a terminal (`detective decompose file.py::function`),
+        or raise your client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
         and a relative "." resolves against THIS SERVER's cwd — which is the client's, not
         necessarily the project's, so a wrong root silently means a permanently cold cache.
         """
@@ -553,6 +606,7 @@ def build_server() -> Any:
         return _rendered(project_root, file, _go, trace_budget, trace_session_budget)
 
     @server.tool()
+    @_with_budget_doc
     def audit(
         file: str,
         function: str,
@@ -565,9 +619,12 @@ def build_server() -> Any:
         Writes nothing, ever. Deletions are proposals; the user confirms them.
 
         COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
-        answer — minutes on a large repo, seconds thereafter. If this call dies with a transport
-        error, the server died with it and the trace was discarded, so retrying is identically
-        cold. Warm it once from a terminal (`detective audit file.py::function`), or raise your
+        answer — minutes on a large repo, seconds thereafter for THAT EXACT QUESTION. Warm means
+        one question, not one repo: what persists is a single function's profile under a single set
+        of budgets. The trace itself is never persisted, so a different function — or the same one
+        under different budgets — misses and re-pays the whole trace. If this call dies with a
+        transport error, the server died with it and the trace was discarded, so retrying is
+        identically cold. Warm it once from a terminal (`detective audit file.py::function`), or raise your
         client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
         and a relative "." resolves against THIS SERVER's cwd — which is the client's, not
         necessarily the project's, so a wrong root silently means a permanently cold cache.
@@ -584,6 +641,7 @@ def build_server() -> Any:
         )
 
     @server.tool()
+    @_with_budget_doc
     def deep_context(
         file: str,
         function: str,
@@ -597,9 +655,12 @@ def build_server() -> Any:
         it to act — the other tools already told you the next call. This is a door, not a step.
 
         COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
-        answer — minutes on a large repo, seconds thereafter. If this call dies with a transport
-        error, the server died with it and the trace was discarded, so retrying is identically
-        cold. Warm it once from a terminal (`detective diagnose file.py::function`), or raise your
+        answer — minutes on a large repo, seconds thereafter for THAT EXACT QUESTION. Warm means
+        one question, not one repo: what persists is a single function's profile under a single set
+        of budgets. The trace itself is never persisted, so a different function — or the same one
+        under different budgets — misses and re-pays the whole trace. If this call dies with a
+        transport error, the server died with it and the trace was discarded, so retrying is
+        identically cold. Warm it once from a terminal (`detective diagnose file.py::function`), or raise your
         client's tool timeout. Pass project_root as an ABSOLUTE path: the cache lives under it,
         and a relative "." resolves against THIS SERVER's cwd — which is the client's, not
         necessarily the project's, so a wrong root silently means a permanently cold cache.

@@ -111,11 +111,31 @@ def _format_scope(scope) -> str:
     # as a real hole when it is a timing artifact — and so the reader knows the knob exists.
     cut = getattr(scope, "trace_truncated", []) or []
     if cut:
+        # Tense is a claim. A cache hit traced NOTHING, so "were CUT" would describe a measurement
+        # this run never made — under a machine load that is gone and unreproducible, the budgets
+        # being wall-clock. Say which run got cut, or the reader re-runs budgets against a
+        # recording (measured: an hour).
+        cached = getattr(scope, "served_from_cache", False)
+        when = (
+            "were CUT when this verdict was MEASURED (it is replayed from the cache — this run "
+            "traced nothing, and the budgets are wall-clock, so the load that cut it is gone)"
+            if cached
+            else "hit a trace budget and were CUT"
+        )
         lines.append(
-            f"  ⚠ {len(cut)} test(s) hit the trace budget and were CUT: {', '.join(sorted(cut)[:5])}"
+            f"  ⚠ {len(cut)} test(s) {when}: {', '.join(sorted(cut)[:5])}"
             + (" …" if len(cut) > 5 else "")
             + " — their line coverage is UNDER-COUNTED, so a line gap below may be the budget, "
-            "not a hole; raise --trace-budget (or pass 0 for unbounded) to measure them fully"
+            "not a hole; re-run with --trace-session-budget 0 --trace-budget 0 (0 = unbounded) "
+            "to measure them fully. NB there are TWO budgets and the SESSION one is usually what "
+            "cuts: it caps the WHOLE pass, so a suite whose trace outruns it loses every test "
+            "after the cap no matter how generous the per-test --trace-budget is"
+            + (
+                ". Different budgets are a different cache row, so that re-run genuinely "
+                "re-measures rather than serving this one back"
+                if cached
+                else ""
+            )
         )
     # Learned-weak (opt-in --learn): this project's OWN recurring value-gaps, highest
     # value-survival first. It IS learning from the user's code+tests — surface it plainly.
@@ -967,7 +987,9 @@ def _build_parser() -> argparse.ArgumentParser:
             metavar="SECONDS",
             help=(
                 f"per-test cap on the traced baseline pass (default {_WESKER_DEFAULT_TRACE_BUDGET_S:g}s; "
-                "0 = unbounded). A cut test's line coverage is under-counted and is reported by name."
+                "0 = unbounded). Bounds ONE pathological test; rarely what cut you — see "
+                "--trace-session-budget. A cut test's line coverage is under-counted, is reported "
+                "by name, and makes already-pinned behaviour read as unpinned."
             ),
         )
         p.add_argument(
@@ -978,7 +1000,8 @@ def _build_parser() -> argparse.ArgumentParser:
             help=(
                 f"cap on the WHOLE traced baseline pass (default {_DEFAULT_TRACE_SESSION_BUDGET_S:g}s; "
                 "0 = unbounded). Bounds the aggregate, which the per-test cap cannot: tests not "
-                "reached are reported by name."
+                "reached are reported by name. THIS is almost always the knob that cut you — "
+                "raise it first, or set both to 0 for an exact measurement."
             ),
         )
         if name == "converge":
