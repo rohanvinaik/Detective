@@ -29,8 +29,21 @@ _SKIP_DIRS = frozenset({"__pycache__", ".git", ".venv", "venv", "dist", "build",
 
 
 def module_name(root: str, path: str) -> str:
-    """Dotted module name for ``path`` relative to ``root``. ``a/b/__init__.py`` -> ``a.b``."""
-    rel = os.path.relpath(os.path.abspath(path), os.path.abspath(root))
+    """Dotted module name for ``path`` relative to ``root``. ``a/b/__init__.py`` -> ``a.b``.
+
+    A RELATIVE ``path`` is resolved against ``root``, never the cwd — the same rule
+    ``engine.profile`` already applies to the file it opens. ``os.path.abspath`` alone silently
+    resolved it against the process's cwd, which is the project only when the caller happens to
+    be standing in it. A STDIO server stands wherever its client launched it: the target then
+    resolved outside the tree, fell out of the graph, and the scoping degraded to None — full
+    collection, ~9x the suite traced (measured on Regenesis: 240 scoped vs 2113 collected), which
+    then guaranteed the session trace budget cut and reported the cut coverage as unpinned
+    behaviour. Silent, because the caller's wrapper turns any failure here into "collect
+    everything", so a wrong answer and a declined optimisation look identical from outside.
+    """
+    root = os.path.abspath(root)
+    full = path if os.path.isabs(path) else os.path.join(root, path)
+    rel = os.path.relpath(os.path.abspath(full), root)
     stem = rel[:-3] if rel.endswith(".py") else rel
     parts = [p for p in stem.split(os.sep) if p not in ("", ".")]
     if parts and parts[-1] == "__init__":
