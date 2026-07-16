@@ -186,14 +186,30 @@ def load(project_root: str) -> dict:
 
 
 def get(project_root: str, key: str) -> ProfilingResult | None:
-    """Cached ProfilingResult for ``key``, or None on miss / unreadable entry."""
+    """Cached ProfilingResult for ``key``, or None on miss / unreadable entry.
+
+    A hit is TAGGED ``served_from_cache`` (an attribute, not a field: whether a verdict was
+    replayed is this cache's business, not the shape of Wesker's measurement, and it must never
+    round-trip through ``_to_json`` into a stored row). Consumers read it with ``getattr(...,
+    False)``, so a fresh result is untagged and reads False.
+
+    It exists because ``trace_truncated`` alone cannot be reported honestly. "152 tests were CUT"
+    is a claim about the run that traced them — and a hit traced NOTHING; it is replaying a cut
+    some earlier run took, under a machine load that no longer exists and cannot be reproduced
+    (the budgets are WALL-CLOCK, so truncation is a fact about that afternoon, not about the
+    suite). Rendered in the present tense on a hit, it invites the reader to fix a measurement
+    this call never made — measured on a human: an hour spent re-running budgets against a
+    warning that was a recording. A replayed cut and a fresh cut are different claims; say which.
+    """
     entry = load(project_root).get(key)
     if entry is None:
         return None
     try:
-        return _from_json(entry)
+        hit = _from_json(entry)
     except (TypeError, ValueError, KeyError):
-        return None  # a schema drift is a miss, never a crash
+        return None
+    hit.served_from_cache = True  # type: ignore[attr-defined]
+    return hit  # a schema drift is a miss, never a crash
 
 
 def put(project_root: str, key: str, prefix: str, result: ProfilingResult) -> None:
@@ -206,10 +222,24 @@ def put(project_root: str, key: str, prefix: str, result: ProfilingResult) -> No
     # layout, and the two drifting apart is exactly how a `--fast` run started evicting the
     # comprehensive entry beside it.
     same_params_suffix = params_suffix(key)
+    # A row written under an OLDER key layout (fewer trailing params) is a FOSSIL: unreachable,
+    # because the builder now appends a field the reader requires — and unpurgeable by the suffix
+    # rule above, because with fewer fields to split, `params_suffix`'s rsplit reaches back into
+    # the TESTS-HASH and yields a suffix nothing current can match. Unreachable AND unpurgeable is
+    # immortal: one dead row per function per layout change, forever, in a file whose entire claim
+    # is single-valid-copy. Evict on field COUNT, which is layout-agnostic and needs no list of
+    # historical formats. Different BUDGETS have the same count and still coexist — they are
+    # different questions, which is what `endswith` is for; a different count is not a sibling
+    # question but a dead one.
+    n_fields = key[len(prefix) :].count(":")
     cache = {
         k: v
         for k, v in cache.items()
-        if not (k.startswith(prefix) and k.endswith(same_params_suffix) and k != key)
+        if not (
+            k.startswith(prefix)
+            and k != key
+            and (k.endswith(same_params_suffix) or k[len(prefix) :].count(":") != n_fields)
+        )
     }
     cache[key] = _to_json(result)
     path = _cache_path(project_root)
