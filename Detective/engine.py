@@ -195,13 +195,30 @@ def profile(
     # verdict-identical, so `paths`-scoped collection does NOT belong in the key.
     from . import verdict_cache
 
+    # Which budgets actually produced this verdict? Inside a live session, NOT these arguments:
+    # `_build_test_scope` prefers the session baseline and never consults them, so the suite is
+    # traced under the SEAM's budgets and `truncated`/`line_coverage` follow from those. Keying on
+    # the arguments instead states a number that had no bearing on the answer — and every caller
+    # that does not thread budgets through (audit_suite, converge, certify, decompose_apply,
+    # classify_survivors, and this package's MCP surface) then writes its result under the
+    # DEFAULTS' key, so a tightly-budgeted run's under-count is served to a later default run as
+    # if it were whole. Ask the session what it measured under; fall back to the arguments only
+    # outside one, where they do drive the per-function trace and the key is honest again.
+    # Non-forcing by construction: this must not build the baseline a cache hit exists to skip.
+    try:
+        from Wesker.engine import session_budgets as _session_budgets
+
+        _measured_under = _session_budgets()
+    except ImportError:  # older Wesker without the accessor — the arguments are all there is
+        _measured_under = None
+
     ck = verdict_cache.cache_key(
         func_key,
         ast.dump(node),
         tests,
         max_per_category,
         pass_index,
-        (trace_budget_s, trace_session_budget_s),
+        _measured_under if _measured_under is not None else (trace_budget_s, trace_session_budget_s),
     )
     if use_cache:
         hit = verdict_cache.get(root, ck)
