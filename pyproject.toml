@@ -7,7 +7,12 @@ build-backend = "hatchling.build"
 # [tool.hatch.build.targets.wheel] below. PyPI normalizes `Detective` to `detective`,
 # which is taken by an unrelated project, so the two names cannot be the same string.
 name = "detective-spec"
-version = "0.3.0"
+# ONE owner: `Detective/__init__.py`. Not a style choice — 0.3.0 shipped to PyPI announcing
+# itself as `detective --version 0.2.0`, because the number lived here AND there and only this
+# copy got bumped. `cli.py` reads `__version__`, so the package the user installs and the string
+# it prints came from two places that could disagree, and did. Same defect this release exists to
+# remove from the cache layer: one fact, two homes, silent drift.
+dynamic = ["version"]
 description = "Behavioral-scope diagnosis and warrant-classed test synthesis for a single Python function, on the Wesker mutation engine."
 readme = "README.md"
 license = "MIT"
@@ -112,6 +117,9 @@ dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.14.10"]
 # Only the package ships. The dev/ generator tree (which imports LintGate as a
 # dev-time conformance oracle) is deliberately excluded from the wheel so no
 # LintGate reference ever enters the runtime import graph.
+[tool.hatch.version]
+path = "Detective/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["Detective"]
 
