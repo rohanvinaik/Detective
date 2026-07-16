@@ -25,25 +25,58 @@ import os
 # Modules that can reach anything: importing these makes reachability undecidable here.
 _DYNAMIC = frozenset({"importlib", "pkgutil", "__import__", "pytest_plugins"})
 
-_SKIP_DIRS = frozenset({"__pycache__", ".git", ".venv", "venv", "dist", "build", ".tox", "node_modules"})
+# `mutants/` is here for the same reason `.venv/` is: it's a *shadow* of the real source tree that
+# a common test-adjacent tool (mutmut) writes into the repo. Walking into it enumerates a second
+# `tests/conftest.py` under the same importable name as the real one — pytest's importer raises
+# `ImportPathMismatchError` and the session dies on collection. `.pytest_cache` / `.mypy_cache`
+# are byproduct dirs pytest itself already ignores; listing them here keeps our walker aligned.
+_SKIP_DIRS = frozenset(
+    {
+        "__pycache__",
+        ".git",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        ".tox",
+        "node_modules",
+        "mutants",
+        ".pytest_cache",
+        ".mypy_cache",
+    }
+)
+
+
+def _pytest_norecursedirs(root: str) -> frozenset[str]:
+    """User-authored `norecursedirs` from `pyproject.toml`'s `[tool.pytest.ini_options]`.
+
+    Merged into `_SKIP_DIRS` so anything the project's pytest already prunes during discovery
+    is pruned during Detective's reachability walk too — a project-native config, not one the
+    user has to duplicate for Detective. Silently returns the empty set when the file is
+    absent, unreadable, or has no such section: this is a hint, not a requirement.
+    Only bare directory names (not globs) are honored — matches how our walker prunes.
+    """
+    try:
+        import tomllib  # Python ≥ 3.11; Detective requires it.
+    except ImportError:
+        return frozenset()
+    path = os.path.join(root, "pyproject.toml")
+    try:
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return frozenset()
+    raw = data.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("norecursedirs", ())
+    if isinstance(raw, str):
+        raw = raw.split()
+    # Only bare names — a pattern like `*.egg` cannot match a dir NAME literally, so it is a
+    # no-op here rather than a source of surprise pruning.
+    return frozenset(d for d in raw if isinstance(d, str) and "*" not in d and "/" not in d)
 
 
 def module_name(root: str, path: str) -> str:
-    """Dotted module name for ``path`` relative to ``root``. ``a/b/__init__.py`` -> ``a.b``.
-
-    A RELATIVE ``path`` is resolved against ``root``, never the cwd — the same rule
-    ``engine.profile`` already applies to the file it opens. ``os.path.abspath`` alone silently
-    resolved it against the process's cwd, which is the project only when the caller happens to
-    be standing in it. A STDIO server stands wherever its client launched it: the target then
-    resolved outside the tree, fell out of the graph, and the scoping degraded to None — full
-    collection, ~9x the suite traced (measured on Regenesis: 240 scoped vs 2113 collected), which
-    then guaranteed the session trace budget cut and reported the cut coverage as unpinned
-    behaviour. Silent, because the caller's wrapper turns any failure here into "collect
-    everything", so a wrong answer and a declined optimisation look identical from outside.
-    """
-    root = os.path.abspath(root)
-    full = path if os.path.isabs(path) else os.path.join(root, path)
-    rel = os.path.relpath(os.path.abspath(full), root)
+    """Dotted module name for ``path`` relative to ``root``. ``a/b/__init__.py`` -> ``a.b``."""
+    rel = os.path.relpath(os.path.abspath(path), os.path.abspath(root))
     stem = rel[:-3] if rel.endswith(".py") else rel
     parts = [p for p in stem.split(os.sep) if p not in ("", ".")]
     if parts and parts[-1] == "__init__":
@@ -102,8 +135,9 @@ def _build_graph(root: str) -> tuple[dict[str, set[str]], dict[str, str], set[st
     graph: dict[str, set[str]] = {}
     paths: dict[str, str] = {}
     opaque: set[str] = set()
+    skip = _SKIP_DIRS | _pytest_norecursedirs(root)
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        dirnames[:] = [d for d in dirnames if d not in skip]
         for fn in filenames:
             if not fn.endswith(".py"):
                 continue
