@@ -106,9 +106,31 @@ Three things ride on that same seam, and all three are Detective's job to pass:
   **suite**, not the function (Regenesis: 2134 test functions traced for one 13-line function,
   1928 of them in modules that cannot reach it even transitively). `None` = collect everything =
   byte-identical to before.
+
+  **The scoping is computed BEFORE the seam chdirs, so it must not depend on the cwd — and it
+  did.** `module_name` resolved a relative target with `os.path.abspath`, i.e. against the
+  *process's* cwd rather than `project_root`. From a CLI run standing in the project the two
+  coincide and it scopes correctly; from a stdio server — whose cwd is wherever its client
+  launched it — the target resolved outside the tree, fell out of the graph, and the analysis
+  returned `None`. Because `_reachable_paths` deliberately degrades any failure to "collect
+  everything", a wrong answer and a declined optimisation are indistinguishable from outside: the
+  MCP surface silently traced ~9x the suite (2113 vs 240), which then guaranteed the session trace
+  budget cut and reported the cut coverage as unpinned behaviour. Resolve relative paths against
+  `root`, never the cwd — the rule `engine.profile` already follows for the file it opens.
 * **The trace budgets** — they bound the pass that traces the suite, and on the live path that
   pass runs *inside this seam*, not in `profile()`. Sent only to `profile()` they reached the
   per-function path a live session never uses, so raising the flag changed nothing.
+
+  **The mirror of that bug is the cache key, and it is why `profile()`'s budget arguments are not
+  what the key records.** Inside a live session `_build_test_scope` prefers the `SessionBaseline`
+  and never consults those arguments, so they describe nothing about the verdict; the seam's
+  budgets do. The CLI passed the same values to both and was correct by discipline, while every
+  other caller (`audit_suite`, `converge`, `certify`, `decompose_apply`, `classify_survivors`, the
+  MCP surface) sent them to one side only — writing a tightly-budgeted measurement under the
+  DEFAULTS' key, to be served later to a run that asked for the defaults. `profile` therefore keys
+  on `Wesker.engine.session_budgets()` — what actually produced the answer — and falls back to its
+  arguments only outside a session, where they do drive the trace. A verdict must be keyed on
+  everything that could have produced it; discipline is not a mechanism.
 * **`refresh_live_suite`** — see below.
 
 **The session's collection is a SNAPSHOT, and Detective writes tests.** `discover_test_callables`

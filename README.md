@@ -323,7 +323,14 @@ Five tools — `diagnose`, `converge`, `decompose`, `audit`, `deep_context` — 
 
 **`project_root` is required, and must be absolute.** There is no default, deliberately. A stdio server's cwd is *wherever the client launched it*, fixed for the life of the process — it is not "the project", and it does not follow you to another repo. The verdict cache lives at `<project_root>/.detective/`, so a wrong root does not fail loudly; it quietly gets its own cache file and is **cold on every call, forever**.
 
-**The first run on a large suite takes minutes.** Before it can answer anything, the engine traces the target's suite once — that is the measurement everything else rests on. It is seconds thereafter. On a 2134-test repo: **486s cold, 3.6s warm.**
+**The first run on a large suite takes minutes.** Before it can answer anything, the engine traces the target's suite once — that is the measurement everything else rests on. On a 2134-test repo: **486s cold, 3.6s warm.**
+
+*"Warm" means one exact question, not one repo.* What persists to `.detective/verdict_cache.json` is the finished profile of **one function under one set of budgets** — that is what returns in 3.6s. The suite **trace** is not persisted at all: it lives in memory for the length of one pytest session, and every tool call opens its own. So a second question — a different function, or the same function under different budgets — is a cache **miss** and re-pays the whole trace. Cold-vs-warm is per `(function, budgets)`, not per repo, and the cost falls on whoever asks the new question first.
+
+Two consequences worth planning around:
+
+- **Warm from a terminal deliberately, not as a fallback.** A CLI run and a tool call that agree on budgets produce the *same* cache key, so the CLI genuinely warms the MCP. Ask the question you actually want answered, once, where a long run is cheap to watch — then call the tool.
+- **Batch on the CLI when you have many functions.** One CLI process profiling several functions traces the suite once and reuses it for all of them. The MCP cannot do this: one tool call is one session, so N functions cost N traces. The trace amortises across functions *within a process*, and a tool call is a process's worth of one function.
 
 **If the tool call dies, it is almost certainly not a timeout.** `MCP_TOOL_TIMEOUT` defaults to ~28 hours and `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` to 30 minutes for stdio — raising them fixes nothing, and the 60-second figure you may have seen applies to *network* MCP servers, not this one. Detective needs **Wesker >= 0.6.2**: below it, running pytest in-process wrote pytest's own progress output onto file descriptor 1 — which for a stdio server *is* the JSON-RPC channel — so the client read `.{"jsonrpc":…`, failed to parse it, and closed the connection. The server vanished mid-session with no traceback, because nothing had crashed.
 
@@ -333,7 +340,13 @@ If you are on an older Wesker and cannot upgrade, warm the cache from a terminal
 detective diagnose path/to/file.py::function     # once, in a terminal
 ```
 
-**The knobs the responses mention are on the tools.** When a response says tests were CUT and their coverage is under-counted, that is `trace_budget` — pass `trace_budget=0` for unbounded. It is a real parameter on every tool, not something you have to go to the CLI for.
+**The knobs the responses mention are on the tools.** When a response says tests were CUT and their coverage is under-counted, pass **`trace_session_budget=0`** (0 = unbounded). Real parameters on every tool, not something you have to go to the CLI for.
+
+**There are TWO budgets, and the SESSION one is almost always what cut you.** `trace_budget` caps each *individual* test's traced pass; `trace_session_budget` caps the *whole* pass. A suite whose total trace outruns the session cap loses every test after it, however generous the per-test cap is — so reaching for `trace_budget` alone is the natural move and it changes nothing. Measured on Regenesis: `(50, 300)` and `(∞, 300)` cut an identical 152 tests. Raise the session one first; raise both to be sure.
+
+**Both budgets are WALL-CLOCK, and the work is CPU-bound.** So they do not measure the suite — they measure the suite *on this machine, under this load*. The same repo traces clean on an idle box and gets cut on a busy one, and whether you were cut is not a property of your code. Two things follow. Don't read a cut count as a fact about the suite; it is a fact about the afternoon. And **no default can be "correct"** — a busy enough machine cuts at any finite value. The budget exists to stop a pathological hang, not to certify a measurement. When the answer has to be exact — certifying a function, trusting a pinned count — pass `0` and take the wall-clock hit; that is the only setting that is a statement about your code.
+
+**Take a CUT warning seriously — it is not cosmetic.** A cut test's line coverage is under-counted, so the tests that *do* pin a behaviour cannot be credited with pinning it, and the report says "nothing distinguishes this" about behaviour the suite already covers. Measured on Regenesis: under the old 300s default, `greedy_coverage` reported **0 of 45 behaviours pinned**; unbounded, the truth is **22 of 45**. Acting on the cut number means asking `converge` to write tests for behaviour that is already specified. The report says *"this is a measurement limit, not a finding — do not act on it as one"*, and it means it: re-measure, then act.
 
 ---
 
