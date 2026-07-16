@@ -1,11 +1,12 @@
 """Content-hashed verdict cache for ``profile()`` — the iterative-loop speedup.
 
 A function's mutation profile is fully determined by (1) the function's own source,
-(2) the source of the tests that exercise it, and (3) the sampling parameters
+(2) the source of the tests that exercise it, (3) the sampling parameters
 (``max_per_category``/``pass_index`` — fast vs comprehensive vs each greedy pass give
-different mutant sets). Key the cached ``ProfilingResult`` on all three, so re-profiling
-an unchanged function while OTHER functions are being edited returns instantly, while ANY
-edit to the function or its tests misses — never a stale verdict.
+different mutant sets), and (4) THE CODE THAT COMPUTES IT — Detective and the Wesker engine
+themselves. Key the cached ``ProfilingResult`` on all four, so re-profiling an unchanged
+function while OTHER functions are being edited returns instantly, while ANY edit to the
+function, its tests, or the engine misses — never a stale verdict.
 
 Content-addressed, never path-addressed: an out-of-band edit changes the hash and
 invalidates the entry. Single-valid-copy: writing a new hash for a function purges its
@@ -75,6 +76,33 @@ def params_suffix(key: str) -> str:
     return ":" + ":".join(key.rsplit(":", _PARAM_FIELDS)[1:])
 
 
+def engine_fingerprint() -> str:
+    """The versions of the code that PRODUCES a verdict — Detective's and Wesker's.
+
+    In the key for the same reason the budgets are: they CHANGE THE ANSWER. Wesker generates the
+    mutants, runs the baseline and attributes the kills; Detective decides which categories are
+    generated at all (purity detection, `filter_categories`). An engine fix therefore does not
+    merely make new verdicts better — it makes the OLD ones wrong, and a key blind to it serves
+    them back as fresh, indefinitely.
+
+    That is not hypothetical, and it is why this exists. Wesker 0.7.2 fixed a fixture reset that
+    made a green suite report thousands of failing tests; the verdicts computed before it stayed in
+    `.detective/verdict_cache.json`, keyed identically, and survived the upgrade. On Regenesis three
+    rows held 2153 / 2138 / 2135 fabricated failures AFTER the engine that fabricated them was
+    gone — a bug outliving its own fix, served silently to anyone who trusted the cache. Only a
+    manual `purge` cleared them, which requires knowing to distrust it in the first place.
+
+    A verdict must be keyed on everything that could have produced it, and the engine is not
+    "everything else" — it is the thing doing the producing. Imported lazily: `Detective/__init__`
+    imports this module, so a module-level import would be circular.
+    """
+    from Wesker import __version__ as _wesker
+
+    from . import __version__ as _detective
+
+    return f"d{_detective}+w{_wesker}"
+
+
 def cache_key(
     func_key: str,
     func_source: str,
@@ -83,7 +111,7 @@ def cache_key(
     pass_index: int,
     trace_budgets: tuple[float | None, float | None] = (None, None),
 ) -> str:
-    """The content-addressed key: identity + fn-hash + tests-hash + sampling + trace budgets.
+    """The content-addressed key: engine + identity + fn-hash + tests-hash + sampling + budgets.
 
     ``trace_budgets`` is ``(per_test, session)``. They are in the key because they CHANGE THE
     ANSWER: a budget cuts the traced baseline, and what it cut lands in the result as
@@ -99,7 +127,8 @@ def cache_key(
     """
     budgets = ",".join("∞" if b is None else f"{b:g}" for b in trace_budgets)
     return (
-        f"{func_key}:{_sha(func_source)}:{tests_fingerprint(tests)}:{max_per_category}:{pass_index}:{budgets}"
+        f"{func_key}:{engine_fingerprint()}:{_sha(func_source)}:{tests_fingerprint(tests)}"
+        f":{max_per_category}:{pass_index}:{budgets}"
     )
 
 

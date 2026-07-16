@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from Detective.audit import audit_suite
-
 from _support import make_pr
+
+from Detective.audit import audit_suite
 
 
 def _audit_with(pr):
