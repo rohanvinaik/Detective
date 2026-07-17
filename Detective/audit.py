@@ -104,17 +104,14 @@ def audit_suite(
     project_root: str = ".",
     *,
     progress: Callable[[int, int, float], None] | None = None,
-    use_parallel: bool | None = None,
 ) -> SuiteAudit:
     """Assess the function's existing suite on both completeness axes.
 
     Runs one profile of the CURRENT suite (kill matrix + baseline line coverage),
     then classifies the survivors so a *killable* gap (a specification hole) is not
     conflated with an *equivalent* survivor (nothing to fix). Never writes.
-    ``use_parallel=True`` fans that profile across worker processes (mutually exclusive
-    with ``progress`` — the caller passes one or the other).
     """
-    result = profile(file, function, project_root, progress=progress, use_parallel=use_parallel)
+    result = profile(file, function, project_root, progress=progress)
     # A test belongs to THIS function's suite only if it discharges an obligation for
     # it — kills one of its mutants OR covers one of its lines. The baseline pass runs
     # every discovered test against the original, so tests for OTHER functions appear

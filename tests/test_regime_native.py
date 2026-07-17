@@ -72,6 +72,7 @@ def test_a_target_that_does_not_exist_gets_no_module(tmp_path):
 # ── suite path ────────────────────────────────────────────────────
 def test_suite_path_reflects_the_repos_own_pythonpath(tmp_path):
     _pkg(tmp_path, "src", "pkg")
+    (tmp_path / "conftest.py").write_text("")  # the root is on the suite's path only via this
     _cfg(tmp_path, '[tool.pytest.ini_options]\npythonpath = ["src"]\n')
     assert resolve_regime(str(tmp_path)).suite_path == (str(tmp_path / "src"), str(tmp_path))
 

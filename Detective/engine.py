@@ -21,15 +21,6 @@ from collections.abc import Callable
 from typing import Any
 
 from Wesker.ci import discover_test_callables, walk_functions
-
-try:  # older Wesker without the live-session seam: no live suite can be active
-    from Wesker.ci import live_suite_active as _live_suite_active
-except ImportError:  # pragma: no cover
-
-    def _live_suite_active() -> bool:
-        return False
-
-
 from Wesker.engine import (  # imported, never restated — one owner for each of these numbers
     DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S,
 )
@@ -140,14 +131,27 @@ def _suite_path(root: str) -> list[str]:
     package and need neither):
 
     * ``pythonpath`` under ``[tool.pytest.ini_options]`` — pytest prepends these itself;
-    * ``root`` — pytest's prepend import-mode inserts the rootdir for a root ``conftest.py``,
-      which is exactly what Detective's own generated conftest exists to do.
+    * ``root`` — but ONLY when a root ``conftest.py`` exists, because that is what makes pytest's
+      prepend import-mode insert the rootdir. This function used to append ``root``
+      unconditionally, while the line above it already stated the condition. The gap is not
+      cosmetic: it asserts a ``sys.path`` entry the suite does not have, so ``shadowed_target``
+      resolves the target against a path that only THIS process enjoys, finds the tree, and
+      reports no shadow. Measured on Wesker's own repo, after its generated conftest was removed:
+      bare ``pytest`` resolved ``import Wesker`` to site-packages and failed 10 tests, while
+      ``detective regime`` called the same repo "resolves cleanly". A shadow this module could not
+      see, in the engine this tool is built on.
+
+    ``python -m pytest`` is what hides it — it puts cwd on ``sys.path`` for free, so a repo that
+    only works that way looks fine until CI (or anyone) runs the bare ``pytest`` console script.
+    This reads the path the SUITE gets, not the one our invocation happens to have.
 
     ORDER MATTERS: pytest inserts `pythonpath` at the FRONT of sys.path, so those entries win
     over the rootdir. Listing root first would resolve a src-layout to whatever sits at the root
     and mask the very shadow this looks for.
 
-    Missing either one invents a shadow on a repo that resolves itself correctly.
+    Missing a real entry invents a shadow on a repo that resolves itself correctly; inventing one
+    hides a shadow on a repo that does not. Both directions cost a verdict, so this claims exactly
+    what pytest does and nothing more.
     """
     configured: list[str] = []
     config = os.path.join(root, "pyproject.toml")
@@ -159,10 +163,14 @@ def _suite_path(root: str) -> list[str]:
         configured = [os.path.join(root, p) for p in entries.get("pythonpath", []) or []]
     except (OSError, ValueError, ImportError, AttributeError):
         pass  # no config, or unreadable: `root` alone is still the honest floor
+    # The rootdir is on the suite's path IFF a root conftest.py puts it there. No conftest, no
+    # entry — pytest inserts the TEST file's own directory instead, and the root is reachable
+    # only through an install or a declared `pythonpath`.
+    anchored = [root] if os.path.isfile(os.path.join(root, "conftest.py")) else []
     # Deduped, order preserved: `pythonpath = ["."]` resolves to root, so a repo that declares it
     # would otherwise list root twice — which reads as two different entries and is just noise.
     seen: dict[str, None] = {}
-    for p in [*configured, root]:
+    for p in [*configured, *anchored]:
         if os.path.isdir(p):
             seen.setdefault(os.path.abspath(p))
     return list(seen)
@@ -183,8 +191,18 @@ def _resolve_origin(module: str, root: str, extra_path: list[str]) -> str | None
         # `-B`: find_spec imports parent packages, and importing writes __pycache__ into the
         # consumer's tree. This runs before EVERY command — a read-only guard that leaves
         # bytecode behind is not read-only, and it dirties repos it was only asked to look at.
+        #
+        # `-P`: do NOT prepend cwd to sys.path. `python -c` does that by default, and this runs
+        # with `cwd=root` — so the check resolved the target the way THIS subprocess does rather
+        # than the way the SUITE does, silently handing itself the one path entry whose absence
+        # is the whole question. Every shadow that `sys.path.insert(0, root)` would hide was
+        # therefore invisible to the guard built to find it. Measured on Wesker's own repo: the
+        # subprocess resolved `Wesker` to the tree while bare `pytest` resolved it to
+        # site-packages and failed 10 tests, and `regime` called it "resolves cleanly".
+        # `extra_path` is the suite's path, computed by `_suite_path`; it is the ONLY thing that
+        # should be on there. (3.11+, which this package requires.)
         done = subprocess.run(  # noqa: S603 — our own script, our own interpreter
-            [sys.executable, "-B", "-c", script],
+            [sys.executable, "-B", "-P", "-c", script],
             check=False,
             capture_output=True,
             text=True,
@@ -233,25 +251,6 @@ def _attr_path(obj: Any, qualname: str) -> Any | None:
     return obj
 
 
-def _shift_progress(
-    progress: Callable[[int, int, float], None] | None, done_already: int, universe: int
-) -> Callable[[int, int, float], None] | None:
-    """Re-base a slice's progress onto the FULL mutant universe.
-
-    A sliced run counts itself from zero, so the adaptive probe's already-evaluated mutants
-    fall off the axis and the stream under-reports: "72/72 mutants" for a function the same
-    run reports as 76 variants. Nothing is wrong with either number — they are just measured
-    against different denominators, which a reader cannot know. Shifting by the probe's count
-    makes the live stream and the final verdict describe the same universe."""
-    if progress is None:
-        return None
-
-    def _shifted(done: int, _slice_total: int, rate: float) -> None:
-        progress(done_already + done, universe, rate)
-
-    return _shifted
-
-
 def profile(
     file: str,
     function: str,
@@ -267,7 +266,6 @@ def profile(
     scope_tests: bool = True,
     use_cache: bool = True,
     mutant_slice: tuple[int, int] | None = None,
-    use_parallel: bool | None = None,
     trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
     trace_progress: Callable[[int, int, float], None] | None = None,
     trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
@@ -299,7 +297,6 @@ def profile(
     rel = os.path.relpath(full, root)
     func_key = f"{rel}::{qualname}"
 
-    tests_auto = tests is None  # workers re-discover; explicit callables can't cross spawn
     if tests is None:
         func_names = [qn for qn, _ in walk_functions(tree)]
         tests = discover_test_callables(root, rel, func_names, extra_dirs=list(extra_test_dirs) or None)
@@ -354,122 +351,6 @@ def profile(
         if hit is not None:
             return hit
 
-    # Parallel fan-out (model A). Three modes via ``use_parallel``:
-    #   True  → force: fan the whole run out across workers (caller has dropped progress).
-    #   None  → AUTO: MEASURE this function's per-mutant cost with a small serial probe, then
-    #           parallelize the remainder only if the remaining serial work justifies the
-    #           spawn tax — correct across the ~1000x per-mutant range, not a stale-rate guess.
-    #   False → off: plain serial.
-    # Never for a shard (``mutant_slice``), explicit tests (workers re-discover; callables
-    # can't cross spawn), a budgeted run (a sharded wall-clock budget is not equivalent),
-    # or a LIVE pytest session — the live suite is closures over live pytest items, bound
-    # to this interpreter's session/fixtures/conftest, so it cannot cross spawn either. A
-    # worker started from inside one re-discovers with the collect-only backend, silently
-    # drops every fixture-taking test, and reports its shard's mutants as survivors; the
-    # parent then merges that into an otherwise-correct result. Measured on Prism:
-    # 1/131 behaviors "pinned" fanned out, versus 16/16 in-session — the fan-out was
-    # reporting a fully-specified function as almost entirely unspecified. Staying serial
-    # is not a loss here: the session baseline is already paid once, so per-function cost
-    # is small (~2.3s), whereas each spawned worker would re-pay it in full.
-    # The fleet size is the portable memory guarantee; verdicts are proven bit-identical.
-    if (
-        use_parallel is not False
-        and mutant_slice is None
-        and tests_auto
-        and budget_ms is None
-        and not _live_suite_active()
-    ):
-        from Wesker.memory_guard import worker_count
-
-        from . import parallel
-
-        workers = worker_count()
-        if workers > 1:
-            # Generate ONCE; the probe and the serial remainder reuse this list rather than
-            # regenerating (~37ms each), so the adaptive measurement is nearly free.
-            _mutants = generate_mutants(  # type: ignore[arg-type]
-                node, categories, max_per_category=max_per_category, pass_index=pass_index
-            )
-            exact = len(_mutants)
-            fanned: ProfilingResult | None = None
-            if use_parallel is True and exact >= 2:
-                fanned = parallel.parallel_profile(
-                    file,
-                    function,
-                    project_root,
-                    end=exact,
-                    max_per_category=max_per_category,
-                    pass_index=pass_index,
-                    scope_tests=scope_tests,
-                    workers=workers,
-                )
-            elif use_parallel is None and exact >= parallel.PROBE_MIN_MUTANTS:
-                # Adaptive: time a small serial probe (silent), then decide. The probe is ALWAYS
-                # kept as shard 0 — merged with a parallel remainder (slow function) or a serial
-                # remainder that REUSES the probe's baseline line-coverage pass (fast function),
-                # so the measurement adds ~no cost beyond splitting one run into two.
-                probe_n = min(parallel.PROBE_SIZE, exact)
-                _orig = _load_original(full, qualname or function)
-                probe = run_function_profiling(  # type: ignore[arg-type]
-                    node,
-                    func_key,
-                    categories,
-                    tests,
-                    _orig,
-                    max_per_category=max_per_category,
-                    pass_index=pass_index,
-                    scope_tests=scope_tests,
-                    mutant_slice=(0, probe_n),
-                    pregenerated=_mutants,
-                    # only the probe traces; `rest` reuses its precomputed_line_data
-                    trace_budget_s=trace_budget_s,
-                    trace_progress=trace_progress,
-                    trace_session_budget_s=trace_session_budget_s,
-                )
-                if exact <= probe_n:
-                    fanned = probe  # the probe was the whole run
-                elif parallel.mean_mutant_ms(probe) * (exact - probe_n) > parallel.PARALLEL_MIN_REMAINING_MS:
-                    rest = parallel.parallel_profile(
-                        file,
-                        function,
-                        project_root,
-                        start=probe_n,
-                        end=exact,
-                        max_per_category=max_per_category,
-                        pass_index=pass_index,
-                        scope_tests=scope_tests,
-                        workers=workers,
-                    )
-                    fanned = parallel.merge_results([probe, rest])
-                else:
-                    # Cheap enough to stay serial: finish the remainder in-process, REUSING the
-                    # probe's baseline (no second line-coverage trace) and streaming its progress.
-                    #
-                    # The remainder is a SLICE, so Wesker counts it 0..(exact - probe_n): the
-                    # stream said "72/72 mutants" for a function the same run then reports as 76
-                    # variants, because the probe's mutants are already done and never appear on
-                    # the axis. Shift the counts back onto the TRUE universe so the two numbers a
-                    # user sees in one run cannot disagree.
-                    rest = run_function_profiling(  # type: ignore[arg-type]
-                        node,
-                        func_key,
-                        categories,
-                        tests,
-                        _orig,
-                        max_per_category=max_per_category,
-                        pass_index=pass_index,
-                        scope_tests=scope_tests,
-                        mutant_slice=(probe_n, exact),
-                        progress=_shift_progress(progress, probe_n, exact),
-                        precomputed_line_data=(probe.line_coverage, probe.failing_tests),
-                        pregenerated=_mutants,
-                    )
-                    fanned = parallel.merge_results([probe, rest])
-            if fanned is not None:
-                if use_cache and not fanned.budget_exhausted:
-                    verdict_cache.put(root, ck, verdict_cache.key_prefix(func_key), fanned)
-                return fanned
-
     # Pass the live target so Wesker seeds the mutant namespace from its
     # __globals__ (module helpers/constants/imports resolve inside the mutant).
     original = _load_original(full, qualname or function)
@@ -522,8 +403,6 @@ def diagnose(
     is_pure: bool | None = None,
     tests: list[Callable[..., Any]] | None = None,
     budget_ms: float | None = None,
-    learn: bool = False,
-    use_parallel: bool | None = None,
     progress: Callable[[int, int, float], None] | None = None,
     trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
     trace_progress: Callable[[int, int, float], None] | None = None,
@@ -532,10 +411,7 @@ def diagnose(
     """Profile ``function`` and reshape the result into a behavioral-scope map.
 
     Always attaches the STRUCTURAL decomposition signal (``decompose_seams``) so the CLI can
-    pair it with regime B — the convergent "really two things" flag. ``learn=True`` also folds
-    this run's per-category value-survival into ``.wesker/mutation_report.json`` and attaches
-    the learned-weak priors (see :func:`learn_priors`). ``use_parallel=True`` fans the mutants
-    across worker processes (mutually exclusive with ``progress``).
+    pair it with regime B — the convergent "really two things" flag.
     """
     result = profile(
         file,
@@ -544,7 +420,6 @@ def diagnose(
         is_pure=is_pure,
         tests=tests,
         budget_ms=budget_ms,
-        use_parallel=use_parallel,
         progress=progress,
         trace_budget_s=trace_budget_s,
         trace_progress=trace_progress,
@@ -555,9 +430,6 @@ def diagnose(
     from dataclasses import replace
 
     updates: dict[str, Any] = {"decompose_seams": _count_decompose_seams(file, function, project_root)}
-    if learn:
-        priors = learn_priors(result, project_root)
-        updates["learned_priors"] = [(p.category.value, p.prior) for p in priors]
     return replace(scope, **updates)
 
 
@@ -1143,43 +1015,3 @@ def classify_survivors(
         manual_equivalent=tuple(manual_equivalent),
         inputs_expressible=expressible,
     )
-
-
-def learn_priors(result: Any, project_root: str) -> list:
-    """Optional learned-weak signal (opt-in via ``diagnose --learn``): accumulate this
-    run's per-category VALUE-survival into ``.wesker/mutation_report.json`` — a running
-    aggregate across runs — and return the resulting priors, categories ordered by
-    HISTORICAL value-survival (weakest, i.e. highest-survival, first).
-
-    Uses ``value_survived`` (true + crash/timeout kills) rather than raw survivors, so the
-    learned-weak signal measures the same thing the rest of the pipeline does: which
-    categories this project's own code + tests recurrently leave the VALUE unspecified.
-    Reuses Wesker's ``prioritize_categories`` over the accumulated state — the same signal
-    Wesker's own budgeted runs prioritize by — so Detective and Wesker read it identically.
-    """
-    import json
-    from pathlib import Path
-
-    from Wesker.filter import prioritize_categories
-
-    report = Path(project_root) / ".wesker" / "mutation_report.json"
-    state: dict = {}
-    if report.exists():
-        try:
-            state = json.loads(report.read_text())
-        except (OSError, ValueError):
-            state = {}
-    agg: dict[str, dict] = {
-        e["category"]: dict(e)
-        for e in state.get("per_category", [])
-        if isinstance(e, dict) and e.get("category")
-    }
-    for cr in result.per_category:
-        cat = cr.category.value
-        cur = agg.setdefault(cat, {"category": cat, "total": 0, "survived": 0})
-        cur["total"] = cur.get("total", 0) + cr.total
-        cur["survived"] = cur.get("survived", 0) + cr.value_survived
-    state["per_category"] = list(agg.values())
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(json.dumps(state, indent=2))
-    return prioritize_categories({cr.category for cr in result.per_category}, state)

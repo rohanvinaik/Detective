@@ -36,6 +36,29 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 
+# 0.8.0 also removes `diagnose --learn`, `engine.learn_priors`, and `ScopeMap.learned_priors`.
+# They built the one object this project says does not exist: a mutant profile of a CODEBASE.
+# `learn_priors` folded each run's per-category value-survival into a project-wide
+# `.wesker/mutation_report.json` and reported "which categories THIS project leaves weak" — a
+# statistic smeared across unrelated functions, in a tool whose entire claim is that the unit is
+# ONE function's operators and ONE function's tests, both static and both free. A function's
+# mutant space is a property of its own AST; it is derived exactly, de novo, per operator. A
+# prior over the repo is not a cheaper version of that, it is a different and weaker question.
+# It also earned nothing: it changed no verdict (nothing branched on it — the priors were
+# DISPLAYED), no test named it, and the ordering it produced only matters to a sampler that is
+# not the default. What it did do is write into Wesker's namespace on a `diagnose` run.
+#
+# 0.8.0 is a MINOR bump on the same rule: it REMOVES public API. Gone: `Detective.parallel`
+# entirely, the `use_parallel` argument on `profile`/`diagnose`/`converge`/`audit_suite`, and the
+# `--parallel`/`--serial` flags. Verdicts are UNCHANGED, and that is the point — the fan-out never
+# ran. `cli.main` wraps every command in the live session, whose callables cannot cross a process
+# spawn, so `profile` refused to fan out inside one; that is every CLI and MCP run. Measured, not
+# reasoned: `--parallel` 5.04s vs `--serial` 5.13s, 0 `parallel_profile` calls across the 448-test
+# suite, and 0 workers spawned by a FORCED `--parallel` on a 37-mutant function. Two flags that
+# could not reach what they named, ~200 lines with no test naming them, and a private
+# `Wesker.memory_guard._DEFAULT_WORKER_PEAK` import held only by them. It existed to amortise a
+# per-function cost that the suite-global baseline had already made a per-session constant.
+#
 # 0.7.0 is a MINOR bump, not a patch, on the same rule 0.6.0 used: it REMOVES public API and it
 # CHANGES VERDICTS.
 #
@@ -171,7 +194,7 @@ classifiers = [
 # did not exist: the engine decides the verdict and keys our cache, and could not state its own
 # identity.
 dependencies = [
-    "Wesker>=0.8.0",
+    "Wesker>=0.9.0",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it

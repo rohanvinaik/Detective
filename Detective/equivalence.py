@@ -552,6 +552,37 @@ def find_witness(
     return _search_witness(original, mutant, candidate_inputs)[0]
 
 
+def _binds(fn: Callable[..., Any], args: tuple) -> bool:
+    """Do ``args`` actually FIT ``fn``'s signature? Asked before calling, not after.
+
+    The distinction this draws is between a call that FAILS and a call that never HAPPENED. A
+    TypeError raised while binding arguments is not the function's behaviour — the body never ran
+    — but it arrives at `_outcome` looking exactly like one the body raised, and its message names
+    the function, so two differently-named functions "differ" on it. `inspect.signature().bind`
+    answers the question directly instead of inferring it from the wreckage.
+
+    Unknown signature (a builtin, a C callable) → True: let the call decide. This is a guard
+    against a provable mis-call, not a gate that must understand every callable — refusing what we
+    cannot read would drop real witnesses to protect against a case we have no evidence of.
+    """
+    import inspect
+
+    # TWO calls, two meanings, and chaining them conflated the two. `signature()` raises TypeError
+    # for "not a callable object"; `bind()` raises TypeError for "these args do not fit". One
+    # `except TypeError` around both answers "unreadable" with False — the docstring's exact
+    # opposite, and the direction that DROPS witnesses. Detective found it: converging this
+    # function wrote `assert _binds(1, (1,)) is False`, pinning a non-callable as a mis-call.
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return True  # no readable signature — not a provable mis-call
+    try:
+        sig.bind(*args)
+    except TypeError:
+        return False
+    return True
+
+
 def _search_witness(
     original: Callable[..., Any], mutant: Callable[..., Any], candidate_inputs: list[tuple]
 ) -> tuple[Witness | None, bool]:
@@ -566,6 +597,26 @@ def _search_witness(
     """
     crash_only = False
     for args in candidate_inputs:
+        if not _binds(original, args):
+            # These args do not FIT the callable, so nothing below measures the function — it
+            # measures Python's call protocol, and it fabricates a witness while doing it.
+            #
+            # An unbound method is the live case. `_load_original` returns `Class.method`, which
+            # needs `self`; synthesis correctly strips `self` from the PARAMETERS, so the args are
+            # one short and every call dies in argument binding. Both sides raise TypeError, so
+            # the crash-only guard below cannot fire (it needs the ORIGINAL not to raise) — and
+            # the two messages differ anyway, because `_outcome` carries the message and a missing
+            # -argument message NAMES THE FUNCTION: "CachedFileInfo.is_valid_for() missing 1
+            # required positional argument: 'file_path'" vs the mutant's own qualname. A witness
+            # for a difference in the function's NAME. Measured on TailChasingFixer: converge
+            # wrote `CachedFileInfo.is_valid_for("")` asserting that exact TypeError — a test that
+            # pins Python's arity checking, passes `property_holds` (it IS stable), and counts as
+            # a kill, taking 14/21 to 16/21 on behaviour it never touched.
+            #
+            # Skipping is the honest outcome, not a loss: with no input that fits, the mutant is
+            # correctly left a survivor and surfaces as an `--input` residual — the I_solve ask,
+            # where a human supplies the instance synthesis cannot build.
+            continue
         original_outcome, mutant_outcome = _outcome(original, args), _outcome(mutant, args)
         if original_outcome == mutant_outcome:
             continue

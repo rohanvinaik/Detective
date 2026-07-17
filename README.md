@@ -290,7 +290,7 @@ A tool that will tell you that about its author's code will tell you anything.
 ## Reference
 
 ```bash
-detective diagnose  file.py::fn [--learn]        # + which categories this project leaves weak
+detective diagnose  file.py::fn                  # what it does, and the one thing to run next
 detective converge  file.py::fn [--fast]         # greedy (1−1/e)-optimal subset per pass
 detective decompose file.py::fn [--apply]        # without --apply: propose only
 detective audit     file.py::fn [--remove]       # confirm deletion of pointless tests
@@ -298,7 +298,7 @@ detective flag      file.py::fn MUTANT_ID        # record: this survivor is trul
 detective purge                                  # delete regeneratable analysis cruft
 ```
 
-`--json` on any command emits the full result object. `--parallel` / `--serial` override the adaptive default (verdicts are identical either way). Generated tests land in `tests/test_<fn>_synth.py` with a wired `conftest.py`.
+`--json` on any command emits the full result object. Generated tests land in `tests/test_<fn>_synth.py` with a wired `conftest.py`.
 
 In CI:
 

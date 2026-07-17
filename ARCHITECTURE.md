@@ -60,9 +60,8 @@ Detective's "specified/complete" always means *value*-specified:
 
 Detective **owns one function at a time.** Every command takes `file.py::function`,
 asks Wesker to profile it, then reshapes/acts on the result. Detective holds no
-cross-run RAM state; persisted state is on disk (§8). Profiling is **content-cached**
-and **adaptively parallelized** — both transparent, both verdict-identical to a plain
-serial run (§7).
+cross-run RAM state; persisted state is on disk (§8). Profiling is **content-cached** and
+**serial** — the cache is transparent and verdict-identical to an uncached run (§7).
 
 ---
 
@@ -81,12 +80,9 @@ Detective imports exactly these from Wesker (the *entire* dependency surface):
 | `discover_test_callables(root, rel, func_names, extra_dirs)` → `list[Callable]` | `Wesker.ci` | find the real tests exercising a function (pytest-aware, binds parametrize). **Inside a live session it returns the session's callables and ignores every other argument** |
 | `run_with_live_suite(root, fn, target_files, paths, trace_progress, trace_budget_s, trace_session_budget_s)` | `Wesker.ci` | **THE session seam.** `cli._run_live` wraps the whole command in it once; everything underneath transparently upgrades. Returns `None` — and ONLY `None` — when no session could start |
 | `refresh_live_suite(root, path)` → `int` | `Wesker.ci` | tell the session a test file changed on disk. Called from `certify._write`, the one choke point every generated test passes through |
-| `live_suite_active()` → `bool` | `Wesker.ci` | is a session live? (`engine.profile` refuses to fan out inside one — the callables cannot cross a process spawn) |
 | `walk_functions(tree)` → `[(qualname, node), …]` | `Wesker.ci` | enumerate functions in a module |
 | `filter_categories(node, pure)` → `set[MutationCategory]` | `Wesker.filter` | which mutation categories apply (drops STATE for pure fns) |
-| `prioritize_categories(cats, state)` | `Wesker.filter` | learned-weak ordering (`diagnose --learn`) |
 | `DEFAULT_TRACE_BUDGET_S`, `DEFAULT_TRACE_SESSION_BUDGET_S` | `Wesker.engine` | the trace caps. **Imported, never restated** — a second copy would drift silently |
-| `worker_count`, `apply_address_limit`, `_DEFAULT_WORKER_PEAK` | `Wesker.memory_guard` | parallel fleet size (portable memory guarantee) + best-effort `RLIMIT_AS` |
 | `telemetry`, `purge_caches` | `Wesker.memory_guard` | CLI footer + the `.wesker/` HALF of `purge` (§8) |
 
 **The live session is the load-bearing seam, and it is a correctness feature, not a speed one.**
@@ -173,7 +169,7 @@ untraced mutation loop.
 | Surface | Where | What |
 |---|---|---|
 | CLI target | `file.py::function` positional | the one function to act on |
-| Common flags | `--project-root`, `--json`, `--parallel`/`--serial` (diagnose/converge/audit) | per-command behavior (§5) |
+| Common flags | `--project-root`, `--json` | per-command behavior (§5) |
 | `--input "(…)"` | converge, decompose | a **Zone-2 residual** — a Python-literal positional-arg tuple the tool asked for (the semantic prior synthesis couldn't build) |
 | `.detective/equivalents.json` | project root | **manual equivalence flags** (user data — §8); read by `classify_survivors` |
 | `WESKER_MEM_BUDGET_MB` | env var | user-selectable memory ceiling (§7) |
@@ -189,7 +185,7 @@ All in `Detective/`. Frozen dataclasses unless noted.
 - **`ScopeMap`** (`scope.py`) — *diagnose output.* `regime` (A tractable / B entangled),
   `specification` (variants/pinned/unspecified/inert — *value*-pinned), `kill_quality`
   (`by_value_assertion` vs `by_crash` + warning), `behavioral_dof`, `tests_discovered`,
-  `learned_priors` (opt-in `--learn`), **`decompose_seams`** (structural extraction count —
+  **`decompose_seams`** (structural extraction count —
   the STRUCTURAL half of "is this >1 thing"; regime B is the behavioral half). Produced by
   `scope_from_profiling` + `diagnose`; consumed by `_format_scope`.
 - **`Witness`** (`equivalence.py`) — a concrete input where original and mutant differ by a
@@ -232,10 +228,9 @@ All in `Detective/`. Frozen dataclasses unless noted.
 
 | Module | Responsibility | Key functions |
 |---|---|---|
-| `engine.py` | **THE Wesker adapter** + caching + adaptive parallelism + witness classification + input synthesis | `profile`, `diagnose`, `classify_survivors`, `representative_site`, `learn_priors`, `_count_decompose_seams`, `_load_original` |
+| `engine.py` | **THE Wesker adapter** + caching + witness classification + input synthesis | `profile`, `diagnose`, `classify_survivors`, `representative_site`, `_count_decompose_seams`, `_load_original` |
 | `verdict_cache.py` | **content-hashed profile cache** (§7) + purges Detective's own regeneratable state (§8) | `cache_key`, `params_suffix`, `get`, `put`, `purge`, `_to_json`/`_from_json`, `tests_fingerprint` |
 | `reachability.py` | **static test-impact scoping**: which test files could execute a target's lines, for the session's `paths` (§2a, §7). Conservative in ONE direction — any doubt returns `None` = collect everything | `reachable_test_paths`, `module_name` |
-| `parallel.py` | **model-A fan-out** + adaptive merge (§7) | `parallel_profile`, `merge_results`, `shard_bounds`, `mean_mutant_ms` |
 | `scope.py` | reshape ProfilingResult → behavioral map | `scope_from_profiling` |
 | `equivalence.py` | classify survivor killable/equivalent BY EXECUTION; typing; SourceExpr | `find_witness`, `classify_survivor`, `_outcome`, `synth_ast_input`, `unwrap` |
 | `purity.py` | is-pure predicate (gates STATE + golden capture) | `is_pure`, `analyze_function` |
@@ -250,9 +245,9 @@ All in `Detective/`. Frozen dataclasses unless noted.
 | `decompose.py` | propose extraction candidates — **STRUCTURE-gated** (not survivor-gated) | `decompose`, `find_extraction_candidates`, `compute_cognitive_complexity` |
 | `decompose_apply.py` | **extract-function**: converge (proof) → cluster → trial-apply → prove → apply | `apply_decomposition`, `extract_candidate` |
 | `equivalents.py` | persist/read manual equivalence flags | `add_flag`, `load_flags`, `flag_key` |
-| `cli.py` | arg parsing + formatting (`--version`, streaming narrative, minimal terse view + `--full`); wraps every command in the live session; **zero compute** | `main`, `_run_live`, `_run`, `_build_parser`, `_reachable_paths`, `_trace_budget`/`_trace_session_budget`, `_parallel_mode`, `_format_converge`/`_format_converge_terse`, `_final_banner`, `_plain_terms`, `_boundary_hint`, `_notify_stderr`, `_write_converge_report` |
+| `cli.py` | arg parsing + formatting (`--version`, streaming narrative, minimal terse view + `--full`); wraps every command in the live session; **zero compute** | `main`, `_run_live`, `_run`, `_build_parser`, `_reachable_paths`, `_trace_budget`/`_trace_session_budget`, `_format_converge`/`_format_converge_terse`, `_final_banner`, `_plain_terms`, `_boundary_hint`, `_notify_stderr`, `_write_converge_report` |
 | `mcp_server.py` | optional MCP surface (`detective-mcp`, §5a): `diagnose`/`converge`/`decompose`/`audit`/`deep_context`, each inside a live session; **zero compute** | `build_server`, `_in_session`, `_rendered`, `_render_diagnose`/`_render_converge`/`_render_decompose`, `_ask_for_input`, `main` |
-| (Wesker) `memory_guard.py` | RAM budget, fleet sizing, `RLIMIT_AS`, telemetry, purge | `resolve_budget`, `worker_count`, `apply_address_limit`, `over_budget`, `telemetry` |
+| (Wesker) `memory_guard.py` | telemetry footer + the `.wesker/` half of `purge` | `telemetry`, `purge_caches` |
 
 ---
 
@@ -266,14 +261,16 @@ the converge phase narrative also stream to **stderr**, so stdout stays clean fo
 commands: `--project-root` (default `.`), `--json`. Commands: `converge`, `audit`,
 `decompose`, `diagnose`, `flag`, `purge` (`certify` is a library API, not a CLI command).
 
-**Parallelism (diagnose · converge · audit).** Default is **adaptive auto**: a tiny
-serial probe measures this function's real per-mutant cost, then it fans mutants across
-worker processes *only if the remaining work justifies the spawn tax* — so small/fast
-functions stay serial (≈2 ms overhead) and slow ones parallelize. `--parallel` forces the
-whole run parallel (streaming disabled); `--serial` forces serial. Verdicts are **identical**
-in every mode; the memory guarantee holds by construction (§7).
+**There is no parallelism, and there is no flag for it.** Every command runs serial. The
+fan-out was removed in 0.8.0 because it could not run: `main` wraps every command in the live
+session (`_run_live`), and a worker cannot re-bind the session's callables across a process
+spawn — so `profile` refused to fan out inside one, which is *always*. `--parallel` and
+`--serial` were measured to cost the same (5.04s vs 5.13s) and a forced `--parallel` on a
+37-mutant function spawned zero workers: two documented flags that could not reach the thing
+they named. The session baseline is paid once per session, so per-function cost is small; a
+worker would re-pay it in full.
 
-### `diagnose file::fn [--learn] [--parallel|--serial]`  — read-only
+### `diagnose file::fn`  — read-only
 **Purpose:** show a function's behavioral scope and point at the right next command.
 **Operation:** `engine.diagnose` → `profile` → `scope_from_profiling`, plus a structural
 read (`_count_decompose_seams` = `find_extraction_candidates`). No writes.
@@ -284,11 +281,8 @@ next"; and the **decompose guidance from two independent signals**:
   really >1 thing — the high-value decompose target);
 - regime B, no seam → "entangled but structurally one piece — `converge`, not decompose";
 - a seam but cohesive behavior → "clean seam exists — `decompose` is safe if you want it".
-`--learn` also folds this run's per-category value-survival into
-`.wesker/mutation_report.json` and prints the **learned-weak** priors (which categories
-THIS project recurrently leaves value-unspecified).
 
-### `converge file::fn [--write-dir tests] [--max-iterations N] [--fast] [--full] [--input "(…)"] [--parallel|--serial]`  — the flagship, writes tests
+### `converge file::fn [--write-dir tests] [--max-iterations N] [--fast] [--full] [--input "(…)"]`  — the flagship, writes tests
 **Purpose:** generate a **mutation-complete, line-complete, minimal** pytest suite.
 **Operation:**
 1. **Loop** (≤ N passes): `profile` → value-survivors → synthesize `ExecutableProperty`s
@@ -321,7 +315,7 @@ exact `--input "(<slots>)"` to supply — plus, for a BOUNDARY residual, the **d
 input named** (`_boundary_hint`: the equality edge, e.g. `supply an input where units == 100`).
 `--input` supplies that residual and re-runs to close the loop.
 
-### `audit file::fn [--remove] [--parallel|--serial]`  — read-only (unless `--remove`)
+### `audit file::fn [--remove]`  — read-only (unless `--remove`)
 **Purpose:** assess an **existing** suite on both axes without changing it.
 **Operation:** one `profile` of the current suite → `redundant_2axis` (pointless tests) +
 `missing_lines` + `minimal_cover_2axis` + `classify_survivors` (killable gaps vs
@@ -480,22 +474,19 @@ field count lives in `_PARAM_FIELDS` beside the builder and `put` calls `params_
 than slicing inline. Appending a field without that is not theoretical: it silently redefined the
 slice, and a `--fast` run evicted the comprehensive entry it should have sat beside.
 
-**Adaptive parallelism** (`parallel.py`, model A): the default. A small serial **probe**
-times this function's real per-mutant cost (killing the stale-rate guessing problem), and —
-if the remaining serial work exceeds the spawn tax — fans the remainder across `spawn`
-worker processes (each re-imports, re-discovers, evaluates one contiguous mutant slice) and
-merges. The probe is reused as shard 0 (and its baseline is shared), so the measurement is
-≈free. Merge concatenates records in mutant order → **bit-identical to serial** (verified).
-Progress can't stream across processes, so a fanned run prints a one-line `⚡ N mutants
-across W workers` notice instead.
+**No parallelism (removed in 0.8.0), and the deletion is the lesson.** `parallel.py` held a
+model-A fan-out, an adaptive probe, a shard merge, and a portable memory guarantee sizing the
+fleet by construction — ~200 lines, plus a private `Wesker.memory_guard._DEFAULT_WORKER_PEAK`
+import. None of it ran. `main` wraps every command in the live session, the session's callables
+cannot cross a process spawn, and `profile` therefore refused to fan out inside one — which is
+every CLI and MCP run. Proven, not inferred: `--parallel` (5.04s) and `--serial` (5.13s) cost
+the same, the 448-test suite made **0** calls to `parallel_profile`, and a *forced* `--parallel`
+on a 37-mutant function spawned **0** workers while returning the identical verdict.
 
-**Portable memory guarantee** (`memory_guard.py`): the fleet is sized so
-`workers × per_worker_peak ≤ budget` **by construction** — pure arithmetic, identical on
-Mac/Windows/Linux (`worker_count = min(cores−2, ⌊budget/peak⌋)`, budget = a RAM fraction
-clamped to a ceiling). This is the *hard* guarantee, needing no OS resource limit.
-`RLIMIT_AS` (best-effort, Linux only — macOS rejects it, Windows lacks `resource`) and a
-`getrusage` self-check are bonus enforcement where the OS cooperates. `resource` is imported
-defensively, so Wesker also imports on Windows. `WESKER_MEM_BUDGET_MB` overrides the budget.
+The apparatus was load-bearing only for itself. It existed because the baseline was
+suite-shaped and per-function cost looked large; once the baseline became a per-session
+constant, the cost it was built to amortise was already gone. The memory guarantee guarded a
+fleet that never existed. **Serial is not a regression here — it is what was always running.**
 
 ---
 
@@ -547,7 +538,6 @@ Wesker and exist only for the duration of one `run_with_live_suite` call; both a
 | `diagnose` says "decompose" but decompose finds nothing | `_format_scope` convergent signal (`regime B` **and** `decompose_seams`) | only flag decompose when a structural seam exists |
 | extracted helper carries the PARENT's docstring (and the parent loses its own) | `decompose.find_extraction_candidates` skips a leading docstring (`ast.get_docstring`) | a docstring belongs to the function, never to an extracted block |
 | converge writes a test its own audit then calls redundant | converge step 4 minimize (`redundant_2axis` + `writer.individual_test_names`) | ship the minimal cover, not the full set + removal proposals |
-| Parallel/auto result differs from serial | `parallel.merge_results` (shard-order concat) + `run_function_profiling` `mutant_slice` | records must concatenate in mutant-index order |
 | Cache serves a stale result | `verdict_cache.cache_key` | must hash fn-AST + tests-source + params + **trace budgets**; content, never path. Anything that can change the answer belongs in the key |
 | **The command prints NOTHING and exits 0** (in CI: an empty artifact, a green check) | `Wesker.engine._run_test_with_timeout` — `_abandon` + the unwind join must happen INSIDE the redirect | the baseline runs the target's own suite; a test over its cap is abandoned, and the abandoned frame unwinds through any `redirect_stdout` IT entered, reinstalling that buffer AFTER the engine restored the real one. `sys.stdout` is then a dead buffer for the rest of the PROCESS. Belt-and-braces: `ci._body` re-enters the streams around the baseline. **Not a crash — the analysis is correct and posted to a discarded buffer** |
 | `converge` reports a tiny kill count, calls itself Incomplete, and asks for inputs it does not need | `certify._write` → `Wesker.ci.refresh_live_suite` | the live session's collection is a SNAPSHOT; converge writes tests, re-profiles, and is handed a list predating its own work (measured: 18 killed on disk, 2 reported). The refresh must ALSO invalidate the `SessionBaseline` — refreshing the list alone changes what is *discovered*, not what is *run*, and the count stays exactly as wrong |
@@ -559,7 +549,7 @@ Wesker and exist only for the duration of one `run_with_live_suite` call; both a
 | `verify_under_pytest` reports 0 passed for a passing suite | `certify.verify_under_pytest` | `-o addopts=` so the target's `-q` doesn't become `-qq` |
 | Survivor reads "uncertain — inputs don't exercise" | `engine._input_grids` / `representative_site` / `call_sites` / `capture.capture_call_inputs` (runtime harvest) | synthesis can't build a fitting value AND no covering test exercises it (domain-value / unannotated — §10) |
 | a BOUNDARY residual says "supply an input" but not WHICH | `cli._boundary_hint` names the equality edge (`left == right`) | a `>`↔`>=` shift differs exactly when operands are equal — the valid relation, not a generic template |
-| memory grows on a huge run | `run_function_profiling` mutant loop + `memory_guard.over_budget` | guard bounds accumulation; parallel bounds the fleet by construction |
+| memory grows on a huge run | `run_function_profiling` mutant loop + `memory_guard.over_budget` | guard bounds accumulation |
 
 ---
 
@@ -574,8 +564,7 @@ methods have no receiver synthesis; integration fns (subprocess/file-IO) and eng
 supplied `--input` / manual `flag` — **never a hand-written test**.
 
 **Open / deferred (not blocking).** σ-based spec-completeness ETA (upgrade the "≈N passes"
-estimate to a paper-grounded model); occasional `converge` multi-pass progress cosmetics;
-tuning of the adaptive-parallel thresholds (`PROBE_SIZE`, `PARALLEL_MIN_REMAINING_MS`).
+estimate to a paper-grounded model); occasional `converge` multi-pass progress cosmetics.
 
 **The decompose↔spec coupling (design, not bug).** A function converge can fully specify
 (pure, simple inputs) decomposes cleanly cold; one it can't (dicts/methods) needs a supplied
@@ -614,8 +603,19 @@ PYTHONPATH=/Users/rohanvinaik/tools/Detective \
 - **Bidirectional**: if dogfooding shows the bug is in Wesker, the fix goes in Wesker.
 - **Auto-apply principle**: deterministically-correct → auto; only-mostly-correct → propose
   (show code); **deletion is never auto** (propose + confirm).
-- **Determinism is the product** (the audience is Sussman-lineage): any parallel path must
-  be bit-identical to serial, any cache content-addressed. Verify, don't assume.
+- **Determinism is the product** (the audience is Sussman-lineage): any cache is
+  content-addressed, any run repeatable. Verify, don't assume — and verify a path RUNS before
+  optimising it (§7: a fan-out was tuned for releases without ever spawning a worker).
+- **The unit is ONE function's operators and ONE function's tests.** Both are static and free:
+  the mutant space is a property of THIS function's AST (`+` has a `-`, derived de novo, exactly),
+  and a green suite is a set of grounded facts you are GIVEN. Anything that aggregates across
+  functions is not a slow path, it is a different question. `diagnose --learn` was the standing
+  violation and was removed in 0.8.0: it accumulated per-category value-survival into a
+  project-wide `.wesker/mutation_report.json` and reported "which categories THIS project leaves
+  weak" — a statistical smear over unrelated functions, standing where an exact per-function
+  derivation already was. It changed no verdict; nothing branched on it, no test named it, and it
+  only ever ordered categories for a sampler this tool does not use by default. There is no such
+  object as "the mutant profile of a codebase" worth computing.
 - Engine-core / integration fns that can't self-profile are guarded by the unit suite — the
   *only* exemption from the converge rule.
 

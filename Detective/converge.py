@@ -444,7 +444,6 @@ def converge(
     call_site_inputs: list[dict] | None = None,
     supplied_inputs: list[tuple] | None = None,
     fast: bool = False,
-    use_parallel: bool | None = None,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
@@ -515,7 +514,6 @@ def converge(
             pass_index=_pass,
             extra_test_dirs=extra_test_dirs,
             progress=progress,
-            use_parallel=use_parallel,
         )
         # Value-survivors: what the suite hasn't pinned the RETURN VALUE of — true
         # survivors plus crash/timeout kills. Converging drives THIS to zero, so a
@@ -624,7 +622,6 @@ def converge(
         project_root,
         extra_test_dirs=extra_test_dirs,
         progress=progress,
-        use_parallel=use_parallel,
     )
     # Don't SHIP a suite our own minimal-cover immediately flags as non-minimal: drop any test
     # WE generated that is redundant for BOTH kills AND lines (zero marginal contribution), then
@@ -651,7 +648,6 @@ def converge(
                 project_root,
                 extra_test_dirs=extra_test_dirs,
                 progress=progress,
-                use_parallel=use_parallel,
             )
     final = final_result.value_survived
     at_ceiling = final == 0

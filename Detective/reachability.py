@@ -205,11 +205,12 @@ def reachable_test_paths(root: str, target_file: str) -> list[str] | None:
         return None  # target outside the tree -> cannot reason -> collect everything
 
     keep: list[str] = []
+    conftests: list[str] = []
     tests = 0
     for m, p in paths.items():
         base = os.path.basename(p)
         if base == "conftest.py":
-            keep.append(p)
+            conftests.append(p)
             continue
         if not base.startswith("test_"):
             continue
@@ -218,6 +219,33 @@ def reachable_test_paths(root: str, target_file: str) -> list[str] | None:
             keep.append(p)
     if not tests:
         return None
-    if not any(os.path.basename(p).startswith("test_") for p in keep):
+    if not keep:
         return None  # nothing reachable is more likely a broken analysis than a real answer
-    return sorted(keep)
+    return sorted(keep + _ancestor_conftests(conftests, keep))
+
+
+def _ancestor_conftests(conftests: list[str], kept_tests: list[str]) -> list[str]:
+    """Only the conftests that GOVERN a kept test file — never a sibling directory's.
+
+    Every conftest used to be passed, on the reasoning that "pytest needs it to collect at all,
+    and a dropped conftest turns a scoped collection into a broken one." True of an ANCESTOR and
+    false of a sibling, and the difference is not cosmetic: a path argument is a COLLECTION
+    TARGET, so naming `tests/integration/conftest.py` makes pytest import it even when nothing
+    under `tests/integration/` is being collected. If that conftest happens to be broken — a
+    stale import, the most ordinary drift there is — collection dies, the session binds zero
+    callables, and every verdict in the repo becomes a false `0 pinned`. Measured on
+    TailChasingFixer: exactly that, from one `ModuleNotFoundError` in a conftest governing a
+    directory the run never touched.
+
+    Dropping a non-ancestor cannot lose coverage, which is why this is safe in the one direction
+    that matters: pytest loads conftests by DIRECTORY, walking from rootdir down to each collected
+    file. A conftest that governs none of our files is one pytest would never have loaded — so
+    naming it can only add a failure, never a fixture. Ancestors are still passed: for them the
+    import happens either way, so this changes nothing.
+    """
+    dirs = {os.path.dirname(os.path.abspath(t)) for t in kept_tests}
+    return [
+        c
+        for c in conftests
+        if any(d == (cd := os.path.dirname(os.path.abspath(c))) or d.startswith(cd + os.sep) for d in dirs)
+    ]

@@ -10,6 +10,7 @@ and its status token is stable, so tooling that tails the output always finds th
 
 from __future__ import annotations
 
+from Detective.certify import PytestWiring
 from Detective.cli import _final_banner, _format_converge_terse, _plain_terms
 from Detective.converge import ConvergeResult
 from Detective.equivalence import MutantVerdict, SurvivorReport, Witness
@@ -28,7 +29,13 @@ def _cr(**over) -> ConvergeResult:
         killed=10,
         functionally_complete=True,
         line_complete=True,
+        # The two counts are deliberately DIFFERENT, because they are different quantities and
+        # the banner conflated them: `minimal_test_count` is the two-axis minimal cover over the
+        # whole suite (the consumer's tests included), `wiring.passed` is what WE wrote, measured
+        # by running our file. Equal fixtures cannot tell the two apart — which is exactly how
+        # `wrote 3 test(s)` shipped for a file holding one test.
         minimal_test_count=3,
+        wiring=PytestWiring(None, True, 1, ""),
     )
     base.update(over)
     return ConvergeResult(**base)
@@ -48,7 +55,8 @@ def test_banner_complete_clean():
     b = _final_banner(_cr())
     assert b.startswith("FINAL m.py::f: ✓ COMPLETE")
     assert "10/10 killed" in b
-    assert "3 test(s)" in b
+    assert "1 test(s)" in b  # what we WROTE (wiring.passed) …
+    assert "3 test(s)" not in b  # … never the minimal cover, which counts the consumer's tests
     assert b.endswith("→ tests/test_f_synth.py")
 
 

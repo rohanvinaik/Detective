@@ -84,7 +84,16 @@ def test_the_guard_never_imports_the_target(tmp_path):
 
 
 # ── _suite_path ───────────────────────────────────────────────────
-def test_suite_path_is_just_the_root_without_config(tmp_path):
+def test_suite_path_is_EMPTY_without_a_conftest_or_a_pythonpath(tmp_path):
+    # The suite gets NOTHING extra here, and saying otherwise is the whole defect: pytest puts
+    # the rootdir on sys.path only for a ROOT conftest.py, so claiming it unconditionally hands
+    # `shadowed_target` a path entry the suite does not have — and every shadow that entry would
+    # hide becomes invisible to the guard built to find it.
+    assert _suite_path(str(tmp_path)) == []
+
+
+def test_suite_path_is_the_root_when_a_root_conftest_anchors_it(tmp_path):
+    (tmp_path / "conftest.py").write_text("")
     assert _suite_path(str(tmp_path)) == [str(tmp_path)]
 
 
@@ -92,22 +101,26 @@ def test_suite_path_puts_pythonpath_BEFORE_the_root(tmp_path):
     # pytest inserts pythonpath at the FRONT. Listing root first resolves a src-layout to
     # whatever sits at the root and masks the shadow this exists to find.
     (tmp_path / "src").mkdir()
+    (tmp_path / "conftest.py").write_text("")  # what puts the root on the path at all
     (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\npythonpath = ["src"]\n')
     assert _suite_path(str(tmp_path)) == [str(tmp_path / "src"), str(tmp_path)]
 
 
 def test_suite_path_drops_entries_that_are_not_directories(tmp_path):
+    (tmp_path / "conftest.py").write_text("")
     (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\npythonpath = ["nope"]\n')
     assert _suite_path(str(tmp_path)) == [str(tmp_path)]
 
 
 def test_suite_path_survives_an_unparseable_pyproject(tmp_path):
     # A broken config must not break the guard — root is still the honest floor.
+    (tmp_path / "conftest.py").write_text("")
     (tmp_path / "pyproject.toml").write_text("this is not toml {{{")
     assert _suite_path(str(tmp_path)) == [str(tmp_path)]
 
 
 def test_suite_path_survives_a_pyproject_with_no_pytest_section(tmp_path):
+    (tmp_path / "conftest.py").write_text("")
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n')
     assert _suite_path(str(tmp_path)) == [str(tmp_path)]
 

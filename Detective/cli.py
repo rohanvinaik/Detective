@@ -71,16 +71,6 @@ def _split_target(target: str) -> tuple[str, str]:
     return file, function
 
 
-def _parallel_mode(args) -> bool | None:
-    """Resolve the tri-state parallelism choice: ``--parallel`` → True (force fan-out),
-    ``--serial`` → False (force serial), neither → None (adaptive auto — the default)."""
-    if getattr(args, "parallel", False):
-        return True
-    if getattr(args, "serial", False):
-        return False
-    return None
-
-
 def _format_scope(scope) -> str:
     """The diagnose report: what this function does, and the ONE thing to run next.
 
@@ -121,10 +111,6 @@ def _format_scope(scope) -> str:
     if spec.inert_freedom:
         lines.append(_row("· inert", f"{spec.inert_freedom} — no test could ever tell the difference"))
     lines.append(_row("· shape", _shape_phrase(entangled, seams)))
-    priors = getattr(scope, "learned_priors", []) or []
-    if priors:
-        shown = ", ".join(f"{cat} {prior:.0%}" for cat, prior in priors)
-        lines.append(_row("· learned-weak", f"{shown} — this project's own history"))
     lines.append("")
     lines += _diagnose_action(scope, spec, entangled, seams)
     return "\n".join(lines)
@@ -682,9 +668,34 @@ def _final_banner(result) -> str:
         # ✗ made a good result look like a broken run. State the residual plainly instead —
         # what is missing is already named in `bits`.
         status = "Incomplete" + (f": {' · '.join(bits)}" if bits else "")
-    tests = f" · {result.minimal_test_count} test(s)" if result.minimal_test_count else ""
+    # Next to the arrow, this slot READS as "wrote N tests → here", so it has to BE that.
+    # `minimal_test_count` is a different quantity — the two-axis minimal cover over the WHOLE
+    # suite, ours and the consumer's together — and printing it beside our own path credits us
+    # with the consumer's tests. See `_written_count`.
+    written = _written_count(result)
+    count = written if result.written_path else (result.minimal_test_count or None)
+    tests = f" · {count} test(s)" if count else ""
     arrow = f" → {_rel_path(result.written_path)}" if result.written_path else ""
     return f"FINAL {result.function}: {status} · {result.killed}/{total} killed{tests}{arrow}"
+
+
+def _written_count(result) -> int | None:
+    """How many tests Detective actually WROTE — measured by running them, never inferred.
+
+    `minimal_test_count` was standing in for this, and it answers a different question: the size
+    of the two-axis minimal cover across the ENTIRE suite for this function, the consumer's
+    hand-written tests included. Reported as "✓ wrote N test(s) → <our file>", it claims their
+    tests as our product. Measured on TailChasingFixer: `wrote 3 test(s)` for a file containing
+    exactly ONE test function — the 3 were the repo's own `is_valid_for` tests, which the minimal
+    cover had (correctly) selected. It went unnoticed because the two numbers COINCIDE whenever
+    the function had no tests before, which is every function the dogfood harness converges.
+
+    `wiring.passed` is the count from actually running the written file under real pytest
+    (`certify.verify_under_pytest`), so it counts what a user's own `pytest` will count —
+    parametrized cases included, which a `def test_` grep would miss. It is set exactly when
+    `written_path` is, so there is no case where we wrote a file and cannot say how much.
+    """
+    return result.wiring.passed if result.wiring is not None else None
 
 
 def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> str:
@@ -867,8 +878,17 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
     if result.written_path:
         # `_rel_path`, like the banner: converge stores ABSOLUTE paths, and a 90-character
         # /private/tmp/... string in a fixed-width column wraps and destroys the report.
+        # The count of what WE wrote, not the minimal cover of everything covering this
+        # function — see `_written_count`. This row names our file; the number beside it must
+        # describe our file.
+        written = _written_count(result)
         lines.append(
-            _row("✓ wrote", f"{result.minimal_test_count} test(s) → {_rel_path(result.written_path)}")
+            _row(
+                "✓ wrote",
+                f"{written} test(s) → {_rel_path(result.written_path)}"
+                if written is not None
+                else _rel_path(result.written_path),
+            )
         )
     if rep is not None and rep.killable:
         lines.append(_row("✗ still killable", f"{len(rep.killable)} — a witness exists for each"))
@@ -1612,32 +1632,6 @@ def _build_parser() -> argparse.ArgumentParser:
                 "with a real object and Detective captures the arguments from it. The report "
                 "tells you which of the two applies; it never asks for an --input it will refuse.",
             )
-        if name in ("converge", "audit", "diagnose"):
-            # Default is ADAPTIVE auto: a small serial probe measures this function's real
-            # per-mutant cost, then it fans out across CPU cores only when the remaining work
-            # justifies it (so small/fast functions never pay the spawn tax). Memory-bounded by
-            # construction (workers × per-worker budget ≤ RAM fraction); verdicts identical to
-            # serial. ``--parallel`` forces the whole run parallel; ``--serial`` forces serial.
-            p.add_argument(
-                "--parallel",
-                action="store_true",
-                help="force fan-out across CPU cores for the whole run (skip the adaptive "
-                "probe). Per-mutant progress streaming is disabled in parallel.",
-            )
-            p.add_argument(
-                "--serial",
-                action="store_true",
-                help="force serial — disable the adaptive auto-parallelization (debugging, or "
-                "a machine where process spawn is constrained).",
-            )
-        if name == "diagnose":
-            p.add_argument(
-                "--learn",
-                action="store_true",
-                help="fold this run's per-category value-survival into the project's "
-                ".wesker/mutation_report.json and show the learned-weak priors — which "
-                "mutation categories THIS project recurrently leaves value-unspecified",
-            )
         if name == "audit":
             p.add_argument(
                 "--remove",
@@ -1721,7 +1715,7 @@ def _shadow_root(shadow) -> str:
     return os.path.dirname(root) if os.path.basename(root) == "src" else root
 
 
-def _format_regime(regime, plan=None, applied: tuple[str, ...] = ()) -> str:
+def _format_regime(regime, plan=None, applied: tuple[str, ...] = (), target: str | None = None) -> str:
     """The testing regime, as read — what imports what, and whether anything is in conflict.
 
     This is the stage every other command runs silently. Printing it exists because the four
@@ -1742,7 +1736,13 @@ def _format_regime(regime, plan=None, applied: tuple[str, ...] = ()) -> str:
         lines.append(_row("· testpaths", ", ".join(regime.testpaths)))
     lines.append(_row("· conftest", ", ".join(regime.conftests) if regime.conftests else "(none)"))
     lines.append(
-        _row("· detective marker", "declared in pyproject" if regime.marker_declared else "not declared")
+        # Name the FILE. "declared in pyproject" was hardcoded, and on a repo whose `pytest.ini`
+        # outranks pyproject that sentence described a file pytest ignores — the report agreeing
+        # with the bug instead of exposing it.
+        _row(
+            "· detective marker",
+            f"declared in {regime.config_file or 'config'}" if regime.marker_declared else "not declared",
+        )
     )
     if regime.module:
         lines.append(_row("· target imports as", regime.module))
@@ -1755,12 +1755,12 @@ def _format_regime(regime, plan=None, applied: tuple[str, ...] = ()) -> str:
         lines.append("  MIGRATED:")
         lines += [_row("", f"✓ {what}") for what in applied]
     lines.append("")
-    lines += _regime_action(regime, plan, applied)
+    lines += _regime_action(regime, plan, applied, target)
     lines.append("")
     return "\n".join(lines) + "\n"
 
 
-def _regime_action(regime, plan, applied) -> list[str]:
+def _regime_action(regime, plan, applied, target: str | None = None) -> list[str]:
     """The one thing to do next. Migration first — it is the only step that is ours to take."""
     if plan is not None and plan.blocked:
         # Say what migration CANNOT fix before offering to run it. A tool that tidies the config
@@ -1771,8 +1771,15 @@ def _regime_action(regime, plan, applied) -> list[str]:
         return out
     if plan is not None and plan.needed:
         where = f" --project-root '{regime.root}'" if regime.root else ""
+        # Carry the TARGET, because half of what this command can fix is only VISIBLE with one.
+        # `resolve_regime` runs the shadow check per file, so a targetless re-run cannot see the
+        # shadow that produced this very line — and `plan_migration` then finds nothing to do.
+        # Printed without it, the command answered "this regime resolves cleanly · nothing to
+        # migrate" about the problem it had just diagnosed one line above, and wrote nothing.
+        # A caller following the action verbatim (which is the contract) loops forever on it.
+        aim = f" '{target}'" if target else ""
         return [
-            f"DO THIS:  detective regime --migrate{where}",
+            f"DO THIS:  detective regime --migrate{aim}{where}",
             "",
             _row("· writes", "the marker (and pythonpath, if a conftest WE wrote was"),
             _row("", "supplying it) into pyproject — then removes that conftest."),
@@ -1783,9 +1790,14 @@ def _regime_action(regime, plan, applied) -> list[str]:
             "DO THIS:  resolve the conflict — every verdict here is untrustworthy until",
             "          you do. Run the command you wanted; it refuses with the exact fix.",
         ]
+    # `DONE:`, not `DO THIS: nothing`. Every other command already draws this line — `DONE: no
+    # separable block`, `DONE: every killable behaviour is pinned` — and the split is the whole
+    # contract for a caller that is not a person: `DO THIS:` is a command to RUN, `DONE:` is a
+    # stop. `DO THIS: nothing — this regime resolves cleanly` hands a parser prose where the
+    # grammar promises a command, in the one command the banner tells a new repo to run FIRST.
     return [
-        "DO THIS:  nothing — this regime resolves cleanly. Run `detective audit`,",
-        "          `converge`, or `decompose` on a target in it.",
+        "DONE:  this regime resolves cleanly — nothing to migrate. Run `detective audit`,",
+        "       `converge`, or `decompose` on a target in it.",
     ]
 
 
@@ -1887,13 +1899,54 @@ def _format_conflicts(regime, target: str) -> str:
     return _format_collision(regime, target)
 
 
+def _target_error(exc: Exception, args) -> str:
+    """A bad target, said in one line, with the names that WOULD have worked.
+
+    "not found" is a dead end; the file's own function list is the fix, and it is one cheap AST
+    read away. Wrong-name is the common miss (a stale qualname after a rename, `Class.method`
+    written bare, a typo), and every one of those is answered by showing what is actually there.
+
+    Never raises: this runs on the error path, and a formatter that throws replaces a bad-target
+    message with a traceback about the bad-target message.
+    """
+    target = getattr(args, "target", None) or "?"
+    if isinstance(exc, FileNotFoundError):
+        return f"detective: no such file: {target} — the path is relative to --project-root"
+    names: list[str] = []
+    try:
+        import ast as _ast
+
+        from Wesker.ci import walk_functions
+
+        file = _split_target(target)[0]
+        root = os.path.abspath(getattr(args, "project_root", ".") or ".")
+        full = file if os.path.isabs(file) else os.path.join(root, file)
+        with open(full, encoding="utf-8") as fh:
+            names = [qn for qn, _ in walk_functions(_ast.parse(fh.read(), filename=full))]
+    except Exception:  # noqa: BLE001 — see "never raises" above
+        names = []
+    if not names:
+        return f"detective: {exc}"
+    shown = ", ".join(names[:12]) + (f", … (+{len(names) - 12} more)" if len(names) > 12 else "")
+    return f"detective: {exc}\n  functions in that file: {shown}"
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run a command, then emit a lightweight memory-telemetry footer (human mode).
     The footer is best-effort: monitoring must never fail the actual work. It goes to
     STDERR — advisory monitoring, like progress — so STDOUT ends on the result banner and
     stays clean for piping."""
     args = _build_parser().parse_args(argv)
-    code = _run_live(args)
+    try:
+        code = _run_live(args)
+    except (LookupError, FileNotFoundError) as exc:
+        # A target that does not exist is a USER error, and it was reaching the terminal as a
+        # 36-line Python traceback — the one shape a caller cannot tell from a crash. Every other
+        # bad input here already exits clean (`_split_target`: "target must be 'file.py::function'"),
+        # so these two were the gap, not the rule. The consumer that matters is a small model
+        # driving refactors from this output: a traceback gives it nothing to route on, while
+        # "not found · here are the names that ARE in the file" is the next action itself.
+        raise SystemExit(_target_error(exc, args)) from exc
     # Telemetry is for a run you are DEBUGGING, not every run. It answered a question nobody
     # asked ("41 MB of a 2048 MB budget") on every invocation, and — being unbuffered stderr
     # written after a buffered stdout report — it surfaced ABOVE the result it postdates,
@@ -2016,7 +2069,54 @@ def _run_live(args) -> int:
     if code is None:
         sys.stderr.write(_format_session_warning(diagnostic))
         return _run(args)
+    sys.stderr.write(_format_uncollected(diagnostic, paths, root))
     return code
+
+
+def _format_uncollected(diagnostic: dict[str, Any], paths: list[str] | None, root: str) -> str:
+    """Name the reachable test files that never collected — "" when none did.
+
+    The session SURVIVING a collection error is what `--continue-on-collection-errors` bought,
+    and unreported it is a downgrade dressed as a fix: one broken import used to zero the
+    collection and fire a loud warning, and now 41 of 44 files bind while the 3 holding the
+    target's tests are dropped in silence, under a confident `0 pinned`. Measured on
+    TailChasingFixer, whose 11 stale imports are an ordinary amount of drift. A file that never
+    collected contributes no tests, so every mutant its tests would have killed reads as an
+    unpinned behaviour — and a caller acting on that writes tests for behaviour already pinned.
+
+    REACHABLE errors only, which is the whole reason this is Detective's job and not Wesker's.
+    Most collection errors are in files that could never execute the target: real, and noise
+    here. `_reachable_paths` already computed the set that could, and an error inside THAT set is
+    the only kind that can cost a kill. Warning about the rest would train a reader to ignore the
+    warning — which is how the loud-degrade discipline dies.
+
+    Advisory, on stderr, and NOT a refusal: unlike a shadowed target, the measurement is still
+    honest about what it measured, and a partial floor is the normal state of a drifted repo. It
+    reads as a footnote to a number, which is exactly its weight — the number may be low because
+    of this. Silence would let it read as a finding.
+    """
+    errors = diagnostic.get("errors") or []
+    if not errors:
+        return ""
+    reachable = {os.path.abspath(p) for p in paths} if paths else None
+    hits = [
+        nodeid
+        for nodeid, _ in errors
+        # nodeid for a module-level collection failure IS the rootdir-relative path. `paths=None`
+        # means the analysis declined to scope, so every collected file was reachable-by-default
+        # and every error is a candidate — the same "any doubt, include it" rule that produced it.
+        if reachable is None or os.path.abspath(os.path.join(root, str(nodeid).split("::")[0])) in reachable
+    ]
+    if not hits:
+        return ""
+    shown = "\n".join(f"           {n}" for n in hits[:3])
+    more = f"\n           … and {len(hits) - 3} more" if len(hits) > 3 else ""
+    return (
+        f"WARNING: {len(hits)} test file(s) that could reach this target FAILED TO COLLECT, so\n"
+        f"         their tests never ran. Behaviour they pin will read as unpinned below.\n"
+        f"{shown}{more}\n"
+        f"         Fix the import(s), or re-run once they collect, before trusting a gap.\n"
+    )
 
 
 def _format_session_warning(diagnostic: dict[str, Any]) -> str:
@@ -2094,7 +2194,7 @@ def _run(args) -> int:
         if args.json:
             print(json.dumps({"regime": _asdict(regime), "applied": list(applied)}, indent=2, default=str))
         else:
-            print(_format_regime(regime, plan, applied))
+            print(_format_regime(regime, plan, applied, args.target))
         # A conflict is the answer, not a crash: exit 2 so a script can gate on it, the same
         # code every other command returns when it refuses for the same reason.
         return 2 if regime.conflicts else 0
@@ -2165,16 +2265,11 @@ def _run(args) -> int:
     if args.command == "diagnose":
         from .engine import diagnose
 
-        _par = _parallel_mode(args)
         scope = diagnose(
             file,
             function,
             args.project_root,
-            learn=getattr(args, "learn", False),
-            use_parallel=_par,
-            progress=None if _par else _stream_progress(function),
-            # The traced baseline runs in THIS process even when the mutation loop fans out, so
-            # the trace reporter is wired regardless of `_par` — it is the phase that was silent.
+            progress=_stream_progress(function),
             trace_progress=_stream_trace_progress(function),
             # BOTH budgets, always. `--trace-budget` used to stop here while its session sibling
             # went through, so the per-test cap silently stayed at the default however the user
@@ -2197,7 +2292,6 @@ def _run(args) -> int:
             if getattr(args, "input", None)
             else None
         )
-        _par = _parallel_mode(args)
         result = converge(
             file,
             function,
@@ -2206,8 +2300,7 @@ def _run(args) -> int:
             max_iterations=args.max_iterations,
             supplied_inputs=supplied,
             fast=args.fast,
-            use_parallel=_par,
-            progress=None if _par else _stream_progress(function),
+            progress=_stream_progress(function),
             notify=_notify_stderr,
         )
         if args.json:
@@ -2231,13 +2324,11 @@ def _run(args) -> int:
     if args.command == "audit":
         from .audit import audit_suite
 
-        _par = _parallel_mode(args)
         report = audit_suite(
             file,
             function,
             args.project_root,
-            use_parallel=_par,
-            progress=None if _par else _stream_progress(function),
+            progress=_stream_progress(function),
         )
         print(json.dumps(asdict(report), indent=2, default=str) if args.json else _format_audit(report))
         if args.remove and report.redundant_tests:

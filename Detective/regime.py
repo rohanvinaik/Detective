@@ -33,7 +33,7 @@ import os
 from dataclasses import dataclass
 
 from .certify import _PYTEST_SECTION
-from .engine import ShadowedTarget, _suite_path, shadowed_target
+from .engine import ShadowedTarget, _resolve_origin, _suite_path, shadowed_target
 from .reachability import _SKIP_DIRS, _pytest_norecursedirs
 from .synthesis.oracle_light import importable_module
 
@@ -48,7 +48,7 @@ class TestRegime:
     testpaths: tuple[str, ...]  # declared [tool.pytest.ini_options] testpaths, if any
     pythonpath: tuple[str, ...]  # declared pythonpath — the DECLARATIVE form of a sys.path insert
     marker_declared: bool  # `detective` legal under --strict-markers without a conftest
-    has_config: bool  # a pyproject.toml exists to declare into
+    has_config: bool  # a config file exists to declare into
     conftests: tuple[str, ...]  # every conftest.py pytest would load, repo-relative
     # Conftests that share ONE importable name (their directory is not a package, so each is the
     # module `conftest`). Two of those in one process is `import file mismatch`.
@@ -57,6 +57,19 @@ class TestRegime:
     # is ours, the fix is exact and safe — delete ours. If neither is, we do not guess, because
     # the obvious alternative is not safe (see below) and both files are the user's.
     generated_conftests: tuple[str, ...] = ()
+    # The config file pytest ACTUALLY reads, repo-relative ("" when none) — `pytest.ini`,
+    # `pyproject.toml`, `tox.ini`, or `setup.cfg`, resolved by pytest's own precedence (see
+    # `pytest_config`). Named, not assumed: a report saying "declared in pyproject" about a repo
+    # whose `pytest.ini` outranks it describes a file with no effect on the run it describes.
+    # Down here only because a dataclass cannot default a field ahead of non-defaulted ones; it
+    # belongs beside `has_config`, which is the question it answers precisely.
+    config_file: str = ""
+    # A shadow that `pythonpath = ["."]` would FIX. The question is not which layout this is —
+    # it is whether the suite can be made to import the tree we were pointed at, which is the
+    # only thing the tool needs in order to read and write that suite. Answered by asking, not
+    # by classifying: resolve the target's module with the root on the path and see if it lands
+    # on the target file. False (and meaningless) when there is no shadow.
+    root_resolves: bool = False
     target: str | None = None  # the file under analysis, absolute
     module: str | None = None  # the dotted name the REST of the repo imports it by
     shadow: ShadowedTarget | None = None  # set iff `module` resolves to a different file
@@ -93,16 +106,106 @@ def _layout(root: str) -> str:
     return "scripts"
 
 
-def _pytest_table(root: str) -> dict:
-    """`[tool.pytest.ini_options]`, or {} when there is no readable config."""
-    try:
-        import tomllib
+# pytest's OWN config precedence, in its own order. `pytest.ini` wins even when EMPTY; the other
+# three count only when they actually carry a pytest section. `(filename, dialect, section)`.
+_CONFIG_ORDER = (
+    ("pytest.ini", "ini", "[pytest]"),
+    ("pyproject.toml", "toml", "[tool.pytest.ini_options]"),
+    ("tox.ini", "ini", "[pytest]"),
+    ("setup.cfg", "ini", "[tool:pytest]"),
+)
 
-        with open(os.path.join(root, "pyproject.toml"), "rb") as fh:
-            table = tomllib.load(fh).get("tool", {}).get("pytest", {}).get("ini_options", {})
-    except (OSError, ValueError, ImportError, AttributeError):
+
+def pytest_config(root: str) -> tuple[str, str, str] | None:
+    """The config file pytest will ACTUALLY read — `(path, dialect, section)` — or None.
+
+    This module exists because four bugs shared one cause: resolving the way THIS PROCESS does
+    instead of the way the SUITE does. This is the fifth, and it was inside the module written to
+    end them. `_pytest_table` read `pyproject.toml` and `ensure_marker_registered` wrote it, both
+    unconditionally — but `pytest.ini` OUTRANKS `[tool.pytest.ini_options]`, and so do `tox.ini`
+    and `setup.cfg`. On any repo carrying one, `regime --migrate` declared the marker into a file
+    pytest ignores and reported `✓ MIGRATED · this regime resolves cleanly`. pytest says so out
+    loud — `configfile: pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)` — and
+    nobody was reading it. Measured on TailChasingFixer: the marker went into pyproject, pytest.ini
+    carried `--strict-markers`, and every test Detective generated failed to COLLECT. A migration
+    that reports success and changes nothing is worse than one that refuses: it is a green light
+    on a broken regime.
+
+    Returns None when nothing declares pytest config AND there is no `pyproject.toml` to declare
+    into — there is no file to write and creating one is not ours to do. When no config exists but
+    `pyproject.toml` does, that is the answer: it is where a declaration WOULD take effect, which
+    is the same question.
+    """
+    for name, dialect, section in _CONFIG_ORDER:
+        path = os.path.join(root, name)
+        if not os.path.isfile(path):
+            continue
+        if name == "pytest.ini":
+            return path, dialect, section  # wins unconditionally — even empty
+        try:
+            with open(path, encoding="utf-8") as fh:
+                source = fh.read()
+        except OSError:
+            continue
+        if section in source:
+            return path, dialect, section
+    pyproject = os.path.join(root, "pyproject.toml")
+    if os.path.isfile(pyproject):
+        return pyproject, "toml", "[tool.pytest.ini_options]"
+    return None
+
+
+def _pytest_table(root: str) -> dict:
+    """The resolved config's pytest settings, or {} when there is no readable config.
+
+    Reads whatever `pytest_config` resolved, in that file's dialect — not `pyproject.toml` on
+    faith. A repo with a `pytest.ini` has its `testpaths` THERE, and reading them from a
+    pyproject pytest is ignoring answers a question about a file that does not run.
+    """
+    resolved = pytest_config(root)
+    if resolved is None:
         return {}
-    return table if isinstance(table, dict) else {}
+    path, dialect, section = resolved
+    if dialect == "toml":
+        try:
+            import tomllib
+
+            with open(path, "rb") as fh:
+                table = tomllib.load(fh).get("tool", {}).get("pytest", {}).get("ini_options", {})
+        except (OSError, ValueError, ImportError, AttributeError):
+            return {}
+        return table if isinstance(table, dict) else {}
+    try:
+        import configparser
+
+        parser = configparser.ConfigParser()
+        parser.read(path, encoding="utf-8")
+        raw = dict(parser[section.strip("[]")])
+    except (OSError, KeyError, ValueError, ImportError):
+        return {}
+    # An ini value is one string; the TOML side returns LISTS for the keys we read, and a caller
+    # iterating a str gets its CHARACTERS — silently, as a falsy answer rather than an error.
+    # `marker_declared` did exactly that: `any(m.startswith("detective:") for m in markers)` over
+    # a string tested every CHARACTER, so a correctly-registered marker read as absent and
+    # `--migrate` told you to migrate a repo it had just migrated.
+    #
+    # The two shapes split DIFFERENTLY and that is not a detail: a marker is `name: prose with
+    # spaces`, one per LINE, so whitespace-splitting it shreds every entry into words, while
+    # `testpaths` is whitespace-separated. Same dialect, two grammars.
+    return {k: _as_list(k, v) for k, v in raw.items()}
+
+
+def _by_line(v: str) -> list[str]:
+    return [ln.strip() for ln in v.strip().splitlines() if ln.strip()]
+
+
+def _as_list(key: str, value: str) -> object:
+    """An ini value in the shape the TOML side of `_pytest_table` returns for the same key."""
+    if key == "markers":
+        return _by_line(value)
+    if key in ("testpaths", "norecursedirs"):
+        return value.split()
+    return value
 
 
 def _conftest_module(root: str, conftest: str) -> str:
@@ -164,10 +267,12 @@ def resolve_regime(project_root: str = ".", file: str | None = None) -> TestRegi
     """
     root = os.path.abspath(project_root)
     conftests, colliding, generated = _conftests(root)
+    config = pytest_config(root)
     table = _pytest_table(root)
     markers = table.get("markers", []) or []
     target = module = None
     shadow = None
+    root_resolves = False
     if file:
         full = os.path.abspath(file if os.path.isabs(file) else os.path.join(root, file))
         if os.path.isfile(full):
@@ -176,6 +281,11 @@ def resolve_regime(project_root: str = ".", file: str | None = None) -> TestRegi
             if not rel.startswith(os.pardir):
                 module = importable_module(rel, root)
                 shadow = shadowed_target(full, root)
+                if shadow is not None:
+                    # One extra subprocess, and only on the shadow path — the rare case where
+                    # the answer decides between "we can fix this" and "only you can".
+                    origin = _resolve_origin(module, root, [root])
+                    root_resolves = bool(origin) and os.path.realpath(origin) == os.path.realpath(full)
     return TestRegime(
         root=root,
         layout=_layout(root),
@@ -183,7 +293,9 @@ def resolve_regime(project_root: str = ".", file: str | None = None) -> TestRegi
         testpaths=tuple(table.get("testpaths", []) or []),
         pythonpath=tuple(table.get("pythonpath", []) or []),
         marker_declared=any(str(m).startswith("detective:") for m in markers),
-        has_config=os.path.isfile(os.path.join(root, "pyproject.toml")),
+        root_resolves=root_resolves,
+        has_config=config is not None,
+        config_file=os.path.relpath(config[0], root) if config else "",
         conftests=conftests,
         colliding_conftests=colliding,
         generated_conftests=generated,
@@ -242,10 +354,24 @@ def plan_migration(regime: TestRegime) -> Migration:
     # Declared once, both cases are fixed for every invocation, which is the difference between
     # a setup that happens to work and one that is correct.
     root_conftest_is_ours = "conftest.py" in ours
-    needs_root = root_conftest_is_ours or regime.layout == "scripts"
+    #  * a shadow the root would RESOLVE. The whole requirement is that the tool can read and
+    #    write THIS project's suite, and a suite importing another copy of the target cannot be
+    #    read or written meaningfully. Where `pythonpath = ["."]` makes the name land on the tree
+    #    we were pointed at, that is a migration we can perform — not a decision to hand back.
+    #    Asked, never inferred from layout: a flat package at the root needs this exactly as much
+    #    as a scripts tree does when nothing else puts the root on the path (measured on Wesker's
+    #    own repo — `layout: flat`, no conftest, and bare `pytest` importing site-packages), while
+    #    an editable-installed flat repo needs nothing and must not be edited for a non-problem.
+    #    The resolution answers that; the layout does not.
+    fixable_shadow = regime.shadow is not None and regime.root_resolves
+    needs_root = root_conftest_is_ours or regime.layout == "scripts" or fixable_shadow
     declare_pythonpath = needs_root and "." not in regime.pythonpath
     blocked: list[str] = []
-    if regime.shadow is not None:
+    if regime.shadow is not None and not regime.root_resolves:
+        # BLOCKED only when we cannot fix it: the name resolves elsewhere and the root would not
+        # change that (a src-layout needing `src`, a `.pth` aimed at another checkout, two
+        # installs of one distribution). Then it is genuinely a choice about which tree is meant,
+        # and guessing between two checkouts of someone's code is not ours to do.
         blocked.append(
             f"`{regime.shadow.module}` imports {regime.shadow.imported}, not this tree — "
             "install this one (`pip install -e .`) or point --project-root at that one"

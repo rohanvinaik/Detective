@@ -85,11 +85,6 @@ class ScopeMap:
     # there is NOTHING to kill with — a "write a test" signal, not weak tests. -1 = the
     # profiler did not report it (backward-compatible).
     tests_discovered: int = -1
-    # Optional learned-weak signal (diagnose --learn): (category, value-survival prior)
-    # ordered weakest-first, aggregated across this project's runs. Empty unless asked —
-    # surfaces which mutation categories this project's OWN code+tests recurrently leave
-    # value-unspecified, so attention/budget go where the gaps actually recur.
-    learned_priors: list[tuple[str, float]] = field(default_factory=list)
     # Structural decomposition seams: the count of clean single-exit, small-interface
     # extraction candidates the deterministic clustering finds (independent of tests). It is
     # the STRUCTURAL half of the "is this two things?" question; regime B is the BEHAVIORAL
