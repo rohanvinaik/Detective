@@ -338,7 +338,7 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
     { name = "pytest", specifier = ">=7" },
     { name = "ruff", specifier = ">=0.6" },
-    { name = "wesker", specifier = ">=0.6.2" },
+    { name = "wesker", specifier = ">=0.8.0" },
 ]
 provides-extras = ["mcp"]
 
@@ -995,9 +995,9 @@ wheels = [
 
 [[package]]
 name = "wesker"
-version = "0.6.2"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3e/47/5382c03d69df0b981505b1f37563954c34e47acea37c3789e66bc951bb8a/wesker-0.6.2.tar.gz", hash = "sha256:d8e51dfcec58a700024aff580c309f91782c6f218c9317f7ad3727ade86ff9d7", size = 276571, upload-time = "2026-07-16T15:54:46.242Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/1f/0cae505bc12e774a27753ac74ee688153b753715dc8868cb483a6dcf9f18/wesker-0.8.0.tar.gz", hash = "sha256:4150e6eca3ee80ea3f6a0cb1825cffb7981d9413dcc7eb3acf13bd1dc64905e1", size = 285301, upload-time = "2026-07-17T01:21:58.234Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/88/b01ce6c93c15347c62ff8f5f1fb725cf4b0922b9efbbe2a198b370a77f61/wesker-0.6.2-py3-none-any.whl", hash = "sha256:2e166d22843ead5fe46cabd74f3b07b83002f470f546c43741539a006a30f558", size = 124885, upload-time = "2026-07-16T15:54:47.777Z" },
+    { url = "https://files.pythonhosted.org/packages/93/ca/336921d8937121ddc01e39d6cc4d798ac0f19b77cfa6a8c49cb482b714ef/wesker-0.8.0-py3-none-any.whl", hash = "sha256:3efc3394ff228197e98f8e355a108dd5883b5c70a5879130ff17fcaeff05db02", size = 130235, upload-time = "2026-07-17T01:21:56.904Z" },
 ]

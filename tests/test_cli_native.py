@@ -52,17 +52,20 @@ def test_format_scope_core_lines_exact():
     # only words on offer. `0 inert` is omitted entirely rather than shown as jargon
     # whose value is zero.
     assert _format_scope(_scope()) == (
-        "m::f  [regime A — tractable]\n"
-        "  10 distinct behaviors; 8 pinned by a test, 2 unpinned\n"
-        "  of the pinned: 6 pin the RETURN VALUE, 2 only prove it runs (crash)\n"
-        "  in plain terms:\n"
-        "    → 2 behavior(s) no test pins yet — run `converge` to generate tests for them"
+        "m::f — diagnose · 10 behaviours · 8 pinned · 2 unpinned\n"
+        "\n"
+        "  ✓ pinned             6 pin the RETURN VALUE · 2 only prove it runs\n"
+        "  ✗ unpinned           2 · —\n"
+        "  · shape              cohesive and structurally one piece\n"
+        "\n"
+        "DO THIS:  detective converge 'm::f'\n"
+        "          Writes tests for the 2 behaviour(s) nothing pins yet."
     )
 
 
 def test_format_scope_names_inert_freedom_when_present():
     out = _format_scope(_scope(inert=3))
-    assert "3 inert (no test could ever tell)" in out
+    assert "3 — no test could ever tell the difference" in out
 
 
 def test_format_scope_shows_warning():
@@ -76,7 +79,7 @@ def test_format_scope_no_warning_no_marker():
 
 def test_format_scope_lists_surviving_categories():
     out = _format_scope(_scope(regime="B", surviving=["VALUE", "TYPE"]))
-    assert "unpinned kinds: VALUE, TYPE" in out
+    assert "2 · VALUE, TYPE" in out
 
 
 def test_format_scope_omits_categories_when_none():
@@ -135,3 +138,46 @@ def test_boundary_hint_none_for_operand_swap_not_a_boundary():
 
 def test_boundary_hint_none_for_non_comparison_mutation():
     assert _boundary_hint(_ds("return x + 1", "return x - 1")) is None
+
+
+# ── --version names the ENGINE too ───────────────────────────────────
+def test_engine_version_reports_the_installed_engine():
+    """A verdict is a joint product: Detective decides what to ask, the ENGINE decides what
+    the answer is. `engine.profile` keys its verdict cache on the engine version for exactly
+    that reason — so "detective 0.5.4" alone does not identify what produced a report, and two
+    installs printing it can legitimately disagree."""
+    import Wesker
+
+    from Detective.cli import _engine_version
+
+    assert _engine_version() == f"Wesker {Wesker.__version__}"
+
+
+def test_engine_version_distinguishes_missing_from_unversioned(monkeypatch):
+    """The two causes are not interchangeable. A single catch-all reported `NOT INSTALLED`
+    for an engine sitting in site-packages that merely predates `__version__` — the wrong
+    cause, stated confidently, in the one string a bug report is meant to be able to trust."""
+    import Wesker
+
+    from Detective.cli import _engine_version
+
+    monkeypatch.delattr(Wesker, "__version__", raising=False)
+    assert _engine_version() == "Wesker version UNKNOWN"
+
+
+def test_version_string_never_raises(monkeypatch):
+    """`--version` is asked most often when something is already broken; a traceback there is
+    a worse answer than naming the breakage."""
+    import builtins
+
+    from Detective.cli import _engine_version
+
+    real = builtins.__import__
+
+    def _boom(name, *a, **k):
+        if name == "Wesker":
+            raise ImportError("gone")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _boom)
+    assert _engine_version() == "Wesker NOT IMPORTABLE"

@@ -50,6 +50,7 @@ from .equivalence import (
     ast_grid,
     bounded_product,
     classify_survivor,
+    is_expressible,
     is_scalar_type,
     synth_ast_input,
 )
@@ -897,6 +898,7 @@ def classify_survivors(
     # exercise, so it wins over discovery, inferred-type synth, and the integer grids.
     supplied = [tuple(x) for x in (call_site_inputs or [])]
     inputs = supplied + discovered + inferred_tuples + bounded_product(_input_grids(node, ns))
+
     # When deterministic synthesis provably can't exercise the function — every
     # candidate raises, i.e. a domain-object parameter no grid can fabricate — reuse
     # a REAL input the covering tests already pass: capture the actual arguments at
@@ -905,16 +907,32 @@ def classify_survivors(
     # input (the abstention below stays the honest fallback when even the tests do
     # not exercise the DOF). Captured real inputs rank just behind a human-supplied
     # residual and ahead of the synthesized grids.
-    if not any(not _outcome(original, args).startswith("<raised") for args in inputs):
+    def _first_exercising(candidates: list[tuple]) -> tuple | None:
+        """The first input the ORIGINAL does not raise on — i.e. the one that actually
+        reaches the function's body. Returned rather than discarded, because WHICH input
+        works decides the next action: one a user can type is an `--input`, one only their
+        tests can build is a request for a test."""
+        for args in candidates:
+            if not _outcome(original, args).startswith("<raised"):
+                return args
+        return None
+
+    exercising = _first_exercising(inputs)
+    if exercising is None:
         func_names = [qn for qn, _ in walk_functions(tree)]
         harvest_tests = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
         )
         captured = capture_call_inputs(original, harvest_tests)
         inputs = supplied + captured + inputs
+        exercising = _first_exercising(inputs)
+    # Whether the working input has a literal form. Computed HERE, where the input that
+    # actually ran is in hand; a renderer downstream can only guess at it from the signature,
+    # which is unannotated in exactly the cases this decides.
+    expressible = None if exercising is None else all(is_expressible(a) for a in exercising)
     # Soundness gate: if the original STILL raises on every candidate input, the
     # inputs don't fit this function — any "equivalent" verdict would be spurious.
-    if not any(not _outcome(original, args).startswith("<raised") for args in inputs):
+    if exercising is None:
         # Execution can't run here — but a manual flag stands regardless.
         unclassified_descs, manual_eq = _split(survivors)
         note = (
@@ -922,7 +940,13 @@ def classify_survivors(
             if unclassified_descs
             else None
         )
-        return SurvivorReport((), unclassified_descs, note=note, manual_equivalent=manual_eq)
+        return SurvivorReport(
+            (),
+            unclassified_descs,
+            note=note,
+            manual_equivalent=manual_eq,
+            inputs_expressible=None,  # nothing exercised it; `note` carries the reason
+        )
 
     pure = _is_pure(node, is_method="." in (qualname or ""))
     by_id = {m.mutant_id: m for m in generate_mutants(node, filter_categories(node, pure))}  # type: ignore[arg-type]
@@ -954,7 +978,11 @@ def classify_survivors(
         else:
             verdicts.append(verdict)
     return SurvivorReport(
-        tuple(verdicts), tuple(unclassified), None, manual_equivalent=tuple(manual_equivalent)
+        tuple(verdicts),
+        tuple(unclassified),
+        None,
+        manual_equivalent=tuple(manual_equivalent),
+        inputs_expressible=expressible,
     )
 
 

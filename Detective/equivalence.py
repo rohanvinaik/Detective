@@ -519,6 +519,38 @@ class MutantVerdict:
         return "killable" if self.killable else "equivalent-candidate"
 
 
+# Types `--input` can actually carry. Deliberately mirrors `_INPUT_SAFE_NODES`/`INPUT_MODULES`
+# above rather than restating a guess: an input is expressible iff the parser would accept the
+# source you'd have to type for it.
+_LITERAL_TYPES: tuple[type, ...] = (bool, int, float, complex, str, bytes, type(None))
+
+
+def is_expressible(value: Any) -> bool:
+    """Could a user TYPE this value into `--input`?
+
+    Answered against the real value, not inferred from the signature, because the signature
+    is frequently unannotated — the case this matters most for. A container is expressible
+    only if everything inside it is, so `[{'id': 'a', 'amount': 1.0}]` passes and
+    `[Account(...)]` does not.
+
+    A `SourceExpr` is NOT expressible even though it renders as source: it is how synthesis
+    builds a domain object (a dataclass constructor), and that constructor names a class the
+    `--input` allowlist refuses. Answering True there is the failure this exists to prevent —
+    a next action that looks typed-out and correct and is rejected the moment it is run.
+    """
+    if isinstance(value, SourceExpr):
+        return False
+    if isinstance(value, ast.AST):  # the reason the expression path exists at all
+        return True
+    if isinstance(value, _LITERAL_TYPES):
+        return True
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return all(is_expressible(v) for v in value)
+    if isinstance(value, dict):
+        return all(is_expressible(k) and is_expressible(v) for k, v in value.items())
+    return False
+
+
 @dataclass(frozen=True)
 class SurvivorReport:
     """Per-function classification of every surviving mutant — three grounded
@@ -534,6 +566,20 @@ class SurvivorReport:
     unclassified: tuple[str, ...]  # survivor descriptions with no verdict
     note: str | None = None  # function-level reason when the search could not run at all
     manual_equivalent: tuple[str, ...] = ()  # mutations manually flagged equivalent (the oracle)
+    # Can a HUMAN type the input that exercises this function, as `--input`?
+    #
+    # This is the difference between a next action that works and one that cannot. `--input`
+    # parses an allowlisted expression — literals plus `ast.*` — which is what makes "no
+    # arbitrary code execution" checkable rather than hoped-for. So for a function taking a
+    # domain object there is no string the user can pass, and telling them to `supply --input
+    # "(<account>, ...)"` sends them to a command that rejects `Account(...)` by design. They
+    # then reasonably conclude the tool is broken. The real move is the other one the engine
+    # already supports: write ONE test that calls the function with a real object, and the
+    # arguments are captured from it.
+    #
+    # False means exactly that: something in the exercising input has no literal form. None
+    # means nothing exercised the function at all (see ``note``).
+    inputs_expressible: bool | None = None
 
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:

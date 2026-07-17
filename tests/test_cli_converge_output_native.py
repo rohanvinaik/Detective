@@ -108,8 +108,8 @@ def test_terse_line_gap_leads_with_supply_not_flag():
         _cr(line_complete=False, missing_lines=(8, 10), survivor_report=rep, final_survivors=1, killed=9),
         "r.txt",
     )
-    action = [ln for ln in out.splitlines() if ln.strip().startswith("▶")][0]
-    assert "uncovered" in action and "flag" not in action
+    action = out.split("DO THIS:")[1].split("FINAL")[0]
+    assert "flag" not in action
 
 
 def test_plain_terms_incomplete_points_at_inputs():
@@ -133,10 +133,11 @@ def test_terse_surfaces_flag_command_for_equivalent():
 
 def test_terse_points_at_the_report_file():
     out = _format_converge_terse(_cr(), "reports/converge_f.txt")
-    assert "full report → reports/converge_f.txt" in out
+    assert "reports/converge_f.txt" in out
 
 
 def test_terse_is_minimal_when_complete_clean():
-    # clean complete: header, plain-terms, report pointer, banner — no per-mutant noise
+    # clean complete: header, what was written, the report pointer, one DONE, the banner —
+    # and nothing per-mutant. The budget is the point: the product is the report.
     out = _format_converge_terse(_cr(), "r.txt")
-    assert len(out.splitlines()) <= 4
+    assert len(out.splitlines()) <= 10

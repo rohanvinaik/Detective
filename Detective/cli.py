@@ -80,109 +80,115 @@ def _parallel_mode(args) -> bool | None:
 
 
 def _format_scope(scope) -> str:
-    """One-block rendering of a ScopeMap — the raw read, then a plain-language layer
-    for a user who doesn't care about the theory (what it means + what to run).
+    """The diagnose report: what this function does, and the ONE thing to run next.
 
-    The raw layer names its own terms. "regime B", "inert", "kill quality: value-assertion"
-    and a bare category list are precise and mean nothing to a first-time reader, who meets
-    them BEFORE the plain-language layer that would have explained them. Each carries its
-    gloss inline instead: same numbers, same precision, no glossary lookup.
+    This is the entry point — the first thing anyone sees, and often the only thing a reader
+    without the vocabulary will get through. So no term appears without its gloss, and the
+    run ends in exactly one command.
+
+    The warnings above the fold are not decoration. A cut trace UNDER-counts line coverage,
+    and an under-counted line is indistinguishable from an uncovered one in the numbers right
+    below it — so a completeness verdict resting on a truncated measurement is the one failure
+    this tool cannot afford, and it says which knob to turn. "No tests discovered" is the same
+    hazard wearing a different face: 0 pinned means "nothing to kill with", not "weak tests",
+    and a reader who confuses the two goes off to fix a suite that does not exist.
     """
     spec, kq = scope.specification, scope.kill_quality
-    regime = "entangled" if scope.regime == "B" else "tractable"
-    lines = [
-        f"{scope.function}  [regime {scope.regime} — {regime}]",
-        f"  {spec.behavioral_variants} distinct behaviors; {spec.distinctions_pinned} pinned by a test, "
-        f"{spec.unspecified_dof} unpinned"
-        + (f", {spec.inert_freedom} inert (no test could ever tell)" if spec.inert_freedom else ""),
-        f"  of the pinned: {kq.by_value_assertion} pin the RETURN VALUE, "
-        f"{kq.by_crash} only prove it runs (crash)" + (f"  ⚠ {kq.warning}" if kq.warning else ""),
-    ]
-    if scope.surviving_categories:
-        lines.append(f"  unpinned kinds: {', '.join(scope.surviving_categories)}")
-    # No tests at all: the 0% is "nothing to kill with", not "weak tests". Say so
-    # loudly so a fresh user doesn't read an absent suite as a failing one.
+    seams = getattr(scope, "decompose_seams", 0)
+    entangled = scope.regime == "B"
+    head = f"{scope.function} — diagnose · {spec.behavioral_variants} behaviours"
+    head += f" · {spec.distinctions_pinned} pinned · {spec.unspecified_dof} unpinned"
+    lines = [head, ""]
+
     if getattr(scope, "tests_discovered", -1) == 0:
-        lines.append(
-            "  ⚠ NO tests discovered for this function — the counts above reflect ABSENT "
-            "tests, not weak ones; run `converge` to generate them"
-        )
-    # A budget-CUT trace under-counts coverage, and an under-counted line is indistinguishable
-    # from an uncovered one in the numbers below. Name the cut tests so a line gap is never read
-    # as a real hole when it is a timing artifact — and so the reader knows the knob exists.
-    cut = getattr(scope, "trace_truncated", []) or []
-    if cut:
-        # Tense is a claim. A cache hit traced NOTHING, so "were CUT" would describe a measurement
-        # this run never made — under a machine load that is gone and unreproducible, the budgets
-        # being wall-clock. Say which run got cut, or the reader re-runs budgets against a
-        # recording (measured: an hour).
-        cached = getattr(scope, "served_from_cache", False)
-        when = (
-            "were CUT when this verdict was MEASURED (it is replayed from the cache — this run "
-            "traced nothing, and the budgets are wall-clock, so the load that cut it is gone)"
-            if cached
-            else "hit a trace budget and were CUT"
-        )
-        lines.append(
-            f"  ⚠ {len(cut)} test(s) {when}: {', '.join(sorted(cut)[:5])}"
-            + (" …" if len(cut) > 5 else "")
-            + " — their line coverage is UNDER-COUNTED, so a line gap below may be the budget, "
-            "not a hole; re-run with --trace-session-budget 0 --trace-budget 0 (0 = unbounded) "
-            "to measure them fully. NB there are TWO budgets and the SESSION one is usually what "
-            "cuts: it caps the WHOLE pass, so a suite whose trace outruns it loses every test "
-            "after the cap no matter how generous the per-test --trace-budget is"
-            + (
-                ". Different budgets are a different cache row, so that re-run genuinely "
-                "re-measures rather than serving this one back"
-                if cached
-                else ""
-            )
-        )
-    # Learned-weak (opt-in --learn): this project's OWN recurring value-gaps, highest
-    # value-survival first. It IS learning from the user's code+tests — surface it plainly.
+        lines.append(_row("⚠ NO tests", "nothing pins this function yet — the counts above"))
+        lines.append(_row("", "reflect ABSENT tests, not weak ones."))
+    for row in _trace_cut_rows(scope):
+        lines.append(row)
+    lines.append(
+        _row("✓ pinned", f"{kq.by_value_assertion} pin the RETURN VALUE · {kq.by_crash} only prove it runs")
+    )
+    if kq.warning:
+        # The ENGINE's sentence, verbatim. Substituting a generic one here throws away the
+        # specific thing it measured and says something adjacent instead — the same defect as
+        # every other renderer bug in this file, committed while fixing them.
+        lines.append(_row("", f"⚠ {kq.warning}"))
+    if spec.unspecified_dof:
+        kinds = ", ".join(scope.surviving_categories) if scope.surviving_categories else "—"
+        lines.append(_row("✗ unpinned", f"{spec.unspecified_dof} · {kinds}"))
+    if spec.inert_freedom:
+        lines.append(_row("· inert", f"{spec.inert_freedom} — no test could ever tell the difference"))
+    lines.append(_row("· shape", _shape_phrase(entangled, seams)))
     priors = getattr(scope, "learned_priors", []) or []
     if priors:
         shown = ", ".join(f"{cat} {prior:.0%}" for cat, prior in priors)
-        lines.append(
-            f"  learned-weak (this project's history, value-survival): {shown} "
-            "— weakest first; fast runs spend budget here first"
-        )
-    # Plain-language layer: what this means and what to do next.
-    lines.append("  in plain terms:")
-    if spec.unspecified_dof > 0:
-        lines.append(
-            f"    → {spec.unspecified_dof} behavior(s) no test pins yet — "
-            "run `converge` to generate tests for them"
-        )
-    else:
-        lines.append("    → every behavior this function makes is already pinned by a test")
-    if kq.warning:
-        lines.append(
-            "    → tests mostly check it RUNS, not WHAT it returns — return values may be under-tested"
-        )
-    # Decompose guidance from TWO independent signals: regime B (behaviorally entangled by
-    # the mutation profile) and structural seams (a clean single-exit, small-interface block
-    # the deterministic clustering found). Only when BOTH fire is it a genuine decomposition
-    # target — flag that loudly; when they disagree, point at the right tool instead of the
-    # old blanket "decompose may split it" that contradicted itself on flat-but-untested code.
-    seams = getattr(scope, "decompose_seams", 0)
-    if scope.regime == "B" and seams >= 1:
-        lines.append(
-            f"    ★ LOOK HERE FIRST — two independent signals agree this is really >1 thing: "
-            f"behaviorally entangled (regime B) AND {seams} clean structural seam(s). "
-            "`decompose` proves it's behavior-preserving and splits it."
-        )
-    elif scope.regime == "B":
-        lines.append(
-            "    → behaviorally entangled, but structurally one piece (no clean extraction) — "
-            "`converge` to pin the interleaved behaviors; `decompose` has no seam to split here."
-        )
-    elif seams >= 1:
-        lines.append(
-            f"    → behavior looks cohesive, but a clean structural seam ({seams}) exists — "
-            "`decompose` is available and provably safe if you want it simpler."
-        )
+        lines.append(_row("· learned-weak", f"{shown} — this project's own history"))
+    lines.append("")
+    lines += _diagnose_action(scope, spec, entangled, seams)
     return "\n".join(lines)
+
+
+def _shape_phrase(entangled: bool, seams: int) -> str:
+    """One phrase for the two INDEPENDENT signals — behavioural entanglement (from the
+    mutation profile) and structural seams (from the deterministic clustering). They can
+    disagree, and when they do the honest read is "this is one thing that does a lot",
+    not the blanket "decompose may split it" that used to contradict itself on flat code."""
+    if entangled and seams >= 1:
+        return f"entangled AND {seams} clean seam(s) — two signals agree it is >1 thing"
+    if entangled:
+        return "entangled, but structurally one piece — no seam to split"
+    if seams >= 1:
+        return f"cohesive, but {seams} clean seam(s) exist — splitting is optional"
+    return "cohesive and structurally one piece"
+
+
+def _trace_cut_rows(scope) -> list[str]:
+    """The cut-trace warning, or nothing.
+
+    Tense is a claim. A cache hit traced NOTHING this run, so "were CUT" would describe a
+    measurement that did not happen, under a machine load that is gone and unreproducible
+    (the budgets are wall-clock). Saying WHICH run got cut is the difference between a
+    re-run that re-measures and an hour spent tuning budgets against a recording.
+    """
+    cut = getattr(scope, "trace_truncated", []) or []
+    if not cut:
+        return []
+    cached = getattr(scope, "served_from_cache", False)
+    when = "when this verdict was measured (replayed from cache)" if cached else "on this run"
+    return [
+        _row("⚠ trace CUT", f"{len(cut)} test(s) hit the budget {when} —"),
+        _row("", "line coverage is UNDER-counted, so a gap below may be"),
+        _row("", "the budget, not a hole. Re-measure exactly with:"),
+        _row("", "--trace-session-budget 0 --trace-budget 0   (0 = unbounded)"),
+    ]
+
+
+def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
+    """Diagnose's ONE next action.
+
+    Priority, and the priority IS the judgement: split before you pin. When both signals
+    agree the function is more than one thing, `decompose` is the move even though behaviour
+    is unpinned — it converges internally, and pinning the pieces afterwards is cheaper and
+    clearer than pinning the tangle first and then splitting a suite you have to re-derive.
+    Otherwise `converge`. The old report printed both and let the reader choose; two actions
+    is a choice the reader has no basis to make.
+    """
+    fn = scope.function
+    if entangled and seams >= 1:
+        return [
+            f"DO THIS:  detective decompose '{fn}' --apply",
+            f"          Two signals agree this is >{1} thing. --apply only writes if a generated",
+            "          suite PROVES behaviour survived; otherwise it tells you what it needs.",
+        ]
+    if spec.unspecified_dof:
+        return [
+            f"DO THIS:  detective converge '{fn}'",
+            f"          Writes tests for the {spec.unspecified_dof} behaviour(s) nothing pins yet.",
+        ]
+    return [
+        "DONE:  every behaviour this function makes is already pinned by a test.",
+        f"       Next (optional): detective audit '{fn}'   # is the suite minimal?",
+    ]
 
 
 def _score(killed: int, total: int) -> str:
@@ -746,179 +752,365 @@ def _write_converge_report(root: str, qualname: str, text: str) -> str:
 
 
 def _format_converge_terse(result, report_path: str) -> str:
-    """The default terminal view: a clean, minimal block — a plain-language verdict, the ONE
-    quick copy-pasteable action if any, and a pointer to the full report — ending with the
-    greppable ``FINAL`` banner. Everything verbose lives in the report file / the test file."""
+    """The converge report: what got written, what is left, the ONE next action — then the
+    greppable ``FINAL`` banner, which stays LAST.
+
+    ``FINAL`` last is a downstream contract, not a layout choice: tooling tails this output to
+    find the result, so the human action sits above it rather than after it. Everything
+    verbose lives in the report file, which is always written regardless of `--full`.
+    """
     fn = result.function
-    lines = [f"{fn} — converge", f"  {_plain_terms(result)}"]
     rep = result.survivor_report
-    template = _input_template(result.param_names)
-    # Lead with the action that makes PROGRESS: supply an input to kill/classify a residual
-    # or to cover a line gap. Only when the sole remaining thing is a candidate-equivalent do
-    # we surface `flag` — and even then supplying a distinguishing input (a kill) comes first,
-    # so the tool never nudges a user to give up on a mutant that a richer input would kill.
-    if rep is not None and (rep.killable or rep.unclassified):
-        n = len(rep.killable) + len(rep.unclassified)
+    lines = [f"{fn} — converge{_headline_counts(result, rep)}", ""]
+
+    if result.written_path:
+        # `_rel_path`, like the banner: converge stores ABSOLUTE paths, and a 90-character
+        # /private/tmp/... string in a fixed-width column wraps and destroys the report.
         lines.append(
-            f"  ▶ {n} residual(s) need a real input to kill/classify — supply {template} (details in report)"
+            _row("✓ wrote", f"{result.minimal_test_count} test(s) → {_rel_path(result.written_path)}")
         )
-    elif result.missing_lines:
-        gap = len(result.missing_lines)
-        lines.append(f"  ▶ {gap} line(s) uncovered — supply {template} to reach them (details in report)")
-    elif rep is not None and rep.equivalent:
-        ids = [v.mutant_id for v in rep.equivalent]
-        more = f" (+{len(ids) - 1} more in report)" if len(ids) > 1 else ""
-        lines.append(
-            f"  ▶ {len(ids)} unproven-equivalent — supply a distinguishing input to kill, "
-            f"or `detective flag '{fn}' {ids[0]} --note \"why\"`{more}"
-        )
+    if rep is not None and rep.killable:
+        lines.append(_row("✗ still killable", f"{len(rep.killable)} — a witness exists for each"))
+    if rep is not None and rep.unclassified:
+        lines.append(_row("⚠ unclassified", f"{len(rep.unclassified)} — the search could not run on them"))
+    if result.missing_lines:
+        gap = list(result.missing_lines)
+        lines.append(_row("✗ uncovered", f"{len(gap)} line(s): {gap[:8]}"))
+    if rep is not None and rep.equivalent:
+        lines.append(_row("· unproven-equiv", f"{len(rep.equivalent)} — no input distinguishes them"))
     if report_path:
-        lines.append(f"  full report → {report_path}")
+        lines.append(_row("· full report", report_path))
+    lines.append("")
+    lines += _converge_action(result, rep)
+    lines.append("")
     lines.append(_final_banner(result))
     return "\n".join(lines)
 
 
+def _converge_action(result, rep) -> list[str]:
+    """Converge's ONE next action.
+
+    Same rule as decompose's residual, for the same reason: `--input` parses an allowlist, so
+    for a function taking a domain object there is no string that satisfies it and printing
+    the template hands the reader a command that always errors. `inputs_expressible` decides.
+
+    `flag` comes LAST and only when nothing else is outstanding. It is the one irreversible
+    claim a human makes here — asserting a mutant is truly equivalent — and suggesting it
+    while a real gap is open invites someone to flag their way to a green board.
+    """
+    fn = result.function
+    blocked = rep is not None and (rep.killable or rep.unclassified)
+    if blocked or result.missing_lines:
+        # TRUTHY, not `is False`. `None` means nothing exercised the function AT ALL — the
+        # case that most needs a test — and `is False` let it fall through to the `--input`
+        # branch, printing the exact dead-end command this check exists to prevent.
+        if rep is None or not rep.inputs_expressible:
+            sig = result.signature or f"{fn}(...)"
+            return [
+                f"DO THIS:  add ONE test that calls {sig} with real arguments.",
+                "          Detective captures them from your test and pins the rest.",
+                "          (its arguments have no literal form, so --input cannot carry them.)",
+            ]
+        return [
+            # `_input_template` already carries the `--input` flag; naming it again emitted
+            # `--input --input "(...)"`.
+            f"DO THIS:  detective converge '{fn}' {_input_template(result.param_names)}",
+            "          Fill the slots with one real call, to reach what synthesis could not.",
+        ]
+    if rep is not None and rep.equivalent:
+        ids = [v.mutant_id for v in rep.equivalent]
+        more = f"  ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
+        return [
+            "DONE:  every killable behaviour is pinned. What remains cannot be distinguished",
+            "       by any input Detective found — whether it is truly equivalent is UNDECIDABLE",
+            "       in general, so the engine will not claim it. Leave them; they are not a gap.",
+            f"       If you can prove one is: detective flag '{fn}' {ids[0]} --note \"why\"{more}",
+        ]
+    return [
+        "DONE:  the suite pins every behaviour this function makes.",
+        f"       Next (optional): detective decompose '{fn}' --apply   # if it does too much",
+    ]
+
+
+# One label column for the whole report, so every line hangs off the same gutter. Hand-counted
+# padding drifts the moment any label changes length, and a report whose columns do not line up
+# reads as unmaintained no matter how correct the words are.
+_LABEL_W = 21
+
+
+def _row(label: str, text: str) -> str:
+    """`  label...  text` on the report's single gutter."""
+    return f"  {label:<{_LABEL_W}}{text}"
+
+
+def _helper_sig(ex) -> str:
+    """`name(params) -> returns` — the extraction's interface on one line."""
+    return f"{ex.helper_name}({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}"
+
+
+def _helper_preview(ex, n: int = 3) -> list[str]:
+    """The first `n` lines OF THE HELPER, found by name in the rewritten module.
+
+    Not `new_source[:n]`. `new_source` is the whole rewritten FILE, so slicing its head
+    printed whatever happens to sit at line 1 — for a module beginning `class Account:` the
+    report named `_compute_rate` and then showed the class. It only ever looked right when
+    the helper landed at the top, which is why it survived: the demo file always did.
+    """
+    src = ex.new_source.splitlines()
+    start = next((i for i, ln in enumerate(src) if ln.startswith(f"def {ex.helper_name}(")), None)
+    if start is None:  # spliced under a decorator/class, or renamed — show nothing, never a lie
+        return []
+    gutter = " " * (_LABEL_W + 2)
+    return [f"{gutter}│ {ln}" for ln in src[start : start + n]] + [f"{gutter}│ …"]
+
+
+def _headline_counts(proof, rep) -> str:
+    """`· 139 behaviours · 11 pinned · 128 candidate-equivalent` — the scoreboard, or ''."""
+    if proof is None:
+        return ""
+    parts = [f"{proof.total_mutants} behaviours", f"{proof.value_killed} pinned"]
+    if rep is not None and rep.equivalent:
+        parts.append(f"{len(rep.equivalent)} candidate-equivalent")
+    return " · " + " · ".join(parts)
+
+
+def _residual_action(r, proof, rep) -> list[str]:
+    """The next action when the proof is incomplete — the one line that has to be right.
+
+    Three states, three DIFFERENT actions, because `--input` cannot express every parameter:
+
+    * nothing exercised the function (`inputs_expressible is None`) -> a test is the only way
+      in; the engine's `note` already says so and names each parameter's type.
+    * something exercised it but has no literal form (False) -> the working input came from
+      CAPTURE (a real object out of the user's own tests). `--input` would reject the only
+      value that works, so ask for the test that produces more of them.
+    * everything is typeable (True) -> `--input` is real, and is the fastest path.
+
+    Collapsing these into one `supply --input` line is what made the tool look broken on any
+    function taking a domain object: the reader did exactly what it said and got back
+    `--input only [ast] are available — 'Account' is not`.
+    """
+    out: list[str] = []
+    if rep is None:
+        out.append(_row(f"{proof.final_survivors} unpinned", "the classification did not run, so which"))
+        out.append(_row("", "mutants block is unknown. Source NOT touched."))
+        out.append("")
+        out.append(f"DO THIS:  detective converge '{r.function}' --full     # then re-run decompose")
+        return out
+
+    n_kill, n_unc, n_eq = len(rep.killable), len(rep.unclassified), len(rep.equivalent)
+    # The cause has to agree with the action below it. "an input can kill them" next to
+    # "--input cannot carry it" is two true sentences that read as a contradiction, and a
+    # reader resolves that by distrusting both.
+    if not n_kill:
+        why = "synthesis never reached them."
+    elif rep.inputs_expressible:
+        why = "a witness exists — an input can kill them."
+    else:
+        why = "a witness exists, but only a real object reaches it."
+    out.append(_row(f"{n_kill + n_unc} block the proof", why))
+    if n_eq:
+        out.append(_row("", f"{n_eq} candidate-equivalent do NOT block."))
+    out.append(_row("", "Your source was NOT touched."))
+    out.append("")
+
+    sig = proof.signature or f"{r.function}(...)"
+    if rep.inputs_expressible:
+        slots = _input_template(proof.param_names)
+        out.append(f"DO THIS:  detective decompose '{r.function}' --apply {slots}")
+        out.append("          Fill the slots with one real call. That kills the blockers, the")
+        out.append("          proof completes, and the extraction applies in the same run.")
+    else:
+        # No literal form exists for at least one parameter, so naming `--input` here would
+        # be printing a command that cannot be run.
+        first = (proof.param_names or ("it",))[0]
+        out.append(f"DO THIS:  add ONE test that calls {sig} with real arguments.")
+        out.append("          Detective captures them from your test and proves the rest.")
+        out += _target_line(rep)
+        out.append(f"          (`{first}` has no literal form, so --input cannot carry it.)")
+    return out
+
+
+def _target_line(rep) -> list[str]:
+    """Name the LINE a blocking mutant sits on, so "add a test" is aimed.
+
+    Without it the instruction is identical every round and the reader is guessing which
+    branch to reach — the number moves, so they are converging, but by luck. The engine
+    already holds the answer: a killable verdict carries the mutation, and `_concise_diff`
+    reduces it to the changed line. Telling someone to write a test without saying what it
+    must reach is the difference between an instruction and a chore.
+    """
+    target = next(iter(rep.killable), None)
+    if target is None:
+        return []
+    changed = _concise_diff(target.diff_summary).strip().splitlines()
+    return [f"          Aim it at:  {changed[0].strip()}"] if changed else []
+
+
 def _format_decompose(r, applied_mode: bool) -> str:
-    """Show what a decomposition did or would do: extractions that preserve the
-    SPECIFIED behavior (proven against the target's own MUTATION-complete suite; auto-applied
-    under --apply, else marked appliable), extractions not yet provable (the suite is not
-    mutation-complete — a killable mutant needs an input synthesis could not reach), and
-    blocks skipped as unsafe — with the actual code."""
-    lines = [f"{r.function}: decomposition"]
+    """The decompose report: what happened, and the ONE next action, in a fixed shape.
+
+    Two rules hold this together.
+
+    ONE ACTION, AND IT MUST RUN. Every terminal state ends in exactly one `DO THIS:` /
+    `DONE:` / `STOP.` line, and the command on it is one the tool will accept. That is not a
+    style preference — `--input` parses an allowlist (literals + `ast.*`), so for a function
+    taking a domain object NO string satisfies `--input "(<account>, ...)"`, and printing it
+    hands the reader a command that always errors. `inputs_expressible` (equivalence.py) is
+    the engine's answer to "can a human type this?", computed from the input that actually
+    exercised the function, and it decides which action is printed. The reader should never
+    have to know that; they should be able to paste the line.
+
+    SAY WHAT HAPPENED, NOT WHAT WAS COMPUTED. The counts name the three populations by their
+    CONSEQUENCE (blocks / does not block), because a single fused total is what made this
+    report unreadable: it counted 22 blockers where 5 blocked and asked for an input for all
+    of them.
+    """
+    lines: list[str] = []
     if not r.applied and not r.proposed and not r.unsafe_blocks:
-        return f"{r.function}: no separable blocks — nothing to decompose"
+        return f"{r.function} — decompose\n\nDONE:  no separable block. There is no seam here to split."
+
+    proof = r.proof
+    proof_incomplete = proof is not None and not proof.functionally_complete
+    rep = proof.survivor_report if proof is not None else None
+    lines.append(f"{r.function} — decompose{_headline_counts(proof, rep)}")
+    lines.append("")
+
     for ex in r.applied:
-        lines.append(
-            f"  ✓ APPLIED (specified behavior preserved, auto): {ex.helper_name}"
-            f"({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}"
-        )
-        lines += [f"    │ {line}" for line in ex.new_source.splitlines()[:4]]
-        lines.append("    │ …")
-    # WHY an extraction is unproven decides what the user should do, so the three causes must
-    # not share one message. A suite that IS mutation-complete and still rejects the rewrite has
-    # PROVEN it changes behavior — a verdict, not a gap; telling that user to supply an `--input`
-    # sends them to close a hole that isn't there.
-    proof = getattr(r, "proof", None)
-    proof_incomplete = proof is not None and not getattr(proof, "functionally_complete", False)
+        lines.append(_row("✓ APPLIED", _helper_sig(ex)))
+        lines += _helper_preview(ex)
     for dec in r.proposed:
-        ex = dec.extraction
-        if dec.validated:
-            tag = "appliable — specified behavior preserved — re-run with --apply"
-        elif proof is None:
-            tag = "can't PROVE preservation — no suite specifies this function yet (run `converge` first)"
-        elif proof_incomplete:
-            tag = "can't PROVE preservation yet — the proof suite is not mutation-complete (residual below)"
-        else:
-            tag = "REJECTED — the mutation-complete suite PROVES this extraction changes behavior"
-        lines.append(
-            f"  → {tag}: {ex.helper_name}({', '.join(ex.params)}) -> {', '.join(ex.returns) or 'None'}"
-        )
-        lines += [f"    │ {line}" for line in ex.new_source.splitlines()[:6]]
-        lines.append("    │ …")
+        lines.append(_row("✓ proven" if dec.validated else "✗ can't prove yet", _helper_sig(dec.extraction)))
+        lines += _helper_preview(dec.extraction)
     for block in r.unsafe_blocks:
-        lines.append(f"  ✗ not extractable: {block}")
-    # The residual hand-back. An unproven extraction means converge could not reach
-    # mutation-completeness — a KILLABLE mutant that synthesis could not distinguish, i.e.
-    # the "semantic prior the AST needs". Surface the EXACT input to supply (converge already
-    # computed it) so the user closes the loop, instead of a dead-end "review it yourself".
-    # Only for a genuinely INCOMPLETE proof: a complete suite that rejects the rewrite has
-    # nothing for the user to supply.
-    unproven = any(not d.validated for d in r.proposed)
-    if unproven and proof is not None and proof_incomplete:
-        # The blockers are the VALUE-survivors — mutants the suite hasn't pinned. Some are
-        # killable-with-a-witness, some couldn't even be classified because the synthesized
-        # input crashes the function; either way the fix is the same: supply a valid input.
-        blocking = getattr(proof, "final_survivors", 0)
-        lines.append(
-            f"  ▶ to prove + auto-apply: {blocking} mutant(s) the suite has not pinned — synthesis "
-            "could not build a valid distinguishing input for this function's parameters."
-        )
-        lines += _target_lines(proof.signature)
-        lines.append(
-            f"      supply:  decompose '{r.function}' --apply {_input_template(proof.param_names)}"
-            "   # a valid input for the slot(s); converge then reaches mutation-completeness and the"
-        )
-        lines.append("               extraction is proven and applied in the same run.")
-    if r.applied or any(d.validated for d in r.proposed):
-        # The information-conservation frame: the transform adds no new behavior, so it
-        # cannot introduce a bug into what is SPECIFIED — and it deliberately does not
-        # bake in behavior nothing specifies. That is a feature, not a caveat.
-        lines.append(
-            "  ℹ preserves every SPECIFIED behavior (information-conservative — introduces no "
-            "new behavior); unspecified DOF are not baked in. `converge` the pieces to ground "
-            "them — a quick pass that SURFACES latent under-specification instead of preserving it."
-        )
-    if not applied_mode and any(d.validated for d in r.proposed):
-        lines.append("  (run `decompose --apply` to write the extractions)")
+        lines.append(_row("✗ not extractable", block))
+    lines.append("")
+
+    if r.applied:
+        lines.append("DONE:  your source is rewritten. The suite ran green before AND after, and")
+        lines.append("       unspecified behaviour was not baked in.")
+        if proof is not None:
+            lines.append(f"       Next (optional): converge '{r.function}' on the new helper(s).")
+        return "\n".join(lines)
+
+    validated = [d for d in r.proposed if d.validated]
+    if validated and not applied_mode:
+        lines.append(f"DO THIS:  detective decompose '{r.function}' --apply")
+        lines.append("          The proof already passed. --apply writes it. Nothing else is needed.")
+        return "\n".join(lines)
+
+    if proof is None:
+        lines.append(f"DO THIS:  detective converge '{r.function}'")
+        lines.append("          No suite specifies this function yet, so there is nothing to prove")
+        lines.append("          against. Your source was NOT touched.")
+        return "\n".join(lines)
+
+    if not proof_incomplete:
+        # A complete suite that rejects the rewrite has PROVEN behaviour changed. There is no
+        # input to supply and nothing to retry; offering one sends the reader to close a hole
+        # that does not exist.
+        lines.append("STOP.  This is a verdict, not a gap. The suite is mutation-complete and it")
+        lines.append("       proves this extraction changes behaviour. Your source was NOT touched.")
+        return "\n".join(lines)
+
+    lines += _residual_action(r, proof, rep)
     return "\n".join(lines)
 
 
 def _format_audit(a) -> str:
-    """Read-only audit of an existing suite: completeness on both axes, the
-    pointless tests to propose removing, and the gaps to propose filling. Nothing
-    is written — every action a real run would take is stated, not taken."""
-    # Three tiers, not two: a suite that kills every killable mutant and covers every line
-    # but leaves UNPROVEN candidate-equivalents is not "incomplete" (no real gaps) — say so,
-    # and point at `flag`, instead of a misleading ✗.
+    """Read-only audit of an existing suite, in the report shape: what is true, then the ONE
+    next action, and audit itself never writes.
+
+    Three tiers, not two: a suite that kills every killable mutant and covers every line but
+    leaves UNPROVEN candidate-equivalents has no real gaps and is not "incomplete" — calling
+    it that sends someone to write tests for behaviour that is already pinned.
+
+    The action names a REAL mutant id. It used to read ``flag <mutant_id>`` — a placeholder,
+    with the ids sitting one field away in the classifier — so the one command the report
+    offered could not be pasted, and the reader had to go hunting to do what it asked.
+    """
     if a.complete_modulo_equivalent:
-        verdict = f"✓ complete modulo {a.candidate_equivalent} candidate-equivalent (flag to confirm)"
+        verdict = f"complete, modulo {a.candidate_equivalent} unproven-equivalent"
     elif a.complete:
-        verdict = "✓ complete"
+        verdict = "complete"
     else:
-        # Not "✗": the gaps are itemised on the lines below, and a suite that pins every
-        # killable behavior but leaves a line uncovered is not a failed run. Matches
-        # `_final_banner` / `_completeness_verdict`, which stopped branding it one.
+        # Not "✗": the gaps are itemised below, and a suite that pins every killable behaviour
+        # but leaves a line uncovered is not a failed run.
         verdict = "incomplete"
     lines = [
-        f"{a.function}: {a.test_count} existing test(s) — {verdict}   [audit reads only — writes nothing]",
-        f"  kills: {a.kill_pct}%  |  mutant-complete={a.mutant_complete}  line-complete={a.line_complete}",
-        f"  minimal cover: {a.minimal_test_count} test(s)"
-        + (f"  (bloat: {a.bloat} redundant)" if a.bloat else "  (no bloat)"),
+        f"{a.function} — audit · {a.test_count} test(s) · {a.kill_pct}% killed · {verdict}",
+        "",
     ]
-    if a.killable_gaps:
-        lines.append(f"  ✗ {len(a.killable_gaps)} killable mutant(s) NOT killed — specification gaps:")
-        lines += [f"      · {g}" for g in a.killable_gaps[:8]]
-        if len(a.killable_gaps) > 8:
-            lines.append(f"      … and {len(a.killable_gaps) - 8} more")
-    if a.missing_lines:
-        lines.append(f"  ✗ {len(a.missing_lines)} uncovered line(s): {list(a.missing_lines)}")
     if a.failing_tests:
-        lines.append(
-            f"  ⚠ {len(a.failing_tests)} test(s) FAIL on current code — INVESTIGATE "
-            f"(wrong assertion OR a real regression; never auto-removed): {', '.join(a.failing_tests)}"
-        )
-    if a.redundant_tests:
-        lines.append(
-            f"  PROPOSED removals ({len(a.redundant_tests)}, pointless for BOTH kills and lines "
-            f"— confirm to delete, never auto): {', '.join(a.redundant_tests)}"
-        )
+        # First, always: a failing test means the suite disagrees with the code RIGHT NOW.
+        # Nothing else in this report matters until that is resolved, and it is never ours
+        # to delete — it is either a wrong expectation or a real regression.
+        lines.append(_row("⚠ FAILING NOW", f"{len(a.failing_tests)} test(s) fail on current code:"))
+        lines.append(_row("", ", ".join(a.failing_tests[:4])))
+    if a.killable_gaps:
+        lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
+    if a.missing_lines:
+        lines.append(_row("✗ uncovered", f"{len(a.missing_lines)} line(s): {list(a.missing_lines)[:8]}"))
     if a.candidate_equivalent:
         lines.append(
-            f"  · {a.candidate_equivalent} survivor(s) candidate-equivalent — no distinguishing input found "
-            "(UNPROVEN: `flag` to confirm equivalent, or add a distinguishing input to kill)"
+            _row("· unproven-equiv", f"{a.candidate_equivalent} survivor(s) — no input distinguishes them")
         )
-    if a.unclassified and not a.killable_gaps:
-        lines.append(
-            f"  ⚠ {a.unclassified} survivor(s) UNCLASSIFIED — the search could not distinguish them; "
-            "may be equivalent (prove + `flag`) or need a reaching input (not a confirmed gap)"
-        )
+    if a.unclassified:
+        lines.append(_row("⚠ unclassified", f"{a.unclassified} — the search could not run on them"))
     if a.manual_equivalent:
-        lines.append(f"  ✓ {a.manual_equivalent} survivor(s) manually-flagged equivalent (oracle — not gaps)")
-    if a.complete and not a.redundant_tests:
-        lines.append("  nothing to do — suite is complete and minimal")
-    # Forward-chain: name the next command for the state we're in (audit itself writes nothing).
-    if a.killable_gaps or a.missing_lines:
-        lines.append(
-            "  ▶ next: `converge` to synthesize the missing tests (WRITES test files + wires conftest)"
-        )
-    elif a.candidate_equivalent or a.unclassified:
-        lines.append(
-            "  ▶ next: prove equivalence then `flag <mutant_id>`, or add a "
-            "distinguishing input and `converge`"
-        )
-    elif a.redundant_tests:
-        lines.append("  ▶ next: `audit --remove` to delete the redundant tests (confirm — never auto)")
+        lines.append(_row("✓ flagged equivalent", f"{a.manual_equivalent} (your oracle — not gaps)"))
+    if a.redundant_tests:
+        lines.append(_row("· redundant", f"{len(a.redundant_tests)} test(s) pointless for kills AND lines"))
+        lines.append(_row("", ", ".join(a.redundant_tests[:4])))
+    lines.append("")
+    lines += _audit_action(a)
     return "\n".join(lines)
+
+
+def _audit_action(a) -> list[str]:
+    """Audit's ONE next action, in priority order — the order is the judgement.
+
+    A failing test outranks everything: the suite contradicts the code, so every other number
+    here was measured against a suite that does not pass, and acting on them first is acting
+    on sand. Then real gaps (converge writes them), then bloat, then the equivalents — last,
+    because `flag` is the only irreversible-ish claim a human makes here and it should never
+    be suggested while a real gap is outstanding.
+    """
+    if a.failing_tests:
+        return [
+            "DO THIS:  fix or delete the failing test(s) above, then re-run audit.",
+            "          Detective will NOT touch them: a test failing on current code is either",
+            "          a wrong expectation or a real regression, and only you can tell which.",
+        ]
+    if a.killable_gaps or a.missing_lines:
+        return [
+            f"DO THIS:  detective converge '{a.function}'",
+            "          Writes the missing tests and wires them into pytest.",
+        ]
+    if a.redundant_tests:
+        return [
+            f"DO THIS:  detective audit '{a.function}' --remove",
+            f"          Deletes the {len(a.redundant_tests)} redundant test(s). Nothing else changes.",
+        ]
+    if a.candidate_equivalent and a.candidate_equivalent_ids:
+        first = a.candidate_equivalent_ids[0]
+        more = (
+            f"  ({len(a.candidate_equivalent_ids) - 1} more in the report)"
+            if a.candidate_equivalent > 1
+            else ""
+        )
+        return [
+            "DONE:  every killable behaviour is pinned and every line covered. What remains",
+            "       cannot be distinguished by any input Detective found — whether it is truly",
+            "       equivalent is UNDECIDABLE in general, so the engine will not claim it.",
+            f"       If you can prove one is: detective flag '{a.function}' {first} --note \"why\"{more}",
+        ]
+    if a.unclassified:
+        return [
+            "DONE:  no gaps found. Some survivors could not be classified at all — the search",
+            "       could not run on them. Not gaps, not equivalents: unknown.",
+        ]
+    return ["DONE:  the suite is complete and minimal. Nothing to do."]
 
 
 _COMMAND_HELP = {
@@ -960,6 +1152,29 @@ def _parse_supplied_inputs(raw: list[str]) -> list[tuple]:
     return out
 
 
+def _engine_version() -> str:
+    """`Wesker X.Y.Z` — the engine actually imported, for `--version`.
+
+    Read off the live module, not the dependency floor in our metadata: the floor is what we
+    ASKED for; a report is produced by what is INSTALLED. Those differ routinely — an editable
+    checkout, a sibling on PYTHONPATH, a stale venv — and that difference is exactly what a bug
+    report needs to state and what this session spent hours failing to see.
+
+    The two failure modes are DIFFERENT and are not collapsed. "Not importable" is close to
+    unreachable in practice (this package imports the engine at module scope, so `--version`
+    could not have run) but is honest if it ever happens; "no `__version__`" means an engine
+    IS installed and simply predates the attribute. A single catch-all here reported
+    `Wesker NOT INSTALLED` for an engine sitting right there in site-packages — the wrong
+    cause, stated confidently, in a string whose whole job is to be trusted in a bug report.
+    """
+    try:
+        import Wesker
+    except Exception:  # noqa: BLE001 — a version string must never be the thing that crashes
+        return "Wesker NOT IMPORTABLE"
+    version = getattr(Wesker, "__version__", None)
+    return f"Wesker {version}" if version else "Wesker version UNKNOWN"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="detective",
@@ -967,7 +1182,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "SAFELY — every rewrite is applied only when a generated suite proves behavior "
         "survived. Start read-only: `detective diagnose path/to/file.py::function`.",
     )
-    parser.add_argument("--version", action="version", version=f"detective {__version__}")
+    # BOTH versions, because a verdict is a joint product. Detective decides what to ask; the
+    # ENGINE decides what the answer is — a kill it classifies `crash` rather than `exception`
+    # changes what counts as specified — and `engine.profile` keys its verdict cache on the
+    # engine version precisely because the same question yields a different answer across
+    # engines. So "detective 0.5.4" alone does not identify the thing that produced your
+    # report: two installs printing it can disagree, and the string gives you no way to know.
+    # Read from the INSTALLED module, never restated: this must describe the engine actually
+    # imported, not the one the metadata floor asked for.
+    parser.add_argument(
+        "--version", action="version", version=f"detective {__version__} ({_engine_version()})"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     # diagnose leads: it is the only read-only entry point, and the previous order
     # recommended `converge` first — which WRITES test files into someone's repo before they
@@ -1029,10 +1254,15 @@ def _build_parser() -> argparse.ArgumentParser:
                 "--input",
                 action="append",
                 metavar="TUPLE",
-                help="supply a residual input as a Python-literal positional-arg tuple — e.g. "
-                "\"({'a':['t1'],'b':['t1','t2']}, {})\" — to kill a mutant deterministic synthesis "
-                "could not exercise (a Zone-2 residual, filled through the tool). Repeatable; a bare "
-                "non-tuple literal is one positional arg.",
+                help="one real call's positional arguments, as a Python literal tuple — e.g. "
+                "\"([{'qty': 5, 'price': 2.0}], 0.08, 'gold', None)\" — to reach behaviour "
+                "synthesis could not. Repeatable; a bare non-tuple literal is one argument. "
+                "LITERALS ONLY (plus `ast.*`): this parses an allowlist, which is what makes "
+                '"no arbitrary code execution" checkable rather than hoped-for — so it CANNOT '
+                "carry your own classes (`Account(...)` is rejected). For a function taking a "
+                "domain object, do not use this flag: write ONE test that calls the function "
+                "with a real object and Detective captures the arguments from it. The report "
+                "tells you which of the two applies; it never asks for an --input it will refuse.",
             )
         if name in ("converge", "audit", "diagnose"):
             # Default is ADAPTIVE auto: a small serial probe measures this function's real
@@ -1080,8 +1310,20 @@ def _build_parser() -> argparse.ArgumentParser:
                 "so a function whose completeness needs a human sample can still reach the "
                 "behavior-preservation gate. Same form as `converge --input`. Repeatable.",
             )
-    purge_p = sub.add_parser("purge", help="delete regeneratable analysis cruft left by old runs")
-    purge_p.add_argument("--project-root", default=".")
+    purge_p = sub.add_parser(
+        "purge",
+        help="delete regeneratable analysis caches (.detective/ + .wesker/) — never your tests",
+        description=(
+            "Delete the analysis caches BOTH packages leave behind: Detective's `.detective/` "
+            "verdict cache and reports, and Wesker's `.wesker/`. Everything removed is "
+            "regeneratable by re-running — the next run is just cold.\n\n"
+            "NEVER deleted: your test files, and the two things you AUTHORED — "
+            "`.detective/inputs.json` (the --input samples you supplied) and "
+            "`.detective/equivalents.json` (the mutants you flagged equivalent). Those are "
+            "judgements no re-run can reproduce, so purge does not treat them as cache."
+        ),
+    )
+    purge_p.add_argument("--project-root", default=".", help="project root to purge caches under")
     purge_p.add_argument("--json", action="store_true", help="emit JSON")
     flag_p = sub.add_parser("flag", help="mark a surviving mutant as truly equivalent (manual oracle)")
     flag_p.add_argument("target", help="file.py::function")
@@ -1305,8 +1547,19 @@ def _run(args) -> int:
             return 1
         add_flag(args.project_root, result.function_key, rec.get("diff_summary", ""), note=args.note)
         suffix = f" ({args.note})" if args.note else ""
-        print(f"flagged {args.mutant_id} as equivalent — {result.function_key}{suffix}")
-        print("  future audit/converge runs will treat it as equivalent (a witness would still override)")
+        print(f"{result.function_key} — flag · {args.mutant_id}")
+        print("")
+        print(_row("✓ recorded", f"equivalent{suffix}"))
+        print(_row("", "keyed to this exact code — an edit un-flags it."))
+        print("")
+        # A flag is a CLAIM, and the one place a human overrides the engine. Say what it does
+        # and what still outranks it: a real distinguishing witness. Otherwise it reads as a
+        # way to silence a survivor, which is how a green board gets flagged into existence.
+        print("DONE:  future audit/converge runs treat it as equivalent — unless a witness")
+        print("       is found, which outranks your flag. Proof beats judgement.")
+        # `function_key`, not `function`: the bare name does not resolve as a target, so the
+        # one command this line offers would fail for anyone who pasted it.
+        print(f"       Next: detective audit '{result.function_key}'   # it is no longer a gap")
         return 0
 
     if args.command == "diagnose":

@@ -11,6 +11,8 @@ import ast
 from Detective.synthesis.oracle_light import ExecutableProperty, generate_executable_property
 from Detective.synthesis.writer import (
     _collect_imports,
+    _isort,
+    _merge_from_imports,
     _one_line,
     _render_test,
     _warrant,
@@ -223,3 +225,44 @@ def test_imports_are_deduped():
     node = _fn("def sub(a, b):\n return a - b")
     src = synthesize_test_module("m::sub", node, [{"category": "SWAP"}, {"category": "SWAP"}])
     assert src.count("from m import sub") == 1
+
+
+# ── the emitted module must pass the CONSUMER's ruff, not just `ruff format` ──
+def test_same_module_from_imports_merge():
+    """I001 wants ONE `from m import A, B`. Properties contribute imports independently, so a
+    module needing three names out of one package emitted three lines — grouped right, ordered
+    right, still I001. Detective's own CI went red on a file Detective wrote."""
+    assert _merge_from_imports(["from m import B", "from m import A"]) == ["from m import A, B"]
+
+
+def test_merge_dedupes_names_and_keeps_first_position():
+    p = _merge_from_imports(["import pytest", "from m import B", "from m import B", "from m import A"])
+    assert p == ["import pytest", "from m import A, B"]
+
+
+def test_merge_leaves_relative_imports_of_different_depth_alone():
+    """`.a` and `..a` are DIFFERENT modules; merging them would rewrite the import to one that
+    resolves somewhere else — a broken test file, which is worse than the lint it fixes."""
+    assert _merge_from_imports(["from .a import B", "from ..a import A"]) == [
+        "from .a import B",
+        "from ..a import A",
+    ]
+
+
+def test_merge_passes_star_imports_through_untouched():
+    assert _merge_from_imports(["from m import *", "from m import A"]) == [
+        "from m import *",
+        "from m import A",
+    ]
+
+
+def test_isort_merges_and_still_places_the_first_party_blank_line():
+    """The merge must not cost the grouping. `m` is the TARGET's package — first-party, its own
+    block. This is exactly what a `ruff check --fix` pass over stdin destroys: ruff cannot know
+    `m` is first-party there, ranks it third-party, and drops this blank line — trading I001 in
+    one repo for I001 in every repo whose config gets first-party right."""
+    assert _isort(["from m.x import B", "from m.x import A", "import pytest"], "m") == [
+        "import pytest",
+        "",
+        "from m.x import A, B",
+    ]

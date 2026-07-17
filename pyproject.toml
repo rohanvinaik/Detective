@@ -118,8 +118,22 @@ classifiers = [
 # answer. A dependency whose absence downgrades correctness in silence is a requirement, not a
 # preference. 0.7.0 also carries the trace-session-budget default (300s -> 1800s) that stops a
 # real suite being cut mid-baseline and reporting its own pinned behaviour as unpinned.
+# >=0.8.0 is REQUIRED, and it is what makes a function that VALIDATES ITS INPUTS analysable at
+# all — most real code. Below it, pytest's `Failed` (raised when a `pytest.raises(...)` contract
+# is violated) derives from BaseException, not AssertionError, so the engine classified that kill
+# as a CRASH. `value_survivor_records` re-lists every non-value kill as unpinned, so a mutant
+# killed by an error-path test came back a survivor, was re-classified killable off the same
+# witness, and the residual asked for an input that would rebuild the same test and discard it
+# again. Not a slow path to a verdict: a loop with no exit, on a mutant being killed the whole
+# time. Measured on a 5-branch validating function: 5 blockers that no input could ever clear,
+# `functionally_complete` permanently False, so `decompose` could never prove ANY extraction.
+# With 0.8.0 the same function proves and applies in one call, no inputs supplied.
+# The failure is SILENT below the floor — an older engine does not crash, it just re-invents the
+# loop — so this is a requirement, not a preference. 0.8.0 also adds `wesker --version`, which
+# did not exist: the engine decides the verdict and keys our cache, and could not state its own
+# identity.
 dependencies = [
-    "Wesker>=0.7.2",
+    "Wesker>=0.8.0",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it

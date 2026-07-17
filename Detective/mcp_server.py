@@ -287,12 +287,38 @@ def _render_decompose(r: Any, file: str, function: str, wrote: bool) -> str:
         return "\n".join(out)
 
     if unproven and proof_incomplete:
-        blocking = proof.final_survivors
+        # Count what the GATE reads, not every survivor. `functionally_complete` (converge.py) is
+        # `not killable and not unclassified` — a candidate-equivalent does not block. Reporting
+        # `final_survivors` here fused all three populations into one number and then asked for an
+        # input to close ALL of them, which is impossible for the equivalents by definition: no
+        # input distinguishes one, that is what the classification MEANS. The number therefore did
+        # not move when an input WAS supplied, and this renderer re-emitted the identical demand —
+        # an agent reading it supplies input after input, sees the same line, and concludes the
+        # tool ignores it. Same family as the bug named above: the engine classified honestly and
+        # the renderer threw the classification away at the last inch.
+        rep = proof.survivor_report
         params = tuple(proof.param_names or ())
-        why = (
-            f"{blocking} behaviour(s) are unpinned, so the proof suite is not mutation-complete, "
-            "so nothing can be proven. Your source was NOT touched."
-        )
+        if rep is None:
+            why = (
+                f"{proof.final_survivors} survivor(s) are unpinned, but the classification did not "
+                "run, so WHICH of them block is unknown. Your source was NOT touched."
+            )
+        else:
+            n_kill, n_unc, n_eq = len(rep.killable), len(rep.unclassified), len(rep.equivalent)
+            part = f"{n_kill} killable" if n_kill else ""
+            part += (", " if part and n_unc else "") + (f"{n_unc} unclassified" if n_unc else "")
+            # Name the non-blockers, or the agent reads the total as its backlog and chases
+            # mutants no input can ever kill.
+            spare = (
+                f" The other {n_eq} survivor(s) are candidate-equivalent: they do NOT block, no "
+                "input will ever move them, and they are not your work."
+                if n_eq
+                else ""
+            )
+            why = (
+                f"{n_kill + n_unc} behaviour(s) block the proof ({part}), so the suite is not "
+                f"mutation-complete.{spare} Your source was NOT touched."
+            )
         out += _ask_for_input("decompose", file, function, params, why)
         out.append("")
         out.append("  Pass apply=True alongside the input. The gate is not the flag — the gate is")
@@ -703,6 +729,90 @@ def build_server() -> Any:
             trace_budget,
             trace_session_budget,
         )
+
+    @server.tool()
+    def flag(
+        file: str,
+        function: str,
+        mutant_id: str,
+        why: str,
+        project_root: str,
+    ) -> str:
+        """Record that a surviving mutant is TRULY EQUIVALENT — it cannot change behaviour, so
+        no test could ever kill it. Use when you can PROVE that, not when you want the number down.
+
+        This is the one tool here that moves a verdict without evidence. Everything else reports
+        what the engine measured; this records what YOU concluded. `audit` goes from "complete,
+        modulo 17 unproven-equivalent" to "complete" because you said so. So the bar is a proof,
+        and `why` is where you write it.
+
+        WHAT QUALIFIES. An argument from the code that holds for EVERY input:
+          · unreachable — "the cap is 0.60 and the branches above sum to at most 0.50, so it
+            never fires" (a real one; the mutants on that branch are equivalent for that reason)
+          · commutative/idempotent — "max(a, b) == max(b, a)"
+          · dominated — "the value is overwritten on every path before it is read"
+        Name the constraint. If your `why` would be "looks equivalent", "probably fine", "the
+        test suite passes", or a restatement of the diff, you have not proven it — say so to the
+        user and leave the survivor alone. An UNPROVEN survivor is an honest result and costs
+        nothing.
+
+        A stated argument is the whole point: it makes the claim auditable, and therefore
+        REPAIRABLE if it is wrong. Someone can read "the cap never fires because the branches
+        sum to at most 0.50", check it, and delete the flag if it does not hold. That is why
+        `why` is required rather than optional here — not to slow you down, but because a flag
+        without an argument is a conclusion no one can check, and an unreviewable claim is the
+        only kind that stays wrong.
+
+        WHAT DOES NOT QUALIFY: that it blocks you. It does not. Candidate-equivalents do NOT
+        block `functionally_complete` — decompose and converge close with them outstanding. If
+        you are reaching for this to make something proceed, it is the wrong tool and the thing
+        actually blocking you is a killable mutant, which needs an input or a test.
+
+        Two things outrank you, by design: a real distinguishing witness found later kills the
+        mutant and your flag with it (proof beats judgement), and the flag is keyed to this exact
+        code, so editing the function drops it. Neither is a bug.
+
+        Returns the recorded flag, or an error naming the survivors if `mutant_id` is not one —
+        ids come from `audit`/`converge`. Pass project_root as an ABSOLUTE path.
+        """
+        from .engine import profile
+        from .equivalents import add_flag
+
+        def _go() -> str:
+            reason = why.strip()
+            if not reason:
+                return "STOP. `why` is the proof. An unjustified flag is a deleted behaviour."
+            result = profile(file, function, project_root)
+            # Value-survivors — the SAME set audit/converge report, so a crash-killed mutant
+            # they list is flaggable. `survivor_records` would miss those and answer "none".
+            rec = next(
+                (
+                    r
+                    for r in result.value_survivor_records
+                    if mutant_id in (r.get("mutant_id"), r.get("mutant"))
+                ),
+                None,
+            )
+            if rec is None:
+                ids = ", ".join(r.get("mutant_id", "?") for r in result.value_survivor_records)
+                return (
+                    f"STOP. '{mutant_id}' is not a surviving mutant of {function}. Your flag was "
+                    f"NOT recorded.\n  Surviving: {ids or 'none — nothing to flag'}"
+                )
+            add_flag(project_root, result.function_key, rec.get("diff_summary", ""), note=reason)
+            return "\n".join(
+                [
+                    f"{result.function_key} — flag · {mutant_id}",
+                    "",
+                    f"  recorded equivalent: {reason}",
+                    "",
+                    "DONE: audit and converge now treat it as equivalent, not a gap. Your source",
+                    "  and tests are untouched. A distinguishing witness found later still kills",
+                    "  it — proof outranks this. Editing the function drops the flag.",
+                ]
+            )
+
+        return _rendered(project_root, file, _go)
 
     @server.tool()
     @_with_budget_doc

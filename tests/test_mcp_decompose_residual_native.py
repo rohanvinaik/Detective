@@ -1,0 +1,118 @@
+"""Tests for the MCP decompose RESIDUAL contract — the agent-facing hand-back.
+
+Hand-written native (rich frozen dataclasses; same sanctioned exemption as
+test_cli_converge_output_native.py). ``mcp`` is NOT needed: the renderers are plain
+functions and the package is imported lazily inside ``build_server``.
+
+Why this file exists. ``mcp_server.py`` already carries the principle, at the top of this
+very function: "The four causes of 'unproven' are NOT interchangeable... Collapsing them
+is how a caller gets told to supply an input for a hole that does not exist — and then
+goes looking for why its input 'didn't work'." That was honoured for the four CAUSES and
+then broken for the three POPULATIONS inside one of them: the residual rendered
+``final_survivors`` — killable + unclassified + candidate-equivalent fused — and demanded
+one input to close all of them. An input cannot close a candidate-equivalent; no input
+distinguishes one, which is what the classification MEANS. So the number did not move when
+an input WAS supplied, the identical demand re-emitted, and the caller did exactly what the
+comment predicts: supplied input after input, then went looking for why they "didn't work".
+
+The gate reads `not killable and not unclassified` (converge.py). Count that, or the agent
+reads the total as its backlog and chases mutants nothing can ever kill.
+"""
+
+from __future__ import annotations
+
+from Detective.converge import ConvergeResult
+from Detective.decompose_apply import Decomposition, DecompositionApply, Extraction
+from Detective.equivalence import MutantVerdict, SurvivorReport, Witness
+from Detective.mcp_server import _render_decompose
+
+
+def _killable(mid: str) -> MutantVerdict:
+    return MutantVerdict(
+        mid, "VALUE", "- x\n+ x+1", killable=True, witness=Witness((1,), "1", "2"), searched=5
+    )
+
+
+def _equiv(mid: str) -> MutantVerdict:
+    return MutantVerdict(mid, "BOUNDARY", "- >\n+ >=", killable=False, witness=None, searched=14)
+
+
+def _proof(**over) -> ConvergeResult:
+    base = dict(
+        function="p.py::quote",
+        converged=False,
+        at_ceiling=True,
+        initial_survivors=69,
+        # The fused total the renderer used to print — deliberately != the blocking count,
+        # so a regression to `final_survivors` fails loudly instead of reading plausibly.
+        final_survivors=22,
+        iterations=(),
+        written_path="tests/test_quote_synth.py",
+        total_mutants=93,
+        killed=71,
+        functionally_complete=False,
+        line_complete=True,
+        minimal_test_count=9,
+        signature="quote(weight, distance, tier, rush, insured)",
+        param_names=("weight", "distance", "tier", "rush", "insured"),
+        survivor_report=SurvivorReport(
+            tuple(_killable(f"K{i}") for i in range(5)) + tuple(_equiv(f"E{i}") for i in range(17)),
+            (),
+        ),
+    )
+    base.update(over)
+    return ConvergeResult(**base)
+
+
+def _result(proof: ConvergeResult | None) -> DecompositionApply:
+    ex = Extraction("_compute_base", ("weight",), ("base",), "def _compute_base(weight):\n    return 1\n")
+    return DecompositionApply("quote", (), (Decomposition(ex, validated=False),), (), proof=proof)
+
+
+def _out(**over) -> str:
+    return _render_decompose(_result(_proof(**over)), "p.py", "quote", False)
+
+
+def test_residual_counts_only_the_blocking_population():
+    """5 killable block. 17 candidate-equivalent do not. The old renderer demanded 22."""
+    out = _out()
+    assert "5 behaviour(s) block the proof" in out
+    assert "22 behaviour(s)" not in out
+
+
+def test_residual_tells_the_agent_the_equivalents_are_not_its_work():
+    """The load-bearing line. Without it the agent reads the total as a backlog and burns
+    itself on mutants no input can ever move — the failure this whole surface exists to stop."""
+    out = _out()
+    assert "17 survivor(s) are candidate-equivalent" in out
+    assert "do NOT block" in out
+    assert "not your work" in out
+
+
+def test_residual_splits_killable_from_unclassified():
+    """Different causes: a killable mutant HAS a witness; an unclassified one could not be
+    searched at all. One number for both hides which fix applies."""
+    out = _out(survivor_report=SurvivorReport((_killable("K0"),), ("U0", "U1")))
+    assert "3 behaviour(s) block the proof" in out
+    assert "1 killable" in out and "2 unclassified" in out
+
+
+def test_residual_abstains_when_classification_did_not_run():
+    """No classification means WHICH ones block is unknown. Naming a population there would
+    invent a fact the engine declined to produce."""
+    out = _out(survivor_report=None)
+    assert "classification did not run" in out
+    assert "block the proof" not in out
+
+
+def test_residual_never_says_source_was_touched():
+    """The agent's first question is always "did it write?". Unproven never writes."""
+    assert "Your source was NOT touched." in _out()
+
+
+def test_mutation_complete_rejection_is_a_verdict_not_a_residual():
+    """A complete suite that rejects has PROVEN behaviour changed. Asking for an input there
+    sends the agent to close a hole that does not exist."""
+    out = _out(functionally_complete=True)
+    assert "STOP." in out
+    assert "block the proof" not in out

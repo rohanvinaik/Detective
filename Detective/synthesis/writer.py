@@ -178,6 +178,37 @@ def _top_module(line: str) -> str:
     return parts[1].split(".")[0].rstrip(",")
 
 
+def _merge_from_imports(lines: list[str]) -> list[str]:
+    """Collapse ``from m import A`` + ``from m import B`` into ``from m import A, B``.
+
+    Names are sorted and deduped inside the merged line, which is what isort emits and so
+    what `ruff check` accepts. Plain ``import x`` lines and anything unparseable pass
+    through untouched — an import this cannot read is left exactly as the property wrote
+    it, since a mangled import costs the caller the whole module and a stray I001 does not.
+    Relative imports are keyed by their full ``from`` clause, so ``.a`` and ``..a`` (which
+    name different modules) never merge.
+    """
+    merged: dict[str, list[str]] = {}
+    out: list[str] = []
+    slot: dict[str, int] = {}
+    for line in lines:
+        if not line.startswith("from ") or " import " not in line or "*" in line:
+            out.append(line)
+            continue
+        module, names = line.split(" import ", 1)
+        if "(" in names or "\\" in names:  # multi-line/continued form: not ours to rewrite
+            out.append(line)
+            continue
+        if module not in merged:
+            merged[module] = []
+            slot[module] = len(out)
+            out.append(line)  # placeholder, rewritten below
+        merged[module] += [n.strip() for n in names.split(",") if n.strip()]
+    for module, names in merged.items():
+        out[slot[module]] = f"{module} import {', '.join(sorted(set(names)))}"
+    return out
+
+
 def _isort(lines: list[str], first_party: str) -> list[str]:
     """Order imports as ruff/isort (I001) does: stdlib, third-party, first-party — groups
     blank-line separated, plain ``import x`` before ``from x import y`` within a group.
@@ -186,7 +217,18 @@ def _isort(lines: list[str], first_party: str) -> list[str]:
     ``import pytest`` because ``f`` < ``i``. That matters because a project lints the tests
     Detective writes (this one runs `ruff check tests/` in CI), so a generated file must be
     clean AS EMITTED — the hygiene invariant in this module's docstring.
+
+    Same-module ``from`` imports are MERGED, because ordering alone does not satisfy I001.
+    Properties contribute their imports independently, so three properties needing three
+    names out of one module yielded three ``from m import A`` / ``from m import B`` lines —
+    correctly grouped, correctly ordered, and still I001 (isort emits ONE ``from m import
+    A, B, C``). Detective's own CI caught it on a file Detective wrote. Merging belongs
+    here, not in a `ruff check --fix` pass over the emitted text: over stdin ruff cannot
+    know the TARGET's package is first-party, so it ranks it third-party and deletes the
+    blank line this function exists to place — trading I001 in one repo for I001 in every
+    repo whose config gets first-party right.
     """
+    lines = _merge_from_imports(lines)
     groups: dict[int, list[str]] = {0: [], 1: [], 2: []}
     for line in lines:
         top = _top_module(line)

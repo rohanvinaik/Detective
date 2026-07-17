@@ -301,14 +301,30 @@ def _witness_property(func_key: str, witness) -> ExecutableProperty:
 
 
 def _raises_witness_property(func_key: str, witness) -> ExecutableProperty | None:
-    """The killing test for a witness whose ORIGINAL raises: a ``pytest.raises`` form.
+    """The killing test for a witness whose ORIGINAL raises: an explicit try/except form.
 
     The witness proves original(args) != mutant(args) where the original raised
-    ``<raised ExcType>``; a mutant that returns a value (or raises differently) fails
-    ``with pytest.raises(ExcType): f(args)``, so the form kills it — the error-path
-    coverage a value-assertion can't express. None if the exception type can't be
-    parsed (then it stays a suggestion). The exec-time soundness gate still applies:
-    if the original does NOT actually raise ExcType, ``property_holds`` rejects it."""
+    ``<raised ExcType>``. A mutant can differ in TWO ways, and they need different handling:
+
+    * it RETURNS instead of raising -> the ``else:`` branch fails the test;
+    * it raises a DIFFERENT type -> the ``except BaseException`` branch fails the test.
+
+    ``with pytest.raises(ExcType)`` only covers the first. It does not catch the wrong type
+    — a mutant swapping ``raise ValueError`` for ``raise TypeError`` lets the TypeError
+    propagate out of the test, and the engine reads a propagating exception as a CRASH kill,
+    not a value kill. Crash kills are re-listed by ``value_survivor_records`` as unpinned, so
+    the mutant returned as a survivor, was re-classified killable off this same witness, and
+    the residual asked for an input that would rebuild this same test — a loop with no exit,
+    on a mutant that was in fact being killed the whole time.
+
+    Both branches call ``pytest.fail``, so both raise pytest's ``Failed``, which the engine
+    classifies ``killed_by="exception"``: a DECLARED failure, a pin, not a crash. Raising IS
+    the return behaviour of an error path, and this is the only form that can state it.
+
+    None if the exception type can't be parsed (then it stays a suggestion). The exec-time
+    soundness gate still applies: if the original does NOT actually raise ExcType,
+    ``property_holds`` rejects it.
+    """
     match = re.fullmatch(r"<raised (\w+)>", witness.original)
     if match is None:
         return None
@@ -316,11 +332,23 @@ def _raises_witness_property(func_key: str, witness) -> ExecutableProperty | Non
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
     args = ", ".join(repr(a) for a in witness.args)
     setup = _setup_with_imports(mod, fname, witness.args) + "\nimport pytest"
+    # `_exc`/`_result` are underscore-prefixed so they cannot collide with a parameter name
+    # that `_setup_with_imports` bound into the same scope.
+    assertion = (
+        "try:\n"
+        f"    _result = {fname}({args})\n"
+        f"except {exc}:\n"
+        "    pass\n"
+        "except BaseException as _exc:\n"
+        f'    pytest.fail(f"expected {exc}, got {{type(_exc).__name__}}: {{_exc!r}}")\n'
+        "else:\n"
+        f'    pytest.fail(f"expected {exc}, but the call returned {{_result!r}}")'
+    )
     return ExecutableProperty(
         category="VALUE",
         inputs={},
         setup_code=setup,
-        assertion_code=f"with pytest.raises({exc}):\n    {fname}({args})",
+        assertion_code=assertion,
         preconditions=[f"distinguishing witness (original raises {exc})"],
         confidence=0.95,
         source_lenses=["witness"],

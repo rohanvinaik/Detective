@@ -45,6 +45,11 @@ class SuiteAudit:
     manual_equivalent: int = 0  # survivors manually flagged equivalent (oracle)
     candidate_equivalent: int = 0  # survivors with no distinguishing input found (UNPROVEN — flag to confirm)
     unclassified: int = 0  # survivors the search could not classify (may be killable OR equivalent)
+    # The candidate-equivalents' actual ids. `flag` takes an id, so a count alone cannot
+    # produce a runnable command: the report said "`flag <mutant_id>`" and left the reader to
+    # go find one. The classifier already has them; keeping only `len()` is what made the
+    # next action a placeholder instead of something to paste.
+    candidate_equivalent_ids: tuple[str, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -101,6 +106,7 @@ def audit_suite(
     killable_gaps: tuple[str, ...]
     manual_equivalent = 0
     candidate_equivalent = 0
+    candidate_equivalent_ids: tuple[str, ...] = ()
     unclassified = 0
     try:
         report = classify_survivors(file, function, project_root)
@@ -110,6 +116,7 @@ def audit_suite(
         )
         manual_equivalent = len(report.manual_equivalent)
         candidate_equivalent = len(report.equivalent)
+        candidate_equivalent_ids = tuple(v.mutant_id for v in report.equivalent)
         unclassified = len(report.unclassified)
         mutant_complete = not report.killable and not report.unclassified
     except Exception:  # noqa: BLE001 — classification is advisory, never fails the audit
@@ -148,5 +155,6 @@ def audit_suite(
         minimal_test_count=len(minimal),
         manual_equivalent=manual_equivalent,
         candidate_equivalent=candidate_equivalent,
+        candidate_equivalent_ids=candidate_equivalent_ids,
         unclassified=unclassified,
     )
