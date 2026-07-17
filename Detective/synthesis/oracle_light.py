@@ -13,6 +13,7 @@ pair detection are deferred as follow-on features.
 from __future__ import annotations
 
 import ast
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -45,10 +46,18 @@ def generate_executable_property(
     func_key: str,
     func_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None,
     call_site_inputs: list[dict] | None = None,
+    root: str | None = None,
 ) -> ExecutableProperty:
-    """Generate an executable property from a mutation survivor record."""
+    """Generate an executable property from a mutation survivor record.
+
+    ``root`` is the project root, threaded down to `_import_line` so the generated import names
+    the module the way the REST of the repo does — see `importable_module`. Passing it
+    explicitly rather than reading a global is deliberate: a wrong-but-plausible root fails
+    silently (it just stops finding `__init__.py` and falls back to the path-shaped name), which
+    is the exact class of bug this parameter exists to fix.
+    """
     generator = _GENERATORS.get(survivor.get("category", ""), _generic_property)
-    prop = generator(survivor, func_key, func_node, call_site_inputs)
+    prop = generator(survivor, func_key, func_node, call_site_inputs, root)
     prop.function_key = func_key
     prop.mutant_id = survivor.get("mutant_id", "")
     return prop
@@ -70,14 +79,43 @@ def _bare_name(name: str) -> str:
     return name.split(".")[-1]
 
 
-def _import_line(module_path: str, func_name: str) -> str:
+def importable_module(module_path: str, root: str | None = None) -> str:
+    """The dotted module name a reader would actually TYPE for this file.
+
+    A path is not a module name. ``src/model_atlas/query_navigate.py`` is imported as
+    ``model_atlas.query_navigate`` — `src/` is a source root, not a package. Blindly swapping
+    separators for dots emitted ``from src.model_atlas.query_navigate import ...``, which under
+    PEP 420 namespace packages *imports successfully* and is therefore silent: Python then holds
+    TWO module objects for ONE file, the repo's suite bound to one and the generated suite to
+    the other, each blind to the other's state. It looked fine. It was two programs.
+
+    The rule is the one Python itself uses: walk up while ``__init__.py`` exists; the first
+    directory without one is the source root and contributes nothing to the name. That needs the
+    filesystem, which is why ``root`` is threaded here rather than guessed — ``root=None`` keeps
+    the old pure-string behaviour for callers that genuinely have no project (and for a path
+    that is already dotted).
+    """
+    mod = module_path[:-3] if module_path.endswith(".py") else module_path
+    mod = mod.replace("\\", "/")
+    if root is None or "/" not in mod:
+        return mod.replace("/", ".")
+    parts = mod.split("/")
+    kept = [parts[-1]]
+    # Walk up from the file's own directory. Stop at the first directory that is not a package:
+    # everything above it is a source root (`src/`, a repo root, a venv site dir), and naming it
+    # is what invents the second module object.
+    for i in range(len(parts) - 1, 0, -1):
+        if not os.path.isfile(os.path.join(root, *parts[:i], "__init__.py")):
+            break
+        kept.insert(0, parts[i - 1])
+    return ".".join(kept)
+
+
+def _import_line(module_path: str, func_name: str, root: str | None = None) -> str:
     if not module_path:
         return ""
     top = func_name.split(".")[0]
-    mod = module_path.replace("/", ".").replace("\\", ".")
-    if mod.endswith(".py"):
-        mod = mod[:-3]
-    return f"from {mod} import {top}"
+    return f"from {importable_module(module_path, root)} import {top}"
 
 
 def _parse_diff_changes(diff: str) -> list[tuple[str, str]]:
@@ -96,10 +134,10 @@ def _parse_diff_changes(diff: str) -> list[tuple[str, str]]:
 # ── Category generators ───────────────────────────────────────────
 
 
-def _swap_property(_survivor, func_key, func_node, call_site_inputs) -> ExecutableProperty:
+def _swap_property(_survivor, func_key, func_node, call_site_inputs, root=None) -> ExecutableProperty:
     """SWAP: ``f(a, b) != f(b, a)`` — sound when order provably matters."""
     mod, fname, params = _func_info(func_key, func_node)
-    setup = _import_line(mod, fname)
+    setup = _import_line(mod, fname, root)
 
     if len(params) < 2:
         return _skip("SWAP", setup, f"# SWAP survived but {fname} has <2 params", 0.3)
@@ -141,10 +179,10 @@ def _swap_type_skip(func_node, setup: str) -> ExecutableProperty | None:
     return _skip("SWAP", setup, f"# SWAP skipped: params have different types ({name_a} vs {name_b})", 0.1)
 
 
-def _boundary_property(survivor, func_key, func_node, call_site_inputs) -> ExecutableProperty:
+def _boundary_property(survivor, func_key, func_node, call_site_inputs, root=None) -> ExecutableProperty:
     """BOUNDARY: behavior differs across the actual predicate boundary pair."""
     mod, fname, params = _func_info(func_key, func_node)
-    setup = _import_line(mod, fname)
+    setup = _import_line(mod, fname, root)
 
     info = _extract_boundary_info(survivor.get("diff_summary", ""))
     if info is None:
@@ -175,7 +213,7 @@ def _boundary_property(survivor, func_key, func_node, call_site_inputs) -> Execu
     )
 
 
-def _type_property(survivor, func_key, func_node, call_site_inputs) -> ExecutableProperty:
+def _type_property(survivor, func_key, func_node, call_site_inputs, root=None) -> ExecutableProperty:
     """TYPE: a wrong type should be rejected (raise).
 
     The call must be FULL-ARITY and the invalid value must land in the guarded parameter.
@@ -185,7 +223,7 @@ def _type_property(survivor, func_key, func_node, call_site_inputs) -> Executabl
     proving nothing. Hence the two abstentions below.
     """
     mod, fname, params = _func_info(func_key, func_node)
-    imp = _import_line(mod, fname)
+    imp = _import_line(mod, fname, root)
     setup = f"{imp}\nimport pytest" if imp else "import pytest"
     target, expected_type = _extract_isinstance_target(survivor.get("diff_summary", ""))
 
@@ -223,10 +261,10 @@ def _type_property(survivor, func_key, func_node, call_site_inputs) -> Executabl
     )
 
 
-def _state_property(survivor, func_key, func_node, call_site_inputs) -> ExecutableProperty:
+def _state_property(survivor, func_key, func_node, call_site_inputs, root=None) -> ExecutableProperty:
     """STATE: a return value or set attribute must be verified."""
     mod, fname, params = _func_info(func_key, func_node)
-    setup = _import_line(mod, fname)
+    setup = _import_line(mod, fname, root)
     desc = survivor.get("description", "")
     diff = survivor.get("diff_summary", "")
 
@@ -261,7 +299,7 @@ def _state_property(survivor, func_key, func_node, call_site_inputs) -> Executab
             return ExecutableProperty(
                 category="STATE",
                 inputs={},
-                setup_code=_import_line(mod, class_name),
+                setup_code=_import_line(mod, class_name, root),
                 assertion_code=assertion,
                 preconditions=[f"construct {class_name}"],
                 confidence=0.65,
@@ -288,10 +326,10 @@ def _state_property(survivor, func_key, func_node, call_site_inputs) -> Executab
     )
 
 
-def _value_property(_survivor, func_key, func_node, call_site_inputs) -> ExecutableProperty:
+def _value_property(_survivor, func_key, func_node, call_site_inputs, root=None) -> ExecutableProperty:
     """VALUE: exact output needed — oracle-dependent."""
     mod, fname, _ = _func_info(func_key, func_node)
-    setup = _import_line(mod, fname)
+    setup = _import_line(mod, fname, root)
     call_args = _call_args_from_sites(call_site_inputs) or "..."
     assertion = f"result = {fname}({call_args})\nassert result == ...  # FILL: expected value"
     return ExecutableProperty(
@@ -306,12 +344,12 @@ def _value_property(_survivor, func_key, func_node, call_site_inputs) -> Executa
     )
 
 
-def _stmt_property(_survivor, func_key, func_node, call_site_inputs) -> ExecutableProperty:
+def _stmt_property(_survivor, func_key, func_node, call_site_inputs, root=None) -> ExecutableProperty:
     """STMT: a side-effecting statement was deleted and no test noticed — either the
     statement is dead code (equivalent, remove it) or its side effect is unobserved.
     Oracle-required: the test must observe the effect; we never fabricate what it is."""
     mod, fname, _ = _func_info(func_key, func_node)
-    setup = _import_line(mod, fname)
+    setup = _import_line(mod, fname, root)
     call_args = _call_args_from_sites(call_site_inputs) or "..."
     assertion = (
         f"# STMT: a side-effecting statement in {fname} was deleted and no test noticed.\n"
@@ -331,7 +369,7 @@ def _stmt_property(_survivor, func_key, func_node, call_site_inputs) -> Executab
     )
 
 
-def _generic_property(survivor, _func_key, _func_node, _call_site_inputs) -> ExecutableProperty:
+def _generic_property(survivor, _func_key, _func_node, _call_site_inputs, _root=None) -> ExecutableProperty:
     cat = survivor.get("category", "UNKNOWN")
     return ExecutableProperty(
         category=cat,

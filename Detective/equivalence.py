@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import itertools
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -478,16 +479,43 @@ class Witness:
     original_value: Any = field(default=None, compare=False)
 
 
+# A memory address inside an exception message ("<Foo object at 0x10a3f2b50>") differs every
+# run, so an outcome carrying one is not a fact about the code — it is a fact about this
+# process. Comparing two invents differences; asserting one writes a test that fails tomorrow.
+_VOLATILE_IN_MESSAGE = re.compile(r"0x[0-9a-fA-F]{4,}")
+
+
 def _outcome(fn: Callable[..., Any], args: tuple) -> str:
     """The repr of ``fn(*args)``, or a raised-marker — so a mutant that starts
     raising (or stops raising) counts as an observable difference, not a crash.
 
+    The marker carries the exception's MESSAGE as well as its type, because the type alone is
+    not the behaviour. Given `if key not in slots: raise KeyError(f"unknown slot {key}")`, both
+    deleting the guard (the bare `slots[key]` raises `KeyError` too) and blanking the message
+    still raise `KeyError` — so a type-only marker made mutant and original compare EQUAL,
+    `find_witness` skipped them, and they were filed candidate-equivalent. They are killable.
+    The distinction was in the message, and this function had it and threw it away. No input
+    could ever recover it, which is why supplying more inputs looped forever.
+
+    Falls back to the type alone when the message is empty or carries a memory address: an
+    unstable outcome is worse than a coarse one — it fabricates a witness `property_holds` then
+    rejects, losing even the type-level kill that a coarse marker still earns.
+
     Arguments are unwrapped so a synthesized non-literal input (a ``SourceExpr``
-    wrapping an AST node) runs as its live value, not as the carrier."""
+    wrapping an AST node) runs as its live value, not as the carrier.
+
+    The format is load-bearing: ``_raises_witness_property`` parses it back to build the killing
+    test, so the two MUST agree on whether a message is pinned. Widening one alone would find a
+    witness whose generated test cannot kill the mutant — re-listed as a survivor,
+    re-classified killable off this same witness, rebuilt identically, forever.
+    """
     try:
         return repr(fn(*(unwrap(a) for a in args)))
     except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
-        return f"<raised {type(exc).__name__}>"
+        message = str(exc)
+        if not message or _VOLATILE_IN_MESSAGE.search(message):
+            return f"<raised {type(exc).__name__}>"
+        return f"<raised {type(exc).__name__}: {message}>"
 
 
 def _outcome_value(fn: Callable[..., Any], args: tuple) -> Any:
@@ -521,14 +549,31 @@ def find_witness(
 
     None does not prove equivalence — it means no value-killable input was found.
     """
+    return _search_witness(original, mutant, candidate_inputs)[0]
+
+
+def _search_witness(
+    original: Callable[..., Any], mutant: Callable[..., Any], candidate_inputs: list[tuple]
+) -> tuple[Witness | None, bool]:
+    """``(witness, crash_only)`` — the search `find_witness` runs, plus the fact it threw away.
+
+    ``crash_only`` is True when NO value-witness exists but some input DID distinguish the mutant
+    by newly raising. That is a real and reportable distinction: such a mutant is not "equivalent —
+    no input distinguishes it" (an input does), it is VALUE-equivalent and crash-only-distinguishable.
+    The search already decides this to skip those inputs; only the caller never got told, so the
+    renderer printed the stronger, false claim. Returned as data, not text, because the CLI and the
+    MCP word it differently.
+    """
+    crash_only = False
     for args in candidate_inputs:
         original_outcome, mutant_outcome = _outcome(original, args), _outcome(mutant, args)
         if original_outcome == mutant_outcome:
             continue
         if mutant_outcome.startswith("<raised ") and not original_outcome.startswith("<raised "):
-            continue  # crash-only kill — not a value-witness (see crash-as-spec)
-        return Witness(tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args))
-    return None
+            crash_only = True  # crash-only kill — not a value-witness (see crash-as-spec)
+            continue
+        return Witness(tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)), False
+    return None, crash_only
 
 
 @dataclass(frozen=True)
@@ -541,11 +586,19 @@ class MutantVerdict:
     killable: bool  # True iff a distinguishing input was found
     witness: Witness | None  # the distinguishing input, present iff killable
     searched: int  # how many candidate inputs were tried (context for 'equivalent')
+    # No VALUE-witness, but an input DID distinguish it by newly raising. Never true when
+    # `killable`. Defaulted so the field is additive for anyone constructing a verdict directly.
+    crash_only: bool = False
 
     @property
     def label(self) -> str:
         """One-word disposition for reports."""
-        return "killable" if self.killable else "equivalent-candidate"
+        if self.killable:
+            return "killable"
+        # Not "equivalent-candidate": an input DOES distinguish this one, by crash. Saying no
+        # input does is simply false, and it is what sent callers hunting for an input that
+        # cannot exist. `find_witness` names the real class; report ITS word, not a rounder one.
+        return "value-equivalent (crash-only-distinguishable)" if self.crash_only else "equivalent-candidate"
 
 
 # Types `--input` can actually carry. Deliberately mirrors `_INPUT_SAFE_NODES`/`INPUT_MODULES`
@@ -629,7 +682,7 @@ def classify_survivor(
 ) -> MutantVerdict:
     """Killable (with a witness) if any input distinguishes the mutant, else an
     equivalent-candidate documented with how many inputs were tried."""
-    witness = find_witness(original, mutant, candidate_inputs)
+    witness, crash_only = _search_witness(original, mutant, candidate_inputs)
     return MutantVerdict(
         mutant_id=mutant_id,
         category=category,
@@ -637,4 +690,5 @@ def classify_survivor(
         killable=witness is not None,
         witness=witness,
         searched=len(candidate_inputs),
+        crash_only=crash_only,
     )

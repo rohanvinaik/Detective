@@ -290,9 +290,17 @@ def _render_converge(result: Any, file: str, function: str, full_text: str | Non
     if cand:
         out.append("")
         out.append(f"DONE: every killable mutant is killed. {len(cand)} survivor(s) remain that")
-        out.append("  no input could distinguish. Whether they are truly equivalent is UNDECIDABLE")
+        out.append("  no VALUE assertion could pin. Whether they are truly equivalent is UNDECIDABLE")
         out.append("  in general — the engine will not claim it, and neither should you.")
         out.append("  Leave them by default. They are not a gap.")
+        # Name the crash-only class outright. This used to read "no input could distinguish",
+        # which is FALSE of them — an input does, by crash — and a caller who believes it goes
+        # looking for the input that would, which cannot exist. There is nothing to supply here.
+        if n_crash := sum(1 for v in cand if v.crash_only):
+            out.append("")
+            out.append(f"  {n_crash} of them are crash-only-distinguishable: your suite ALREADY detects")
+            out.append("  them (the mutant raises where the original returns). What is missing is a")
+            out.append("  value to pin, not an input — supplying inputs cannot move them.")
         out.append("")
         # `flag` IS a tool now. This branch used to end "ask the user; do not decide it
         # yourself", which was written when it was not — and would have gone on saying so.
@@ -476,9 +484,19 @@ def _render_decompose(r: Any, file: str, function: str, wrote: bool) -> str:
             part += (", " if part and n_unc else "") + (f"{n_unc} unclassified" if n_unc else "")
             # Name the non-blockers, or the agent reads the total as its backlog and chases
             # mutants no input can ever kill.
+            # "no input will ever move them" is true of both classes only in the VALUE sense —
+            # say that, rather than a flat "no input", which reads as "unreachable" and is what
+            # sends a caller hunting for an input to reach them with.
+            n_crash = sum(1 for v in rep.equivalent if v.crash_only)
+            crash_note = (
+                f" ({n_crash} of them your suite already detects by crash — the mutant raises "
+                "where the original returns; what is missing is a value to pin, not an input.)"
+                if n_crash
+                else ""
+            )
             spare = (
                 f" The other {n_eq} survivor(s) are candidate-equivalent: they do NOT block, no "
-                "input will ever move them, and they are not your work."
+                f"input will ever pin them with a VALUE, and they are not your work.{crash_note}"
                 if n_eq
                 else ""
             )
@@ -795,6 +813,7 @@ def build_server() -> Any:
         project_root: str,
         inputs: list[str] | None = None,
         full: bool = False,
+        verbose: bool = False,
         trace_budget: float | None = None,
         trace_session_budget: float | None = None,
     ) -> str:
@@ -803,6 +822,11 @@ def build_server() -> Any:
         ``inputs`` are real calls to the target, as strings: ``["(2.0, 600, True)"]``. Supply
         one whenever the response asks for it — that is the only thing this engine cannot
         derive for itself, and re-running without one cannot make progress.
+
+        ``verbose=True`` (only meaningful with ``full=True``) lists every surviving mutant's id
+        and diff; by default they group by the statement they mutated. Ask for it when you need
+        a specific id to pass to `flag` — on a large function the ungrouped list is mostly
+        repetition of the same few branches, and reading it costs you context you will want.
 
         Calling this repeatedly with no new ``inputs`` is inert. If the answer did not change,
         that is not a bug and not a reason to look inside .detective/ — it means the engine
@@ -826,7 +850,9 @@ def build_server() -> Any:
             supplied = _parse_supplied_inputs(inputs) if inputs else None
             result = _converge(file, function, project_root, supplied_inputs=supplied)
             full_text = (
-                _CLI_REPORT_HEADER + "\n" + _format_converge(result, show_tests=True) if full else None
+                _CLI_REPORT_HEADER + "\n" + _format_converge(result, show_tests=True, verbose=verbose)
+                if full
+                else None
             )
             return _render_converge(result, file, function, full_text)
 
@@ -1036,9 +1062,16 @@ def build_server() -> Any:
         return _rendered(
             project_root,
             file,
-            lambda: _CLI_REPORT_HEADER
-            + "\n"
-            + _format_converge(_converge(file, function, project_root, write_dir=None), show_tests=True),
+            lambda: (
+                _CLI_REPORT_HEADER
+                + "\n"
+                # Grouped, like the CLI's --full: this relays a whole converge report into a model's
+                # context, so the per-mutant list is the most expensive and least load-bearing part
+                # of it. The ids live in the written report for anyone who needs one.
+                + _format_converge(
+                    _converge(file, function, project_root, write_dir=None), show_tests=True, verbose=False
+                )
+            ),
             trace_budget,
             trace_session_budget,
         )

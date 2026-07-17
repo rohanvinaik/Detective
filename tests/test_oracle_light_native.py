@@ -33,6 +33,7 @@ from Detective.synthesis.oracle_light import (
     _type_property,
     _value_property,
     generate_executable_property,
+    importable_module,
 )
 
 
@@ -263,6 +264,67 @@ def test_import_line_empty_module():
 
 def test_import_line_non_py():
     assert _import_line("pkg.mod", "f") == "from pkg.mod import f"
+
+
+# ── importable_module (the __init__.py walk) ──────────────────────
+def _src_layout(tmp_path):
+    """A src-layout: `src/` is a source ROOT (no __init__.py), `src/pkg/` is a package."""
+    (tmp_path / "src" / "pkg" / "sub").mkdir(parents=True)
+    (tmp_path / "src" / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "src" / "pkg" / "sub" / "__init__.py").write_text("")
+    (tmp_path / "src" / "pkg" / "mod.py").write_text("")
+    (tmp_path / "src" / "pkg" / "sub" / "deep.py").write_text("")
+    return tmp_path
+
+
+def test_importable_module_drops_a_source_root_that_is_not_a_package(tmp_path):
+    # THE bug: `src/` has no __init__.py, so it is not part of the name. Naming it emitted
+    # `from src.pkg.mod import ...`, which imports FINE under PEP 420 namespace packages and
+    # is therefore silent — leaving Python holding two module objects for one file.
+    root = _src_layout(tmp_path)
+    assert importable_module("src/pkg/mod.py", str(root)) == "pkg.mod"
+
+
+def test_importable_module_keeps_every_directory_that_IS_a_package(tmp_path):
+    root = _src_layout(tmp_path)
+    assert importable_module("src/pkg/sub/deep.py", str(root)) == "pkg.sub.deep"
+
+
+def test_importable_module_flat_layout_keeps_the_top_package(tmp_path):
+    # No src/ indirection: the package sits at the root and stays in the name.
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "pkg" / "mod.py").write_text("")
+    assert importable_module("pkg/mod.py", str(tmp_path)) == "pkg.mod"
+
+
+def test_importable_module_top_level_script_is_its_own_name(tmp_path):
+    (tmp_path / "calculator.py").write_text("")
+    assert importable_module("calculator.py", str(tmp_path)) == "calculator"
+
+
+def test_importable_module_namespace_dir_without_init_is_not_a_package(tmp_path):
+    # A bare directory with no __init__.py anywhere (this author's Genesis tree). The directory
+    # is a source root, not a package, so it contributes nothing.
+    (tmp_path / "mcp").mkdir()
+    (tmp_path / "mcp" / "server.py").write_text("")
+    assert importable_module("mcp/server.py", str(tmp_path)) == "server"
+
+
+def test_importable_module_without_a_root_stays_a_pure_string(tmp_path):
+    # root=None cannot touch the filesystem, so it must NOT pretend to know: old behaviour.
+    assert importable_module("src/pkg/mod.py") == "src.pkg.mod"
+
+
+def test_importable_module_already_dotted_is_unchanged(tmp_path):
+    assert importable_module("pkg.mod", str(tmp_path)) == "pkg.mod"
+
+
+def test_import_line_threads_the_root_through_to_the_walk(tmp_path):
+    # The whole point of threading `root`: the emitted import must match what the repo types.
+    root = _src_layout(tmp_path)
+    assert _import_line("src/pkg/mod.py", "f", str(root)) == "from pkg.mod import f"
+    assert _import_line("src/pkg/mod.py", "f") == "from src.pkg.mod import f"
 
 
 def test_parse_diff_changes_pairs_changed_lines():

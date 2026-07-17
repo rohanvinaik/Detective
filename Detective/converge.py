@@ -25,7 +25,7 @@ from .certify import PytestWiring, _write, wire_pytest
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
 from .equivalence import SourceExpr, SurvivorReport
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis
-from .purity import is_pure
+from .purity import is_pure, world_effects
 from .synthesis.characterization import capture_golden, corroborate_captures, golden_assert_line
 from .synthesis.oracle_light import ExecutableProperty, _import_line, generate_executable_property
 from .synthesis.writer import individual_test_names, render_module
@@ -168,14 +168,22 @@ def _remaining_summary(survivor_records: list[dict]) -> tuple[str, ...]:
 def property_holds(setup_code: str, assertion_code: str, project_root: str) -> bool:
     """True if the property's assertion passes on the unmutated module.
 
-    Executes ``setup_code`` + ``assertion_code`` with ``project_root`` on the path.
+    Executes ``setup_code`` + ``assertion_code`` with the SUITE's import path — not merely
+    ``project_root``. The generated setup imports the target the way the rest of the repo does
+    (`importable_module`), so on a src-layout it says ``from pkg.mod import f`` while `pkg` lives
+    under ``src/``. Root alone cannot resolve that: every property then raised ImportError, was
+    judged unsound, and was silently dropped — converge wrote ZERO tests and reported 0/12
+    killed, which reads as "this code is unkillable" rather than "the gate could not import it".
+    ``_suite_path`` is what pytest itself will use, so a property that passes here passes there.
+
     Any exception (a failed assertion, or an import that can't resolve) means the
     property does not soundly hold and must not be written.
     """
+    from .engine import _suite_path
+
     root = os.path.abspath(project_root)
-    added = root not in sys.path
-    if added:
-        sys.path.insert(0, root)
+    added = [p for p in _suite_path(root) if p not in sys.path]
+    sys.path[:0] = added
     try:
         exec(compile(f"{setup_code}\n{assertion_code}", "<verify>", "exec"), {})  # noqa: S102
         return True
@@ -184,8 +192,9 @@ def property_holds(setup_code: str, assertion_code: str, project_root: str) -> b
     except BaseException:  # noqa: BLE001 — pytest's Failed inherits BaseException, not Exception
         return False
     finally:
-        if added and root in sys.path:
-            sys.path.remove(root)
+        for p in added:
+            if p in sys.path:
+                sys.path.remove(p)
 
 
 def _numeric_inputs(params: list[str]) -> list[dict]:
@@ -196,14 +205,14 @@ def _numeric_inputs(params: list[str]) -> list[dict]:
     return [{"positional_args": [str(i) for i in range(1, len(params) + 1)]}]
 
 
-def _setup_with_imports(mod: str, fname: str, args) -> str:
+def _setup_with_imports(mod: str, fname: str, args, root: str | None = None) -> str:
     """The target's import line, plus any imports the arguments need to be *constructed*
     in the test: a ``SourceExpr`` carries its own imports (e.g. ``import ast`` for an
     AST-node input), and a synthesized DATACLASS instance renders (via repr) as
     ``ClassName(...)`` — which NameErrors unless ``ClassName`` is imported. Without these
     a golden or witness test is judged unsound under ``property_holds`` and never written,
     even though it is a valid killing test. Deduped, target import first."""
-    lines = [_import_line(mod, fname)]
+    lines = [_import_line(mod, fname, root)]
     seen: set[str] = set()
     for arg in args:
         imps: list[str] = []
@@ -252,7 +261,7 @@ def _dataclass_imports(value: object) -> list[str]:
     return imports
 
 
-def _golden_property(func_key: str, capture) -> ExecutableProperty:
+def _golden_property(func_key: str, capture, root: str | None = None) -> ExecutableProperty:
     """A golden-capture property: pin the exact return value. Sound by
     construction (asserts the real output) and kills any mutant that changes it."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
@@ -268,7 +277,7 @@ def _golden_property(func_key: str, capture) -> ExecutableProperty:
     return ExecutableProperty(
         category="VALUE",
         inputs={},
-        setup_code=_setup_with_imports(mod, fname, capture.inputs),
+        setup_code=_setup_with_imports(mod, fname, capture.inputs, root),
         assertion_code=f"result = {fname}({args})\n{assertion}",
         preconditions=["golden capture (pure + deterministic)"],
         confidence=0.9,
@@ -278,7 +287,7 @@ def _golden_property(func_key: str, capture) -> ExecutableProperty:
     )
 
 
-def _witness_property(func_key: str, witness) -> ExecutableProperty:
+def _witness_property(func_key: str, witness, root: str | None = None) -> ExecutableProperty:
     """A golden test at a distinguishing input the equivalence search found. The
     witness proves original(args) != mutant(args), so pinning the original's real
     output there deterministically kills that mutant — an input the single golden
@@ -289,7 +298,7 @@ def _witness_property(func_key: str, witness) -> ExecutableProperty:
     return ExecutableProperty(
         category="VALUE",
         inputs={},
-        setup_code=_setup_with_imports(mod, fname, witness.args),
+        setup_code=_setup_with_imports(mod, fname, witness.args, root),
         assertion_code=(
             f"result = {fname}({args})\n{golden_assert_line(witness.original, witness.original_value)}"
         ),
@@ -300,7 +309,7 @@ def _witness_property(func_key: str, witness) -> ExecutableProperty:
     )
 
 
-def _raises_witness_property(func_key: str, witness) -> ExecutableProperty | None:
+def _raises_witness_property(func_key: str, witness, root: str | None = None) -> ExecutableProperty | None:
     """The killing test for a witness whose ORIGINAL raises: an explicit try/except form.
 
     The witness proves original(args) != mutant(args) where the original raised
@@ -321,35 +330,54 @@ def _raises_witness_property(func_key: str, witness) -> ExecutableProperty | Non
     classifies ``killed_by="exception"``: a DECLARED failure, a pin, not a crash. Raising IS
     the return behaviour of an error path, and this is the only form that can state it.
 
+    When the witness carries the exception's MESSAGE (`<raised KeyError: unknown slot x>`), the
+    handler asserts it rather than passing. That is the only form that kills a mutant which
+    raises the RIGHT type with the WRONG message — `raise KeyError("")`, or a deleted guard
+    whose fall-through raises `KeyError` on its own. `except KeyError: pass` catches those
+    happily and pins nothing. `_outcome` decides whether a message is stable enough to pin; this
+    function must honour that decision exactly, because a test that pins less than the witness
+    distinguishes cannot kill the mutant the witness was found on — and the survivor comes back
+    with the same witness, forever.
+
     None if the exception type can't be parsed (then it stays a suggestion). The exec-time
-    soundness gate still applies: if the original does NOT actually raise ExcType,
-    ``property_holds`` rejects it.
+    soundness gate still applies: if the original does NOT actually raise ExcType with that
+    message, ``property_holds`` rejects it.
     """
-    match = re.fullmatch(r"<raised (\w+)>", witness.original)
+    # The message group is optional: `_outcome` omits it when it is empty or carries a memory
+    # address. DOTALL because a message may span lines; the trailing `>` anchors the greedy tail.
+    match = re.fullmatch(r"<raised (\w+)(?:: (.*))?>", witness.original, re.DOTALL)
     if match is None:
         return None
-    exc = match.group(1)
+    exc, message = match.group(1), match.group(2)
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
     args = ", ".join(repr(a) for a in witness.args)
-    setup = _setup_with_imports(mod, fname, witness.args) + "\nimport pytest"
+    setup = _setup_with_imports(mod, fname, witness.args, root) + "\nimport pytest"
     # `_exc`/`_result` are underscore-prefixed so they cannot collide with a parameter name
     # that `_setup_with_imports` bound into the same scope.
+    # Pin the message when the witness carries one. `str(_exc)` is the SAME form `_outcome`
+    # captured — not `_exc.args` or `repr` — because a test that pins a different form than the
+    # witness recorded does not pin the witness (`str(KeyError('x'))` is `"'x'"`, not `x`).
+    handler = (
+        f"except {exc}:\n    pass\n"
+        if message is None
+        else f"except {exc} as _exc:\n    assert str(_exc) == {message!r}\n"
+    )
     assertion = (
         "try:\n"
         f"    _result = {fname}({args})\n"
-        f"except {exc}:\n"
-        "    pass\n"
+        f"{handler}"
         "except BaseException as _exc:\n"
         f'    pytest.fail(f"expected {exc}, got {{type(_exc).__name__}}: {{_exc!r}}")\n'
         "else:\n"
         f'    pytest.fail(f"expected {exc}, but the call returned {{_result!r}}")'
     )
+    raises = exc if message is None else f"{exc}: {message}"
     return ExecutableProperty(
         category="VALUE",
         inputs={},
         setup_code=setup,
         assertion_code=assertion,
-        preconditions=[f"distinguishing witness (original raises {exc})"],
+        preconditions=[f"distinguishing witness (original raises {raises})"],
         confidence=0.95,
         source_lenses=["witness"],
         needs_oracle=False,
@@ -393,7 +421,7 @@ def _golden_properties(
     supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
     captures = corroborate_captures(capture_golden(live, sites), is_pure=True)
-    return [_golden_property(func_key, c) for c in captures if c.deterministic]
+    return [_golden_property(func_key, c, project_root) for c in captures if c.deterministic]
 
 
 def _progressed(previous: int, current: int) -> bool:
@@ -511,12 +539,18 @@ def converge(
         say(f"pass {_pass}: {survivors} value-survivor(s) — synthesizing killing tests…")
 
         props = [
-            generate_executable_property(s, func_key, node, call_site_inputs)
+            generate_executable_property(s, func_key, node, call_site_inputs, root)
             for s in result.value_survivor_records
         ]
         # Pure functions also get golden-capture properties, which pin the exact
         # return value and kill the VALUE/ARITHMETIC survivors oracle-light can't.
-        if is_pure(node, is_method="." in (qualname or "")):
+        #
+        # `world_effects` as well as `is_pure`, because `is_pure` answers a different question and
+        # was measured saying `shutil.rmtree(p)` is PURE — it looks for observability, and rmtree
+        # returns None and mutates nothing in-process. Capture then CALLS the target on a
+        # `representative_site`, i.e. a path we invented. `is_pure` alone put "delete this
+        # directory tree" one synthesized argument away from running.
+        if is_pure(node, is_method="." in (qualname or "")) and not world_effects(node):
             props += _golden_properties(func_key, node, full, qualname, root, supplied_inputs=supplied_inputs)
         sound = [
             p for p in props if not p.needs_oracle and property_holds(p.setup_code, p.assertion_code, root)
@@ -563,9 +597,9 @@ def converge(
             # they hold on the unmutated function — the raises form closes the line +
             # mutant gap that error paths otherwise leave open.
             prop = (
-                _raises_witness_property(func_key, w)
+                _raises_witness_property(func_key, w, root)
                 if w.original.startswith("<raised")
-                else _witness_property(func_key, w)
+                else _witness_property(func_key, w, root)
             )
             if prop is None:
                 continue

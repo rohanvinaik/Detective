@@ -15,6 +15,7 @@ import ast
 import dataclasses
 import importlib.util
 import os
+import subprocess
 import sys
 from collections.abc import Callable
 from typing import Any
@@ -55,6 +56,7 @@ from .equivalence import (
     synth_ast_input,
 )
 from .purity import is_pure as _is_pure
+from .purity import world_effects
 from .scope import ScopeMap, scope_from_profiling
 
 
@@ -66,6 +68,132 @@ def _resolve(
         if qualname == function or qualname.split(".")[-1] == function:
             return qualname, node
     return None, None
+
+
+@dataclasses.dataclass(frozen=True)
+class ShadowedTarget:
+    """The target file is NOT the file its own name imports.
+
+    ``module`` resolves to ``imported``, but the analysis was pointed at ``target``. Every test
+    in the suite that imports ``module`` therefore exercises a DIFFERENT FILE, so a profile of
+    ``target`` measures a suite that never runs it: honest, and worthless. Reported as data — the
+    CLI and the MCP word the refusal differently, and the paths are the whole message.
+    """
+
+    module: str
+    target: str
+    imported: str
+
+
+def shadowed_target(file: str, project_root: str = ".") -> ShadowedTarget | None:
+    """Is the file under analysis the file Python actually imports under its own name?
+
+    This is the check that would have saved a whole investigation. Pointed at
+    `tools/ModelAtlas/src/model_atlas/query_navigate.py`, the engine correctly reported "0 of 935
+    tests cover this" — because a `.pth` aimed `model_atlas` at a DIFFERENT CHECKOUT entirely
+    (`infrastructure/ModelAtlas/src`). The measurement was right; every test really did exercise
+    another file. What was missing was the reason, so "0 covering tests" read as "this code is
+    untested" and the honest next step — write tests — built a suite against a copy nobody runs.
+
+    Shadowing has many causes (a stale copy in site-packages, a non-editable install, two
+    checkouts of one distribution) and they all present identically. So this does not detect
+    causes: it resolves the target's own module name and compares the file. Same file → fine.
+    Different file → the suite is not talking about this code, and no verdict from it means
+    anything.
+
+    Resolution must happen the way THE SUITE resolves, not the way this process does, or the
+    check answers a question nobody asked. A repo whose `pythonpath = ["src"]` puts its own tree
+    first is NOT shadowed even when an unrelated install owns the same name — pytest never
+    consults that install. Reading the suite's path config is therefore not a refinement; a check
+    that skips it reports a shadow on a healthy src-layout, which is worse than no check.
+
+    Runs in a SUBPROCESS. Resolving in-process would import parent packages, cache them in
+    ``sys.modules``, and execute another checkout's module-level code inside the analyzer — to
+    answer a question asked before every command. A subprocess costs one interpreter start and
+    cannot contaminate the run it is guarding.
+
+    Returns None whenever nothing can be claimed: the name is not importable at all (a
+    scripts-only tree, an uninstalled package — most of this author's repos), the target is
+    outside the root, or nothing resolves. A silent None is the honest answer to "not installed";
+    only a resolved-and-DIFFERENT file is a shadow.
+    """
+    from .synthesis.oracle_light import importable_module
+
+    root = os.path.abspath(project_root)
+    full = os.path.abspath(file if os.path.isabs(file) else os.path.join(root, file))
+    if not os.path.isfile(full):
+        return None
+    rel = os.path.relpath(full, root)
+    if rel.startswith(os.pardir):
+        return None  # outside the root: its dotted name is not ours to derive
+    module = importable_module(rel, root)
+    origin = _resolve_origin(module, root, _suite_path(root))
+    if not origin or os.path.realpath(origin) == os.path.realpath(full):
+        return None
+    return ShadowedTarget(module=module, target=full, imported=os.path.realpath(origin))
+
+
+def _suite_path(root: str) -> list[str]:
+    """The sys.path entries the SUITE gets that this process does not.
+
+    Two, because two are what this author's repos actually rely on (the rest install their
+    package and need neither):
+
+    * ``pythonpath`` under ``[tool.pytest.ini_options]`` — pytest prepends these itself;
+    * ``root`` — pytest's prepend import-mode inserts the rootdir for a root ``conftest.py``,
+      which is exactly what Detective's own generated conftest exists to do.
+
+    ORDER MATTERS: pytest inserts `pythonpath` at the FRONT of sys.path, so those entries win
+    over the rootdir. Listing root first would resolve a src-layout to whatever sits at the root
+    and mask the very shadow this looks for.
+
+    Missing either one invents a shadow on a repo that resolves itself correctly.
+    """
+    configured: list[str] = []
+    config = os.path.join(root, "pyproject.toml")
+    try:
+        import tomllib
+
+        with open(config, "rb") as fh:
+            entries = tomllib.load(fh).get("tool", {}).get("pytest", {}).get("ini_options", {})
+        configured = [os.path.join(root, p) for p in entries.get("pythonpath", []) or []]
+    except (OSError, ValueError, ImportError, AttributeError):
+        pass  # no config, or unreadable: `root` alone is still the honest floor
+    # Deduped, order preserved: `pythonpath = ["."]` resolves to root, so a repo that declares it
+    # would otherwise list root twice — which reads as two different entries and is just noise.
+    seen: dict[str, None] = {}
+    for p in [*configured, root]:
+        if os.path.isdir(p):
+            seen.setdefault(os.path.abspath(p))
+    return list(seen)
+
+
+def _resolve_origin(module: str, root: str, extra_path: list[str]) -> str | None:
+    """The file ``module`` resolves to, found in a subprocess so nothing here is imported."""
+    script = (
+        "import sys, importlib.util\n"
+        f"sys.path[:0] = {extra_path!r}\n"
+        "try:\n"
+        f"    spec = importlib.util.find_spec({module!r})\n"
+        "    sys.stdout.write((spec.origin or '') if spec else '')\n"
+        "except BaseException:\n"
+        "    pass\n"
+    )
+    try:
+        # `-B`: find_spec imports parent packages, and importing writes __pycache__ into the
+        # consumer's tree. This runs before EVERY command — a read-only guard that leaves
+        # bytecode behind is not read-only, and it dirties repos it was only asked to look at.
+        done = subprocess.run(  # noqa: S603 — our own script, our own interpreter
+            [sys.executable, "-B", "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=root,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout.strip() or None
 
 
 def _load_original(full_path: str, qualname: str) -> Any | None:
@@ -713,8 +841,18 @@ def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
     return sites
 
 
-def _unreachable_inputs_note(node: ast.AST, qualname: str, inferred: dict[str, str] | None = None) -> str:
+def _unreachable_inputs_note(
+    node: ast.AST,
+    qualname: str,
+    inferred: dict[str, str] | None = None,
+    effects: tuple[str, ...] = (),
+) -> str:
     """Actionable Zone-3 message when synthesized inputs can't exercise a function.
+
+    ``effects`` changes the REASON, and the reason is the whole message. When the function
+    escapes the process we did not try the grids and find them wanting — we refused to invent a
+    value at all. Saying "every candidate raised" there would be a plain lie about our own
+    behaviour, and it would send someone hunting for a type problem that does not exist.
 
     The opaque "candidate inputs don't exercise this function" leaves the user with
     nothing to do. Per the three-zone contract, an un-exercisable function is a
@@ -737,6 +875,13 @@ def _unreachable_inputs_note(node: ast.AST, qualname: str, inferred: dict[str, s
             ann = "unannotated"
         params.append(f"{a.arg}: {ann}")
     sig = ", ".join(params) if params else "no positional params"
+    if effects:
+        return (
+            f"{qualname}({sig}) {effects[0]}, so NO input was invented for it — a fabricated "
+            "value for a function that escapes this process is not a guess, it is damage. "
+            "Only a real sample can classify these: supply an --input, or add a test that "
+            "calls it (its arguments are then evidence, and are used)"
+        )
     return (
         f"synthesized inputs don't exercise {qualname}({sig}) — every candidate raised; "
         "provide a real sample (pass call_site_inputs to converge, or add a literal "
@@ -897,7 +1042,21 @@ def classify_survivors(
     # human-provided sample is ground truth for a DOF deterministic synthesis could not
     # exercise, so it wins over discovery, inferred-type synth, and the integer grids.
     supplied = [tuple(x) for x in (call_site_inputs or [])]
-    inputs = supplied + discovered + inferred_tuples + bounded_product(_input_grids(node, ns))
+    # NEVER FABRICATE AN INPUT FOR A FUNCTION THAT ESCAPES THE PROCESS. The search below CALLS
+    # the target — original and mutant — on every candidate, so for a function that writes files
+    # a fabricated value is not a guess, it is damage. Measured, on this repo: the str grid is
+    # `["", "a", "abc"]`, and `_declare_pythonpath("")` resolved `pyproject.toml` against the CWD
+    # and rewrote Detective's own config, during classification AND in the test then emitted.
+    #
+    # The line is EVIDENCE vs INVENTION, not safe vs unsafe. `supplied` is a value a human typed;
+    # `discovered`/`captured` are calls the repo already makes, so their effects already happen
+    # when the suite runs. The grids and the inferred-type synthesis are ours, and ours are the
+    # only ones that can surprise someone. Dropping them costs the search on effectful code — the
+    # residual says so and asks for `--input`, which is the same "you supply what only you know"
+    # contract as everywhere else, and it keeps the dangerous value one a human chose.
+    effects = world_effects(node)
+    fabricated = [] if effects else inferred_tuples + bounded_product(_input_grids(node, ns))
+    inputs = supplied + discovered + fabricated
 
     # When deterministic synthesis provably can't exercise the function — every
     # candidate raises, i.e. a domain-object parameter no grid can fabricate — reuse
@@ -936,7 +1095,7 @@ def classify_survivors(
         # Execution can't run here — but a manual flag stands regardless.
         unclassified_descs, manual_eq = _split(survivors)
         note = (
-            _unreachable_inputs_note(node, qualname or function, inferred_types)
+            _unreachable_inputs_note(node, qualname or function, inferred_types, effects)
             if unclassified_descs
             else None
         )

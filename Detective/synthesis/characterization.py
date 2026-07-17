@@ -15,14 +15,20 @@ from __future__ import annotations
 import ast
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from ..equivalence import unwrap
 
 
-class Provenance(str, Enum):
-    """Maturity of a characterization capture."""
+class Provenance(StrEnum):
+    """Maturity of a characterization capture.
+
+    ``StrEnum``, not ``(str, Enum)``: they differ only in what ``str()``/``format()`` return
+    (the value vs ``Provenance.NAME``), and this enum is only ever compared or read via
+    ``.value`` — so the swap is behaviour-preserving here, and would NOT be if a member were
+    ever interpolated directly.
+    """
 
     UNCHECKED = "unchecked"
     PROVISIONAL = "provisional"

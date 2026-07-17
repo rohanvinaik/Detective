@@ -267,6 +267,82 @@ def _comparisons(src: str) -> list[tuple[str, type, str]]:
 
 
 _ORDERING_OPS = (ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+# The ordering ops that hold when the operands are EQUAL. Two ordering comparisons differ at the
+# equality edge iff exactly one of them is in here — i.e. iff the shift is strict↔non-strict.
+# `<=`↔`>=` is a direction flip, not an edge shift: both are True at `==`, so they AGREE there and
+# `left == right` is the one input that CANNOT distinguish them. Emitting the hint anyway asked
+# for that input, got no progress, and re-derived the same ask from the same survivor — forever.
+_HOLDS_AT_EQ = (ast.LtE, ast.GtE)
+
+
+def _differs_at_eq(op: type, m_op: type) -> bool:
+    """Do these two ordering comparisons disagree when their operands are EQUAL?
+
+    THE rule behind every boundary hint, named so it can be tested and covered on its own. True
+    iff exactly one side holds at the edge — i.e. iff the shift is strict↔non-strict. `<`→`<=`
+    qualifies; `<=`→`>=` does NOT (both True at `==`), and neither does `<`→`>` (both False).
+    """
+    return op in _ORDERING_OPS and m_op in _ORDERING_OPS and (op in _HOLDS_AT_EQ) != (m_op in _HOLDS_AT_EQ)
+
+
+# Column width for a grouped survivor's mutated statement. Sized so the count and category
+# breakdown still land inside the 78-col rule the report is ruled to.
+_STMT_W = 46
+
+
+def _mutated_stmt(diff_summary: str) -> str:
+    """The ORIGINAL statement a mutant changed — the grouping key for a survivor list.
+
+    Survivors cluster hard by statement (one guard clause spawns a dozen), so this is the axis
+    that turns a per-mutant wall into a per-branch summary. Falls back to `_concise_diff` when
+    the mutation is a pure insertion with no original line to name.
+    """
+    marker = "\n+ "
+    if diff_summary.startswith("- ") and marker in diff_summary:
+        idx = diff_summary.index(marker)
+        orig_lines = diff_summary[2:idx].splitlines()
+        mut_lines = diff_summary[idx + len(marker) :].splitlines()
+        changed: list[str] = []
+        for tag, i1, i2, _j1, _j2 in difflib.SequenceMatcher(a=orig_lines, b=mut_lines).get_opcodes():
+            if tag != "equal":
+                changed += [ln.strip() for ln in orig_lines[i1:i2]]
+        if changed:
+            return "  ".join(changed)
+    return _concise_diff(diff_summary)
+
+
+def _survivor_lines(verdicts, verbose: bool) -> list[str]:
+    """One survivor block — per-mutant under `verbose`, grouped by mutated statement otherwise.
+
+    The grouped form keeps the BOUNDARY hints (the only actionable part) and drops the ids and
+    diffs, which is what makes a 200-line function's residual readable. The ids are never lost:
+    the written report always renders verbose, and `--verbose` reproduces it on the terminal.
+    """
+    out: list[str] = []
+    if verbose:
+        for v in verdicts:
+            out.append(f"    → mutant {v.mutant_id} [{v.category}]: {_concise_diff(v.diff_summary)}")
+            if v.category == "BOUNDARY" and (hint := _boundary_hint(v.diff_summary)):
+                out.append(f"        ↳ {hint}")
+        return out
+    groups: dict[str, list] = {}
+    for v in verdicts:
+        groups.setdefault(_mutated_stmt(v.diff_summary), []).append(v)
+    for stmt, vs in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        counts: dict[str, int] = {}
+        for v in vs:
+            counts[v.category] = counts.get(v.category, 0) + 1
+        cats = ", ".join(f"{n} {c}" for c, n in sorted(counts.items()))
+        shown = stmt if len(stmt) <= _STMT_W else stmt[: _STMT_W - 1] + "…"
+        out.append(f"    {shown:<{_STMT_W}}  {len(vs):>3}   ({cats})")
+        hints: list[str] = []
+        for v in vs:
+            if v.category == "BOUNDARY" and (h := _boundary_hint(v.diff_summary)):
+                if (rel := _hint_relation(h)) not in hints:
+                    hints.append(rel)
+        out += [f"        ↳ distinguish at the boundary — supply an input {r}" for r in hints]
+    out.append("    (--verbose for each mutant's id and diff)")
+    return out
 
 
 def _boundary_hint(diff_summary: str) -> str | None:
@@ -295,10 +371,8 @@ def _boundary_hint(diff_summary: str) -> str | None:
     m_cmps = [c for ln in m_changed for c in _comparisons(ln)]
     for ln in o_changed:
         for left, op, right in _comparisons(ln):
-            if op not in _ORDERING_OPS:
-                continue
             for m_left, m_op, m_right in m_cmps:
-                if m_left == left and m_right == right and m_op in _ORDERING_OPS and m_op is not op:
+                if m_left == left and m_right == right and _differs_at_eq(op, m_op):
                     return f"distinguish at the boundary — supply an input where {left} == {right}"
     return None
 
@@ -439,7 +513,9 @@ def _update_per_mutant_ms(observed_ms: float) -> None:
         pass
 
 
-def _format_survivor_report(rep, signature: str = "", param_names: tuple[str, ...] = ()) -> list[str]:
+def _format_survivor_report(
+    rep, signature: str = "", param_names: tuple[str, ...] = (), verbose: bool = True
+) -> list[str]:
     """Render the grounded disposition of every leftover survivor: equivalent
     (retained), killable (a suggested test, NOT auto-applied), or uncertain.
 
@@ -447,34 +523,48 @@ def _format_survivor_report(rep, signature: str = "", param_names: tuple[str, ..
     copy-pasteable hand-back: the surviving mutant id + category + what it changed, the
     target's signature, and the exact ``--input`` skeleton to supply to reach the branch
     and kill it. A user should never have to guess the input from prose.
+
+    ``verbose`` renders every mutant's id and diff; without it the survivors group by mutated
+    statement. The written report always passes True — a file has no scrolling cost, and the ids
+    `flag` needs must stay somewhere stable.
+
+    Crash-only-distinguishable survivors render as their OWN class with no ``--input`` ask: an
+    input already distinguishes them, so asking for one is unsatisfiable by construction.
     """
     if rep is None:
         return []
     lines: list[str] = []
-    if rep.equivalent and not rep.killable and not rep.unclassified:
+    # Two classes, because they take different actions and only one of them is a request.
+    crash_only = [v for v in rep.equivalent if v.crash_only]
+    unproven = [v for v in rep.equivalent if not v.crash_only]
+    if unproven and not rep.killable and not rep.unclassified:
         lines.append(
             "  ✓ every killable mutant killed — remaining survivors have no distinguishing "
             "input (candidate-equivalent, NOT proven)"
         )
-    if rep.equivalent:
-        cats = ", ".join(sorted({v.category for v in rep.equivalent}))
-        tried = rep.equivalent[0].searched
+    if unproven:
+        cats = ", ".join(sorted({v.category for v in unproven}))
+        tried = unproven[0].searched
         lines.append(
-            f"  candidate-equivalent — retained, UNPROVEN ({len(rep.equivalent)}: {cats}); "
+            f"  candidate-equivalent — retained, UNPROVEN ({len(unproven)}: {cats}); "
             f"no distinguishing input in {tried} tried. To KILL: supply an input reaching a "
             "mutated branch below (or `flag` if truly equivalent):"
         )
-        for v in rep.equivalent:
-            lines.append(f"    → mutant {v.mutant_id} [{v.category}]: {_concise_diff(v.diff_summary)}")
-            if v.category == "BOUNDARY":
-                hint = _boundary_hint(v.diff_summary)
-                if hint:
-                    lines.append(f"        ↳ {hint}")
+        lines += _survivor_lines(unproven, verbose)
         lines += _target_lines(signature)
         lines.append(
             f"      supply:  {_input_template(param_names)}   "
             "# fill the slots to reach a branch above, then re-run converge"
         )
+    if crash_only:
+        cats = ", ".join(sorted({v.category for v in crash_only}))
+        lines.append(
+            f"  value-equivalent, crash-only-distinguishable ({len(crash_only)}: {cats}) — an input "
+            "DOES distinguish these: the mutant RAISES where the original returns, so your suite "
+            "already detects them. No value assertion can pin them (the mutant never returns a "
+            "value to compare), so there is NO input to supply. `flag` if truly equivalent:"
+        )
+        lines += _survivor_lines(crash_only, verbose)
     if rep.manual_equivalent:
         lines.append(
             f"  ✓ {len(rep.manual_equivalent)} survivor(s) flagged equivalent (oracle — PROVEN, not gaps)"
@@ -596,8 +686,11 @@ def _final_banner(result) -> str:
     return f"FINAL {result.function}: {status} · {result.killed}/{total} killed{tests}{arrow}"
 
 
-def _format_converge(result, show_tests: bool = False) -> str:
+def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> str:
     """Validation report: what converge measured and what it left standing.
+
+    ``verbose`` passes through to the survivor block: True (the default, and what the written
+    report uses) renders every mutant id and diff; False groups them by mutated statement.
 
     The score line reports initial→final kill percentage (over the same fixed
     mutant set, since the function body is untouched) and the killed/total count.
@@ -690,7 +783,9 @@ def _format_converge(result, show_tests: bool = False) -> str:
         # else: complete-modulo-equivalent — the verdict + survivor lines already say so.
     if result.remaining:
         lines.append(f"  remaining: {', '.join(result.remaining)}")
-    lines += _format_survivor_report(result.survivor_report, result.signature, result.param_names)
+    lines += _format_survivor_report(
+        result.survivor_report, result.signature, result.param_names, verbose=verbose
+    )
     # Make the equivalent-mutant escape hatch discoverable: a new user should never have
     # to read --help to learn `flag`, nor loop forever chasing an unkillable mutant. Emit
     # the EXACT copy-pasteable command with the mutant id already filled in.
@@ -782,7 +877,15 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
         gap = list(result.missing_lines)
         lines.append(_row("✗ uncovered", f"{len(gap)} line(s): {gap[:8]}"))
     if rep is not None and rep.equivalent:
-        lines.append(_row("· unproven-equiv", f"{len(rep.equivalent)} — no input distinguishes them"))
+        # Two rows, not one: "no input distinguishes them" is FALSE of a crash-only survivor —
+        # an input does, by crash — and it was that false claim that sent a reader hunting for
+        # the input. Each row states the one true thing about its own class.
+        if unproven := [v for v in rep.equivalent if not v.crash_only]:
+            lines.append(_row("· unproven-equiv", f"{len(unproven)} — no input distinguishes them"))
+        if crash_only := [v for v in rep.equivalent if v.crash_only]:
+            lines.append(
+                _row("· crash-only-equiv", f"{len(crash_only)} — detected by crash; no value pins them")
+            )
     if report_path:
         lines.append(_row("· full report", report_path))
     lines.append("")
@@ -957,7 +1060,10 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     if witnesses:
         return "witness", [f"({_witness_args(v.witness)})" for v in witnesses[:_MAX_BATCH]], len(witnesses)
     hints: list[str] = []
-    for v in rep.equivalent if rep is not None else ():
+    # Skip crash-only survivors: an input already distinguishes them and no value assertion can
+    # pin them, so any input we ask for here is one the caller can supply and still see NO
+    # progress — the same forever-loop `find_witness` skips them to avoid.
+    for v in (v for v in (rep.equivalent if rep is not None else ()) if not v.crash_only):
         h = _boundary_hint(v.diff_summary)
         if h and (rel := _hint_relation(h)) not in hints:
             hints.append(rel)
@@ -1157,9 +1263,15 @@ def _format_audit(a) -> str:
         lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
     if a.missing_lines:
         lines.append(_row("✗ uncovered", f"{len(a.missing_lines)} line(s): {list(a.missing_lines)[:8]}"))
-    if a.candidate_equivalent:
+    # Split the breakdown out: "no input distinguishes them" is false of the crash-only class.
+    if unproven_eq := a.candidate_equivalent - a.crash_only_equivalent:
+        lines.append(_row("· unproven-equiv", f"{unproven_eq} survivor(s) — no input distinguishes them"))
+    if a.crash_only_equivalent:
         lines.append(
-            _row("· unproven-equiv", f"{a.candidate_equivalent} survivor(s) — no input distinguishes them")
+            _row(
+                "· crash-only-equiv",
+                f"{a.crash_only_equivalent} survivor(s) — detected by crash; no value pins them",
+            )
         )
     if a.unclassified:
         lines.append(_row("⚠ unclassified", f"{a.unclassified} — the search could not run on them"))
@@ -1225,7 +1337,7 @@ def _audit_action(a) -> list[str]:
         return [
             "DONE:  every killable behaviour is pinned and every line covered.",
             "",
-            _row("· What remains", f"{a.candidate_equivalent} survivor(s) no input distinguishes."),
+            _row("· What remains", f"{a.candidate_equivalent} survivor(s) no VALUE assertion pins."),
             _row("", "Whether they are truly equivalent is UNDECIDABLE in"),
             _row("", "general — the engine will not claim it. Leave them."),
             _row("· If you can PROVE", f"detective flag '{a.function}' {first} --note \"why\"{more}"),
@@ -1415,6 +1527,13 @@ def _build_parser() -> argparse.ArgumentParser:
                 "quick action; the full report is always written to .detective/reports/ regardless)",
             )
             p.add_argument(
+                "--verbose",
+                action="store_true",
+                help="with --full: list every surviving mutant's id and diff instead of grouping "
+                "them by the statement they mutated. Use when you need an id to pass to `flag`; "
+                "the written report is always verbose, so this only affects the terminal",
+            )
+            p.add_argument(
                 "--input",
                 action="append",
                 metavar="TUPLE",
@@ -1489,6 +1608,32 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     purge_p.add_argument("--project-root", default=".", help="project root to purge caches under")
     purge_p.add_argument("--json", action="store_true", help="emit JSON")
+    regime_p = sub.add_parser(
+        "regime",
+        help="read how this repo imports its code and runs its tests — the stage every command runs",
+        description=(
+            "Resolve the testing regime and report it: the layout, the sys.path the SUITE gets, "
+            "the conftests pytest loads, whether the `detective` marker is declared, and — with "
+            "a target — the dotted name the rest of the repo imports it by and whether that name "
+            "means THIS file.\n\n"
+            "Read-only. Every other command resolves the same regime before it runs and refuses "
+            "on a conflict; this prints it. Use it when a run refuses, or before pointing "
+            "Detective at an unfamiliar repo."
+        ),
+    )
+    regime_p.add_argument(
+        "target", nargs="?", help="optional file.py::function — adds the target-specific facts"
+    )
+    regime_p.add_argument("--project-root", default=".", help="project root to read")
+    regime_p.add_argument(
+        "--migrate",
+        action="store_true",
+        help="APPLY the clean setup: declare the `detective` marker (and pythonpath, if a "
+        "conftest WE wrote was supplying it) in pyproject, then remove that conftest. Only ever "
+        "replaces Detective's own artifacts with their declarative equivalent — never edits or "
+        "deletes a file you wrote. Without this flag the plan is printed and nothing changes",
+    )
+    regime_p.add_argument("--json", action="store_true", help="emit JSON")
     flag_p = sub.add_parser("flag", help="mark a surviving mutant as truly equivalent (manual oracle)")
     flag_p.add_argument("target", help="file.py::function")
     flag_p.add_argument("mutant_id", help="the surviving mutant id (from `audit`/`diagnose`)")
@@ -1496,6 +1641,185 @@ def _build_parser() -> argparse.ArgumentParser:
     flag_p.add_argument("--project-root", default=".")
     flag_p.add_argument("--json", action="store_true", help="emit JSON")
     return parser
+
+
+def _shadow_root(shadow) -> str:
+    """The `--project-root` that would put the analysis on the tree Python ACTUALLY imports.
+
+    Strip the module's own parts off the imported file to get its source root, then strip a
+    trailing `src` — the tests live beside it, not under it, and the root has to see both.
+    """
+    depth = len(shadow.module.split("."))
+    root = shadow.imported
+    for _ in range(depth):
+        root = os.path.dirname(root)
+    return os.path.dirname(root) if os.path.basename(root) == "src" else root
+
+
+def _format_regime(regime, plan=None, applied: tuple[str, ...] = ()) -> str:
+    """The testing regime, as read — what imports what, and whether anything is in conflict.
+
+    This is the stage every other command runs silently. Printing it exists because the four
+    bugs it prevents were all invisible: each produced a plausible number rather than an error,
+    and the only way to see the cause was to already suspect it.
+
+    ``plan``/``applied`` are what migration WOULD do and what it just DID. Both are rendered
+    against the regime as re-read afterwards, so the report is the tree as it stands.
+    """
+    lines = [
+        _RULE,
+        f"{_rel_path(regime.root)} — testing regime",
+        "",
+        _row("· layout", regime.layout),
+        _row("· suite imports via", ", ".join(_rel_path(p) for p in regime.suite_path) or "(nothing)"),
+    ]
+    if regime.testpaths:
+        lines.append(_row("· testpaths", ", ".join(regime.testpaths)))
+    lines.append(_row("· conftest", ", ".join(regime.conftests) if regime.conftests else "(none)"))
+    lines.append(
+        _row("· detective marker", "declared in pyproject" if regime.marker_declared else "not declared")
+    )
+    if regime.module:
+        lines.append(_row("· target imports as", regime.module))
+    if regime.shadow is not None:
+        lines.append(_row("✗ but that name is", _rel_path(regime.shadow.imported)))
+    if regime.colliding_conftests:
+        lines.append(_row("✗ same module name", ", ".join(regime.colliding_conftests)))
+    if applied:
+        lines.append("")
+        lines.append("  MIGRATED:")
+        lines += [_row("", f"✓ {what}") for what in applied]
+    lines.append("")
+    lines += _regime_action(regime, plan, applied)
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _regime_action(regime, plan, applied) -> list[str]:
+    """The one thing to do next. Migration first — it is the only step that is ours to take."""
+    if plan is not None and plan.blocked:
+        # Say what migration CANNOT fix before offering to run it. A tool that tidies the config
+        # and stays quiet about the target resolving to another checkout has made the repo look
+        # healthier without making a single verdict truer.
+        out = ["DO THIS:  migration cannot fix this — it needs a decision only you can make:", ""]
+        out += [_row("", f"· {why}") for why in plan.blocked]
+        return out
+    if plan is not None and plan.needed:
+        where = f" --project-root '{regime.root}'" if regime.root else ""
+        return [
+            f"DO THIS:  detective regime --migrate{where}",
+            "",
+            _row("· writes", "the marker (and pythonpath, if a conftest WE wrote was"),
+            _row("", "supplying it) into pyproject — then removes that conftest."),
+            _row("· never touches", "a file you wrote."),
+        ]
+    if regime.conflicts:
+        return [
+            "DO THIS:  resolve the conflict — every verdict here is untrustworthy until",
+            "          you do. Run the command you wanted; it refuses with the exact fix.",
+        ]
+    return [
+        "DO THIS:  nothing — this regime resolves cleanly. Run `detective audit`,",
+        "          `converge`, or `decompose` on a target in it.",
+    ]
+
+
+def _format_shadowed(shadow, target: str, root: str) -> str:
+    """Refuse, and say which two files disagree.
+
+    The paths ARE the message: every cause of shadowing (a stale copy, a non-editable install,
+    a `.pth` aimed at another checkout) looks the same from here, and naming a cause we did not
+    verify would be a guess. Naming both files is a fact, and it is the fact that ends the
+    confusion — "0 tests cover this" is what a shadow looks like when nobody says the word.
+    """
+    lines = [
+        _RULE,
+        f"{target} — REFUSED · shadowed target",
+        "",
+        _row("✗ your tests import", shadow.module),
+        _row("✗ which is this file", _rel_path(shadow.imported)),
+        _row("✗ but you pointed me", _rel_path(shadow.target)),
+        _row("", "— a different file, so the suite never runs the code"),
+        _row("", "you asked about. Any verdict would measure the wrong"),
+        _row("", 'program. "0 tests cover this" would be TRUE, and useless.'),
+        "",
+        "DO THIS:  pick the tree you meant, then re-run —",
+        "",
+        _row("· that tree", f"--project-root '{_shadow_root(shadow)}'"),
+        _row("· or THIS tree", f"cd '{os.path.abspath(root)}' && pip install -e ."),
+        _row("", f"which re-points `import {shadow.module.split('.')[0]}` here."),
+        "",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _format_collision(regime, target: str) -> str:
+    """Refuse on two conftests that share one importable name.
+
+    Not cosmetic. Both are the module `conftest`; the second import in one process raises
+    `import file mismatch`, which kills the live pytest session. Discovery then falls back to
+    collect-only, where every FIXTURE-TAKING test is skipped — so the run does not fail, it
+    quietly measures a smaller suite and reports the gaps that absence creates. The damage lands
+    on exactly the repos careful enough to use fixtures, and Detective did this to itself, in its
+    own repo, with a conftest it generated.
+    """
+    a, b = regime.colliding_conftests[0], regime.colliding_conftests[1]
+    ours = [c for c in regime.colliding_conftests if c in regime.generated_conftests]
+    lines = [
+        _RULE,
+        f"{target} — REFUSED · conflicting test setup",
+        "",
+        _row("✗ two conftests", f"{a}"),
+        _row("", f"{b}"),
+        _row("✗ one module name", "both import as `conftest` — their directories are not"),
+        _row("", "packages, so pytest gives them the SAME name and the"),
+        _row("", "second raises `import file mismatch`."),
+        _row("✗ what that costs", "the live pytest session cannot start, so every"),
+        _row("", "FIXTURE-taking test is silently skipped and the gaps"),
+        _row("", "they cover are reported as unspecified behaviour."),
+        "",
+    ]
+    if ours:
+        # The only exact, verified fix — and the common case, because Detective wrote the second
+        # conftest itself. Everything that file did now lives in pyproject, so removing it costs
+        # nothing. Measured on this repo: the live session starts, the suite stays green.
+        lines += [
+            "DO THIS:  delete the one DETECTIVE wrote — everything it did now lives in",
+            "          pyproject, so it costs nothing —",
+            "",
+            _row("· run", f"rm '{ours[0]}'"),
+            _row("", "then re-run. Your own conftest is untouched."),
+            "",
+        ]
+    else:
+        # Both are the user's. Do NOT reach for `touch tests/__init__.py`: it ends the collision
+        # and breaks any suite whose tests import a sibling helper by bare name (`from _support
+        # import ...` — which only resolves while `tests/` is NOT a package). Measured on this
+        # repo: 5 tests -> 0, `ModuleNotFoundError: No module named '_support'`. So name the
+        # constraint and let the person who knows these files choose.
+        lines += [
+            "DO THIS:  give them different module names — either one works, and only you",
+            "          can say which is right for these two files —",
+            "",
+            _row("· delete one", "if either is doing nothing."),
+            _row("· or make a package", f"touch '{os.path.join(os.path.dirname(b) or '.', '__init__.py')}'"),
+            _row("", "CAVEAT: that breaks tests that import a sibling helper"),
+            _row("", "by bare name (`from _support import …`), which only"),
+            _row("", "resolves while that directory is NOT a package."),
+            "",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def _format_conflicts(regime, target: str) -> str:
+    """The regime said no verdict here can be trusted. Say which one, and how to end it.
+
+    One refusal per conflict, most-blocking first: a shadowed target means the suite is not
+    about this code at all, which outranks a suite that merely cannot start.
+    """
+    if regime.shadow is not None:
+        return _format_shadowed(regime.shadow, target, regime.root)
+    return _format_collision(regime, target)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1543,8 +1867,28 @@ def _run_live(args) -> int:
     under-specified.
     """
     root = getattr(args, "project_root", None)
-    if getattr(args, "command", None) == "purge" or not root:
+    # `purge` runs no tests; `regime` READS the setup and must answer even when that setup is
+    # what is broken — opening a live session to report that a live session cannot open would
+    # be the one command guaranteed to fail exactly when it is needed.
+    if getattr(args, "command", None) in ("purge", "regime") or not root:
         return _run(args)
+    # Resolve the testing regime BEFORE the session — the session is the expensive part, and
+    # tracing a suite that cannot reach the target is the longest possible way to learn nothing.
+    # Refuse rather than warn: a warning above a plausible report is read as a footnote, and the
+    # report underneath says "0 tests cover this", which is exactly the sentence that sends
+    # someone off to write a suite against a copy nobody runs.
+    if (target_arg := getattr(args, "target", None)) and not getattr(args, "json", False):
+        try:
+            from .regime import resolve_regime
+
+            regime = resolve_regime(root, _split_target(target_arg)[0])
+            if regime.conflicts:
+                sys.stdout.write(_format_conflicts(regime, target_arg))
+                return 2
+        except SystemExit:
+            raise
+        except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
+            pass
     try:
         from Wesker.ci import run_with_live_suite
     except ImportError:  # older Wesker without the live-session seam
@@ -1667,6 +2011,29 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
 
 
 def _run(args) -> int:
+    if args.command == "regime":
+        from dataclasses import asdict as _asdict
+
+        from .regime import apply_migration, plan_migration, resolve_regime
+
+        target_file = _split_target(args.target)[0] if args.target else None
+        regime = resolve_regime(args.project_root, target_file)
+        plan = plan_migration(regime)
+        applied = apply_migration(plan) if args.migrate else ()
+        if args.migrate:
+            # Re-read: the report must describe the tree as it IS now, not as it was before we
+            # wrote to it. Reporting the pre-migration regime after migrating is how a tool
+            # tells you it fixed something and shows you the evidence that it did not.
+            regime = resolve_regime(args.project_root, target_file)
+            plan = plan_migration(regime)
+        if args.json:
+            print(json.dumps({"regime": _asdict(regime), "applied": list(applied)}, indent=2, default=str))
+        else:
+            print(_format_regime(regime, plan, applied))
+        # A conflict is the answer, not a crash: exit 2 so a script can gate on it, the same
+        # code every other command returns when it refuses for the same reason.
+        return 2 if regime.conflicts else 0
+
     if args.command == "purge":
         from Wesker.memory_guard import purge_caches
 
@@ -1782,11 +2149,18 @@ def _run(args) -> int:
             print(json.dumps(asdict(result), indent=2, default=str))
             return 0
         # The full report always goes to a readable file; the terminal stays minimal
-        # (a banner + the one quick action) unless --full is asked for.
-        full = _format_converge(result, show_tests=True)
+        # (a banner + the one quick action) unless --full is asked for. The FILE is always
+        # verbose — it is the archive `flag` reads mutant ids out of, and a file has no
+        # scrolling cost. The terminal groups unless --verbose, so the two are rendered
+        # separately rather than sharing one string.
         qn = result.function.split("::")[-1]
-        report_path = _write_converge_report(os.path.abspath(args.project_root), qn, full)
-        print(full if args.full else _format_converge_terse(result, report_path, args.project_root))
+        report_path = _write_converge_report(
+            os.path.abspath(args.project_root), qn, _format_converge(result, show_tests=True, verbose=True)
+        )
+        if args.full:
+            print(_format_converge(result, show_tests=True, verbose=args.verbose))
+        else:
+            print(_format_converge_terse(result, report_path, args.project_root))
         return 0
 
     if args.command == "audit":

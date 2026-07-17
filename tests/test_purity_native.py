@@ -13,6 +13,7 @@ from Detective.purity import (
     analyze_function,
     get_name,
     is_pure,
+    world_effects,
 )
 
 
@@ -209,3 +210,75 @@ def test_local_subscript_augassign_is_pure():
 def test_local_name_augassign_is_pure():
     # a Name aug-target is neither Attribute nor Subscript (kills Subscript isinstance->True)
     assert is_pure(_fn("def f():\n x = 0\n x += 1\n return x")) is True
+
+
+# ── world_effects (is it safe to call this with an argument we INVENTED?) ──
+# A different question from `is_pure`, kept separate because `is_pure` was measured answering it
+# wrong in BOTH directions: it calls `shutil.rmtree` PURE, and calls `list.append` impure.
+def test_the_bug_this_exists_for_open_for_writing():
+    # `_declare_pythonpath("")` resolved `pyproject.toml` against the CWD and rewrote this
+    # repository's own config — the str grid is `["", "a", "abc"]`, and `open(p, "w")` CREATES.
+    assert world_effects(_fn('def f(p):\n with open(p, "w") as fh:\n  fh.write("x")')) == (
+        "opens a file for writing",
+    )
+
+
+def test_reading_a_file_is_not_an_effect():
+    # `open(p)` cannot damage anything, and banning it would cost every parser and loader.
+    assert world_effects(_fn("def f(p):\n return open(p).read()")) == ()
+
+
+def test_an_unreadable_mode_is_assumed_to_be_a_write():
+    # Guessing "probably a read" is how a guard becomes decorative.
+    assert world_effects(_fn("def f(p, mode):\n return open(p, mode)")) == ("opens a file for writing",)
+
+
+def test_rmtree_is_an_effect_even_though_is_pure_calls_it_pure():
+    # DEMONSTRATED, not argued: with this guard disabled, `converge` on a function calling
+    # `shutil.rmtree(target: str)` DELETED a directory named `a` — because the str grid contains
+    # "a". `is_pure` returns True here: rmtree returns None and mutates nothing in-process.
+    node = _fn("def f(p):\n shutil.rmtree(p)")
+    assert world_effects(node) == ("calls shutil.rmtree()",)
+    assert is_pure(node) is True  # the whole reason this predicate had to be separate
+
+
+def test_subprocess_is_an_effect():
+    assert world_effects(_fn("def f(c):\n subprocess.run([c])")) == ("calls subprocess.run()",)
+
+
+def test_network_is_an_effect():
+    assert world_effects(_fn("def f(u):\n requests.post(u)")) == ("calls requests.post()",)
+
+
+def test_os_removal_is_an_effect():
+    assert world_effects(_fn("def f(p):\n os.remove(p)")) == ("filesystem/process call os.remove()",)
+
+
+def test_path_write_through_a_call_receiver_is_seen():
+    # `get_name` cannot name a Call receiver, so reading the method off it returned None and the
+    # branch never fired — `Path(p).write_text(...)`, the most common way Python writes a file,
+    # read as effect-free. The attr is taken from the node directly.
+    assert world_effects(_fn('def f(p):\n Path(p).write_text("x")')) == (
+        "filesystem write via .write_text()",
+    )
+
+
+def test_str_replace_is_not_a_filesystem_move():
+    # `Path.replace(target)` takes ONE arg; `s.replace(a, b)` takes two. Arity disambiguates.
+    assert world_effects(_fn('def f(s):\n return s.replace("a", "b")')) == ()
+
+
+def test_harmless_impurity_is_not_an_effect():
+    # `append` and `print` are impure and completely safe to call with a made-up value. Gating on
+    # `is_pure` would abstain on both and cost coverage for nothing.
+    assert world_effects(_fn("def f(items, x):\n items.append(x)")) == ()
+    assert world_effects(_fn("def f(x):\n print(x)")) == ()
+
+
+def test_a_pure_function_has_no_effects():
+    assert world_effects(_fn("def f(a, b):\n return a + b")) == ()
+
+
+def test_effects_are_deduped_but_ordered():
+    node = _fn('def f(p, q):\n open(p, "w")\n open(q, "a")\n shutil.rmtree(p)')
+    assert world_effects(node) == ("opens a file for writing", "calls shutil.rmtree()")

@@ -14,6 +14,7 @@ from Detective.converge import (
     _golden_property,
     _numeric_inputs,
     _progressed,
+    _raises_witness_property,
     _witness_property,
     converge,
     property_holds,
@@ -43,6 +44,57 @@ def test_witness_property_bare_func_key_has_no_import():
     p = _witness_property("plainfunc", Witness((1,), "2", "9"))
     assert p.setup_code == ""
     assert p.assertion_code == "result = plainfunc(1)\nassert result == 2"
+
+
+# ── _raises_witness_property (the killing test for an original that raises) ─
+def test_raises_witness_property_pins_the_message_when_the_witness_carries_one():
+    # THE fix: `except KeyError: pass` catches a mutant that raises the right type with the
+    # wrong message, so it pins nothing and the mutant survives forever. Asserting the message
+    # is the only form that kills it. `str(_exc)` must be the SAME form `_outcome` captured.
+    p = _raises_witness_property("m::render", Witness(("a", {}), "<raised KeyError: unknown slot a>", "'a'"))
+    assert p is not None
+    assert "except KeyError as _exc:" in p.assertion_code
+    assert "assert str(_exc) == 'unknown slot a'" in p.assertion_code
+    assert p.preconditions == ["distinguishing witness (original raises KeyError: unknown slot a)"]
+
+
+def test_raises_witness_property_falls_back_to_type_only_without_a_message():
+    # `_outcome` omits the message when it is empty or volatile. This function must honour that
+    # exactly: pinning a message the witness never recorded would fail `property_holds`.
+    p = _raises_witness_property("m::f", Witness((1,), "<raised ValueError>", "2"))
+    assert p is not None
+    assert "except ValueError:\n    pass" in p.assertion_code
+    assert "assert str(_exc)" not in p.assertion_code
+    assert p.preconditions == ["distinguishing witness (original raises ValueError)"]
+
+
+def test_raises_witness_property_still_fails_a_mutant_that_returns_or_swaps_type():
+    # Both other ways a mutant can differ stay covered — the message pin is an addition, not a
+    # replacement. Losing either branch re-opens the crash-kill loop this form exists to close.
+    p = _raises_witness_property("m::f", Witness((1,), "<raised ValueError: bad>", "2"))
+    assert p is not None
+    assert "except BaseException as _exc:" in p.assertion_code
+    assert "else:" in p.assertion_code
+    assert p.assertion_code.count("pytest.fail") == 2
+
+
+def test_raises_witness_property_message_with_a_colon_survives_the_round_trip():
+    # The marker is "<raised T: msg>" and the message may itself contain ": " — a non-greedy
+    # parse would truncate it and pin a message the original never raises.
+    p = _raises_witness_property("m::f", Witness((1,), "<raised ValueError: bad: very>", "2"))
+    assert p is not None
+    assert "assert str(_exc) == 'bad: very'" in p.assertion_code
+
+
+def test_raises_witness_property_none_when_the_marker_is_not_a_raise():
+    assert _raises_witness_property("m::f", Witness((1,), "42", "43")) is None
+
+
+def test_raises_witness_property_builds_code_that_compiles():
+    # The whole point is a file a user runs. A form that does not compile pins nothing.
+    p = _raises_witness_property("m::f", Witness((1,), "<raised ValueError: bad>", "2"))
+    assert p is not None
+    compile(f"{p.setup_code}\n{p.assertion_code}", "<generated>", "exec")
 
 
 # ── property_holds ────────────────────────────────────────────────

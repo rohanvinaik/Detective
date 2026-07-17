@@ -45,12 +45,114 @@ _PATH_WRITE_METHODS = {
 }
 
 
+# Calls that reach OUTSIDE this process. Deliberately not `_IMPURE_BUILTINS`: that set answers
+# "does this function have observable side effects?", which is a different question and wrong in
+# both directions here. It misses `shutil.rmtree`, `subprocess.run` and `requests.post` — all
+# three read as PURE — while flagging `list.append` and `print`, which are perfectly safe to call
+# with a made-up argument. Measured, on the shipped analyser.
+_OS_WRITE_CALLS = frozenset(
+    {
+        "remove",
+        "unlink",
+        "rmdir",
+        "removedirs",
+        "rename",
+        "renames",
+        "replace",
+        "mkdir",
+        "makedirs",
+        "truncate",
+        "chmod",
+        "chown",
+        "symlink",
+        "link",
+        "utime",
+        "system",
+        "popen",
+        "execv",
+        "kill",
+    }
+)
+_WORLD_MODULES = frozenset(
+    {"shutil", "subprocess", "socket", "requests", "urllib", "httpx", "ftplib", "smtplib"}
+)
+# The modes that CREATE or TRUNCATE. `open(p)` is a read: it cannot damage anything, and banning
+# it would cost coverage on every parser and loader for nothing.
+_WRITE_MODES = ("w", "a", "x", "+")
+
+
 @dataclass(frozen=True)
 class PurityResult:
     """Whether a function is pure, and the reasons it is not."""
 
     is_pure: bool
     reasons: tuple[str, ...]
+
+
+def world_effects(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, ...]:
+    """The ways ``func`` can affect the world OUTSIDE this process — empty if it cannot.
+
+    This exists to answer one question: **is it safe to call this with an argument we invented?**
+    Detective's equivalence search runs the target over candidate inputs, and its grids fabricate
+    values — `_grid_for("str")` is `["", "a", "abc"]`. For a function that writes files, that is
+    not a guess, it is damage: `_declare_pythonpath("")` resolved `pyproject.toml` against the
+    CWD and edited this repository, both during classification and in the test it then emitted.
+
+    Do NOT reach for `is_pure` here; it was measured and it is wrong both ways (see the sets
+    above). Purity gates STATE mutations and corroborates golden captures — a question about
+    observability. This is a question about blast radius, and the two must not be conflated.
+
+    Local scan only — the same v1 boundary `analyze_function` documents. A helper one level down
+    that calls `rmtree` is not seen. That is a real limit, and it is why this gates INPUT
+    FABRICATION rather than pretending to be a safety proof: the rule it enforces is "do not
+    invent a value for this", not "this function is dangerous".
+    """
+    visitor = _WorldEffectVisitor()
+    visitor.visit(func)
+    return tuple(dict.fromkeys(visitor.reasons))  # deduped, order preserved
+
+
+class _WorldEffectVisitor(ast.NodeVisitor):
+    """Finds calls that escape the process. Conservative: unsure reads as an effect."""
+
+    def __init__(self) -> None:
+        self.reasons: list[str] = []
+
+    def visit_Call(self, node: ast.Call) -> None:
+        name = get_name(node.func)
+        if name:
+            root, method = name.split(".")[0], name.split(".")[-1]
+            if name == "open" and self._opens_for_write(node):
+                self.reasons.append("opens a file for writing")
+            elif root == "os" and method in _OS_WRITE_CALLS:
+                self.reasons.append(f"filesystem/process call os.{method}()")
+            elif root in _WORLD_MODULES:
+                self.reasons.append(f"calls {root}.{method}()")
+        # `node.func.attr` directly, NOT via `get_name`: the receiver is frequently a Call —
+        # `Path(p).write_text(...)` — which `get_name` cannot name, so it returns None and the
+        # whole branch is skipped. Measured: `Path(p).write_text()` read as effect-free, which
+        # is the single most common way Python code writes a file.
+        if isinstance(node.func, ast.Attribute):
+            attr = node.func.attr
+            if attr in _PATH_WRITE_METHODS and not (attr == "replace" and len(node.args) != 1):
+                self.reasons.append(f"filesystem write via .{attr}()")
+        self.generic_visit(node)
+
+    @staticmethod
+    def _opens_for_write(node: ast.Call) -> bool:
+        """Is this `open(...)` a write? A literal read-mode is the ONLY thing treated as safe.
+
+        A mode we cannot read (a variable, an f-string) is treated as a write: guessing "probably
+        a read" is how a guard becomes decorative.
+        """
+        mode = next((kw.value for kw in node.keywords if kw.arg == "mode"), None)
+        if mode is None and len(node.args) > 1:
+            mode = node.args[1]
+        if mode is None:
+            return False  # `open(p)` — the default is "r"
+        if isinstance(mode, ast.Constant) and isinstance(mode.value, str):
+            return any(m in mode.value for m in _WRITE_MODES)
+        return True  # unreadable mode — assume the worst
 
 
 def get_name(node: ast.AST) -> str | None:

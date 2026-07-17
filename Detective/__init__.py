@@ -17,7 +17,7 @@ from __future__ import annotations
 # this is restated", which was true until the number moved here. Following it now would put a
 # second copy back in pyproject and recreate the drift going dynamic removed: 0.3.0 shipped to
 # PyPI announcing `detective --version 0.2.0`.)
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
 from .certify import CertifyResult, certify
 from .converge import ConvergeResult, converge

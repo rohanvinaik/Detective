@@ -7,9 +7,20 @@ ceiling. Plain helpers only (no fixtures).
 
 from __future__ import annotations
 
+import ast
+
 import pytest
 
-from Detective.cli import _boundary_hint, _build_parser, _format_scope, _split_target
+from Detective.cli import (
+    _boundary_hint,
+    _build_parser,
+    _differs_at_eq,
+    _format_scope,
+    _mutated_stmt,
+    _split_target,
+    _survivor_lines,
+)
+from Detective.equivalence import MutantVerdict
 from Detective.scope import KillQuality, ScopeMap, Specification
 
 
@@ -140,6 +151,103 @@ def test_boundary_hint_handles_a_ternary():
 def test_boundary_hint_none_for_operand_swap_not_a_boundary():
     # a SWAP (operands reordered) is not a strict↔non-strict shift → no boundary hint
     assert _boundary_hint(_ds("return a > b", "return b > a")) is None
+
+
+def test_boundary_hint_none_for_a_direction_flip_that_agrees_at_the_edge():
+    # `<=` → `>=` is a DIRECTION flip, not an edge shift: both are True at `x == 0`, so the
+    # equality edge is the one input that CANNOT distinguish them. Emitting the hint anyway
+    # asked for that exact input, made no progress, and re-derived the same ask forever.
+    assert _boundary_hint(_ds("return x <= 0", "return x >= 0")) is None
+
+
+def test_boundary_hint_none_when_both_operators_are_strict():
+    # `<` → `>`: both False at the edge — they agree there too.
+    assert _boundary_hint(_ds("return x < 0", "return x > 0")) is None
+
+
+def test_boundary_hint_fires_for_a_flip_that_does_differ_at_the_edge():
+    # `<=` → `>`: True vs False at `x == 0`. A direction flip, but exactly one side holds at
+    # the edge, so the edge really does distinguish them — the rule is about equality, not
+    # about direction.
+    h = _boundary_hint(_ds("return x <= 0", "return x > 0"))
+    assert h is not None and "x == 0" in h
+
+
+# ── _differs_at_eq (THE rule every boundary hint rests on) ────────
+@pytest.mark.parametrize(
+    "op, m_op, expected",
+    [
+        (ast.LtE, ast.Lt, True),  # strict↔non-strict: the real edge shift
+        (ast.Gt, ast.GtE, True),
+        (ast.LtE, ast.Gt, True),  # flips still count when one side holds at ==
+        (ast.LtE, ast.GtE, False),  # both hold at == → agree there
+        (ast.Lt, ast.Gt, False),  # neither holds at == → agree there
+        (ast.LtE, ast.LtE, False),  # same operator cannot differ anywhere
+        (ast.Eq, ast.LtE, False),  # not an ordering comparison at all
+    ],
+)
+def test_differs_at_eq_is_exactly_the_strict_vs_non_strict_split(op, m_op, expected):
+    assert _differs_at_eq(op, m_op) is expected
+
+
+def test_differs_at_eq_is_symmetric():
+    # The caller matches original→mutant, but the relation is about the PAIR.
+    assert _differs_at_eq(ast.LtE, ast.Lt) == _differs_at_eq(ast.Lt, ast.LtE)
+
+
+# ── _mutated_stmt / _survivor_lines (the grouped survivor block) ──
+def _v(mid: str, cat: str, orig: str, mut: str) -> MutantVerdict:
+    return MutantVerdict(mid, cat, _ds(orig, mut), killable=False, witness=None, searched=14)
+
+
+def test_mutated_stmt_names_the_ORIGINAL_line_so_survivors_group_by_branch():
+    assert _mutated_stmt(_ds("if x <= 0: pass", "if x < 0: pass")) == "if x <= 0: pass"
+
+
+def test_survivor_lines_verbose_keeps_every_id():
+    # `flag` takes an id, so the verbose form must never drop one.
+    vs = [_v("M1", "BOUNDARY", "if x <= 0: pass", "if x < 0: pass")]
+    out = "\n".join(_survivor_lines(vs, verbose=True))
+    assert "M1" in out and "BOUNDARY" in out
+
+
+def test_survivor_lines_grouped_collapses_one_branch_into_one_row():
+    # Three mutants of the SAME statement is the shape that makes a real function's residual a
+    # wall: one row, one count, not three near-identical diffs.
+    vs = [
+        _v("M1", "BOUNDARY", "if x <= 0: pass", "if x < 0: pass"),
+        _v("M2", "BOUNDARY", "if x <= 0: pass", "if x == 0: pass"),
+        _v("M3", "VALUE", "if x <= 0: pass", "if x <= 1: pass"),
+    ]
+    out = _survivor_lines(vs, verbose=False)
+    rows = [ln for ln in out if "if x <= 0" in ln]
+    assert len(rows) == 1
+    assert "3" in rows[0]  # the count
+    assert "2 BOUNDARY" in rows[0] and "1 VALUE" in rows[0]
+
+
+def test_survivor_lines_grouped_drops_the_ids_but_says_where_they_went():
+    vs = [_v("M1", "BOUNDARY", "if x <= 0: pass", "if x < 0: pass")]
+    out = "\n".join(_survivor_lines(vs, verbose=False))
+    assert "M1" not in out
+    assert "--verbose" in out  # a dropped id must be recoverable, and say so
+
+
+def test_survivor_lines_grouped_keeps_the_boundary_hint():
+    # The hint is the only ACTIONABLE part of the block; grouping may cost ids, never actions.
+    vs = [_v("M1", "BOUNDARY", "if x <= 0: pass", "if x < 0: pass")]
+    out = "\n".join(_survivor_lines(vs, verbose=False))
+    assert "x == 0" in out
+
+
+def test_survivor_lines_grouped_orders_the_biggest_cluster_first():
+    vs = [
+        _v("M1", "VALUE", "return x + 1", "return x + 2"),
+        _v("M2", "BOUNDARY", "if x <= 0: pass", "if x < 0: pass"),
+        _v("M3", "BOUNDARY", "if x <= 0: pass", "if x == 0: pass"),
+    ]
+    rows = [ln for ln in _survivor_lines(vs, verbose=False) if ln.startswith("    ") and "↳" not in ln]
+    assert "if x <= 0" in rows[0]  # 2 mutants beats 1 — the worst branch leads
 
 
 def test_boundary_hint_none_for_non_comparison_mutation():

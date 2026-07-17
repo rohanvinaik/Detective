@@ -25,9 +25,15 @@ def synthesize_test_module(
     func_node: ast.FunctionDef | ast.AsyncFunctionDef | None,
     survivors: list[dict],
     call_site_inputs: list[dict] | None = None,
+    root: str | None = None,
 ) -> str:
-    """Return pytest source pinning each survivor, or "" when there is nothing to write."""
-    props = [generate_executable_property(s, func_key, func_node, call_site_inputs) for s in survivors]
+    """Return pytest source pinning each survivor, or "" when there is nothing to write.
+
+    ``root`` reaches `importable_module` so the emitted import matches the repo's own — without
+    it a src-layout gets ``from src.pkg.mod import ...``, a second module object for the same
+    file, and a suite that silently tests a different program than the one under test.
+    """
+    props = [generate_executable_property(s, func_key, func_node, call_site_inputs, root) for s in survivors]
     return render_module(func_key, props)
 
 
