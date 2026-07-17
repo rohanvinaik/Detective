@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from .engine import classify_survivors, profile
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis
@@ -70,6 +71,26 @@ class SuiteAudit:
         return max(0, self.test_count - self.minimal_test_count)
 
 
+def _gap_desc(verdict: Any, expressible: bool) -> str:
+    """One killable gap: the mutant, and the input to kill it with ONLY if that input can be
+    written down.
+
+    `witness.args` is repr'd. For a domain object that renders
+    `<billing.Account object at 0x105fe6ad0>` — a memory address, presented as the input to
+    kill with. It cannot be typed, it changes every run, and an LLM reading it does not skip
+    it: it passes the string, or invents a constructor from it, or treats the address as
+    meaningful. Handing a caller a pointer and calling it an input is worse than saying
+    nothing, because nothing is at least not actionable.
+
+    When the witness came from CAPTURE (a real object out of the user's own tests) the honest
+    rendering is the mutant alone. The input already exists in the suite; the way to reach the
+    rest is another test, which is what the next action says.
+    """
+    if verdict.witness and expressible:
+        return f"{verdict.category} [{verdict.mutant_id}] — kill with {verdict.witness.args}"
+    return f"{verdict.category} [{verdict.mutant_id}]"
+
+
 def audit_suite(
     file: str,
     function: str,
@@ -110,10 +131,9 @@ def audit_suite(
     unclassified = 0
     try:
         report = classify_survivors(file, function, project_root)
-        killable_gaps = tuple(
-            f"{v.category} [{v.mutant_id}]" + (f" — kill with {v.witness.args}" if v.witness else "")
-            for v in report.killable
-        )
+        # Whether a killable gap may name the input to kill it with — see `_gap_desc`.
+        expressible = bool(report.inputs_expressible)
+        killable_gaps = tuple(_gap_desc(v, expressible) for v in report.killable)
         manual_equivalent = len(report.manual_equivalent)
         candidate_equivalent = len(report.equivalent)
         candidate_equivalent_ids = tuple(v.mutant_id for v in report.equivalent)

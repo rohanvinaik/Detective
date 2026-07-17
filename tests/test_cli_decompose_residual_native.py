@@ -183,3 +183,37 @@ def test_report_stays_within_its_line_budget():
     """The product is the report. 20 lines was 4 lines of verdict under 16 of scaffolding."""
     for out in (_out(), _out(survivor_report=_rep(inputs_expressible=False)), _out(survivor_report=None)):
         assert len(out.splitlines()) <= 20
+
+
+# ── never offer an input that cannot be typed ────────────────────────
+def test_gap_desc_omits_witness_args_that_have_no_literal_form():
+    """`witness.args` is repr'd, so a domain object renders `<billing.Account object at
+    0x105fe6ad0>` — a memory address, presented as the input to kill with. It cannot be typed
+    and changes every run, and an LLM reading it does not skip it: it passes the string, or
+    invents a constructor from it. Handing a caller a pointer and calling it an input is worse
+    than silence, because silence is at least not actionable."""
+    from Detective.audit import _gap_desc
+
+    class _W:
+        args = (object(),)
+
+    class _V:
+        category, mutant_id, witness = "VALUE", "V0", _W()
+
+    out = _gap_desc(_V(), expressible=False)
+    assert out == "VALUE [V0]"
+    assert "object at 0x" not in out
+
+
+def test_gap_desc_keeps_witness_args_that_can_be_typed():
+    """The other half: for literal params the input IS the finding, and dropping it would cost
+    the reader the one thing that makes the gap actionable."""
+    from Detective.audit import _gap_desc
+
+    class _W:
+        args = (0, "gold")
+
+    class _V:
+        category, mutant_id, witness = "LOGICAL", "L1", _W()
+
+    assert _gap_desc(_V(), expressible=True) == "LOGICAL [L1] — kill with (0, 'gold')"

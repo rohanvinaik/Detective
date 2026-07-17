@@ -67,25 +67,59 @@ def _input_template(param_names: tuple[str, ...]) -> str:
     return f'"({slots}{tail})"'
 
 
-def _ask_for_input(tool: str, file: str, function: str, param_names: tuple[str, ...], why: str) -> list[str]:
+def _ask_for_input(
+    tool: str,
+    file: str,
+    function: str,
+    param_names: tuple[str, ...],
+    why: str,
+    expressible: bool | None = True,
+) -> list[str]:
     """The hand-back. This is the only thing the caller is ever asked to produce, and it is
     the one thing it can produce that the engine cannot: a real call to the target.
 
     Phrased as a request for knowledge, not as a deficiency to be closed by effort. The
     distinction is the whole ballgame — a caller told "30 residuals remain" optimizes; a
     caller told "supply one real call" answers and stops.
+
+    TWO hand-backs, because `inputs=` cannot carry every argument. It goes through the same
+    allowlist as the CLI's `--input` (literals + `ast.*`) — that allowlist is what makes "no
+    arbitrary code execution" a checkable property rather than a hope — so for a function
+    taking a domain object there is NO string that satisfies it. Asking anyway hands the
+    caller a call that is rejected on arrival (`only [ast] are available — 'Account' is not`).
+    A caller that does exactly what it was told, watches it fail, and is then told the same
+    thing again does not conclude it misread; it concludes the tool is broken and starts
+    improvising around it. `inputs_expressible` (equivalence.py) is the engine's answer to
+    "can this be typed?", computed from the input that actually exercised the function, and
+    it picks which of these two is printed.
     """
-    tmpl = _input_template(param_names)
+    if expressible:
+        tmpl = _input_template(param_names)
+        return [
+            "",
+            f"DO THIS: {tool}(file={file!r}, function={function!r}, inputs=[{tmpl}])",
+            "",
+            f"  {why}",
+            "  Detective will not invent a value whose meaning is not in the code. You know what",
+            f"  a real call to {function} looks like. It does not. That is the entire division of",
+            "  labour here, and supplying one is the whole of your job.",
+            "  More passes will not help. This is not a matter of effort or cleverness — the",
+            "  information is absent, and you are the only source of it.",
+        ]
+    slots = ", ".join(param_names) if param_names else "its arguments"
     return [
         "",
-        f"DO THIS: {tool}(file={file!r}, function={function!r}, inputs=[{tmpl}])",
+        f"DO THIS: write ONE test that calls {function}({slots}) with real objects. Then call",
+        f"  {tool} again. Nothing else.",
         "",
         f"  {why}",
-        "  Detective will not invent a value whose meaning is not in the code. You know what",
-        f"  a real call to {function} looks like. It does not. That is the entire division of",
-        "  labour here, and supplying one is the whole of your job.",
-        "  More passes will not help. This is not a matter of effort or cleverness — the",
-        "  information is absent, and you are the only source of it.",
+        "  `inputs=` CANNOT carry this and you must not try. It parses an allowlist — literals",
+        '  and `ast.*` only — which is what makes "no arbitrary code execution" a property this',
+        f"  tool can check rather than promise. What {function} takes has no literal form, so no",
+        "  string you can write satisfies it; the call would be rejected on arrival.",
+        "  Do not encode the object as a dict. Do not build it in a string. Do not shell out.",
+        "  Write the test. Detective reads the real arguments out of it while it runs, and that",
+        "  is the whole mechanism — it is not a workaround, it is the supported path.",
     ]
 
 
@@ -99,6 +133,9 @@ def _render_diagnose(scope: Any, file: str, function: str) -> str:
     # interesting artefact and they do not live on ScopeMap — converge's survivor report
     # carries them. Do not imply they are here.
     unspec = list(scope.unspecified_behaviors)
+    # `unspec` is a SAMPLE (hard-capped at scope._MAX_UNSPECIFIED); `total` is the fact.
+    # Nothing below may branch on or count the sample — that is how a cap becomes a claim.
+    total = scope.specification.unspecified_dof
     no_tests = scope.tests_discovered == 0
     # A truncated trace UNDER-COUNTS coverage, and an under-counted line is indistinguishable
     # from an uncovered one in the numbers. Everything below rests on that measurement, so this
@@ -134,8 +171,17 @@ def _render_diagnose(scope: Any, file: str, function: str) -> str:
         for b in unspec:
             kinds[b.split(": ", 1)[-1]] = kinds.get(b.split(": ", 1)[-1], 0) + 1
         out.append("")
-        out.append(f"{len(unspec)} behaviour(s) nothing distinguishes:")
+        # The COUNT is `unspecified_dof`; `unspecified_behaviors` is a SAMPLE, hard-capped at
+        # `scope._MAX_UNSPECIFIED` (20). Rendering `len()` of the sample as the total stated a
+        # number 3.5x too small on a 71-DOF function — and a caller cannot see a cap, so it
+        # reads as the whole list. It closes "all 20", reports done, and 51 unpinned
+        # behaviours are gone. A bound that is not named is a silent truncation wearing a
+        # finding's clothes. The CLI never had this: it renders `unspecified_dof` and does not
+        # touch this field.
+        out.append(f"{total} behaviour(s) nothing distinguishes:")
         out += [f"  {n} × {desc}" for desc, n in sorted(kinds.items(), key=lambda kv: -kv[1])]
+        if total > len(unspec):
+            out.append(f"  (kinds above are a sample of {len(unspec)}; the count is all {total})")
         out.append("")
         if no_tests:
             # A 0 here means "nothing to kill with", NOT "weak tests". Those are different
@@ -156,7 +202,7 @@ def _render_diagnose(scope: Any, file: str, function: str) -> str:
         out.append("  Two independent signals agree this is more than one function: it is")
         out.append(f"  behaviourally entangled AND has {seams} clean structural seam(s).")
         out.append("  decompose writes a proof suite first and applies nothing it cannot prove.")
-    elif unspec:
+    elif total:
         out.append(f"DO THIS: converge(file={file!r}, function={function!r})")
         out.append("")
         out.append("  Nothing pins those behaviours yet. converge writes the tests that do.")
@@ -193,7 +239,9 @@ def _render_converge(result: Any, file: str, function: str, full_text: str | Non
 
     if killable or not result.line_complete:
         why = "Synthesis is exhausted. What is left needs a value only you can supply."
-        out += _ask_for_input("converge", file, function, params, why)
+        # `rep.inputs_expressible` decides WHICH hand-back. None (nothing exercised the
+        # function at all) is the case that most needs a test, so it must not read as True.
+        out += _ask_for_input("converge", file, function, params, why, bool(rep and rep.inputs_expressible))
         return "\n".join(out)
 
     cand = list(rep.equivalent) if rep else []
@@ -213,15 +261,103 @@ def _render_converge(result: Any, file: str, function: str, full_text: str | Non
         out.append(f"DONE: every killable mutant is killed. {len(cand)} survivor(s) remain that")
         out.append("  no input could distinguish. Whether they are truly equivalent is UNDECIDABLE")
         out.append("  in general — the engine will not claim it, and neither should you.")
-        out.append("  Leave them. They are not a gap and not your work.")
-        out.append("  (If you have positive reason one is equivalent, that is a human judgement:")
-        out.append("   ask the user. Do not decide it yourself.)")
+        out.append("  Leave them by default. They are not a gap.")
+        out.append("")
+        # `flag` IS a tool now. This branch used to end "ask the user; do not decide it
+        # yourself", which was written when it was not — and would have gone on saying so.
+        # The judgement is available to you, but the bar is a PROOF, not an impression.
+        out.append("  If you can PROVE one cannot change behaviour — an argument from the code")
+        out.append('  that holds for EVERY input ("the cap is 0.60 and the branches above sum to')
+        out.append('  at most 0.50, so it never fires"), not "looks equivalent" — record it:')
+        out.append(f"    flag(file={file!r}, function={function!r}, mutant_id=<id>, why=<your proof>)")
+        out.append("  The ids are in full=True. If you have no such argument, say so and stop:")
+        out.append("  an UNPROVEN survivor is an honest result and costs nothing.")
         if manual:
             out.append(f"  ({len(manual)} more were already flagged equivalent by a human.)")
         return "\n".join(out)
 
     out.append("")
     out.append("DONE: the suite is complete. Nothing to run. Nothing to derive.")
+    return "\n".join(out)
+
+
+def _render_audit(a: Any, file: str, function: str) -> str:
+    """audit, for a caller. Read-only, always; deletions are proposals a human confirms.
+
+    It had NO renderer here — it relayed the CLI's report under a header saying "ignore its
+    instructions", which is a header telling the caller to disobey a `DO THIS:` while it reads
+    one. That is not a rule anything follows. Every action audit can suggest is a real tool on
+    this surface, so name the tool.
+    """
+    out = [f"{a.function} — audit · {a.test_count} test(s) · {a.kill_pct}% killed"]
+
+    if a.failing_tests:
+        # Outranks everything: the suite contradicts the code RIGHT NOW, so every other number
+        # here was measured against a suite that does not pass.
+        out.append("")
+        out.append(f"⚠ {len(a.failing_tests)} test(s) FAIL on the current code:")
+        out += [f"    {t}" for t in a.failing_tests[:6]]
+        out.append("")
+        out.append("STOP. Do not delete them and do not 'fix' them to green. A test failing on")
+        out.append("  correct code is either a wrong expectation or a real regression, and which")
+        out.append("  one it is decides whether the CODE or the TEST is wrong. You cannot tell")
+        out.append("  from here. Ask the user. Nothing else in this report means anything until")
+        out.append("  that is settled.")
+        return "\n".join(out)
+
+    if a.killable_gaps or a.missing_lines:
+        out.append("")
+        if a.killable_gaps:
+            out.append(f"{len(a.killable_gaps)} real gap(s) — killable behaviour no test pins:")
+            out += [f"    {g}" for g in a.killable_gaps[:6]]
+            if len(a.killable_gaps) > 6:
+                out.append(f"    (+{len(a.killable_gaps) - 6} more; this is a sample, the count is above)")
+        if a.missing_lines:
+            out.append(f"{len(a.missing_lines)} line(s) no test covers: {list(a.missing_lines)[:8]}")
+        out.append("")
+        out.append(f"DO THIS: converge(file={file!r}, function={function!r})")
+        out.append("")
+        out.append("  That writes the tests. audit only reads — it has told you what is missing")
+        out.append("  and that is the whole of what it can do.")
+        return "\n".join(out)
+
+    if a.redundant_tests:
+        out.append("")
+        out.append(f"{len(a.redundant_tests)} test(s) are pointless for BOTH kills and lines:")
+        out += [f"    {t}" for t in a.redundant_tests[:6]]
+        out.append("")
+        out.append("DONE: no gaps. The tests above earn nothing — every mutant they kill and every")
+        out.append("  line they cover is already covered by another test. Deleting them is a")
+        out.append("  PROPOSAL and it is the user's call, not yours: ask. `audit --remove` is the")
+        out.append("  terminal form and is not a tool here, deliberately — deleting someone's")
+        out.append("  tests on your own judgement is not a move this surface offers.")
+        return "\n".join(out)
+
+    if a.candidate_equivalent and a.candidate_equivalent_ids:
+        first = a.candidate_equivalent_ids[0]
+        out.append("")
+        out.append("DONE: every killable behaviour is pinned and every line covered.")
+        out.append(f"  {a.candidate_equivalent} survivor(s) remain that no input Detective found can")
+        out.append("  distinguish. Whether they are TRULY equivalent is undecidable in general —")
+        out.append("  the engine will not claim it, and neither should you by default.")
+        out.append("")
+        out.append("  If you can PROVE one cannot change behaviour — an argument from the code that")
+        out.append("  holds for every input, not 'looks fine' — that is what flag is for:")
+        out.append(f"    flag(file={file!r}, function={function!r}, mutant_id={first!r}, why=<your proof>)")
+        if a.candidate_equivalent > 1:
+            out.append(f"  ({a.candidate_equivalent - 1} more ids in the full report.)")
+        out.append("  If you cannot, leave them. An UNPROVEN survivor is an honest result.")
+        return "\n".join(out)
+
+    if a.unclassified:
+        out.append("")
+        out.append(f"DONE: no gaps found. {a.unclassified} survivor(s) could not be classified at all —")
+        out.append("  the search could not run on them. Not gaps, not equivalents: unknown. Do not")
+        out.append("  flag them; you have no argument, only an absence.")
+        return "\n".join(out)
+
+    out.append("")
+    out.append("DONE: the suite is complete and minimal. Nothing to run. Nothing to derive.")
     return "\n".join(out)
 
 
@@ -319,10 +455,15 @@ def _render_decompose(r: Any, file: str, function: str, wrote: bool) -> str:
                 f"{n_kill + n_unc} behaviour(s) block the proof ({part}), so the suite is not "
                 f"mutation-complete.{spare} Your source was NOT touched."
             )
-        out += _ask_for_input("decompose", file, function, params, why)
-        out.append("")
-        out.append("  Pass apply=True alongside the input. The gate is not the flag — the gate is")
-        out.append("  the proof. apply=True without a proof still writes nothing.")
+        expressible = bool(rep and rep.inputs_expressible)
+        out += _ask_for_input("decompose", file, function, params, why, expressible)
+        if expressible:
+            # Only when there IS an input to pass. On the test path there is no call to attach
+            # `apply=True` to, and naming it there reads as a second, optional step — which is
+            # how a caller ends up trying to force the write instead of writing the test.
+            out.append("")
+            out.append("  Pass apply=True alongside the input. The gate is not the flag — the gate is")
+            out.append("  the proof. apply=True without a proof still writes nothing.")
         return "\n".join(out)
 
     for block in r.unsafe_blocks:
@@ -492,19 +633,31 @@ def _format_session_warning_mcp(diagnostic: dict[str, Any]) -> str:
 
 
 # Prepended to any CLI-rendered report handed back through this surface. That text is written
-# for a human at a terminal and says so in its own idiom: `--input "(...)"`, `decompose 'fn'
-# --apply`, `detective flag 'f::g' MUTANT_ID`. None of those are calls a tool caller can make,
-# and `flag` is not exposed here AT ALL — so a caller reading the full report is being handed
-# instructions it cannot follow, in a register that invites it to shell out and improvise. The
-# report itself is correct and worth reading; only the imperatives are addressed to someone
-# else. Say so at the door rather than rewrite the engine's own honest rendering.
+# for a human at a terminal and says so in its own idiom — `--input "(...)"`, `decompose 'fn'
+# --apply`, `detective flag 'f::g' MUTANT_ID`. None are calls a tool caller can make, so a
+# caller reading the full report is handed instructions it cannot follow, in a register that
+# invites it to shell out and improvise. The report is correct and worth reading; only the
+# imperatives are addressed to someone else. Say so at the door rather than rewrite the
+# engine's own honest rendering.
+#
+# The CLI now writes its actions as `DO THIS:` — the same marker this surface uses for a REAL
+# call — so the collision has to be named explicitly. "Ignore the instructions" is too vague
+# against a line that looks exactly like the one the caller is supposed to obey; the tell is
+# the shape, and the shape is `detective <verb>` vs `<verb>(...)`.
+#
+# And `flag` IS a tool here now. It used to be withheld as a human judgement, which was wrong:
+# deciding a mutant is unreachable is symbolic reasoning about the code ("the cap is 0.60 and
+# the branches above sum to at most 0.50"), and the required `why` is what makes the claim
+# auditable and therefore repairable. This text said the opposite for as long as that was true
+# and would have kept saying it — a header describing a surface it no longer describes.
 _CLI_REPORT_HEADER = (
     "ℹ This is the CLI's full report, rendered for a human. Read it for the detail — every\n"
-    '  survivor, its exact diff, the scores. IGNORE its instructions: `--input "(...)"`,\n'
-    "  `--apply` and `detective flag ...` are terminal syntax, not calls you can make.\n"
-    "  The equivalents fork it offers is a HUMAN judgement and is deliberately not a tool\n"
-    "  here — if a survivor looks truly equivalent, ask the user; do not decide it.\n"
-    '  To act, use the terse view: converge(..., inputs=["(<real call>)"]).\n'
+    "  survivor, its exact diff, the scores. Its `DO THIS:` lines are NOT for you: a line\n"
+    "  starting `detective <verb>` is terminal syntax. Do not run it, and do not shell out\n"
+    "  to it — every action it names exists here as a tool. `detective converge 'f::g'` is\n"
+    '  converge(file="f", function="g"); `--input "(...)"` is inputs=["(...)"];\n'
+    "  `--apply` is apply=True; `detective flag 'f::g' ID` is flag(..., mutant_id=\"ID\",\n"
+    "  why=<your proof>). Translate, never execute.\n"
 )
 
 
@@ -701,12 +854,18 @@ def build_server() -> Any:
         file: str,
         function: str,
         project_root: str,
+        full: bool = False,
         trace_budget: float | None = None,
         trace_session_budget: float | None = None,
     ) -> str:
         """Assess the suite that already exists: complete? minimal? what is safe to delete?
 
-        Writes nothing, ever. Deletions are proposals; the user confirms them.
+        Writes nothing, ever. Deletions are proposals; the user confirms them — `--remove` is
+        deliberately not a tool here, because deleting someone's tests on your own judgement is
+        not a move this surface offers.
+
+        `full=True` returns the CLI's human report — every survivor, its diff, the scores. Its
+        `DO THIS:` lines are for a terminal, not for you; translate them to tools.
 
         COLD FIRST RUN OUTLIVES A TOOL CALL. The engine traces the target's suite before it can
         answer — minutes on a large repo, seconds thereafter for THAT EXACT QUESTION. Warm means
@@ -722,10 +881,16 @@ def build_server() -> Any:
         from .audit import audit_suite
         from .cli import _format_audit
 
+        def _go() -> str:
+            a = audit_suite(file, function, project_root)
+            if full:
+                return _CLI_REPORT_HEADER + "\n" + _format_audit(a)
+            return _render_audit(a, file, function)
+
         return _rendered(
             project_root,
             file,
-            lambda: _CLI_REPORT_HEADER + "\n" + _format_audit(audit_suite(file, function, project_root)),
+            _go,
             trace_budget,
             trace_session_budget,
         )
