@@ -16,6 +16,7 @@ from Detective.cli import (
     _build_parser,
     _differs_at_eq,
     _format_scope,
+    _headline,
     _mutated_stmt,
     _split_target,
     _survivor_lines,
@@ -315,3 +316,31 @@ def test_target_ns_names_the_module_a_reader_would_type(tmp_path):
     assert "Account" in ns  # the class is in scope, so --input can name it
     assert ns["__name__"] == "billing"  # NOT _detective_uut_billing
     assert not ns["__name__"].startswith("_detective_uut")
+
+
+# ── _headline (a command's one-liner, as its --help description) ──
+def test_headline_preserves_the_emphasis_the_string_carries():
+    # THE regression. `.capitalize()` lower-cases everything after the first character, so
+    # "an EXISTING suite" became "an existing suite" and "PROVEN behavior-preserving" became
+    # "proven" — the shouted words ARE the claim, and they were silently eaten.
+    #
+    # The grid cannot find this: it offers "", "a", "abc", and `.capitalize()` agrees with
+    # `s[0].upper() + s[1:]` on every string that has no interior capital. So the distinguishing
+    # input is the one thing Detective asked for and could not invent.
+    assert _headline("assess an EXISTING suite") == "Assess an EXISTING suite."
+    assert _headline("split it — applied only when PROVEN safe") == (
+        "Split it — applied only when PROVEN safe."
+    )
+
+
+def test_headline_sentence_cases_the_first_character():
+    assert _headline("write a suite") == "Write a suite."
+
+
+def test_headline_wraps_to_the_terminal():
+    # These pages use RawDescriptionHelpFormatter, which wraps `help=` but never a
+    # `description` — so the same string that fits in the command list ran to 89 columns on its
+    # own page. Every line must fit.
+    long = "start here for a FUNCTION — what does it actually do, and what to run next (read-only)"
+    assert all(len(line) <= 78 for line in _headline(long).splitlines())
+    assert "FUNCTION" in _headline(long)  # wrapping must not cost the emphasis either

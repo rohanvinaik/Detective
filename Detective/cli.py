@@ -13,6 +13,7 @@ import difflib
 import json
 import os
 import sys
+import textwrap
 from dataclasses import asdict
 from typing import Any
 
@@ -1353,11 +1354,45 @@ def _audit_action(a) -> list[str]:
 
 
 _COMMAND_HELP = {
-    "diagnose": "START HERE — what does this function actually do, and what to run next (read-only)",
+    "diagnose": "START HERE for a FUNCTION — what does it actually do, and what to run next (read-only)",
     "converge": "write a complete, minimal pytest suite for a function (the flagship; writes files)",
     "decompose": "split a tangled function into helpers — applied only when PROVEN behavior-preserving",
     "audit": "assess an EXISTING suite: complete? minimal? which tests to prune",
 }
+
+
+def _headline(help_text: str) -> str:
+    """A command's one-liner, as the first line of its `--help` description.
+
+    Sentence-cased with `s[0].upper() + s[1:]`, NEVER `.capitalize()` — which lower-cases
+    everything after the first character and silently ate the emphasis these strings carry on
+    purpose: "an EXISTING suite" became "an existing suite", "PROVEN behavior-preserving" became
+    "proven". The shouted words are the claim.
+
+    Wrapped here because these pages use RawDescriptionHelpFormatter — argparse wraps `help=` but
+    never a `description`, so the same string that fits in the command list ran to 89 columns on
+    its own page.
+    """
+    text = f"{help_text[0].upper()}{help_text[1:]}."
+    return "\n".join(textwrap.wrap(text, 78))
+
+
+# Stated on EVERY command that runs it, because a reader who hits the refusal reads THAT
+# command's --help, not the root's. Four commands resolve this stage and one used to mention it,
+# which is the same discoverability failure as the tool having no `regime` command at all: the
+# capability existed and nothing led you to it. Worth the repetition — an agent that has never
+# seen Detective needs to learn the word `regime` from whatever page it happens to land on.
+_REGIME_STAGE = (
+    "BEFORE this runs, Detective resolves the repo's TESTING REGIME: the name that\n"
+    "imports your target, the sys.path your SUITE gets, and whether that name means\n"
+    "the file you pointed at. If anything makes a verdict untrustworthy — the target\n"
+    "is SHADOWED by another copy of itself, or two conftests share one module name\n"
+    "and kill the live pytest session — it REFUSES and prints the exact fix, rather\n"
+    "than reporting a number measured against the wrong file.\n"
+    "\n"
+    "    detective regime            # see it, and why a run refused\n"
+    "    detective regime --migrate  # fix the part that is Detective's to fix"
+)
 
 
 def _target_ns(file: str, function: str, root: str) -> dict:
@@ -1454,9 +1489,27 @@ def _engine_version() -> str:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="detective",
-        description="Read what a function actually does, pin it with tests, and split it "
-        "SAFELY — every rewrite is applied only when a generated suite proves behavior "
-        "survived. Start read-only: `detective diagnose path/to/file.py::function`.",
+        # RawDescription: argparse's default formatter re-wraps and would collapse the two
+        # commands below into prose, which is the one thing they must not be — they are the
+        # first things a reader runs. Every line here is hand-wrapped to fit a terminal.
+        description=(
+            "Read what a function actually does, pin it with tests, and split it SAFELY —\n"
+            "every rewrite is applied only when a generated suite proves behavior survived.\n"
+            "\n"
+            "NEW REPO? START HERE:\n"
+            "    detective regime            # how does this repo import its code and run\n"
+            "                                # its tests — and is anything making every\n"
+            "                                # verdict untrustworthy?\n"
+            "    detective regime --migrate  # fix the part that is Detective's to fix\n"
+            "\n"
+            "  Every command below resolves that same regime first and REFUSES on a conflict.\n"
+            "  A number measured against the wrong file is worse than no number: it reads as\n"
+            "  a finding. If a run refuses, `detective regime` is where the reason is.\n"
+            "\n"
+            "THEN, read-only:\n"
+            "    detective diagnose path/to/file.py::function"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     # BOTH versions, because a verdict is a joint product. Detective decides what to ask; the
     # ENGINE decides what the answer is — a kill it classifies `crash` rather than `exception`
@@ -1474,10 +1527,29 @@ def _build_parser() -> argparse.ArgumentParser:
     # recommended `converge` first — which WRITES test files into someone's repo before they
     # have any idea what the tool does. Earning that comes after showing the map.
     for name in ("diagnose", "converge", "decompose", "audit"):
-        p = sub.add_parser(name, help=_COMMAND_HELP[name])
+        p = sub.add_parser(
+            name,
+            help=_COMMAND_HELP[name],
+            description=f"{_headline(_COMMAND_HELP[name])}\n\n{_REGIME_STAGE}",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
         p.add_argument("target", help="file.py::function")
         p.add_argument("--project-root", default=".", help="project root the target path is relative to")
         p.add_argument("--json", action="store_true", help="emit JSON")
+        # GLOBAL, not converge-only. It was added for converge's mutant list and that revived a
+        # telemetry footer whose reader had sat behind `args.verbose` since before any command
+        # defined the flag — dead code, waiting. Its comment says "behind --verbose, where
+        # someone chasing memory will look for it", and someone chasing memory is debugging
+        # `diagnose` as often as `converge`. One flag, one meaning: MORE DETAIL. What that
+        # yields differs per command, which is what a detail flag is for.
+        p.add_argument(
+            "--verbose",
+            action="store_true",
+            help="more detail: the memory-telemetry footer (stderr) on any command, and — with "
+            "--full on converge — every surviving mutant's id and diff instead of grouping them "
+            "by the statement they mutated. Use it when you need an id to pass to `flag`, or "
+            "when you are debugging the run itself",
+        )
         # The traced baseline runs BEFORE any mutant, and tracing costs a callback per executed
         # line — so a computationally heavy test in the suite used to present as a hang with no
         # output at all. Bounded by default; 0 restores the old unbounded pass. Cut tests are
@@ -1525,13 +1597,6 @@ def _build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="print the full report to the terminal (default: a minimal banner + the one "
                 "quick action; the full report is always written to .detective/reports/ regardless)",
-            )
-            p.add_argument(
-                "--verbose",
-                action="store_true",
-                help="with --full: list every surviving mutant's id and diff instead of grouping "
-                "them by the statement they mutated. Use when you need an id to pass to `flag`; "
-                "the written report is always verbose, so this only affects the terminal",
             )
             p.add_argument(
                 "--input",
