@@ -114,7 +114,7 @@ class InputExpressionError(ValueError):
     """An input expression that is not a permitted constructor over :data:`INPUT_MODULES`."""
 
 
-def reject_unsafe_expression(node: ast.AST, src: str) -> None:
+def reject_unsafe_expression(node: ast.AST, src: str, names: dict[str, Any] | None = None) -> None:
     """Raise :class:`InputExpressionError` unless ``node`` is a plain constructor call.
 
     EMPTYING ``__builtins__`` IS NOT A SANDBOX, and treating it as one is the bug this
@@ -126,31 +126,43 @@ def reject_unsafe_expression(node: ast.AST, src: str) -> None:
 
     So the GRAMMAR is restricted, not just the namespace: every node must be in
     ``_INPUT_SAFE_NODES`` (no lambda, comprehension, walrus, f-string, await); every free
-    name must be an allowlisted module; and no dunder attribute may be touched, which is
-    what severs the escape above. Both layers are load-bearing; neither suffices alone.
+    name must be allowlisted; and no dunder attribute may be touched, which is what severs
+    the escape above. Both layers are load-bearing; neither suffices alone.
+
+    ``names`` is the TARGET MODULE's own namespace, and it is what makes the residual
+    fillable for a domain object. Without it the allowlist is ``{ast}``, so ``Account(...)``
+    is rejected — and the tool then prints ``supply --input "(<account>, ...)"`` for a slot
+    no ``--input`` could ever fill, which is precisely the dead end this function's sibling
+    docstring already names for ``ast.FunctionDef``. Nothing is loosened that matters: the
+    class comes from the module under test, the same module the caller's own tests import
+    and the same one the engine already seeds every mutant's namespace from. The grammar
+    gate and the dunder ban are untouched, and they are the two that sever the escape —
+    the name layer never could.
 
     This is a usage gate for a developer's own inputs, not a defence against someone who
     already has shell access to the same machine — but it does make "an input cannot run
     arbitrary code" a property that is CHECKED rather than asserted.
     """
+    allowed = {**INPUT_MODULES, **(names or {})}
     for sub in ast.walk(node):
         if not isinstance(sub, _INPUT_SAFE_NODES):
             raise InputExpressionError(
-                f"only constructor expressions over [{', '.join(sorted(INPUT_MODULES))}] "
-                f"and literals are allowed — {type(sub).__name__} is not permitted in {src!r}"
+                f"only constructor expressions and literals are allowed — "
+                f"{type(sub).__name__} is not permitted in {src!r}"
             )
         if isinstance(sub, ast.Attribute) and sub.attr.startswith("__"):
             raise InputExpressionError(
                 f"dunder attributes may not be touched ({sub.attr!r} in {src!r}) — "
                 "that is the object-graph escape, not an input"
             )
-        if isinstance(sub, ast.Name) and sub.id not in INPUT_MODULES:
+        if isinstance(sub, ast.Name) and sub.id not in allowed:
             raise InputExpressionError(
-                f"only [{', '.join(sorted(INPUT_MODULES))}] are available — {sub.id!r} is not, in {src!r}"
+                f"{sub.id!r} is not available in {src!r} — use a literal, `ast.*`, or a name "
+                f"defined in the module under test ({', '.join(sorted(allowed)) or 'none'})"
             )
 
 
-def parse_input_expression(s: str) -> tuple:
+def parse_input_expression(s: str, ns: dict[str, Any] | None = None) -> tuple:
     """One positional-argument tuple from a literal OR a constructor expression.
 
     THE SINGLE DEFINITION OF WHAT AN INPUT MAY BE. Both ends of the input lifecycle must
@@ -161,10 +173,19 @@ def parse_input_expression(s: str) -> tuple:
     (which accepts inputs) and by ``samples`` (which reloads them), so the two cannot
     drift apart on what is expressible.
 
+    ``ns`` is the TARGET MODULE's namespace, and it is what makes the documented interface
+    true. The README promises ``--input`` carries "a plan name, a lookup key, a valid domain
+    object" — but with the allowlist at ``{ast}`` a domain object was rejected, so the tool
+    printed ``supply --input "(<account>, ...)"`` for a slot no input could fill: the exact
+    dead end this docstring already describes for ``ast.FunctionDef``, one type wider.
+    Passing the module under test closes it, and nothing weakens: the class is from the same
+    module the caller's own tests import and the engine already seeds every mutant from, while
+    the grammar gate and dunder ban — the two layers that actually sever the object-graph
+    escape — are untouched.
+
     Non-literal arguments come back as :class:`SourceExpr`, carrying both the live value
-    and the source that rebuilds it, so a generated test reads
-    ``ast.parse('def f(): ...').body[0]`` and not an un-round-trippable
-    ``<ast.FunctionDef object at 0x...>``.
+    and the source that rebuilds it, so a generated test reads ``Account('gold', 500.0, [])``
+    and not an un-round-trippable ``<billing.Account object at 0x...>``.
 
     Raises :class:`InputExpressionError` for anything unparseable or not permitted; see
     :func:`reject_unsafe_expression` for the boundary and what it is not.
@@ -178,16 +199,18 @@ def parse_input_expression(s: str) -> tuple:
     except SyntaxError as exc:
         raise InputExpressionError(f"not a valid literal or expression: {s!r} ({exc})") from None
 
+    target_ns = {k: v for k, v in (ns or {}).items() if not k.startswith("_")}
+    module = (ns or {}).get("__name__", "")
     elements = tree.body.elts if isinstance(tree.body, ast.Tuple) else [tree.body]
     args: list[Any] = []
     for elt in elements:
         src = ast.unparse(elt)
-        reject_unsafe_expression(elt, src)
+        reject_unsafe_expression(elt, src, target_ns)
         try:
             # Grammar checked above, builtins emptied here: BOTH are required.
             value = eval(  # noqa: S307 — grammar-checked, allowlisted, no builtins
                 compile(ast.Expression(body=elt), "<input>", "eval"),
-                {"__builtins__": {}, **INPUT_MODULES},
+                {"__builtins__": {}, **INPUT_MODULES, **target_ns},
             )
         except Exception as exc:  # noqa: BLE001 — a bad input is a usage error, not a crash
             raise InputExpressionError(f"failed to evaluate {src!r}: {exc}") from None
@@ -195,8 +218,14 @@ def parse_input_expression(s: str) -> tuple:
             ast.literal_eval(elt)
             args.append(value)  # a literal needs no carrier
         except (ValueError, SyntaxError):
-            imports = tuple(f"import {m}" for m in sorted(INPUT_MODULES) if f"{m}." in src)
-            args.append(SourceExpr(value=value, expr=src, imports=imports))
+            imports = [f"import {m}" for m in sorted(INPUT_MODULES) if f"{m}." in src]
+            # A target-module name needs `from <module> import <Name>`, or the generated test
+            # renders `Account(...)` and NameErrors — which `property_holds` then rejects, and
+            # the killing test silently never gets written.
+            names = sorted({n.id for n in ast.walk(elt) if isinstance(n, ast.Name) and n.id in target_ns})
+            if module and names:
+                imports.append(f"from {module} import {', '.join(names)}")
+            args.append(SourceExpr(value=value, expr=src, imports=tuple(imports)))
     return tuple(args)
 
 

@@ -52,14 +52,20 @@ def test_format_scope_core_lines_exact():
     # only words on offer. `0 inert` is omitted entirely rather than shown as jargon
     # whose value is zero.
     assert _format_scope(_scope()) == (
+        # The rule is the BARRIER between the live `▸` progress stream and the report. Without
+        # it they are one wall and the narration reads as findings.
+        "─" * 78 + "\n"
         "m::f — diagnose · 10 behaviours · 8 pinned · 2 unpinned\n"
         "\n"
         "  ✓ pinned             6 pin the RETURN VALUE · 2 only prove it runs\n"
         "  ✗ unpinned           2 · —\n"
         "  · shape              cohesive and structurally one piece\n"
         "\n"
+        # ONE action, and it is a command you can paste — never a description of a task.
         "DO THIS:  detective converge 'm::f'\n"
-        "          Writes tests for the 2 behaviour(s) nothing pins yet."
+        "\n"
+        "  · Why                2 behaviour(s) have no test pinning them.\n"
+        "  · Writes             test files, and wires them into pytest for you."
     )
 
 
@@ -181,3 +187,23 @@ def test_version_string_never_raises(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", _boom)
     assert _engine_version() == "Wesker NOT IMPORTABLE"
+
+
+# ── the import line a generated test inherits ────────────────────────
+def test_target_ns_names_the_module_a_reader_would_type(tmp_path):
+    """`_load_original` imports the target under a SYNTHETIC name (`_detective_uut_x`) when it
+    is not already in sys.modules, so the live `__name__` is an artifact of that loader. A
+    generated test that inherits it reads `from _detective_uut_billing import Account`, fails
+    collection, takes the whole proof suite red — and decompose then reports `REJECTED: the
+    suite PROVES this extraction changes behaviour` for an extraction that is perfectly sound.
+    A false verdict, sourced from an import line."""
+    from Detective.cli import _target_ns
+
+    (tmp_path / "billing.py").write_text(
+        "class Account:\n    def __init__(self, tier):\n        self.tier = tier\n\n\n"
+        "def settle(account):\n    return account.tier\n"
+    )
+    ns = _target_ns("billing.py", "settle", str(tmp_path))
+    assert "Account" in ns  # the class is in scope, so --input can name it
+    assert ns["__name__"] == "billing"  # NOT _detective_uut_billing
+    assert not ns["__name__"].startswith("_detective_uut")

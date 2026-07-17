@@ -11,6 +11,7 @@ import argparse
 import ast
 import difflib
 import json
+import os
 import sys
 from dataclasses import asdict
 from typing import Any
@@ -98,7 +99,7 @@ def _format_scope(scope) -> str:
     entangled = scope.regime == "B"
     head = f"{scope.function} — diagnose · {spec.behavioral_variants} behaviours"
     head += f" · {spec.distinctions_pinned} pinned · {spec.unspecified_dof} unpinned"
-    lines = [head, ""]
+    lines = [_RULE, head, ""]
 
     if getattr(scope, "tests_discovered", -1) == 0:
         lines.append(_row("⚠ NO tests", "nothing pins this function yet — the counts above"))
@@ -164,30 +165,39 @@ def _trace_cut_rows(scope) -> list[str]:
 
 
 def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
-    """Diagnose's ONE next action.
+    """Diagnose's ONE next action, in the report's row style.
 
-    Priority, and the priority IS the judgement: split before you pin. When both signals
-    agree the function is more than one thing, `decompose` is the move even though behaviour
-    is unpinned — it converges internally, and pinning the pieces afterwards is cheaper and
-    clearer than pinning the tangle first and then splitting a suite you have to re-derive.
-    Otherwise `converge`. The old report printed both and let the reader choose; two actions
-    is a choice the reader has no basis to make.
+    Priority IS the judgement: split before you pin. When both signals agree the function is
+    more than one thing, `decompose` is the move even though behaviour is unpinned — it
+    converges internally, and pinning the pieces afterwards is cheaper than pinning the tangle
+    first and then splitting a suite you have to re-derive. Otherwise `converge`. The old report
+    printed both and let the reader choose; two actions is a choice they have no basis to make.
+
+    No derived input here, and that is not an omission: diagnose is read-only and works from a
+    `ScopeMap`, which carries no witnesses — so there is nothing to batch. The command IS the
+    whole action.
     """
     fn = scope.function
     if entangled and seams >= 1:
         return [
             f"DO THIS:  detective decompose '{fn}' --apply",
-            f"          Two signals agree this is >{1} thing. --apply only writes if a generated",
-            "          suite PROVES behaviour survived; otherwise it tells you what it needs.",
+            "",
+            _row("· Why", "Two signals agree this is more than one function."),
+            _row("· Safety", "--apply writes ONLY if a generated suite proves the"),
+            _row("", "behaviour survived. If it cannot, it says what it needs"),
+            _row("", "and leaves your source untouched."),
         ]
     if spec.unspecified_dof:
         return [
             f"DO THIS:  detective converge '{fn}'",
-            f"          Writes tests for the {spec.unspecified_dof} behaviour(s) nothing pins yet.",
+            "",
+            _row("· Why", f"{spec.unspecified_dof} behaviour(s) have no test pinning them."),
+            _row("· Writes", "test files, and wires them into pytest for you."),
         ]
     return [
         "DONE:  every behaviour this function makes is already pinned by a test.",
-        f"       Next (optional): detective audit '{fn}'   # is the suite minimal?",
+        "",
+        _row("· Optional next", f"detective audit '{fn}'   # is the suite minimal?"),
     ]
 
 
@@ -397,8 +407,6 @@ def _notify_stderr(msg: str) -> None:
 
 
 def _telemetry_cache_path() -> str:
-    import os
-
     return os.path.join(os.path.expanduser("~"), ".detective", "telemetry.json")
 
 
@@ -419,7 +427,6 @@ def _update_per_mutant_ms(observed_ms: float) -> None:
     """Fold this run's measured per-mutant cost into a rolling EMA, so the upfront estimate
     tracks the machine's throughput without one anomalous run dominating. Best-effort."""
     import json
-    import os
 
     prior = _read_per_mutant_ms()
     value = observed_ms if prior is None else 0.7 * prior + 0.3 * observed_ms
@@ -524,7 +531,6 @@ def _completeness_verdict(result) -> str:
 def _rel_path(path: str) -> str:
     """Display a written path relative to cwd when possible — converge stores absolute
     paths, but a banner reads far cleaner as `tests/foo.py` than a long /tmp/... string."""
-    import os
 
     try:
         rel = os.path.relpath(path, os.getcwd())
@@ -737,7 +743,6 @@ def _write_converge_report(root: str, qualname: str, text: str) -> str:
     """Persist the FULL report to a readable file so the terminal can stay minimal.
     The complete detail — DOF, per-pass, every survivor, the generated test source — is
     one `cat` away. Returns a short path relative to root, or '' on failure (best-effort)."""
-    import os
 
     safe = qualname.replace("::", "__").replace("/", "_").replace(".", "_")
     d = os.path.join(root, ".detective", "reports")
@@ -751,7 +756,7 @@ def _write_converge_report(root: str, qualname: str, text: str) -> str:
     return os.path.relpath(path, root)
 
 
-def _format_converge_terse(result, report_path: str) -> str:
+def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
     """The converge report: what got written, what is left, the ONE next action — then the
     greppable ``FINAL`` banner, which stays LAST.
 
@@ -761,7 +766,7 @@ def _format_converge_terse(result, report_path: str) -> str:
     """
     fn = result.function
     rep = result.survivor_report
-    lines = [f"{fn} — converge{_headline_counts(result, rep)}", ""]
+    lines = [_RULE, f"{fn} — converge{_headline_counts(result, rep)}", ""]
 
     if result.written_path:
         # `_rel_path`, like the banner: converge stores ABSOLUTE paths, and a 90-character
@@ -781,42 +786,26 @@ def _format_converge_terse(result, report_path: str) -> str:
     if report_path:
         lines.append(_row("· full report", report_path))
     lines.append("")
-    lines += _converge_action(result, rep)
+    lines += _converge_action(result, rep, root, report_path)
     lines.append("")
     lines.append(_final_banner(result))
     return "\n".join(lines)
 
 
-def _converge_action(result, rep) -> list[str]:
-    """Converge's ONE next action.
+def _converge_action(result, rep, root: str = ".", report_path: str = "") -> list[str]:
+    """Converge's ONE next action — the DERIVED input, same as decompose's residual and from
+    the same machinery (`_derived_input`). A witness is a call the engine RAN; a boundary hint
+    is a relation it PROVED; only with neither is the reader asked for the value, which is the
+    documented interface and not a fallback for work the tool skipped.
 
-    Same rule as decompose's residual, for the same reason: `--input` parses an allowlist, so
-    for a function taking a domain object there is no string that satisfies it and printing
-    the template hands the reader a command that always errors. `inputs_expressible` decides.
-
-    `flag` comes LAST and only when nothing else is outstanding. It is the one irreversible
-    claim a human makes here — asserting a mutant is truly equivalent — and suggesting it
-    while a real gap is open invites someone to flag their way to a green board.
+    `flag` comes LAST and only when nothing else is outstanding. It is the one claim a human
+    makes against the engine, and offering it while a real gap is open invites someone to flag
+    their way to a green board.
     """
     fn = result.function
     blocked = rep is not None and (rep.killable or rep.unclassified)
     if blocked or result.missing_lines:
-        # TRUTHY, not `is False`. `None` means nothing exercised the function AT ALL — the
-        # case that most needs a test — and `is False` let it fall through to the `--input`
-        # branch, printing the exact dead-end command this check exists to prevent.
-        if rep is None or not rep.inputs_expressible:
-            sig = result.signature or f"{fn}(...)"
-            return [
-                f"DO THIS:  add ONE test that calls {sig} with real arguments.",
-                "          Detective captures them from your test and pins the rest.",
-                "          (its arguments have no literal form, so --input cannot carry them.)",
-            ]
-        return [
-            # `_input_template` already carries the `--input` flag; naming it again emitted
-            # `--input --input "(...)"`.
-            f"DO THIS:  detective converge '{fn}' {_input_template(result.param_names)}",
-            "          Fill the slots with one real call, to reach what synthesis could not.",
-        ]
+        return _derived_input(None, result, rep, fn, verb=f"detective converge '{fn}'", report=report_path)
     if rep is not None and rep.equivalent:
         ids = [v.mutant_id for v in rep.equivalent]
         more = f"  ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
@@ -836,6 +825,20 @@ def _converge_action(result, rep) -> list[str]:
 # padding drifts the moment any label changes length, and a report whose columns do not line up
 # reads as unmaintained no matter how correct the words are.
 _LABEL_W = 21
+
+# The barrier between the live `▸` stream and the printed report. The stream is progress on a
+# run that can take minutes; the report is the product. Without a rule they are one wall of
+# text, and a reader cannot tell which lines they are meant to act on — the progress narration
+# reads as findings. Rendered wide enough to survive a wrapped terminal.
+_RULE = "─" * 78
+
+# How many derived requirements one command carries. `--input` is repeatable and each call kills
+# whatever it reaches, so the interface imposes no ceiling — this is only a wall-of-text guard.
+# Set high on purpose: a reader who can close ten requirements in one command should not be made
+# to run ten commands, and the repetition of the template IS the signal for how many calls to
+# author. Whatever is left over is NAMED with a pointer to the report; a bound that is not
+# disclosed reads as "this is all of them", which is how 65 requirements looked like 1.
+_MAX_BATCH = 10
 
 
 def _row(label: str, text: str) -> str:
@@ -874,64 +877,154 @@ def _headline_counts(proof, rep) -> str:
     return " · " + " · ".join(parts)
 
 
-def _residual_action(r, proof, rep) -> list[str]:
-    """The next action when the proof is incomplete — the one line that has to be right.
+def _residual_action(r, proof, rep, target: str, root: str = ".") -> list[str]:
+    """The next action when the proof is incomplete: the DERIVED input, never an invented one
+    and never a slot for the reader to author.
 
-    Three states, three DIFFERENT actions, because `--input` cannot express every parameter:
+    The engine already computes what the input must satisfy, and it is neither a guess nor a
+    template:
 
-    * nothing exercised the function (`inputs_expressible is None`) -> a test is the only way
-      in; the engine's `note` already says so and names each parameter's type.
-    * something exercised it but has no literal form (False) -> the working input came from
-      CAPTURE (a real object out of the user's own tests). `--input` would reject the only
-      value that works, so ask for the test that produces more of them.
-    * everything is typeable (True) -> `--input` is real, and is the fastest path.
+    * a witness IS a real call — the equivalence search ran it and saw the mutant differ, so
+      `assert f(args) == original` is a literal fact about this code. It is SUGGESTED, not
+      applied, because `property_holds` could not verify it sound; that gap is the abstention,
+      not an excuse to say less.
+    * a BOUNDARY mutant's distinguishing input is the EQUALITY edge, and `_boundary_hint`
+      derives it from the comparison whose operator shifted: "supply an input where qty == 0"
+      is the valid relation WITH its precondition (oracle-LIGHT, not oracle-free).
 
-    Collapsing these into one `supply --input` line is what made the tool look broken on any
-    function taking a domain object: the reader did exactly what it said and got back
-    `--input only [ast] are available — 'Account' is not`.
+    Printing `--input "(<account>, <charges>)"` and "fill the slots with ONE real call" throws
+    all of that away and hands the reader the derivation the pipeline exists to do. It also is
+    not pasteable — `<account>` is not Python — so the one line the report is judged on fails
+    the only test that matters.
     """
     out: list[str] = []
     if rep is None:
         out.append(_row(f"{proof.final_survivors} unpinned", "the classification did not run, so which"))
         out.append(_row("", "mutants block is unknown. Source NOT touched."))
         out.append("")
-        out.append(f"DO THIS:  detective converge '{r.function}' --full     # then re-run decompose")
+        out.append(f"DO THIS:  detective converge '{target}' --full     # then re-run decompose")
         return out
 
     n_kill, n_unc, n_eq = len(rep.killable), len(rep.unclassified), len(rep.equivalent)
-    # The cause has to agree with the action below it. "an input can kill them" next to
-    # "--input cannot carry it" is two true sentences that read as a contradiction, and a
-    # reader resolves that by distrusting both.
-    if not n_kill:
-        why = "synthesis never reached them."
-    elif rep.inputs_expressible:
-        why = "a witness exists — an input can kill them."
-    else:
-        why = "a witness exists, but only a real object reaches it."
-    out.append(_row(f"{n_kill + n_unc} block the proof", why))
+    unit = "behaviour(s)" if (n_kill + n_unc) != 1 else "behaviour"
+    why = "a real input distinguishes them" if n_kill else "no input Detective built reaches them"
+    out.append(_row(f"{n_kill + n_unc} {unit}", f"block the proof — {why}."))
     if n_eq:
-        out.append(_row("", f"{n_eq} candidate-equivalent do NOT block."))
+        out.append(_row("", f"{n_eq} more look equivalent and do NOT block."))
     out.append(_row("", "Your source was NOT touched."))
     out.append("")
-
-    sig = proof.signature or f"{r.function}(...)"
-    if rep.inputs_expressible:
-        slots = _input_template(proof.param_names)
-        out.append(f"DO THIS:  detective decompose '{r.function}' --apply {slots}")
-        out.append("          Fill the slots with one real call. That kills the blockers, the")
-        out.append("          proof completes, and the extraction applies in the same run.")
-    else:
-        # No literal form exists for at least one parameter, so naming `--input` here would
-        # be printing a command that cannot be run.
-        first = (proof.param_names or ("it",))[0]
-        out.append(f"DO THIS:  add ONE test that calls {sig} with real arguments.")
-        out.append("          Detective captures them from your test and proves the rest.")
-        out += _target_line(rep)
-        out.append(f"          (`{first}` has no literal form, so --input cannot carry it.)")
+    out += _derived_input(r, proof, rep, target)
     return out
 
 
-def _target_line(rep) -> list[str]:
+def _hint_relation(hint: str) -> str:
+    """The bare relation out of a boundary hint — "where amt == 0"."""
+    tail = hint.split("—", 1)[-1].strip()
+    # Lower-case: the caller opens the sentence ("That reaches the branch: where amt == 0.").
+    return tail[len("supply an input ") :] if tail.startswith("supply an input ") else tail
+
+
+def _witness_args(w) -> str:
+    """A witness's args as a tuple literal. `(1)` is not a tuple, it is `1` — a one-argument
+    call needs the trailing comma or the command does not parse as what it claims to be."""
+    return ", ".join(repr(a) for a in w.args) + ("," if len(w.args) == 1 else "")
+
+
+def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
+    """What the engine DERIVED about the inputs it still needs — as data, for any surface.
+
+    Returns ``(kind, items, total)``:
+
+    * ``("witness", ['(1,)', "(0, 'gold')"], n)`` — each item is a real call the engine RAN and
+      saw a mutant differ on. Paste it. SUGGESTED, not applied: `property_holds` could not
+      verify the test sound, and that gap is the abstention.
+    * ``("boundary", ['where qty == 0'], n)`` — each item is a relation the engine PROVED: two
+      orderings differ exactly at the equality edge, recovered from the comparison whose
+      operator shifted. Author a call satisfying it.
+    * ``("author", [], 0)`` — nothing derived. The caller supplies the value outright, which is
+      the documented interface ("You supply what only you know"), not a fallback.
+
+    ``total`` is how many exist; ``items`` is capped at `_MAX_BATCH`. The gap between them MUST
+    be disclosed by the caller — a bound that is not named reads as "this is all of them", which
+    is how 65 requirements looked like 1.
+
+    DATA, not text, because the two surfaces render different commands: a human runs
+    `--input "(...)"`, a tool caller passes `inputs=["(...)"]`. Sharing the rendered STRING put
+    terminal syntax into an MCP response — telling a caller to use a flag that does not exist
+    there. Sharing the derivation cannot do that, and it is the part that must never drift.
+    """
+    witnesses = [v for v in (rep.killable if rep is not None else ()) if v.witness]
+    if witnesses:
+        return "witness", [f"({_witness_args(v.witness)})" for v in witnesses[:_MAX_BATCH]], len(witnesses)
+    hints: list[str] = []
+    for v in rep.equivalent if rep is not None else ():
+        h = _boundary_hint(v.diff_summary)
+        if h and (rel := _hint_relation(h)) not in hints:
+            hints.append(rel)
+    if hints:
+        return "boundary", hints[:_MAX_BATCH], len(hints)
+    return "author", [], 0
+
+
+def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "") -> list[str]:
+    """The CLI's `DO THIS:` block — `derive_inputs`' data rendered as terminal syntax.
+
+    A thin renderer on purpose. The DERIVATION is shared with the MCP (`derive_inputs`); the
+    COMMAND is not, because a human runs `--input "(...)"` and a tool caller passes
+    `inputs=["(...)"]`. Sharing the rendered string put terminal syntax into an MCP response.
+
+    Batched: `--input` is repeatable, each call kills what it reaches, and the repetition is the
+    signal for how many calls to author. The remainder is always named — a bound that is not
+    disclosed reads as "this is all of them".
+    """
+    cmd = verb or f"detective decompose '{target}' --apply"
+    sig = proof.signature or ""
+    tmpl = _input_template(proof.param_names)
+    kind, items, total = _derive_inputs(proof, rep)
+    where = report or "the full report"
+
+    if kind == "witness":
+        flags = " ".join(f'--input "{a}"' for a in items)
+        out = [f"DO THIS:  {cmd} {flags}"]
+        out.append("")
+        out.append(_row("· Why these", f"Detective RAN each: the {len(items)} call(s) above each"))
+        out.append(_row("", "make a mutant differ from your real function."))
+        out.append(_row("", "SUGGESTED — not written for you, because the engine"))
+        out.append(_row("", "could not verify the tests sound."))
+        if total > len(items):
+            out.append(_row("", f"({total - len(items)} more in {where})"))
+        return out
+
+    if kind == "boundary":
+        out = [f"DO THIS:  {cmd} " + " ".join([tmpl] * len(items))]
+        out.append("")
+        out.append(_row("· Signature", sig))
+        out.append("")
+        out.append(_row("· Task", f"Author {len(items)} call(s), one per requirement, each as"))
+        out.append(_row("", "its own --input. Detective derives every test from them."))
+        out.append(_row("· Requirements", f"1. {items[0]}"))
+        for i, rel in enumerate(items[1:], start=2):
+            out.append(_row("", f"{i}. {rel}"))
+        if total > len(items):
+            out.append(_row("", f"(+{total - len(items)} more in {where})"))
+        out.append(_row("", "Derived from your code: two orderings differ exactly"))
+        out.append(_row("", "at the equality edge."))
+        return out
+
+    return [
+        f"DO THIS:  {cmd} {tmpl}",
+        "",
+        _row("· Signature", sig),
+        "",
+        _row("· Task", "Author one real call and pass it as --input."),
+        _row("· Requirement", "It must run. Detective derives every test from it."),
+        _row("", "Values are yours to choose — it will not invent one whose"),
+        _row("", "meaning is not in the code. A class from the module goes"),
+        _row("", "in as its constructor. Repeatable for another branch."),
+    ]
+
+
+def _aim_at(rep) -> str:
     """Name the LINE a blocking mutant sits on, so "add a test" is aimed.
 
     Without it the instruction is identical every round and the reader is guessing which
@@ -940,14 +1033,14 @@ def _target_line(rep) -> list[str]:
     reduces it to the changed line. Telling someone to write a test without saying what it
     must reach is the difference between an instruction and a chore.
     """
-    target = next(iter(rep.killable), None)
+    target = next(iter(rep.killable), None) if rep is not None else None
     if target is None:
-        return []
+        return ""
     changed = _concise_diff(target.diff_summary).strip().splitlines()
-    return [f"          Aim it at:  {changed[0].strip()}"] if changed else []
+    return changed[0].strip() if changed else ""
 
 
-def _format_decompose(r, applied_mode: bool) -> str:
+def _format_decompose(r, applied_mode: bool, target: str | None = None, root: str = ".") -> str:
     """The decompose report: what happened, and the ONE next action, in a fixed shape.
 
     Two rules hold this together.
@@ -966,6 +1059,12 @@ def _format_decompose(r, applied_mode: bool) -> str:
     report unreadable: it counted 22 blockers where 5 blocked and asked for an input for all
     of them.
     """
+    # `r.function` is the BARE name ("settle"), unlike SuiteAudit.function which is the full
+    # key. Every command this renderer printed used it, so every one was unrunnable:
+    # `detective decompose 'settle' --apply` -> "target must be 'file.py::function'". It went
+    # unnoticed for the whole build because it was only ever tested by someone typing the full
+    # target from memory — the reader this report exists for cannot do that.
+    tgt = target or r.function
     lines: list[str] = []
     if not r.applied and not r.proposed and not r.unsafe_blocks:
         return f"{r.function} — decompose\n\nDONE:  no separable block. There is no seam here to split."
@@ -973,6 +1072,7 @@ def _format_decompose(r, applied_mode: bool) -> str:
     proof = r.proof
     proof_incomplete = proof is not None and not proof.functionally_complete
     rep = proof.survivor_report if proof is not None else None
+    lines.append(_RULE)
     lines.append(f"{r.function} — decompose{_headline_counts(proof, rep)}")
     lines.append("")
 
@@ -989,18 +1089,23 @@ def _format_decompose(r, applied_mode: bool) -> str:
     if r.applied:
         lines.append("DONE:  your source is rewritten. The suite ran green before AND after, and")
         lines.append("       unspecified behaviour was not baked in.")
-        if proof is not None:
-            lines.append(f"       Next (optional): converge '{r.function}' on the new helper(s).")
+        # NAME the helpers. "converge 'quote' on the new helper(s)" is not a command — it is a
+        # command with the operand described instead of supplied, and the operand is the only
+        # part the reader does not already have. The extraction is right there.
+        file_part = tgt.rsplit("::", 1)[0] if "::" in tgt else ""
+        for ex in r.applied:
+            target = f"{file_part}::{ex.helper_name}" if file_part else ex.helper_name
+            lines.append(f"       Next (optional):  detective converge '{target}'")
         return "\n".join(lines)
 
     validated = [d for d in r.proposed if d.validated]
     if validated and not applied_mode:
-        lines.append(f"DO THIS:  detective decompose '{r.function}' --apply")
+        lines.append(f"DO THIS:  detective decompose '{tgt}' --apply")
         lines.append("          The proof already passed. --apply writes it. Nothing else is needed.")
         return "\n".join(lines)
 
     if proof is None:
-        lines.append(f"DO THIS:  detective converge '{r.function}'")
+        lines.append(f"DO THIS:  detective converge '{tgt}'")
         lines.append("          No suite specifies this function yet, so there is nothing to prove")
         lines.append("          against. Your source was NOT touched.")
         return "\n".join(lines)
@@ -1013,7 +1118,7 @@ def _format_decompose(r, applied_mode: bool) -> str:
         lines.append("       proves this extraction changes behaviour. Your source was NOT touched.")
         return "\n".join(lines)
 
-    lines += _residual_action(r, proof, rep)
+    lines += _residual_action(r, proof, rep, tgt, root)
     return "\n".join(lines)
 
 
@@ -1038,6 +1143,7 @@ def _format_audit(a) -> str:
         # but leaves a line uncovered is not a failed run.
         verdict = "incomplete"
     lines = [
+        _RULE,
         f"{a.function} — audit · {a.test_count} test(s) · {a.kill_pct}% killed · {verdict}",
         "",
     ]
@@ -1068,47 +1174,68 @@ def _format_audit(a) -> str:
 
 
 def _audit_action(a) -> list[str]:
-    """Audit's ONE next action, in priority order — the order is the judgement.
+    """Audit's ONE next action, in the report's row style. Priority order — the order IS the
+    judgement.
 
     A failing test outranks everything: the suite contradicts the code, so every other number
-    here was measured against a suite that does not pass, and acting on them first is acting
-    on sand. Then real gaps (converge writes them), then bloat, then the equivalents — last,
-    because `flag` is the only irreversible-ish claim a human makes here and it should never
-    be suggested while a real gap is outstanding.
+    here was measured against a suite that does not pass, and acting on them first is acting on
+    sand. Then real gaps (converge writes them), then bloat, then the equivalents — last,
+    because `flag` is the one claim a human makes against the engine and it must never be
+    suggested while a real gap is open.
     """
     if a.failing_tests:
+        # The one branch with no single command, and legitimately so: the next move is a
+        # decision only a human has standing to make (is the CODE wrong, or the TEST?), and
+        # either answer is a different edit. The mechanical parts are still commands.
+        first = a.failing_tests[0]
         return [
-            "DO THIS:  fix or delete the failing test(s) above, then re-run audit.",
-            "          Detective will NOT touch them: a test failing on current code is either",
-            "          a wrong expectation or a real regression, and only you can tell which.",
+            f"DO THIS:  pytest -k {first!r}",
+            "",
+            _row("· Then decide", "is the TEST's expectation wrong, or is the CODE broken?"),
+            _row("", "Detective will not touch it — that call is yours alone."),
+            _row("· After fixing", f"detective audit '{a.function}'"),
         ]
     if a.killable_gaps or a.missing_lines:
+        gaps = len(a.killable_gaps)
+        lines = len(a.missing_lines)
+        why = ", ".join(
+            p
+            for p in (
+                f"{gaps} killable mutant(s)" if gaps else "",
+                f"{lines} uncovered line(s)" if lines else "",
+            )
+            if p
+        )
         return [
             f"DO THIS:  detective converge '{a.function}'",
-            "          Writes the missing tests and wires them into pytest.",
+            "",
+            _row("· Why", f"{why} — real gaps, not equivalents."),
+            _row("· Writes", "the missing tests, and wires them into pytest."),
         ]
     if a.redundant_tests:
         return [
             f"DO THIS:  detective audit '{a.function}' --remove",
-            f"          Deletes the {len(a.redundant_tests)} redundant test(s). Nothing else changes.",
+            "",
+            _row("· Why", f"{len(a.redundant_tests)} test(s) kill no mutant AND cover no line"),
+            _row("", "that another test does not already. Nothing else changes."),
         ]
     if a.candidate_equivalent and a.candidate_equivalent_ids:
         first = a.candidate_equivalent_ids[0]
-        more = (
-            f"  ({len(a.candidate_equivalent_ids) - 1} more in the report)"
-            if a.candidate_equivalent > 1
-            else ""
-        )
+        more = f"   ({a.candidate_equivalent - 1} more in the report)" if a.candidate_equivalent > 1 else ""
         return [
-            "DONE:  every killable behaviour is pinned and every line covered. What remains",
-            "       cannot be distinguished by any input Detective found — whether it is truly",
-            "       equivalent is UNDECIDABLE in general, so the engine will not claim it.",
-            f"       If you can prove one is: detective flag '{a.function}' {first} --note \"why\"{more}",
+            "DONE:  every killable behaviour is pinned and every line covered.",
+            "",
+            _row("· What remains", f"{a.candidate_equivalent} survivor(s) no input distinguishes."),
+            _row("", "Whether they are truly equivalent is UNDECIDABLE in"),
+            _row("", "general — the engine will not claim it. Leave them."),
+            _row("· If you can PROVE", f"detective flag '{a.function}' {first} --note \"why\"{more}"),
         ]
     if a.unclassified:
         return [
-            "DONE:  no gaps found. Some survivors could not be classified at all — the search",
-            "       could not run on them. Not gaps, not equivalents: unknown.",
+            "DONE:  no gaps found.",
+            "",
+            _row("· Unknown", f"{a.unclassified} survivor(s) could not be classified — the"),
+            _row("", "search could not run on them. Not gaps, not equivalents."),
         ]
     return ["DONE:  the suite is complete and minimal. Nothing to do."]
 
@@ -1121,7 +1248,44 @@ _COMMAND_HELP = {
 }
 
 
-def _parse_supplied_inputs(raw: list[str]) -> list[tuple]:
+def _target_ns(file: str, function: str, root: str) -> dict:
+    """The target module's namespace, for `--input`.
+
+    This is what makes the README's promise true — it says `--input` carries "a plan name, a
+    lookup key, a valid domain object", and a domain object needs its CLASS in scope to be
+    written down. The same namespace the engine already seeds every mutant from; nothing new
+    is reachable that the caller's own tests do not already import.
+
+    `__name__` is OVERRIDDEN with the module name derived from the FILE PATH, and that is not
+    cosmetic. `_load_original` imports the target under a synthetic name (`_detective_uut_x`)
+    when it is not already in `sys.modules`, so the live `__name__` is an implementation
+    detail of this loader. A generated test that inherits it reads
+    `from _detective_uut_billing import Account`, fails collection, takes the whole proof
+    suite red with it — and decompose then reports `REJECTED: the suite PROVES this extraction
+    changes behaviour` for an extraction that is perfectly sound. A false verdict, sourced from
+    an import line. `_import_line` derives the name a reader would actually type; use that.
+
+    Returns {} on any failure: a target that cannot be loaded still has a literal `--input`
+    path, and refusing to parse `(1, 2)` because a module import failed would be worse than
+    the gap this closes.
+    """
+    import os as _os
+
+    from .engine import _load_original
+
+    try:
+        full = file if _os.path.isabs(file) else _os.path.join(_os.path.abspath(root), file)
+        obj = _load_original(full, function)
+        ns = dict(getattr(obj, "__globals__", {}) or {})
+        rel = _os.path.relpath(full, _os.path.abspath(root))
+        mod = rel.replace(_os.sep, ".").replace("/", ".")
+        ns["__name__"] = mod[:-3] if mod.endswith(".py") else mod
+        return ns
+    except Exception:  # noqa: BLE001 — an input parser must not be what breaks the run
+        return {}
+
+
+def _parse_supplied_inputs(raw: list[str], ns: dict | None = None) -> list[tuple]:
     """Parse ``--input`` strings into positional-argument tuples — the Zone-2 residual a
     human fills THROUGH the tool when deterministic synthesis provably could not exercise
     a degree of freedom. Each string is one call's argument tuple; a bare non-tuple value
@@ -1146,7 +1310,7 @@ def _parse_supplied_inputs(raw: list[str]) -> list[tuple]:
     out: list[tuple] = []
     for s in raw:
         try:
-            out.append(parse_input_expression(s))
+            out.append(parse_input_expression(s, ns))
         except InputExpressionError as exc:
             raise SystemExit(f"detective: --input {exc}") from None
     return out
@@ -1341,7 +1505,11 @@ def main(argv: list[str] | None = None) -> int:
     stays clean for piping."""
     args = _build_parser().parse_args(argv)
     code = _run_live(args)
-    if not getattr(args, "json", False):
+    # Telemetry is for a run you are DEBUGGING, not every run. It answered a question nobody
+    # asked ("41 MB of a 2048 MB budget") on every invocation, and — being unbuffered stderr
+    # written after a buffered stdout report — it surfaced ABOVE the result it postdates,
+    # reading as a header. Behind --verbose, where someone chasing memory will look for it.
+    if getattr(args, "verbose", False) and not getattr(args, "json", False):
         try:
             from Wesker.memory_guard import telemetry
 
@@ -1592,7 +1760,11 @@ def _run(args) -> int:
 
         from .converge import converge
 
-        supplied = _parse_supplied_inputs(args.input) if getattr(args, "input", None) else None
+        supplied = (
+            _parse_supplied_inputs(args.input, _target_ns(file, function, args.project_root))
+            if getattr(args, "input", None)
+            else None
+        )
         _par = _parallel_mode(args)
         result = converge(
             file,
@@ -1614,7 +1786,7 @@ def _run(args) -> int:
         full = _format_converge(result, show_tests=True)
         qn = result.function.split("::")[-1]
         report_path = _write_converge_report(os.path.abspath(args.project_root), qn, full)
-        print(full if args.full else _format_converge_terse(result, report_path))
+        print(full if args.full else _format_converge_terse(result, report_path, args.project_root))
         return 0
 
     if args.command == "audit":
@@ -1652,7 +1824,11 @@ def _run(args) -> int:
     if args.command == "decompose":
         from .decompose_apply import apply_decomposition
 
-        supplied = _parse_supplied_inputs(args.input) if getattr(args, "input", None) else None
+        supplied = (
+            _parse_supplied_inputs(args.input, _target_ns(file, function, args.project_root))
+            if getattr(args, "input", None)
+            else None
+        )
         result = apply_decomposition(
             file,
             function,
@@ -1666,7 +1842,7 @@ def _run(args) -> int:
         print(
             json.dumps(asdict(result), indent=2, default=str)
             if args.json
-            else _format_decompose(result, args.apply)
+            else _format_decompose(result, args.apply, args.target, args.project_root)
         )
         return 0
 

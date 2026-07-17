@@ -22,7 +22,7 @@ must decide which action is printed.
 
 from __future__ import annotations
 
-from Detective.cli import _format_decompose
+from Detective.cli import _MAX_BATCH, _format_decompose
 from Detective.converge import ConvergeResult
 from Detective.decompose_apply import Decomposition, DecompositionApply, Extraction
 from Detective.equivalence import MutantVerdict, SurvivorReport, Witness
@@ -83,55 +83,44 @@ def _result(proof: ConvergeResult | None, validated: bool = False) -> Decomposit
 
 
 def _out(**over) -> str:
-    return _format_decompose(_result(_proof(**over)), applied_mode=True)
+    # Pass the target, as the CLI does. `DecompositionApply.function` is the BARE name, and a
+    # bare name is not a resolvable CLI target — the fallback exists for direct library callers,
+    # never for a printed command.
+    return _format_decompose(_result(_proof(**over)), applied_mode=True, target="p.py::quote")
 
 
 # ── count what blocks ────────────────────────────────────────────────
 def test_counts_only_the_blocking_population():
     """5 killable block; 17 candidate-equivalent do not. The old renderer said 22."""
     out = _out()
-    assert "5 block the proof" in out
+    assert "5 behaviour(s)" in out and "block the proof" in out
     assert "22" not in out
 
 
 def test_names_equivalents_as_non_blocking():
     """Silence about the non-blockers is what made the number stop responding to input."""
-    assert "17 candidate-equivalent do NOT block." in _out()
+    assert "17 more look equivalent and do NOT block." in _out()
 
 
 def test_unclassified_counted_and_attributed_apart_from_killable():
     """Different cause, different fix: an unclassified survivor was never reached at all."""
     out = _out(survivor_report=_rep(verdicts=(), unclassified=("U0", "U1"), inputs_expressible=None))
-    assert "2 block the proof" in out
-    assert "synthesis never reached them." in out
+    assert "2 behaviour(s)" in out and "block the proof" in out
+    # No internal nouns: "synthesis" is a word from the engine's implementation, not the
+    # reader's vocabulary, and it appeared with no referent anywhere in the report.
+    assert "synthesis" not in out
+    assert "no input Detective built reaches them" in out
 
 
 # ── the action must run ──────────────────────────────────────────────
-def test_typeable_params_get_the_input_command():
+def test_a_witness_is_printed_as_the_literal_input_not_a_slot():
+    """A witness is a call the engine RAN — `assert f(args) == original` is a fact about this
+    code, not a template. Printing `<weight>` there discards the derivation the pipeline
+    exists to do, and hands it back to the reader."""
     out = _out()
-    assert "--apply" in out and "--input" in out
-    assert "<weight>" in out
-
-
-def test_untypeable_params_never_get_an_input_command():
-    """THE regression. `--input` rejects a domain object by design, so naming it here prints
-    a command that cannot run. Ask for the test whose arguments get captured instead."""
-    out = _out(survivor_report=_rep(inputs_expressible=False))
-    # No `--input` COMMAND. The word itself is fine — and load-bearing — in the sentence
-    # explaining why it cannot carry this parameter; what must never appear is a template
-    # the reader would paste and watch fail.
-    assert '--input "' not in out
-    assert "<weight>" not in out
-    assert "add ONE test that calls quote(weight, distance, tier, rush, insured)" in out
-    assert "no literal form" in out
-
-
-def test_cause_line_agrees_with_the_action():
-    """ "an input can kill them" above "--input cannot carry it" is two true sentences that
-    read as a contradiction; a reader resolves that by distrusting both."""
-    out = _out(survivor_report=_rep(inputs_expressible=False))
-    assert "an input can kill them" not in out
-    assert "only a real object reaches it." in out
+    assert '--input "(1,)"' in out  # the witness's real args
+    assert "<weight>" not in out  # never a slot when a real call is known
+    assert "SUGGESTED" in out  # derived, unverified -> stated, not applied
 
 
 def test_exactly_one_terminal_action():
@@ -180,9 +169,12 @@ def test_no_separable_block_is_done_not_an_action():
 
 
 def test_report_stays_within_its_line_budget():
-    """The product is the report. 20 lines was 4 lines of verdict under 16 of scaffolding."""
-    for out in (_out(), _out(survivor_report=_rep(inputs_expressible=False)), _out(survivor_report=None)):
+    """The product is the report. The typeable and no-classification branches stay tight; the
+    scaffold branch is allowed more because its extra lines ARE the product — a file's exact
+    contents is not padding, and the alternative (a one-line description) is what failed."""
+    for out in (_out(), _out(survivor_report=None)):
         assert len(out.splitlines()) <= 20
+    assert len(_out(survivor_report=_rep(inputs_expressible=False)).splitlines()) <= 26
 
 
 # ── never offer an input that cannot be typed ────────────────────────
@@ -217,3 +209,98 @@ def test_gap_desc_keeps_witness_args_that_can_be_typed():
         category, mutant_id, witness = "LOGICAL", "L1", _W()
 
     assert _gap_desc(_V(), expressible=True) == "LOGICAL [L1] — kill with (0, 'gold')"
+
+
+# ── ONE action, always --input ───────────────────────────────────────
+def test_the_only_action_is_supply_an_input():
+    """The README states the whole interface: "You supply what only you know; Detective
+    derives the rest" — and it names "a valid domain object" as one of the things you supply.
+    There is no second workflow. A fork here ("write a test yourself") inverts the tool: this
+    pipeline DERIVES tests, so asking the reader to author one hands back its only job. That
+    fork existed solely because INPUT_MODULES was {ast} and rejected Account(...) — a bug at
+    the allowlist, not a state to render."""
+    for rep in (_rep(inputs_expressible=True), _rep(inputs_expressible=False), _rep(inputs_expressible=None)):
+        out = _out(survivor_report=rep)
+        assert "detective decompose 'p.py::quote' --apply --input" in out
+        assert "create tests/" not in out  # no scaffold, ever
+        assert "add ONE test" not in out  # no hand-authoring, ever
+
+
+def test_a_domain_object_is_expressible_in_the_input_slot():
+    """The allowlist gate is what the whole interface rested on: with {ast} only, the tool
+    printed `supply --input "(<account>, ...)"` for a slot no --input could fill — its own
+    docstring names that dead end for ast.FunctionDef, one type narrower."""
+    import ast as _ast
+
+    from Detective.equivalence import parse_input_expression
+
+    class Account:
+        def __init__(self, tier):
+            self.tier = tier
+
+    ns = {"Account": Account, "__name__": "billing"}
+    (arg,) = parse_input_expression("(Account('gold'),)", ns)
+    assert arg.value.tier == "gold"  # the live object ran
+    assert repr(arg) == "Account('gold')"  # SourceExpr renders the CONSTRUCTOR, not <object at 0x..>
+    assert "from billing import Account" in arg.imports  # so the generated test can import it
+    assert _ast  # literals still parse without a namespace
+    assert parse_input_expression("(1, 'a')") == (1, "a")
+
+
+# ── batching: --input is repeatable, so say what ALL the requirements are ──
+
+
+def test_witnesses_batch_too_and_carry_the_suggested_label():
+    """A witness is a call the engine RAN. Several are several real calls — batch them, and
+    keep the abstention on the line, not four rows below it."""
+    out = _out()  # 5 killable, all with witnesses
+    assert out.count('--input "(1,)"') == 5  # ALL of them, batched into one command
+    assert "SUGGESTED" in out
+
+
+# ── batching: --input is repeatable, so name ALL the derived requirements ──
+def _boundary(mid: str, n: int) -> MutantVerdict:
+    """A real BOUNDARY diff: `q > n` shifted to `q >= n`, both whole-function bodies.
+
+    Operands must MATCH between original and mutant or `_boundary_hint` cannot recover them —
+    that is the point of the hint: it derives the equality edge from the comparison whose
+    OPERATOR moved, so a fixture that also moves the operand tests nothing.
+    """
+    orig = f"def f(q):\n    if q > {n}:\n        pass"
+    mut = f"def f(q):\n    if q >= {n}:\n        pass"
+    return MutantVerdict(mid, "BOUNDARY", f"- {orig}\n+ {mut}", killable=False, witness=None, searched=9)
+
+
+def test_every_derived_requirement_is_named_not_just_the_first():
+    """`--input` is repeatable and each call kills what it reaches, so N requirements close in
+    one command — but only if the report SAYS what they are. Printing next(...) turned a
+    batchable job into N sequential rounds and never disclosed that N-1 more existed."""
+    rep = _rep(verdicts=(_boundary("B0", 0), _boundary("B1", 5)), inputs_expressible=True)
+    out = _out(survivor_report=rep)
+    assert "1. where q == 0" in out
+    assert "2. where q == 5" in out
+    # One --input per requirement: the repetition IS the signal for how many calls to author.
+    assert out.count('--input "(<weight>') == 2
+
+
+def test_the_batch_cap_is_disclosed_never_silent():
+    """A bound that is not named reads as "this is all of them"."""
+    many = tuple(_boundary(f"B{i}", i) for i in range(_MAX_BATCH + 4))
+    out = _out(survivor_report=_rep(verdicts=many, inputs_expressible=True))
+    assert "(+4 more in" in out
+    # Count the FLAG, not the word — the prose says "each as its own --input" too.
+    assert out.count('--input "(<weight>') == _MAX_BATCH
+
+
+def test_derive_inputs_returns_data_so_both_surfaces_cannot_drift():
+    """The derivation is shared; the RENDERING is not. A human runs `--input "(...)"`, a tool
+    caller passes `inputs=["(...)"]` — sharing the rendered string put terminal syntax into an
+    MCP response, telling a caller to use a flag that does not exist there."""
+    from Detective.cli import _derive_inputs
+
+    kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(_boundary("B0", 0),)))
+    assert (kind, items, total) == ("boundary", ["where q == 0"], 1)
+    kind, items, total = _derive_inputs(_proof(), _rep())  # 5 killable, each with a witness
+    assert kind == "witness" and items[0] == "(1,)" and total == 5
+    kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(), unclassified=("U0",)))
+    assert (kind, items, total) == ("author", [], 0)

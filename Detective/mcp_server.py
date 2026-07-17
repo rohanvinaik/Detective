@@ -74,53 +74,79 @@ def _ask_for_input(
     param_names: tuple[str, ...],
     why: str,
     expressible: bool | None = True,
+    root: str = ".",
+    rep: Any = None,
+    proof: Any = None,
+    apply: bool = False,
 ) -> list[str]:
-    """The hand-back. This is the only thing the caller is ever asked to produce, and it is
-    the one thing it can produce that the engine cannot: a real call to the target.
+    """The hand-back: every input Detective DERIVED, batched into ONE call.
 
-    Phrased as a request for knowledge, not as a deficiency to be closed by effort. The
-    distinction is the whole ballgame — a caller told "30 residuals remain" optimizes; a
-    caller told "supply one real call" answers and stops.
+    The DERIVATION comes from `cli._derive_inputs` — shared, because it must never drift. The
+    RENDERING is this surface's own, because a caller here makes a CALL: `inputs=["(...)"]`,
+    `apply=True`. Reusing the CLI's rendered text put `--input` — a flag that does not exist
+    here — into a tool caller's instructions, which is worse than a duplicate: it is a command
+    that cannot be run, in the register the caller trusts most.
 
-    TWO hand-backs, because `inputs=` cannot carry every argument. It goes through the same
-    allowlist as the CLI's `--input` (literals + `ast.*`) — that allowlist is what makes "no
-    arbitrary code execution" a checkable property rather than a hope — so for a function
-    taking a domain object there is NO string that satisfies it. Asking anyway hands the
-    caller a call that is rejected on arrival (`only [ast] are available — 'Account' is not`).
-    A caller that does exactly what it was told, watches it fail, and is then told the same
-    thing again does not conclude it misread; it concludes the tool is broken and starts
-    improvising around it. `inputs_expressible` (equivalence.py) is the engine's answer to
-    "can this be typed?", computed from the input that actually exercised the function, and
-    it picks which of these two is printed.
+    Phrased as a request for knowledge, not a deficiency to close by effort. The distinction is
+    the whole ballgame: a caller told "30 residuals remain" optimizes; a caller told "here is
+    the call, pass it" does that and stops.
     """
-    if expressible:
-        tmpl = _input_template(param_names)
-        return [
+    from .cli import _derive_inputs
+
+    kind, items, total = _derive_inputs(proof, rep) if proof is not None else ("author", [], 0)
+    tmpl = _input_template(param_names)
+    tail = ", apply=True" if apply else ""
+
+    if kind == "witness":
+        inputs = ", ".join(f'"{a}"' for a in items)
+        out = [
             "",
-            f"DO THIS: {tool}(file={file!r}, function={function!r}, inputs=[{tmpl}])",
+            f"DO THIS: {tool}(file={file!r}, function={function!r}, inputs=[{inputs}]{tail})",
             "",
             f"  {why}",
-            "  Detective will not invent a value whose meaning is not in the code. You know what",
-            f"  a real call to {function} looks like. It does not. That is the entire division of",
-            "  labour here, and supplying one is the whole of your job.",
-            "  More passes will not help. This is not a matter of effort or cleverness — the",
-            "  information is absent, and you are the only source of it.",
+            f"  Detective RAN each of those {len(items)} call(s) and watched a mutant differ. They are",
+            "  SUGGESTED, not written for you: the engine could not verify the tests sound, and",
+            "  it does not write what it cannot prove. Pass them and it derives the rest.",
         ]
-    slots = ", ".join(param_names) if param_names else "its arguments"
+        if total > len(items):
+            out.append(f"  ({total - len(items)} more are in the full report — full=True.)")
+        return out
+
+    if kind == "boundary":
+        inputs = ", ".join([tmpl] * len(items))
+        out = [
+            "",
+            f"DO THIS: {tool}(file={file!r}, function={function!r}, inputs=[{inputs}]{tail})",
+            "",
+            f"  {why}",
+            f"  Author {len(items)} call(s) to {function}{_sig_tail(proof)}, one per requirement:",
+        ]
+        out += [f"    {i}. {rel}" for i, rel in enumerate(items, start=1)]
+        if total > len(items):
+            out.append(f"    (+{total - len(items)} more in the full report — full=True.)")
+        out += [
+            "  Each relation is DERIVED from your code — two orderings differ exactly at the",
+            "  equality edge — not guessed. Detective derives every test from the calls you pass.",
+        ]
+        return out
+
     return [
         "",
-        f"DO THIS: write ONE test that calls {function}({slots}) with real objects. Then call",
-        f"  {tool} again. Nothing else.",
+        f"DO THIS: {tool}(file={file!r}, function={function!r}, inputs=[{tmpl}]{tail})",
         "",
         f"  {why}",
-        "  `inputs=` CANNOT carry this and you must not try. It parses an allowlist — literals",
-        '  and `ast.*` only — which is what makes "no arbitrary code execution" a property this',
-        f"  tool can check rather than promise. What {function} takes has no literal form, so no",
-        "  string you can write satisfies it; the call would be rejected on arrival.",
-        "  Do not encode the object as a dict. Do not build it in a string. Do not shell out.",
-        "  Write the test. Detective reads the real arguments out of it while it runs, and that",
-        "  is the whole mechanism — it is not a workaround, it is the supported path.",
+        f"  Author one real call to {function}{_sig_tail(proof)}. Any call that RUNS will do —",
+        "  Detective derives every test from it. The argument values are the one thing it",
+        "  cannot supply: it will not invent a value whose meaning is not in the code.",
+        "  A class from the module under test goes in as its constructor, e.g. Account('gold').",
+        "  More passes will not help. The information is absent, and you are its only source.",
     ]
+
+
+def _sig_tail(proof: Any) -> str:
+    """`(a, b, c)` from the target's signature, or '' — so the ask names the real parameters."""
+    sig = getattr(proof, "signature", "") or ""
+    return sig[sig.index("(") :] if "(" in sig else ""
 
 
 def _render_diagnose(scope: Any, file: str, function: str) -> str:
@@ -197,11 +223,16 @@ def _render_diagnose(scope: Any, file: str, function: str) -> str:
 
     out.append("")
     if entangled and seams:
-        out.append(f"DO THIS: decompose(file={file!r}, function={function!r})")
+        # apply=True, matching the CLI's `--apply`. Without it the caller does exactly what it
+        # was told, gets a dry run, and has to be told a second time — and the safety is not the
+        # flag anyway, it is the proof: apply=True writes NOTHING it cannot prove.
+        out.append(f"DO THIS: decompose(file={file!r}, function={function!r}, apply=True)")
         out.append("")
         out.append("  Two independent signals agree this is more than one function: it is")
         out.append(f"  behaviourally entangled AND has {seams} clean structural seam(s).")
-        out.append("  decompose writes a proof suite first and applies nothing it cannot prove.")
+        out.append("  apply=True is safe here: decompose writes a proof suite FIRST and applies")
+        out.append("  nothing it cannot prove. If it cannot, it tells you what it needs and")
+        out.append("  leaves your source untouched.")
     elif total:
         out.append(f"DO THIS: converge(file={file!r}, function={function!r})")
         out.append("")
@@ -241,7 +272,7 @@ def _render_converge(result: Any, file: str, function: str, full_text: str | Non
         why = "Synthesis is exhausted. What is left needs a value only you can supply."
         # `rep.inputs_expressible` decides WHICH hand-back. None (nothing exercised the
         # function at all) is the case that most needs a test, so it must not read as True.
-        out += _ask_for_input("converge", file, function, params, why, bool(rep and rep.inputs_expressible))
+        out += _ask_for_input("converge", file, function, params, why, rep=rep, proof=result)
         return "\n".join(out)
 
     cand = list(rep.equivalent) if rep else []
@@ -455,15 +486,10 @@ def _render_decompose(r: Any, file: str, function: str, wrote: bool) -> str:
                 f"{n_kill + n_unc} behaviour(s) block the proof ({part}), so the suite is not "
                 f"mutation-complete.{spare} Your source was NOT touched."
             )
-        expressible = bool(rep and rep.inputs_expressible)
-        out += _ask_for_input("decompose", file, function, params, why, expressible)
-        if expressible:
-            # Only when there IS an input to pass. On the test path there is no call to attach
-            # `apply=True` to, and naming it there reads as a second, optional step — which is
-            # how a caller ends up trying to force the write instead of writing the test.
-            out.append("")
-            out.append("  Pass apply=True alongside the input. The gate is not the flag — the gate is")
-            out.append("  the proof. apply=True without a proof still writes nothing.")
+        out += _ask_for_input("decompose", file, function, params, why, rep=rep, proof=proof, apply=True)
+        out.append("")
+        out.append("  apply=True is already on the call above. The gate is not the flag — it is the")
+        out.append("  proof: apply=True without one still writes nothing.")
         return "\n".join(out)
 
     for block in r.unsafe_blocks:

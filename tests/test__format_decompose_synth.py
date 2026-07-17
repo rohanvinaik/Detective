@@ -23,8 +23,10 @@ def test__format_decompose_value_0():
             proof=None,
         ),
         True,
+        "x",
+        "x",
     )
     assert (
         result
-        == "x — decompose\n\n  ✓ APPLIED            x(x) -> x\n  ✓ proven             x(x) -> x\n  ✗ not extractable    x\n\nDONE:  your source is rewritten. The suite ran green before AND after, and\n       unspecified behaviour was not baked in."
+        == "──────────────────────────────────────────────────────────────────────────────\nx — decompose\n\n  ✓ APPLIED            x(x) -> x\n  ✓ proven             x(x) -> x\n  ✗ not extractable    x\n\nDONE:  your source is rewritten. The suite ran green before AND after, and\n       unspecified behaviour was not baked in.\n       Next (optional):  detective converge 'x'"
     )
