@@ -194,7 +194,7 @@ classifiers = [
 # did not exist: the engine decides the verdict and keys our cache, and could not state its own
 # identity.
 dependencies = [
-    "Wesker>=0.9.0",
+    "Wesker>=0.9.1",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it
