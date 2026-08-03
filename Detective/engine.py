@@ -631,6 +631,60 @@ def _compared_literals(node: ast.AST) -> dict[str, list]:
     return found
 
 
+def _neighbor_inputs(supplied: list[tuple]) -> list[tuple]:
+    """±1 neighbors of each numeric coordinate of a SUPPLIED input, one coordinate at a time.
+
+    A human supplies an input because its region matters — almost always a boundary the
+    synthesized grids cannot reach — and a boundary mutant can differ only one step PAST the
+    supplied edge: `quantity >= 50` mutated to `quantity == 50` agrees at the supplied
+    `(50, …)` and differs at `(51, …)`. The neighbors are OURS, not the human's — they are
+    fabrications, and the caller must gate them behind the same world-effects check as every
+    other invented value. Bounded by |supplied| × arity × 2.
+    """
+    out: list[tuple] = []
+    for args in supplied:
+        for i, v in enumerate(args):
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            for nv in (v - 1, v + 1):
+                cand = args[:i] + (nv,) + args[i + 1 :]
+                if cand not in out and cand not in supplied:
+                    out.append(cand)
+    return out
+
+
+def _ordering_edge_values(node: ast.AST) -> dict[str, list]:
+    """Per parameter, the ordering-comparison edges the body tests it against — each integer
+    edge bracketed by its neighbors.
+
+    `_compared_literals` deliberately stops at equality/membership: `>= 50` describes an
+    ORDER, not a domain. But the order's EDGE is still where behavior changes, and the
+    witness search can only distinguish a boundary mutant if some candidate lands on each
+    side of it. `quantity >= 50` mutated to `quantity == 50` differs only STRICTLY ABOVE
+    the edge — a value the built-in integer grid (±3) can never reach when the edge is 50,
+    so the mutant read "candidate-equivalent" while `quantity == 51` kills it. For an
+    integer edge C: C-1, C, C+1 (one candidate on each side plus the edge itself, which
+    brackets every one-sided mutation of the comparison); a float edge contributes itself.
+    """
+    found: dict[str, list] = {}
+    for cmp_node in ast.walk(node):
+        if not isinstance(cmp_node, ast.Compare) or not isinstance(cmp_node.left, ast.Name):
+            continue
+        name = cmp_node.left.id
+        for op, comparator in zip(cmp_node.ops, cmp_node.comparators, strict=False):
+            if not isinstance(op, (ast.Lt, ast.LtE, ast.Gt, ast.GtE)):
+                continue
+            for value in _literal_values(comparator):
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    continue
+                neighbors = [value - 1, value, value + 1] if isinstance(value, int) else [value]
+                bucket = found.setdefault(name, [])
+                for v in neighbors:
+                    if v not in bucket:
+                        bucket.append(v)
+    return found
+
+
 def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
     """Per-parameter candidate value lists: the literals the function tests the parameter
     against (its own declared domain) first, then a built-in grid for scalars; for an
@@ -641,6 +695,7 @@ def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
     covered.
     """
     domain = _compared_literals(node)
+    edges = _ordering_edge_values(node)
     grids: list[list] = []
     for arg in node.args.args:  # type: ignore[attr-defined]
         if arg.arg in ("self", "cls"):
@@ -665,9 +720,13 @@ def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
             grid = _grid_for(name)
         # The function's own equality literals LEAD: they are the values it actually
         # distinguishes between, and a synthesized int can only ever reach the else/raise.
-        declared = domain.get(arg.arg, [])
-        if declared:
-            grid = declared + [v for v in grid if v not in declared]
+        # Ordering EDGES (with their integer neighbors) follow — the values that put a
+        # candidate on each side of every boundary the body draws.
+        lead = domain.get(arg.arg, []) + [
+            v for v in edges.get(arg.arg, []) if v not in domain.get(arg.arg, [])
+        ]
+        if lead:
+            grid = lead + [v for v in grid if v not in lead]
         grids.append(grid)
     return grids
 
@@ -960,7 +1019,14 @@ def classify_survivors(
     # residual says so and asks for `--input`, which is the same "you supply what only you know"
     # contract as everywhere else, and it keeps the dangerous value one a human chose.
     effects = world_effects(node)
-    fabricated = [] if effects else inferred_tuples + bounded_product(_input_grids(node, ns))
+    # Neighbors of the supplied inputs rank just behind the evidence (supplied + discovered)
+    # and ahead of the grids: they are the region a human just said matters, stepped one past
+    # its edges. They are still OUR fabrications, so they obey the world-effects gate.
+    fabricated = (
+        []
+        if effects
+        else _neighbor_inputs(supplied) + inferred_tuples + bounded_product(_input_grids(node, ns))
+    )
     inputs = supplied + discovered + fabricated
 
     # When deterministic synthesis provably can't exercise the function — every
@@ -1034,6 +1100,11 @@ def classify_survivors(
             original,
             mutant_fn,
             inputs,
+            # A crash-survivor record is a reshaped KILL record and carries `killed_by`; a
+            # true survivor carries none. That single field is whether "your suite already
+            # detects this by crash" is TRUE of this mutant — carried so the renderer can
+            # say it per mutant instead of assuming it for the bucket.
+            suite_detected=bool(rec.get("killed_by")),
         )
         # A real witness is PROOF of killability and outranks the flag (keep the
         # killable verdict); a flag on a no-witness survivor confirms equivalence.

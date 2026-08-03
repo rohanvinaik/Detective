@@ -24,6 +24,7 @@ from Wesker.engine import (
 )
 
 from . import __version__
+from .equivalence import crash_only_status
 
 
 def _trace_budget(args) -> float | None:
@@ -272,6 +273,32 @@ def _differs_at_eq(op: type, m_op: type) -> bool:
     return op in _ORDERING_OPS and m_op in _ORDERING_OPS and (op in _HOLDS_AT_EQ) != (m_op in _HOLDS_AT_EQ)
 
 
+def _difference_region(op: type, m_op: type, left: str, right: str) -> str | None:
+    """The relation an input must satisfy for the original and mutated comparison to DISAGREE —
+    the region a distinguishing witness must land in, else None when no rule names it.
+
+    `_differs_at_eq` covers the strict↔non-strict shifts, where the region is exactly the
+    equality edge. It is NOT the whole table: a non-strict ordering collapsed to bare equality
+    (`>=` → `==`) AGREES at the edge — both hold — and differs exactly on the strict side the
+    mutation cut off, so `quantity >= 50` vs `quantity == 50` is distinguished only where
+    `quantity > 50`. Hinting the edge there (or hinting nothing, the prior behavior) sent the
+    search to the one region that cannot answer, and the mutant read "candidate-equivalent"
+    while a one-past-the-edge input kills it.
+    """
+    if _differs_at_eq(op, m_op):
+        return f"{left} == {right}"
+    pair = {op, m_op}
+    if pair == {ast.GtE, ast.Eq}:
+        return f"{left} > {right}"
+    if pair == {ast.LtE, ast.Eq}:
+        return f"{left} < {right}"
+    # A STRICT ordering against bare equality (`>` ↔ `==`) disagrees AT the edge: the strict
+    # form is False there, the equality True.
+    if pair in ({ast.Gt, ast.Eq}, {ast.Lt, ast.Eq}):
+        return f"{left} == {right}"
+    return None
+
+
 # Column width for a grouped survivor's mutated statement. Sized so the count and category
 # breakdown still land inside the 78-col rule the report is ruled to.
 _STMT_W = 46
@@ -311,6 +338,11 @@ def _survivor_lines(verdicts, verbose: bool) -> list[str]:
             out.append(f"    → mutant {v.mutant_id} [{v.category}]: {_concise_diff(v.diff_summary)}")
             if v.category == "BOUNDARY" and (hint := _boundary_hint(v.diff_summary)):
                 out.append(f"        ↳ {hint}")
+            if v.crash_only and not v.suite_detected and v.crash_witness is not None:
+                # The fact that decides the next action: this survivor is invisible to the
+                # current suite, and here is the input that exposes it.
+                args = ", ".join(repr(a) for a in v.crash_witness.args)
+                out.append(f"        ↳ reached by no current test — crash witness: f({args})")
         return out
     groups: dict[str, list] = {}
     for v in verdicts:
@@ -333,11 +365,12 @@ def _survivor_lines(verdicts, verbose: bool) -> list[str]:
 
 
 def _boundary_hint(diff_summary: str) -> str | None:
-    """For a BOUNDARY mutant — a strict↔non-strict comparison shift (`>`↔`>=`, `<`↔`<=`) — name
-    the ONE distinguishing input: the EQUALITY edge. Two ordering comparisons differ EXACTLY when
-    their operands are equal, so `left == right` is the valid relation WITH its precondition, not
-    a generic template (BOUNDARY is oracle-light, not oracle-free). Recovers the real operands by
-    matching the comparison whose operator changed between original and mutant; None if none found.
+    """For a BOUNDARY mutant — an operator shift on a comparison — name the region a
+    distinguishing input must land in: the equality edge for strict↔non-strict shifts, the
+    cut-off strict side for non-strict→`==` collapses (see `_difference_region` for the table).
+    The relation comes WITH its real operands, not as a generic template (BOUNDARY is
+    oracle-light, not oracle-free). Recovers the operands by matching the comparison whose
+    operator changed between original and mutant; None if no rule names the region.
     """
     # diff_summary is '- <whole original>\n+ <whole mutant>'; block-diff it (as _concise_diff
     # does) to isolate the lines that actually changed, then find the comparison whose operator
@@ -359,8 +392,12 @@ def _boundary_hint(diff_summary: str) -> str | None:
     for ln in o_changed:
         for left, op, right in _comparisons(ln):
             for m_left, m_op, m_right in m_cmps:
-                if m_left == left and m_right == right and _differs_at_eq(op, m_op):
-                    return f"distinguish at the boundary — supply an input where {left} == {right}"
+                if (
+                    m_left == left
+                    and m_right == right
+                    and (region := _difference_region(op, m_op, left, right))
+                ):
+                    return f"distinguish at the boundary — supply an input where {region}"
     return None
 
 
@@ -545,12 +582,24 @@ def _format_survivor_report(
         )
     if crash_only:
         cats = ", ".join(sorted({v.category for v in crash_only}))
-        lines.append(
-            f"  value-equivalent, crash-only-distinguishable ({len(crash_only)}: {cats}) — an input "
-            "DOES distinguish these: the mutant RAISES where the original returns, so your suite "
-            "already detects them. No value assertion can pin them (the mutant never returns a "
-            "value to compare), so there is NO input to supply. `flag` if truly equivalent:"
+        n_det, n_undet = crash_only_status(crash_only)
+        head = (
+            f"  value-equivalent, crash-only-distinguishable ({len(crash_only)}: {cats}) — the "
+            "mutant RAISES where the original returns, so no return-value assertion can pin it."
         )
+        # The detection claim is made per mutant, from the profile — not assumed for the
+        # bucket. The old single sentence said "your suite already detects them" for ALL of
+        # these, which was false exactly for the ones no test reaches.
+        if n_det and not n_undet:
+            head += " Your suite already detects every one by crash — nothing to supply."
+        elif n_undet:
+            head += (
+                f" Your suite crash-detects {n_det} of them; the other {n_undet} are reached by "
+                "NO current test — converge writes a golden capture at each crash witness "
+                "(↳ below) so they are at least crash-detected."
+            )
+        head += " `flag` if truly equivalent:"
+        lines.append(head)
         lines += _survivor_lines(crash_only, verbose)
     if rep.manual_equivalent:
         lines.append(

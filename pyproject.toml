@@ -193,8 +193,16 @@ classifiers = [
 # loop — so this is a requirement, not a preference. 0.8.0 also adds `wesker --version`, which
 # did not exist: the engine decides the verdict and keys our cache, and could not state its own
 # identity.
+#
+# >= 0.9.3 is a CORRECTNESS floor of the same silent kind: below it, the pytest-discovery
+# backend's bound parametrize cases all share ONE trace-cache fingerprint (two Wesker-internal
+# constants), so the per-test trace cache serves whichever case was traced first as the coverage
+# of every sibling. Downstream that is converge reporting a line gap its own written test provably
+# covers, and re-issuing the same `--input` forever — a terminal verdict that contradicts disk
+# state, on any suite with a parametrized golden (i.e., every suite converge itself writes). The
+# poisoned entry also survives `purge` below 0.9.3, so no documented recovery clears it.
 dependencies = [
-    "Wesker>=0.9.1",
+    "Wesker>=0.9.3",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it

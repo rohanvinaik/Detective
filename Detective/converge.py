@@ -645,6 +645,31 @@ def converge(
                 accumulated[prop.assertion_code] = prop
                 witnessed = True
                 n_witnessed += 1
+        # Crash-only survivors the CURRENT suite does not reach: no value-witness exists
+        # (the mutant raises rather than returning a different value, so nothing can
+        # value-pin it — the accounting stays honest about that), but the search DID find
+        # the input where original and mutant part ways. A golden capture of the
+        # ORIGINAL's value there is a sound test that fails-by-crash under the mutant: it
+        # moves the mutant from "reached by no test at all" to "crash-detected", which is
+        # the detection gap the old report papered over with "your suite already detects
+        # them". Suite-detected ones are left alone — a test already covers them.
+        n_crash_detect = 0
+        for verdict in pre.equivalent:
+            w = verdict.crash_witness
+            if w is None or verdict.suite_detected:
+                continue
+            prop = _witness_property(func_key, w, root)
+            if prop.assertion_code not in accumulated and property_holds(
+                prop.setup_code, prop.assertion_code, root
+            ):
+                accumulated[prop.assertion_code] = prop
+                witnessed = True
+                n_crash_detect += 1
+        if n_crash_detect:
+            say(
+                f"witness pass: +{n_crash_detect} crash-detection test(s) auto-written "
+                "(crash-only survivor reached by no existing test)"
+            )
         if witnessed:
             source = render_module(func_key, list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)

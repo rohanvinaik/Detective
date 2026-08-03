@@ -487,13 +487,23 @@ def _render_decompose(r: Any, file: str, function: str, wrote: bool) -> str:
             # "no input will ever move them" is true of both classes only in the VALUE sense —
             # say that, rather than a flat "no input", which reads as "unreachable" and is what
             # sends a caller hunting for an input to reach them with.
-            n_crash = sum(1 for v in rep.equivalent if v.crash_only)
-            crash_note = (
-                f" ({n_crash} of them your suite already detects by crash — the mutant raises "
-                "where the original returns; what is missing is a value to pin, not an input.)"
-                if n_crash
-                else ""
-            )
+            # Detection is claimed per mutant, never for the bucket: `crash_only_status`
+            # splits by the profile's own kill records, and the old single sentence
+            # ("your suite already detects them") was false for the undetected ones.
+            from .equivalence import crash_only_status
+
+            n_det, n_undet = crash_only_status([v for v in rep.equivalent if v.crash_only])
+            crash_note = ""
+            if n_det:
+                crash_note += (
+                    f" ({n_det} of them your suite already detects by crash — the mutant raises "
+                    "where the original returns; what is missing is a value to pin, not an input.)"
+                )
+            if n_undet:
+                crash_note += (
+                    f" ({n_undet} crash-only survivor(s) are reached by NO current test; converge "
+                    "writes a golden capture at each crash witness so they become crash-detected.)"
+                )
             spare = (
                 f" The other {n_eq} survivor(s) are candidate-equivalent: they do NOT block, no "
                 f"input will ever pin them with a VALUE, and they are not your work.{crash_note}"

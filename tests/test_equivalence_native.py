@@ -48,15 +48,18 @@ def test_typed_inputs_small_signature_is_full_product():
     ]
 
 
-def test_typed_inputs_large_signature_is_zipped_rows():
-    # 5^3 = 125 > cap -> positionally-zipped diagonals (5 rows)
-    assert typed_inputs(["int", "int", "int"]) == [
-        (-1, -1, -1),
-        (0, 0, 0),
-        (1, 1, 1),
-        (2, 2, 2),
-        (3, 3, 3),
-    ]
+def test_typed_inputs_large_signature_is_rotated_rows():
+    # 5^3 = 125 > cap -> bounded rows, but not ONE zip diagonal: a single pairing can
+    # accidentally sabotage exactly the value it exists to try (the one `q == 0` row drawing
+    # the companion that makes the original raise). Each lead value gets up to three rotated
+    # companion contexts, the plain diagonal still among them.
+    rows = typed_inputs(["int", "int", "int"])
+    assert len(rows) <= 32
+    assert len(rows) == len(set(rows))  # deduplicated
+    for v in (-1, 0, 1, 2, 3):
+        assert (v, v, v) in rows  # the r=0 diagonal survives
+        # ...and the value leads more than one row, with differing companions
+        assert len({row[1:] for row in rows if row[0] == v}) >= 3
 
 
 def _verdict(killable: bool) -> MutantVerdict:
@@ -203,38 +206,44 @@ def _raises_on_anything(x):
 def test_search_witness_reports_crash_only_when_only_the_mutant_raises():
     # Original returns, mutant raises: an input DOES distinguish them, but no value assertion
     # can pin a value the mutant never returns. `find_witness` skips it and returns None --
-    # identical to "nothing distinguishes it". Reporting them the same is what let a renderer
-    # say "no input distinguishes them" about a mutant an input plainly does.
-    witness, crash_only = _search_witness(_double, _raises_on_anything, [(3,)])
+    # identical to "nothing distinguishes it". The search now CARRIES that input as a crash
+    # witness (with the original's own value at it), because it is what converge writes the
+    # reaching golden capture at -- throwing it away is what left the renderer asserting a
+    # detection no test performed.
+    witness, crash_witness = _search_witness(_double, _raises_on_anything, [(3,)])
     assert witness is None
-    assert crash_only is True
+    assert crash_witness is not None
+    assert crash_witness.args == (3,)
+    assert crash_witness.original == "6"  # the original's value AT the witness -- the capture
+    assert crash_witness.mutant.startswith("<raised ")
 
 
 def test_search_witness_not_crash_only_when_the_ORIGINAL_raises():
     # The mirror image: the original raises and the mutant returns. `pytest.raises` pins the
     # original's behaviour, so this IS a value-witness -- and must not be filed as crash-only.
-    witness, crash_only = _search_witness(_raises_on_anything, _double, [(3,)])
+    witness, crash_witness = _search_witness(_raises_on_anything, _double, [(3,)])
     assert witness is not None
-    assert crash_only is False
+    assert crash_witness is None
 
 
 def test_search_witness_prefers_a_value_witness_over_an_earlier_crash_only_input():
     # (3,) is crash-only, (0,) is a real value difference. The value-witness must win: a mutant
-    # that is genuinely killable must never be reported as merely crash-only.
+    # that is genuinely killable must never be reported as merely crash-only -- and once a value
+    # witness exists, the crash input is not reported at all.
     def mutant(x):
         if x == 3:
             raise ValueError("boom")
         return x + 1
 
-    witness, crash_only = _search_witness(_double, mutant, [(3,), (0,)])
+    witness, crash_witness = _search_witness(_double, mutant, [(3,), (0,)])
     assert witness == Witness((0,), "0", "1")
-    assert crash_only is False
+    assert crash_witness is None
 
 
 def test_search_witness_no_difference_at_all_is_neither_witness_nor_crash_only():
-    witness, crash_only = _search_witness(_double, lambda x: x * 2, [(3,), (0,)])
+    witness, crash_witness = _search_witness(_double, lambda x: x * 2, [(3,), (0,)])
     assert witness is None
-    assert crash_only is False
+    assert crash_witness is None
 
 
 def test_find_witness_still_hides_the_crash_only_input_from_its_callers():
@@ -280,3 +289,36 @@ def test_a_killable_mutant_is_never_labelled_crash_only():
     v = classify_survivor("M4", "ARITHMETIC", "- a*2\n+ a+2", _double, _plus_two, [(3,)])
     assert v.crash_only is False
     assert v.label == "killable"
+
+
+# ── crash_only_status: the split every renderer makes before claiming detection ──
+def test_crash_only_status_splits_detected_from_undetected():
+    from Detective.equivalence import crash_only_status
+
+    def v(detected: bool) -> MutantVerdict:
+        return MutantVerdict(
+            "M",
+            "BOUNDARY",
+            "",
+            killable=False,
+            witness=None,
+            searched=1,
+            crash_only=True,
+            suite_detected=detected,
+        )
+
+    assert crash_only_status([v(True), v(True), v(False)]) == (2, 1)
+    assert crash_only_status([]) == (0, 0)
+
+
+def test_classify_survivor_carries_suite_detected_and_the_crash_witness():
+    # The two facts the honest sentence is built from: whether a CURRENT test already fails
+    # under this mutant (the caller knows, from the profile), and the input that exposes it
+    # (the search knows). Both must survive onto the verdict.
+    verdict = classify_survivor(
+        "M1", "BOUNDARY", "", _double, _raises_on_anything, [(3,)], suite_detected=True
+    )
+    assert verdict.crash_only is True
+    assert verdict.suite_detected is True
+    assert verdict.crash_witness is not None and verdict.crash_witness.args == (3,)
+    assert verdict.killable is False  # crash-only is still not value-killable

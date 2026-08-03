@@ -418,7 +418,18 @@ def is_scalar_type(type_name: str | None) -> bool:
 
 def bounded_product(grids: list[list], cap: int = 32) -> list[tuple]:
     """Candidate arg tuples from per-parameter value lists: full cartesian product
-    when small, else positionally-zipped rows so wide signatures stay bounded."""
+    when small, else rotated rows so wide signatures stay bounded.
+
+    The fallback gives every grid value up to THREE companion contexts, not one. A single
+    zip pairing can accidentally sabotage exactly the value it exists to try: the one
+    ``quantity == 0`` row draws the one companion that makes the original raise (no witness
+    is measurable there), the one ``quantity == 50`` row draws the price that zeroes out the
+    discount difference (original and mutant agree there). Rotating the LATER parameters per
+    repeat — ``grids[j][(i + r*j) % len]`` — keeps each lead value while varying its
+    companions, so one poisoned pairing no longer decides a mutant's whole verdict. Still
+    bounded: at most ``cap`` rows, deduplicated, richest-first (each value's rotations sit
+    adjacent, so truncation costs the tail values their variety, not the lead values theirs).
+    """
     if not grids:
         return [()]
     total = 1
@@ -427,7 +438,15 @@ def bounded_product(grids: list[list], cap: int = 32) -> list[tuple]:
     if total <= cap:
         return [tuple(combo) for combo in itertools.product(*grids)]
     longest = max(len(grid) for grid in grids)
-    return [tuple(grid[i % len(grid)] for grid in grids) for i in range(longest)]
+    rows: list[tuple] = []
+    for i in range(longest):
+        for r in range(3):
+            row = tuple(grid[(i + r * j) % len(grid)] for j, grid in enumerate(grids))
+            if row not in rows:
+                rows.append(row)
+            if len(rows) >= cap:
+                return rows
+    return rows
 
 
 def typed_inputs(param_types: list[str | None], cap: int = 32) -> list[tuple]:
@@ -585,17 +604,19 @@ def _binds(fn: Callable[..., Any], args: tuple) -> bool:
 
 def _search_witness(
     original: Callable[..., Any], mutant: Callable[..., Any], candidate_inputs: list[tuple]
-) -> tuple[Witness | None, bool]:
-    """``(witness, crash_only)`` — the search `find_witness` runs, plus the fact it threw away.
+) -> tuple[Witness | None, Witness | None]:
+    """``(witness, crash_witness)`` — the search `find_witness` runs, plus the fact it used to throw away.
 
-    ``crash_only`` is True when NO value-witness exists but some input DID distinguish the mutant
+    ``crash_witness`` is set when NO value-witness exists but some input DID distinguish the mutant
     by newly raising. That is a real and reportable distinction: such a mutant is not "equivalent —
     no input distinguishes it" (an input does), it is VALUE-equivalent and crash-only-distinguishable.
-    The search already decides this to skip those inputs; only the caller never got told, so the
-    renderer printed the stronger, false claim. Returned as data, not text, because the CLI and the
-    MCP word it differently.
+    The search used to reduce this to a bool, so the caller knew the class but not the input — and a
+    renderer, unable to check whether any existing test actually reaches it, printed "your suite
+    already detects them" for mutants no test touched. Carrying the input lets converge WRITE the
+    reaching test (a golden capture of the original's value there) instead of asserting one exists.
+    Returned as data, not text, because the CLI and the MCP word it differently.
     """
-    crash_only = False
+    crash_witness: Witness | None = None
     for args in candidate_inputs:
         if not _binds(original, args):
             # These args do not FIT the callable, so nothing below measures the function — it
@@ -621,10 +642,18 @@ def _search_witness(
         if original_outcome == mutant_outcome:
             continue
         if mutant_outcome.startswith("<raised ") and not original_outcome.startswith("<raised "):
-            crash_only = True  # crash-only kill — not a value-witness (see crash-as-spec)
+            # Crash-only kill — not a value-witness (see crash-as-spec), but not nothing
+            # either: the input IS the fact that decides what a caller can do next (write a
+            # golden capture at it, so a suite that never exercised the weakened guard at
+            # least crash-detects the mutant). Keep the FIRST such input; a value-witness
+            # found later still outranks it.
+            if crash_witness is None:
+                crash_witness = Witness(
+                    tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)
+                )
             continue
-        return Witness(tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)), False
-    return None, crash_only
+        return Witness(tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)), None
+    return None, crash_witness
 
 
 @dataclass(frozen=True)
@@ -640,6 +669,14 @@ class MutantVerdict:
     # No VALUE-witness, but an input DID distinguish it by newly raising. Never true when
     # `killable`. Defaulted so the field is additive for anyone constructing a verdict directly.
     crash_only: bool = False
+    # The crash-distinguishing input itself (original returns, mutant raises), present iff
+    # `crash_only`. It is what converge writes a golden capture AT, so a suite that never
+    # exercised the weakened guard at least crash-detects the mutant afterwards.
+    crash_witness: Witness | None = None
+    # Does some CURRENT test already fail under this mutant (a crash/timeout kill in the
+    # profile)? Decides the honest sentence: "your suite already detects this by crash" is
+    # true exactly when this is True, and was previously claimed for the whole bucket.
+    suite_detected: bool = False
 
     @property
     def label(self) -> str:
@@ -682,6 +719,18 @@ def is_expressible(value: Any) -> bool:
     if isinstance(value, dict):
         return all(is_expressible(k) and is_expressible(v) for k, v in value.items())
     return False
+
+
+def crash_only_status(verdicts) -> tuple[int, int]:
+    """``(detected, undetected)`` for a set of crash-only verdicts: how many some CURRENT test
+    already fails under, vs. how many NO test reaches at all.
+
+    The one split every renderer must make before saying "your suite already detects this".
+    The claim is per mutant — `suite_detected` comes from the profile's own kill records — and
+    single-sourced here so the CLI and the MCP surface cannot drift back to asserting it for
+    the whole bucket (which was false exactly for the undetected ones)."""
+    detected = sum(1 for v in verdicts if v.suite_detected)
+    return detected, len(verdicts) - detected
 
 
 @dataclass(frozen=True)
@@ -730,10 +779,15 @@ def classify_survivor(
     original: Callable[..., Any],
     mutant: Callable[..., Any],
     candidate_inputs: list[tuple],
+    suite_detected: bool = False,
 ) -> MutantVerdict:
     """Killable (with a witness) if any input distinguishes the mutant, else an
-    equivalent-candidate documented with how many inputs were tried."""
-    witness, crash_only = _search_witness(original, mutant, candidate_inputs)
+    equivalent-candidate documented with how many inputs were tried.
+
+    ``suite_detected`` is the caller's knowledge, not the search's: whether some current
+    test already fails under this mutant (a crash/timeout kill in the profile). Carried on
+    the verdict so a renderer states it per mutant instead of assuming it for the bucket."""
+    witness, crash_witness = _search_witness(original, mutant, candidate_inputs)
     return MutantVerdict(
         mutant_id=mutant_id,
         category=category,
@@ -741,5 +795,7 @@ def classify_survivor(
         killable=witness is not None,
         witness=witness,
         searched=len(candidate_inputs),
-        crash_only=crash_only,
+        crash_only=crash_witness is not None,
+        crash_witness=crash_witness,
+        suite_detected=suite_detected,
     )

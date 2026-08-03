@@ -344,3 +344,61 @@ def test_headline_wraps_to_the_terminal():
     long = "start here for a FUNCTION — what does it actually do, and what to run next (read-only)"
     assert all(len(line) <= 78 for line in _headline(long).splitlines())
     assert "FUNCTION" in _headline(long)  # wrapping must not cost the emphasis either
+
+
+# ── _difference_region (the full boundary table, not just strict↔non-strict) ──
+def test_boundary_hint_gte_collapsed_to_eq_names_the_strict_side():
+    # `>=` → `==` AGREES at the edge (both True), so the edge hint would send the search to
+    # the one region that cannot answer. They differ exactly on the strict side the mutation
+    # cut off — one past the boundary.
+    h = _boundary_hint(_ds("if x >= 10: pass", "if x == 10: pass"))
+    assert h == "distinguish at the boundary — supply an input where x > 10"
+
+
+def test_boundary_hint_lte_collapsed_to_eq_names_the_strict_side():
+    h = _boundary_hint(_ds("if x <= 10: pass", "if x == 10: pass"))
+    assert h is not None and "x < 10" in h
+
+
+def test_boundary_hint_strict_vs_eq_is_the_edge():
+    # `>` → `==` DISAGREES at the edge (False vs True), so the edge hint stands there.
+    h = _boundary_hint(_ds("if x > 10: pass", "if x == 10: pass"))
+    assert h is not None and "x == 10" in h
+
+
+# ── crash-only rendering: detection claimed per mutant, never for the bucket ──
+def test_survivor_lines_verbose_names_the_crash_witness_when_no_test_reaches_it():
+    from Detective.equivalence import Witness
+
+    v = MutantVerdict(
+        "M1",
+        "BOUNDARY",
+        _ds("if x < 0: raise ValueError('neg')", "if x <= 0: raise ValueError('neg')"),
+        killable=False,
+        witness=None,
+        searched=14,
+        crash_only=True,
+        crash_witness=Witness((0,), "5.99", "<raised ValueError: neg>"),
+        suite_detected=False,
+    )
+    out = "\n".join(_survivor_lines([v], verbose=True))
+    assert "reached by no current test" in out
+    assert "f(0)" in out
+
+
+def test_survivor_lines_verbose_no_witness_line_when_the_suite_already_detects():
+    from Detective.equivalence import Witness
+
+    v = MutantVerdict(
+        "M1",
+        "BOUNDARY",
+        _ds("if x < 0: raise ValueError('neg')", "if True: raise ValueError('neg')"),
+        killable=False,
+        witness=None,
+        searched=14,
+        crash_only=True,
+        crash_witness=Witness((0,), "5.99", "<raised ValueError: neg>"),
+        suite_detected=True,
+    )
+    out = "\n".join(_survivor_lines([v], verbose=True))
+    assert "reached by no current test" not in out
