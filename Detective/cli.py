@@ -897,6 +897,11 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
     if result.missing_lines:
         gap = list(result.missing_lines)
         lines.append(_row("✗ uncovered", f"{len(gap)} line(s): {gap[:8]}"))
+        # Name each uncovered line's OWN reach requirement (the branch it sits behind), so it is not
+        # conflated with a mutant's kill input — the boundary mutant on `if x < 0` wants `x == 0`, but
+        # the body is reached only when `x < 0`. Capped so the block stays inside its line budget.
+        for ln, guard in getattr(result, "missing_line_guards", ())[:3]:
+            lines.append(_row("", f"line {ln} runs only when: {guard}"))
     if rep is not None and rep.equivalent:
         # Two rows, not one: "no input distinguishes them" is FALSE of a crash-only survivor —
         # an input does, by crash — and it was that false claim that sent a reader hunting for
@@ -1116,6 +1121,11 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         out.append("")
         out.append(_row("· Why these", f"Detective RAN each: the {len(items)} call(s) above each"))
         out.append(_row("", "make a mutant differ from your real function."))
+        if len(set(items)) < len(items):
+            # A repeated --input reads as a glitch; it is not. Distinct mutants can share ONE
+            # distinguishing call, and each is listed so the count is honest ("65 looked like 1").
+            # One tight line — the block is line-budgeted (test_report_stays_within_its_line_budget).
+            out.append(_row("", "(a repeat is intentional: several mutants share one call)"))
         out.append(_row("", "SUGGESTED — not written for you, because the engine"))
         out.append(_row("", "could not verify the tests sound."))
         if total > len(items):

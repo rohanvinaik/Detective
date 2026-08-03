@@ -70,6 +70,11 @@ class ConvergeResult:
     # Second completeness axis + minimality (from Wesker's baseline line-coverage pass).
     line_complete: bool = True  # every executable target line covered by some test
     missing_lines: tuple[int, ...] = ()  # executable lines no test covers (the gap)
+    # (line, guard) for each uncovered line that sits inside a branch: the condition that must hold to
+    # REACH it. Distinct from a mutant's kill requirement — `if total < 0:` yields the boundary mutant's
+    # `total == 0` (to KILL it) AND this `total < 0` (to COVER the body); naming only the first left the
+    # line gap un-closable by the guidance. Empty for unconditional lines (no branch to satisfy).
+    missing_line_guards: tuple[tuple[int, str], ...] = ()
     redundant_tests: tuple[str, ...] = ()  # redundant for BOTH kills and lines -> deletion PROPOSALS
     minimal_test_count: int = 0  # size of the two-axis minimal cover
     universe_size: int = 0  # total possible mutants (behavioral DOF) — completeness denominator
@@ -434,6 +439,39 @@ def _converged(at_ceiling: bool, hit_max_iterations: bool) -> bool:
     return at_ceiling or not hit_max_iterations
 
 
+def _line_guards(func_node: ast.AST, lineno: int) -> list[str]:
+    """The branch conditions that must ALL hold to REACH ``lineno`` — the enclosing if/elif/while/for
+    tests, outermost first, so an uncovered line names its OWN requirement instead of borrowing a
+    mutant's. ``total = 0.0`` inside ``if total < 0:`` -> ``['total < 0']``; an ``elif`` body yields the
+    negation of the prior test plus its own. Empty when the line is unconditional (already on the main
+    path — 'uncovered' there means a test simply never ran the function, not a missed branch), so the
+    caller states nothing rather than a vacuous guard. Best-effort and read-only: any node without line
+    spans is skipped, never guessed.
+    """
+
+    def _spans(stmts: list, ln: int) -> bool:
+        return any(
+            getattr(s, "lineno", 1 << 30) <= ln <= getattr(s, "end_lineno", getattr(s, "lineno", -1))
+            for s in stmts
+        )
+
+    guards: list[tuple[int, str]] = []
+    for n in ast.walk(func_node):
+        if isinstance(n, ast.If):
+            if _spans(n.body, lineno):
+                guards.append((n.lineno, ast.unparse(n.test)))
+            elif _spans(n.orelse, lineno):
+                guards.append((n.lineno, f"not ({ast.unparse(n.test)})"))
+        elif isinstance(n, ast.While):
+            if _spans(n.body, lineno):
+                guards.append((n.lineno, ast.unparse(n.test)))
+        elif isinstance(n, ast.For):
+            if _spans(n.body, lineno):
+                guards.append((n.lineno, f"{ast.unparse(n.target)} in {ast.unparse(n.iter)}"))
+    guards.sort()  # outermost (lowest lineno) first — the path condition reads top-down
+    return [g for _, g in guards]
+
+
 def converge(
     file: str,
     function: str,
@@ -680,6 +718,9 @@ def converge(
     # test set that preserves both kills and line coverage, and the tests redundant
     # for BOTH (deletion proposals — never auto-removed).
     missing = missing_lines(final_result.executable_lines, final_result.line_coverage)
+    # The branch each uncovered line sits behind — its OWN reach requirement, so the line gap is not
+    # left to borrow a mutant's kill input (which targets the == edge, not the branch body).
+    missing_guards = tuple((ln, " and ".join(g)) for ln in missing if (g := _line_guards(node, ln)))
     redundant = redundant_2axis(final_result.kill_matrix, final_result.line_coverage)
     minimal = minimal_cover_2axis(final_result.kill_matrix, final_result.line_coverage)
     sig, param_names = _signature(qualname, node)
@@ -711,6 +752,7 @@ def converge(
         functionally_complete=functionally_complete,
         line_complete=not missing,
         missing_lines=tuple(missing),
+        missing_line_guards=missing_guards,
         redundant_tests=tuple(sorted(redundant)),
         minimal_test_count=len(minimal),
         universe_size=universe_size,
