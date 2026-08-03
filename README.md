@@ -150,7 +150,7 @@ stats.py::anomaly_score: 4 existing test(s) — incomplete   [audit reads only �
 
 Two functions are the same when they draw the same distinctions — kill the same mutants, survive the same ones:
 
-$$f \equiv g \iff \operatorname{kills}(f) = \operatorname{kills}(g)$$
+$$f \equiv g \iff \mathrm{kills}(f) = \mathrm{kills}(g)$$
 
 Once behavior is pinned that tightly, the form stops mattering. Slice the function into sashimi, rewrite it in Comic Sans, have it print the 95 Theses on the way out — if it kills the same mutants, it is the same function. `x + y` and `(3x + 3y) / 3` are one and the same, provably. That equivalence is the ground `decompose` stands on, and it is why the suite is written *first*: it is the thing being proved against.
 
