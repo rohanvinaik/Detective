@@ -67,6 +67,7 @@ class _StmtInfo:
     reads: frozenset[str]
     writes: frozenset[str]
     has_exit: bool
+    flow: _Flow
 
 
 def _collect_reads(node: ast.AST) -> set[str]:
@@ -77,6 +78,369 @@ def _collect_writes(node: ast.AST) -> set[str]:
     return {
         c.id for c in ast.walk(node) if isinstance(c, ast.Name) and isinstance(c.ctx, (ast.Store, ast.Del))
     }
+
+
+def _target_names(node: ast.expr) -> set[str]:
+    """Plain names BOUND by an assignment target (descends tuple/list/starred).
+    A Subscript/Attribute target mutates an existing object and binds nothing."""
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, ast.Starred):
+        return _target_names(node.value)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        names: set[str] = set()
+        for elt in node.elts:
+            names |= _target_names(elt)
+        return names
+    return set()
+
+
+def _target_uses(node: ast.expr) -> set[str]:
+    """Names an assignment target READS to locate its store site (``d[k] = v``
+    reads ``d`` and ``k``; a plain ``x = v`` reads nothing)."""
+    if isinstance(node, ast.Name):
+        return set()
+    if isinstance(node, ast.Starred):
+        return _target_uses(node.value)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        names: set[str] = set()
+        for elt in node.elts:
+            names |= _target_uses(elt)
+        return names
+    return _expr_uses(node)
+
+
+def _expr_uses(node: ast.AST, bound: frozenset[str] = frozenset()) -> set[str]:
+    """Names ``node`` reads from the enclosing function scope. Comprehension
+    targets and lambda bodies are their own scopes and do not leak; a
+    comprehension's iterables/conditions evaluate in sequence, each seeing the
+    targets bound so far."""
+    if isinstance(node, ast.Name):
+        return {node.id} - bound if isinstance(node.ctx, ast.Load) else set()
+    if isinstance(node, ast.Lambda):
+        uses: set[str] = set()
+        for default in node.args.defaults:
+            uses |= _expr_uses(default, bound)
+        for default in node.args.kw_defaults:
+            if default is not None:
+                uses |= _expr_uses(default, bound)
+        # Review finding 2: the lambda body's free variables are read from the
+        # enclosing scope at call time — live-ins, not private to the lambda.
+        uses |= _scope_free_uses(node) - set(bound)
+        return uses
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+        uses = set()
+        inner = set(bound)
+        for gen in node.generators:
+            uses |= _expr_uses(gen.iter, frozenset(inner))
+            inner |= _target_names(gen.target)
+            for cond in gen.ifs:
+                uses |= _expr_uses(cond, frozenset(inner))
+        if isinstance(node, ast.DictComp):
+            uses |= _expr_uses(node.key, frozenset(inner))
+            uses |= _expr_uses(node.value, frozenset(inner))
+        else:
+            uses |= _expr_uses(node.elt, frozenset(inner))
+        return uses
+    if isinstance(node, ast.NamedExpr):
+        return _expr_uses(node.value, bound)
+    uses = set()
+    for child in ast.iter_child_nodes(node):
+        uses |= _expr_uses(child, bound)
+    return uses
+
+
+def _walrus_defs(node: ast.AST) -> set[str]:
+    """NamedExpr targets bind in the enclosing function scope (PEP 572) — even
+    from inside a comprehension. Nested function/class/lambda scopes bind their
+    own and are not descended."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+        return set()
+    defs: set[str] = set()
+    if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+        defs.add(node.target.id)
+    for child in ast.iter_child_nodes(node):
+        defs |= _walrus_defs(child)
+    return defs
+
+
+def _pattern_names(pattern: ast.pattern) -> set[str]:
+    """Names a match pattern CAPTURES (MatchAs/MatchStar/MatchMapping rest)."""
+    names: set[str] = set()
+    if isinstance(pattern, ast.MatchAs) and pattern.name:
+        names.add(pattern.name)
+    elif isinstance(pattern, ast.MatchStar) and pattern.name:
+        names.add(pattern.name)
+    elif isinstance(pattern, ast.MatchMapping) and pattern.rest:
+        names.add(pattern.rest)
+    for child in ast.iter_child_nodes(pattern):
+        if isinstance(child, ast.pattern):
+            names |= _pattern_names(child)
+    return names
+
+
+def _pattern_uses(pattern: ast.pattern) -> set[str]:
+    """Names a match pattern READS (MatchValue constants, MatchClass classes,
+    MatchMapping keys)."""
+    uses: set[str] = set()
+    if isinstance(pattern, ast.MatchValue):
+        uses |= _expr_uses(pattern.value)
+    elif isinstance(pattern, ast.MatchClass):
+        uses |= _expr_uses(pattern.cls)
+    elif isinstance(pattern, ast.MatchMapping):
+        for key in pattern.keys:
+            uses |= _expr_uses(key)
+    for child in ast.iter_child_nodes(pattern):
+        if isinstance(child, ast.pattern):
+            uses |= _pattern_uses(child)
+    return uses
+
+
+@dataclass(frozen=True)
+class _Flow:
+    """Ordered def-use summary of one statement (issue #6). ``uses`` are
+    upward-exposed reads — consumed before any DEFINITE local definition, so the
+    pre-statement value is what they see. ``must`` are names defined on every
+    non-raising path; ``may`` on at least one. Order matters and sets alone
+    cannot carry it: ``x += 1`` both reads and writes ``x``, and the read wins."""
+
+    uses: frozenset[str]
+    must: frozenset[str]
+    may: frozenset[str]
+
+
+def _flow_stmts(stmts: list[ast.stmt]) -> _Flow:
+    """Sequential composition: a later read is upward-exposed unless an earlier
+    statement MUST-defines the name (a may-def is not enough — the defining path
+    may not have run)."""
+    uses: set[str] = set()
+    must: set[str] = set()
+    may: set[str] = set()
+    for stmt in stmts:
+        flow = _flow_stmt(stmt)
+        uses |= set(flow.uses) - must
+        must |= flow.must
+        may |= flow.may
+    return _Flow(frozenset(uses), frozenset(must), frozenset(may))
+
+
+def _scope_free_uses(scope: ast.AST) -> set[str]:
+    """Approximate FREE VARIABLES of a nested scope — the outer names its body reads.
+
+    Review finding 2: a class body executes at definition time, and a nested function
+    or lambda closes over outer locals at call time — either way, a block containing
+    the definition needs those names to exist, so they are live-ins of the extracted
+    helper. Ignoring the bodies (the original rule 6 reading) produced extractions
+    that raised ``NameError`` on names like ``hidden`` that only the nested body read.
+
+    Free = reads − names bound in this scope (params, assignments, imports, nested
+    def/class names), with deeper nested scopes contributing THEIR free variables.
+    Approximate on purpose — comprehension/class-scope subtleties can over-subtract a
+    shadowed name — and it errs toward extra inputs, which the interface-size gate and
+    the proof gate both tolerate; a missing live-in is the direction that ships a
+    broken helper.
+    """
+    bound: set[str] = set()
+    reads: set[str] = set()
+    nested: list[ast.AST] = []
+
+    def visit(n: ast.AST) -> None:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(n.name)
+            nested.append(n)
+            # decorators and defaults evaluate in THIS scope, not the nested one
+            for dec in n.decorator_list:
+                visit(dec)
+            if not isinstance(n, ast.ClassDef):
+                for default in n.args.defaults:
+                    visit(default)
+                for default in n.args.kw_defaults:
+                    if default is not None:
+                        visit(default)
+            return
+        if isinstance(n, ast.Lambda):
+            nested.append(n)
+            for default in n.args.defaults:
+                visit(default)
+            for default in n.args.kw_defaults:
+                if default is not None:
+                    visit(default)
+            return
+        if isinstance(n, ast.Name):
+            if isinstance(n.ctx, ast.Load):
+                reads.add(n.id)
+            else:
+                bound.add(n.id)
+            return
+        if isinstance(n, (ast.Global, ast.Nonlocal)):
+            reads.update(n.names)  # resolve OUTSIDE this scope: free by declaration
+            return
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            bound.update(alias.asname or alias.name.split(".")[0] for alias in n.names)
+            return
+        for child in ast.iter_child_nodes(n):
+            visit(child)
+
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        a = scope.args
+        bound |= {x.arg for x in a.posonlyargs + a.args + a.kwonlyargs}
+        if a.vararg:
+            bound.add(a.vararg.arg)
+        if a.kwarg:
+            bound.add(a.kwarg.arg)
+    body = [scope.body] if isinstance(scope, ast.Lambda) else list(scope.body)
+    for item in body:
+        visit(item)
+    free = set(reads)
+    for sub in nested:
+        free |= _scope_free_uses(sub)
+    return free - bound
+
+
+def _flow_stmt(stmt: ast.stmt) -> _Flow:  # noqa: C901 — a total dispatch over stmt kinds
+    """One statement's ordered def-use flow. Composition rules (issue #6):
+    RHS before targets; AugAssign target is load-then-store; branch must-defs
+    intersect; loop bodies contribute only may-defs (zero iterations); nested
+    function/class scopes are never descended."""
+    walrus = frozenset(_walrus_defs(stmt))
+
+    def flow(uses: set[str], must: set[str], may: set[str]) -> _Flow:
+        return _Flow(frozenset(uses), frozenset(must), frozenset(may | must | walrus))
+
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        uses: set[str] = set()
+        for dec in stmt.decorator_list:
+            uses |= _expr_uses(dec)
+        for default in stmt.args.defaults:
+            uses |= _expr_uses(default)
+        for default in stmt.args.kw_defaults:
+            if default is not None:
+                uses |= _expr_uses(default)
+        # Review finding 2: the body's FREE variables are live-ins of any block that
+        # carries the definition — the closure reads them from the enclosing scope.
+        uses |= _scope_free_uses(stmt)
+        return flow(uses, {stmt.name}, set())
+    if isinstance(stmt, ast.ClassDef):
+        uses = set()
+        for node in [*stmt.decorator_list, *stmt.bases, *(k.value for k in stmt.keywords)]:
+            uses |= _expr_uses(node)
+        # A class body executes AT DEFINITION TIME: its free reads happen right here.
+        uses |= _scope_free_uses(stmt)
+        return flow(uses, {stmt.name}, set())
+    if isinstance(stmt, ast.Assign):
+        uses = _expr_uses(stmt.value)
+        defs: set[str] = set()
+        for target in stmt.targets:
+            uses |= _target_uses(target)
+            defs |= _target_names(target)
+        return flow(uses, defs, set())
+    if isinstance(stmt, ast.AnnAssign):
+        # A function-local annotation is never evaluated; a bare ``x: int`` binds nothing.
+        if stmt.value is None:
+            return flow(set(), set(), set())
+        uses = _expr_uses(stmt.value) | _target_uses(stmt.target)
+        return flow(uses, _target_names(stmt.target), set())
+    if isinstance(stmt, ast.AugAssign):
+        # ``x += 1`` loads x, then stores it: the pre-statement value is consumed.
+        uses = _expr_uses(stmt.value)
+        if isinstance(stmt.target, ast.Name):
+            uses.add(stmt.target.id)
+            return flow(uses, {stmt.target.id}, set())
+        uses |= _expr_uses(stmt.target)
+        return flow(uses, set(), set())
+    if isinstance(stmt, ast.If):
+        body = _flow_stmts(stmt.body)
+        orelse = _flow_stmts(stmt.orelse)
+        uses = _expr_uses(stmt.test) | set(body.uses) | set(orelse.uses)
+        # a missing else is an empty branch: its must-defs are {}, so the intersection is {}
+        return flow(uses, set(body.must & orelse.must), set(body.may | orelse.may))
+    if isinstance(stmt, (ast.For, ast.AsyncFor)):
+        targets = _target_names(stmt.target)
+        body = _flow_stmts(stmt.body)
+        orelse = _flow_stmts(stmt.orelse)
+        uses = _expr_uses(stmt.iter) | (set(body.uses) - targets) | set(orelse.uses)
+        # zero iterations bind nothing: everything here is a may-def, never a must-def
+        return flow(uses, set(), targets | set(body.may) | set(orelse.may))
+    if isinstance(stmt, ast.While):
+        body = _flow_stmts(stmt.body)
+        orelse = _flow_stmts(stmt.orelse)
+        uses = _expr_uses(stmt.test) | set(body.uses) | set(orelse.uses)
+        return flow(uses, set(), set(body.may | orelse.may))
+    if isinstance(stmt, (ast.With, ast.AsyncWith)):
+        uses = set()
+        bound: set[str] = set()
+        for item in stmt.items:
+            uses |= _expr_uses(item.context_expr, frozenset(bound))
+            if item.optional_vars is not None:
+                bound |= _target_names(item.optional_vars)
+        body = _flow_stmts(stmt.body)
+        uses |= set(body.uses) - bound
+        return flow(uses, bound | set(body.must), set(body.may))
+    if isinstance(stmt, ast.Try) or (hasattr(ast, "TryStar") and isinstance(stmt, ast.TryStar)):
+        body = _flow_stmts(stmt.body)
+        orelse = _flow_stmts(stmt.orelse)
+        final = _flow_stmts(stmt.finalbody)
+        uses = set(body.uses)
+        may = set(body.may)
+        handler_musts: list[frozenset[str]] = []
+        for handler in stmt.handlers:
+            if handler.type is not None:
+                uses |= _expr_uses(handler.type)
+            hflow = _flow_stmts(handler.body)
+            huses = set(hflow.uses)
+            hmay = set(hflow.may)
+            if handler.name:
+                # the exception name is bound before the handler body and DELETED after it
+                huses -= {handler.name}
+                hmay -= {handler.name}
+            # the body may have raised at any point, so none of its defs are definite here
+            uses |= huses
+            may |= hmay
+            handler_musts.append(hflow.must - ({handler.name} if handler.name else set()))
+        uses |= set(orelse.uses) - set(body.must)
+        may |= set(orelse.may)
+        # finally runs whether or not the body completed: nothing before it is definite
+        uses |= set(final.uses)
+        may |= set(final.may)
+        if stmt.handlers:
+            # reached either via success (body ∪ else) or via some handler
+            success = set(body.must) | set(orelse.must)
+            via_handler: set[str] = set.intersection(*map(set, handler_musts)) if handler_musts else set()
+            must = set(final.must) | (success & via_handler)
+        else:
+            # no handlers: an exception propagates, so reaching here means the body completed
+            must = set(final.must) | set(body.must) | set(orelse.must)
+        return flow(uses, must, may)
+    if isinstance(stmt, ast.Match):
+        uses = _expr_uses(stmt.subject)
+        may = set()
+        for case in stmt.cases:
+            captures = _pattern_names(case.pattern)
+            uses |= _pattern_uses(case.pattern)
+            cuses = _expr_uses(case.guard) if case.guard is not None else set()
+            cflow = _flow_stmts(case.body)
+            uses |= (cuses | set(cflow.uses)) - captures
+            may |= captures | set(cflow.may)
+        # no case is guaranteed to match: may-defs only
+        return flow(uses, set(), may)
+    if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+        names = {alias.asname or alias.name.split(".")[0] for alias in stmt.names}
+        return flow(set(), names, set())
+    if isinstance(stmt, ast.Delete):
+        uses = set()
+        for target in stmt.targets:
+            if isinstance(target, ast.Name):
+                uses.add(target.id)  # ``del x`` needs x bound; the unbinding is ignored
+            else:
+                uses |= _expr_uses(target)
+        return flow(uses, set(), set())
+    if isinstance(stmt, (ast.Global, ast.Nonlocal, ast.Pass, ast.Break, ast.Continue)):
+        return flow(set(), set(), set())
+    if isinstance(stmt, (ast.Expr, ast.Return, ast.Raise, ast.Assert)):
+        return flow(_expr_uses(stmt), set(), set())
+    # unhandled statement kind: fall back to the flat walk — over-approximates uses
+    # (safe: an extra input) and claims no must-defs (safe: more upward exposure upstream)
+    return flow(set(_collect_reads(stmt)), set(), set(_collect_writes(stmt)))
 
 
 def _has_exit_statement(node: ast.AST) -> bool:
@@ -105,6 +469,7 @@ def _analyze_statement(index: int, stmt: ast.stmt) -> _StmtInfo:
         reads=frozenset(_collect_reads(stmt)),
         writes=frozenset(_collect_writes(stmt)),
         has_exit=_has_exit_statement(stmt),
+        flow=_flow_stmt(stmt),
     )
 
 
@@ -137,33 +502,47 @@ def _compute_block_variables(
     infos: list[_StmtInfo], start: int, end: int, param_names: set[str]
 ) -> tuple[set[str], set[str]] | None:
     """(inputs, outputs) for the contiguous block ``infos[start:end]``, or None when
-    the block is not single-exit. inputs = reads-from-outside; outputs = writes read
-    after the block."""
+    the block is not single-exit.
+
+    Ordered composition of per-statement flows (issue #6). Inputs are the block's
+    upward-exposed uses — reads no earlier block statement DEFINITELY defines —
+    restricted to names that can exist before the block. The old set arithmetic
+    ``(reads & pre) - writes`` erased exactly the read-before-write live-ins
+    (``x += 1``, ``x = x + 1``), producing helpers with unbound locals. Outputs are
+    the block's may-defs some later statement reads before redefining.
+    """
     block = infos[start:end]
     if any(s.has_exit for s in block):
         return None
-    block_reads: set[str] = set()
-    block_writes: set[str] = set()
+    uses: set[str] = set()
+    must: set[str] = set()
+    may: set[str] = set()
     for s in block:
-        block_reads |= s.reads
-        block_writes |= s.writes
+        uses |= set(s.flow.uses) - must
+        must |= s.flow.must
+        may |= s.flow.may
     pre_defined: set[str] = set(param_names)
     for s in infos[:start]:
-        pre_defined |= s.writes
-    inputs = (block_reads & pre_defined) - block_writes
-    post_reads: set[str] = set()
+        pre_defined |= s.flow.may
+    inputs = uses & pre_defined
+    post_uses: set[str] = set()
+    post_must: set[str] = set()
     for s in infos[end:]:
-        post_reads |= s.reads
-    outputs = block_writes & post_reads
+        post_uses |= set(s.flow.uses) - post_must
+        post_must |= s.flow.must
+    outputs = may & post_uses
     return inputs, outputs
 
 
-def _suggest_name(block: list[_StmtInfo], parent_name: str) -> str:
-    all_writes: set[str] = set()
-    for s in block:
-        all_writes |= s.writes
-    named = sorted(w for w in all_writes if not w.startswith("_"))
-    return f"_compute_{named[0]}" if named else f"_{parent_name}_helper"
+def _suggest_name(outputs: set[str], parent_name: str) -> str:
+    """Name the helper for what it RETURNS (issue #3), never for an arbitrary local
+    assigned somewhere inside the block — that named helpers ``_compute_name`` after
+    a loop-local and ``_compute_b`` after a comprehension variable, neither of which
+    the helper returned. A void helper falls back to the parent's name."""
+    named = sorted(o for o in outputs if not o.startswith("_"))
+    if named:
+        return f"_compute_{'_'.join(named)}"
+    return f"_{parent_name}_helper"
 
 
 def _confidence(block: list[_StmtInfo], inputs: set[str], outputs: set[str], block_cc: int) -> float:
@@ -179,6 +558,56 @@ def _confidence(block: list[_StmtInfo], inputs: set[str], outputs: set[str], blo
     return min(conf, 0.85)
 
 
+def _has_cell_crossing_closure(stmts: list[ast.stmt]) -> bool:
+    """True when any nested function among ``stmts`` contains a ``nonlocal`` (issue #11).
+
+    Relocating such a def into a helper changes WHICH lexical cell the closure reads
+    and writes: inside the helper it closes over the helper frame's cell, the caller
+    receives only a copied-out value, and later invocations mutate state nobody sees —
+    or the relocation fails outright (``SyntaxError: no binding for nonlocal``). A
+    parameter cannot fix it: a parameter supplies a value and creates a NEW cell.
+    Certified abstention is the only sound V1 answer; closures that merely READ free
+    variables stay eligible (their value dependency is exactly what the free-variable
+    live-ins carry).
+    """
+
+    def nested_defs(node: ast.AST):
+        for child in ast.walk(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                yield child
+
+    return any(
+        isinstance(inner, ast.Nonlocal)
+        for stmt in stmts
+        for fn in nested_defs(stmt)
+        for inner in ast.walk(fn)
+    )
+
+
+def _is_empty_initializer(stmt: ast.stmt) -> bool:
+    """``x = []`` / ``{}`` / ``()`` / ``set()`` / ``""`` / ``0`` — an initializer for
+    the code that FOLLOWS it, never the tail of a real seam (issue #2). A block that
+    ends on one hands back a freshly-constructed empty value it never filled."""
+    if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
+        return False
+    if not isinstance(stmt.targets[0], ast.Name):
+        return False
+    value = stmt.value
+    if isinstance(value, ast.Dict):
+        return not value.keys
+    if isinstance(value, (ast.List, ast.Set, ast.Tuple)):
+        return not value.elts
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+        empty_builders = {"set", "frozenset", "list", "dict", "tuple"}
+        return value.func.id in empty_builders and not value.args and not value.keywords
+    if isinstance(value, ast.Constant):
+        v = value.value
+        if isinstance(v, bool):
+            return False
+        return v in ("", b"") or (isinstance(v, (int, float)) and v == 0)
+    return False
+
+
 def _evaluate_block(
     infos: list[_StmtInfo],
     start: int,
@@ -188,6 +617,20 @@ def _evaluate_block(
     max_params: int,
     max_outputs: int,
 ) -> ExtractionCandidate | None:
+    # Issue #2: a trailing empty-literal initializer (``out = []``) belongs to the code
+    # that CONSUMES it. A boundary landing past it makes the helper return an empty
+    # container it just built. Retract the end — below the enumeration's min width if
+    # need be, since the retracted seam still has to earn its place through the CC and
+    # interface gates like any other — and let overlap removal drop any duplicate range.
+    while end - start > 1 and _is_empty_initializer(infos[end - 1].stmt):
+        end -= 1
+    if end - start < 2:
+        return None
+    # Issue #11: a nested def carrying `nonlocal` pins its cell to THIS frame; a block
+    # relocating it cannot preserve cell identity, so the candidate is structurally
+    # false before any proof is attempted.
+    if _has_cell_crossing_closure([s.stmt for s in infos[start:end]]):
+        return None
     result = _compute_block_variables(infos, start, end, param_names)
     if result is None:
         return None
@@ -200,7 +643,7 @@ def _evaluate_block(
         return None
     line_start = block[0].stmt.lineno
     line_end = block[-1].stmt.end_lineno or block[-1].stmt.lineno
-    name = _suggest_name(block, parent_name)
+    name = _suggest_name(outputs, parent_name)
     return ExtractionCandidate(
         start_line=line_start,
         end_line=line_end,
@@ -239,7 +682,11 @@ def _max_candidates(cc: int) -> int:
 
 def find_extraction_candidates(
     func_node: ast.FunctionDef | ast.AsyncFunctionDef,
-    min_statements: int = 3,
+    # 2, not 3 (review finding 5): a real seam can be exactly two statements — an
+    # accumulator loop and its initializer — and enumeration never saw it; only the
+    # retraction path could reach width 2. The CC and interface gates still decide
+    # whether a narrow block is WORTH extracting.
+    min_statements: int = 2,
     max_params: int = 4,
     max_outputs: int = 2,
 ) -> tuple[ExtractionCandidate, ...]:
@@ -288,18 +735,30 @@ def decompose(
     """
     candidates = find_extraction_candidates(func_node)
     decomposable = len(candidates) >= 1
+    cell_obstructed = not decomposable and _has_cell_crossing_closure(list(func_node.body))
     return DecompositionPlan(
         function=function,
         is_decomposable=decomposable,
         candidates=candidates,
-        rationale=_rationale(decomposable, candidates, surviving_categories),
+        rationale=_rationale(decomposable, candidates, surviving_categories, cell_obstructed),
     )
 
 
 def _rationale(
-    decomposable: bool, candidates: tuple[ExtractionCandidate, ...], surviving: tuple[str, ...]
+    decomposable: bool,
+    candidates: tuple[ExtractionCandidate, ...],
+    surviving: tuple[str, ...],
+    cell_obstructed: bool = False,
 ) -> str:
     if not decomposable:
+        if cell_obstructed:
+            # Issue #11: name the obstruction — "no seam" without explanation reads as
+            # a structural verdict when the real reason is lexical-state safety.
+            return (
+                "no cell-safe extraction — a nested closure declares `nonlocal`, and "
+                "relocating it would change which lexical cell it reads and writes; "
+                "V1 abstains rather than propose a helper that cannot preserve state"
+            )
         return (
             "no clean extraction — no single-exit block with a small interface and enough "
             "cognitive complexity to be worth pulling out; structurally one piece"

@@ -249,6 +249,7 @@ def _purge_stale_bytecode(source_path: str) -> None:
     except OSError:  # no cache, already gone, or unwritable tree — import handles it
         pass
 
+
 def _codes_equal(a: CodeType, b: CodeType) -> bool:
     """Structural equality of two code objects, recursing into nested code consts."""
     if (
@@ -316,7 +317,6 @@ def _live_module_is_stale(mod: Any, real: str, qualname: str, disk_sha: str | No
                     return not _codes_equal(const, live_code)
                 stack.append(const)
     return True  # the function is gone from the file on disk — definitely stale
-
 
 
 def _load_original(full_path: str, qualname: str) -> Any | None:
@@ -1201,7 +1201,9 @@ def classify_survivors(
             if mutant_fn is None:
                 # Un-buildable: the manual flag is the only signal we have.
                 (_manual if _flagged(rec) else _unclassified).append(
-                    rec.get("diff_summary", "") if _flagged(rec) else rec.get("mutant", rec.get("mutant_id", "?"))
+                    rec.get("diff_summary", "")
+                    if _flagged(rec)
+                    else rec.get("mutant", rec.get("mutant_id", "?"))
                 )
                 continue
             verdict = classify_survivor(
@@ -1254,13 +1256,9 @@ def classify_survivors(
                 # input that merely exercised the function: a captured function object
                 # discriminates but cannot be typed, and the renderer's contract is
                 # that any `--input` it prints can be pasted and will parse.
-                witness_args = [
-                    v.witness.args for v in verdicts if v.killable and v.witness is not None
-                ]
+                witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
                 if witness_args:
-                    expressible = all(
-                        is_expressible(a) for args in witness_args for a in args
-                    )
+                    expressible = all(is_expressible(a) for args in witness_args for a in args)
             else:
                 note = (
                     f"no candidate input discriminates any survivor — pool included "

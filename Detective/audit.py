@@ -30,7 +30,15 @@ from typing import Any
 from Wesker.ci import walk_functions
 
 from .engine import classify_survivors, profile
-from .minimize import _obligations_by_test, minimal_cover_2axis, missing_lines, redundant_2axis
+from .line_flags import classify_missing_lines, load_line_flags
+from .minimize import (
+    _obligations_by_test,
+    minimal_cover_2axis,
+    missing_lines,
+    redundant_2axis,
+    strip_foreign_evidence,
+)
+from .synthesis.writer import foreign_generated_test_names
 
 
 @dataclass(frozen=True)
@@ -45,8 +53,10 @@ class SuiteAudit:
     redundant_tests: tuple[str, ...]  # pointless for BOTH axes -> deletion PROPOSALS
     failing_tests: tuple[str, ...]  # assert-fail on current code -> WARN, never delete
     killable_gaps: tuple[str, ...]  # killable mutants the suite fails to kill
-    missing_lines: tuple[int, ...]  # executable lines no test covers
+    missing_lines: tuple[int, ...]  # executable lines no test covers (after the line oracle)
     minimal_test_count: int  # size of the two-axis minimal cover
+    manually_unreachable: int = 0  # lines closed by a manual unreachability flag (issue #9)
+    contradicted_line_flags: tuple[str, ...] = ()  # flags overridden by observed execution
     manual_equivalent: int = 0  # survivors manually flagged equivalent (oracle)
     candidate_equivalent: int = 0  # survivors with no distinguishing input found (UNPROVEN — flag to confirm)
     unclassified: int = 0  # survivors the search could not classify (may be killable OR equivalent)
@@ -125,9 +135,41 @@ def audit_suite(
         t for t, lines in result.line_coverage.items() if lines
     }
     test_names = sorted(suite)
-    redundant = redundant_2axis(result.kill_matrix, result.line_coverage)
+    # Issue #7: deletion proposals and the minimal cover count only DURABLE evidence —
+    # user tests plus this target's own generated file. A sibling target's generated
+    # tests may kill this function's mutants today, but that file is rewritten wholesale
+    # on the sibling's next converge; proposing a deletion on its support would let this
+    # function's certificate silently regress. (``suite``/``test_names`` above stay
+    # whole-evidence: they describe what exercises the function right now.)
+    own_matrix, own_lines = strip_foreign_evidence(
+        result.kill_matrix,
+        result.line_coverage,
+        foreign_generated_test_names(os.path.abspath(project_root), result.function_key),
+    )
+    redundant = redundant_2axis(own_matrix, own_lines)
     missing = missing_lines(result.executable_lines, result.line_coverage)
-    minimal = minimal_cover_2axis(result.kill_matrix, result.line_coverage)
+    minimal = minimal_cover_2axis(own_matrix, own_lines)
+    # Issue #9: the line-unreachability oracle. A missing line whose statement a user
+    # flagged unreachable closes on the LINE ledger only — reported as "modulo", never
+    # silently as covered — and a flag contradicted by observed execution is surfaced
+    # as overridden, since execution is proof of reachability. Mutation-completeness
+    # never reads this store.
+    manually_unreachable: list[int] = []
+    contradicted_flags: tuple[str, ...] = ()
+    if missing or load_line_flags(os.path.abspath(project_root)):
+        root_abs = os.path.abspath(project_root)
+        full_path = file if os.path.isabs(file) else os.path.join(root_abs, file)
+        try:
+            with open(full_path, encoding="utf-8") as fh:
+                node = next((n for qn, n in walk_functions(ast.parse(fh.read())) if qn == function), None)
+        except (OSError, SyntaxError):
+            node = None
+        if node is not None:
+            covered = {ln for lines in result.line_coverage.values() for ln in lines}
+            missing, manually_unreachable, contradicted = classify_missing_lines(
+                root_abs, result.function_key, node, missing, covered
+            )
+            contradicted_flags = tuple(f"{f.source} (line {f.line})" for f in contradicted)
 
     # Distinguish killable survivors (real gaps) from equivalent ones (nothing a
     # test can do). Advisory: if classification cannot run, fall back to "any
@@ -182,6 +224,8 @@ def audit_suite(
         failing_tests=tuple(f for f in result.failing_tests if f in suite),
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
+        manually_unreachable=len(manually_unreachable),
+        contradicted_line_flags=contradicted_flags,
         minimal_test_count=len(minimal),
         manual_equivalent=manual_equivalent,
         candidate_equivalent=candidate_equivalent,

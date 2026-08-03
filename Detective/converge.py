@@ -11,6 +11,7 @@ require an expected value a human or an LLM proposer must supply.
 from __future__ import annotations
 
 import ast
+import contextlib
 import math
 import os
 import re
@@ -24,11 +25,17 @@ from Wesker.filter import filter_categories
 from .certify import PytestWiring, _write, wire_pytest
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
 from .equivalence import SourceExpr, SurvivorReport
-from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis
+from .line_flags import classify_missing_lines
+from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
 from .purity import is_pure, world_effects
 from .synthesis.characterization import capture_golden, corroborate_captures, golden_assert_line
 from .synthesis.oracle_light import ExecutableProperty, _import_line, generate_executable_property
-from .synthesis.writer import individual_test_names, render_module
+from .synthesis.writer import (
+    foreign_generated_test_names,
+    golden_row_properties,
+    individual_test_names,
+    render_module,
+)
 
 # Fast mode tests this many greedily-selected mutants per category per pass. Greedy
 # (1−1/e)-optimal coverage means a small budget kills nearly every killable mutant on the
@@ -70,6 +77,8 @@ class ConvergeResult:
     # Second completeness axis + minimality (from Wesker's baseline line-coverage pass).
     line_complete: bool = True  # every executable target line covered by some test
     missing_lines: tuple[int, ...] = ()  # executable lines no test covers (the gap)
+    manually_unreachable: int = 0  # lines closed by a manual unreachability flag (issue #9)
+    contradicted_line_flags: tuple[str, ...] = ()  # flags overridden by observed execution
     # (line, guard) for each uncovered line that sits inside a branch: the condition that must hold to
     # REACH it. Distinct from a mutant's kill requirement — `if total < 0:` yields the boundary mutant's
     # `total == 0` (to KILL it) AND this `total < 0` (to COVER the body); naming only the first left the
@@ -694,16 +703,47 @@ def converge(
     # deletion of a user's own test, so it honors "deletion never auto".
     if written_path and write_dir:
         names = individual_test_names(func_key, list(accumulated.values()))
-        drop = {
-            names[n].assertion_code
-            for n in redundant_2axis(final_result.kill_matrix, final_result.line_coverage)
-            if n in names
-        }
+        # Issue #7: the redundancy decision must not count a SIBLING target's generated
+        # tests as evidence — their file is rewritten wholesale on that target's next
+        # converge, and a witness dropped on their support silently regresses this
+        # target's certificate. User tests and this target's own tests remain evidence.
+        own_matrix, own_lines = strip_foreign_evidence(
+            final_result.kill_matrix,
+            final_result.line_coverage,
+            foreign_generated_test_names(root, func_key),
+        )
+        drop = {names[n].assertion_code for n in redundant_2axis(own_matrix, own_lines) if n in names}
+        # Issue #13: parametrized golden ROWS are droppable too. A golden that merely
+        # duplicates a stable hand-written test adds zero marginal obligation, and the
+        # profile says so — by the row's rendered name (`test_x_golden[args2-…]`). Map
+        # the row index back to its property and drop it like any other redundancy;
+        # #5's no-AST-surgery posture is untouched because this re-renders Detective's
+        # OWN file, it never edits a user's parametrize.
+        golden_base, golden_rows = golden_row_properties(func_key, list(accumulated.values()))
+        for n in redundant_2axis(own_matrix, own_lines):
+            base, _, case = n.partition("[")
+            if base != golden_base or not case:
+                continue
+            row = re.match(r"args(\d+)", case)
+            if row and int(row.group(1)) < len(golden_rows):
+                drop.add(golden_rows[int(row.group(1))].assertion_code)
         if drop:
             accumulated = {k: v for k, v in accumulated.items() if k not in drop}
-            source = render_module(func_key, list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname, root) or None
+            if accumulated:
+                source = render_module(func_key, list(accumulated.values()))
+                written_path = _write(source, target, qualname, root) or None
+            elif written_path:
+                # Every generated property was redundant against stable user evidence:
+                # the honest artifact is NO file, not an empty shell reporting itself
+                # as a written suite. The live session must hear about the delete the
+                # same way it hears about every write (see certify._write).
+                from Wesker.ci import refresh_live_suite
+
+                with contextlib.suppress(OSError):
+                    os.remove(written_path)
+                refresh_live_suite(root, written_path)
+                written_path = None
             say(f"minimizing — dropped {len(drop)} redundant test(s) our own cover flagged")
             final_result = profile(
                 file,
@@ -743,6 +783,13 @@ def converge(
     # test set that preserves both kills and line coverage, and the tests redundant
     # for BOTH (deletion proposals — never auto-removed).
     missing = missing_lines(final_result.executable_lines, final_result.line_coverage)
+    # Issue #9: the line-unreachability oracle closes a flagged statement's residual on the
+    # LINE ledger only — reported as "modulo", never silently as covered. A flag contradicted
+    # by observed execution is surfaced as overridden; mutation-completeness never reads it.
+    covered_lines = {ln for lines in final_result.line_coverage.values() for ln in lines}
+    missing, manually_unreachable, contradicted_flags = classify_missing_lines(
+        root, func_key, node, missing, covered_lines
+    )
     # The branch each uncovered line sits behind — its OWN reach requirement, so the line gap is not
     # left to borrow a mutant's kill input (which targets the == edge, not the branch body).
     missing_guards = tuple((ln, " and ".join(g)) for ln in missing if (g := _line_guards(node, ln)))
@@ -777,6 +824,8 @@ def converge(
         functionally_complete=functionally_complete,
         line_complete=not missing,
         missing_lines=tuple(missing),
+        manually_unreachable=len(manually_unreachable),
+        contradicted_line_flags=tuple(f"{f.source} (line {f.line})" for f in contradicted_flags),
         missing_line_guards=missing_guards,
         redundant_tests=tuple(sorted(redundant)),
         minimal_test_count=len(minimal),

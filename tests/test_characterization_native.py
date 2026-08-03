@@ -8,6 +8,8 @@ fixtures) so every test contributes kill power under Wesker.
 
 from __future__ import annotations
 
+from dataclasses import dataclass as _dc
+
 from Detective.synthesis.characterization import (
     GoldenCapture,
     Provenance,
@@ -15,6 +17,7 @@ from Detective.synthesis.characterization import (
     corroborate_captures,
     eval_call_site,
     generate_golden_test,
+    golden_assert_line,
 )
 
 
@@ -194,3 +197,40 @@ def test_generate_golden_test_formats_keyword_args():
     cap = GoldenCapture(inputs=(2,), kwargs={"k": 3}, output="5", deterministic=True)
     src = generate_golden_test("m::f", [cap])
     assert "result = f(2, k=3)" in src
+
+
+# ── golden_assert_line: nested-set repr stability (dogfood finding, 0.8.6) ──────
+# A repr that embeds a set INSIDE a non-literal shell (a dataclass with frozenset
+# fields, a list of frozensets) is hash-seed-unstable, and the top-level set guard
+# could not see it: the generated test passed or failed on PYTHONHASHSEED.
+
+
+@_dc(frozen=True)
+class _FlowLike:
+    uses: frozenset
+    must: frozenset
+
+
+def test_golden_assert_dataclass_with_set_fields_is_seed_stable():
+    v = _FlowLike(uses=frozenset({"b", "a"}), must=frozenset())
+    line = golden_assert_line(repr(v), v)
+    # field access + sorted-element reconstruction: no set repr survives into the test
+    assert line == "assert (result.uses, result.must) == (frozenset({'a', 'b'}), frozenset())"
+    assert eval(line.removeprefix("assert "), {"result": v})
+
+
+def test_golden_assert_list_of_frozensets_is_seed_stable():
+    v = [frozenset({"y", "x"}), frozenset()]
+    line = golden_assert_line(repr(v), v)
+    assert line == "assert result == [frozenset({'x', 'y'}), frozenset()]"
+    assert eval(line.removeprefix("assert "), {"result": v})
+
+
+def test_golden_assert_set_of_opaque_objects_still_falls_back_to_repr():
+    # elements with no stable reconstruction: the honest fallback stands
+    class _Opaque:
+        pass
+
+    v = _Opaque()
+    line = golden_assert_line(repr(v), v)
+    assert line.startswith("assert repr(result) == ")

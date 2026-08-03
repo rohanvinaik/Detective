@@ -11,10 +11,12 @@ import ast
 
 import pytest
 
+from Detective.audit import SuiteAudit
 from Detective.cli import (
     _boundary_hint,
     _build_parser,
     _differs_at_eq,
+    _format_audit,
     _format_scope,
     _headline,
     _mutated_stmt,
@@ -402,3 +404,146 @@ def test_survivor_lines_verbose_no_witness_line_when_the_suite_already_detects()
     )
     out = "\n".join(_survivor_lines([v], verbose=True))
     assert "reached by no current test" not in out
+
+
+# ── issue #8: the residual's TYPE survives to the reader ────────────────────────
+# `risk > 4` over a derived local is an INTERNAL condition; presenting it as a
+# direct input requirement hands the reader a predicate no call satisfies
+# literally. Parameter-only comparisons keep the actionable form; everything
+# else renders as certified abstention. param_names=None keeps history exact.
+
+
+def test_boundary_hint_param_only_comparison_stays_actionable():
+    h = _boundary_hint(_ds("return x > 10", "return x >= 10"), param_names=("x",))
+    assert h == "distinguish at the boundary — supply an input where x == 10"
+
+
+def test_boundary_hint_derived_local_becomes_internal_condition():
+    h = _boundary_hint(_ds("if risk > 4: pass", "if risk >= 4: pass"), param_names=("weight", "tax"))
+    assert h is not None
+    assert h.startswith("internal condition `risk == 4`")
+    assert "supply an input where" not in h
+
+
+def test_boundary_hint_mixed_operands_are_internal():
+    # one side a parameter, the other a local: still not directly satisfiable
+    h = _boundary_hint(_ds("if total > cap: pass", "if total >= cap: pass"), param_names=("cap",))
+    assert h is not None and h.startswith("internal condition ")
+
+
+def test_boundary_hint_without_param_names_is_byte_identical_history():
+    with_none = _boundary_hint(_ds("if risk > 4: pass", "if risk >= 4: pass"))
+    assert with_none == "distinguish at the boundary — supply an input where risk == 4"
+
+
+def test_boundary_hint_constant_only_comparison_is_param_scope():
+    # no names at all: vacuously parameter-only, keeps the actionable form
+    h = _boundary_hint(_ds("if 3 > 2: pass", "if 3 >= 2: pass"), param_names=("x",))
+    assert h is not None and h.startswith("distinguish at the boundary")
+
+
+# ── issue #1: the least-informed target mistake gets the most help ──────────────
+
+
+def test_missing_separator_on_a_real_file_hands_back_the_menu(tmp_path):
+    (tmp_path / "spine.py").write_text("def sections():\n    pass\n\ndef role_spine():\n    pass\n")
+    with pytest.raises(SystemExit) as exc:
+        _split_target("spine.py", str(tmp_path))
+    msg = str(exc.value)
+    assert msg.startswith("detective: target must be 'file.py::function'")
+    assert "functions in that file: sections, role_spine" in msg
+    assert "'spine.py::sections'" in msg
+
+
+def test_missing_separator_on_nothing_keeps_the_bare_format_message(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        _split_target("spien.py", str(tmp_path))
+    msg = str(exc.value)
+    assert msg == "detective: target must be 'file.py::function', got 'spien.py'"
+
+
+# ── issue #10: audit --remove must not recommend itself ─────────────────────────
+
+
+def _audit_report(**over) -> SuiteAudit:
+    base = dict(
+        function="p.py::f",
+        test_count=4,
+        kill_pct=100.0,
+        mutant_complete=True,
+        line_complete=True,
+        redundant_tests=("test_f_extra",),
+        failing_tests=(),
+        killable_gaps=(),
+        missing_lines=(),
+        minimal_test_count=3,
+    )
+    base.update(over)
+    return SuiteAudit(**base)
+
+
+def test_plain_audit_still_recommends_remove():
+    out = _format_audit(_audit_report())
+    assert "DO THIS:  detective audit 'p.py::f' --remove" in out
+
+
+def test_audit_remove_mode_does_not_recommend_itself():
+    out = _format_audit(_audit_report(), removing=True)
+    assert "--remove" not in out.split("· Removing")[0] or "DO THIS" not in out
+    assert "DO THIS:  detective audit" not in out
+    assert "· Removing" in out  # the measurement still says what is happening
+
+
+# ── review finding 3: parameter operands alone do not make a region path-complete ──
+
+
+def test_boundary_hint_dominated_param_comparison_abstains():
+    # `weight == 10` beneath `if enabled:` omits `enabled` from the recipe — abstain
+    orig = "def f(enabled, weight):\n    if enabled:\n        if weight > 10:\n            pass"
+    mut = "def f(enabled, weight):\n    if enabled:\n        if weight >= 10:\n            pass"
+    h = _boundary_hint(f"- {orig}\n+ {mut}", param_names=("enabled", "weight"))
+    assert h is not None and h.startswith("internal condition `weight == 10` sits behind")
+    assert "supply an input where" not in h
+
+
+def test_boundary_hint_top_level_param_comparison_still_promotes():
+    h = _boundary_hint(_ds("return x > 10", "return x >= 10"), param_names=("x",))
+    assert h == "distinguish at the boundary — supply an input where x == 10"
+
+
+def test_boundary_hint_short_circuit_position_abstains():
+    # the second operand of `and` evaluates conditionally
+    h = _boundary_hint(_ds("return x and y > 5", "return x and y >= 5"), param_names=("x", "y"))
+    assert h is not None and "sits behind enclosing control flow" in h
+
+
+def test_boundary_hint_first_boolop_operand_still_promotes():
+    h = _boundary_hint(_ds("return y > 5 and x", "return y >= 5 and x"), param_names=("x", "y"))
+    assert h is not None and h.startswith("distinguish at the boundary")
+
+
+# ── issue #8 round 2: sequential predecessors are control flow too ──────────────
+
+
+def test_boundary_hint_abstains_when_a_predecessor_may_return():
+    # `if enabled: return False` before the comparison: the recipe must not read
+    # as sufficient without enabled=False
+    orig = "def f(enabled, weight):\n    if enabled:\n        return False\n    return weight > 10"
+    mut = "def f(enabled, weight):\n    if enabled:\n        return False\n    return weight >= 10"
+    h = _boundary_hint(f"- {orig}\n+ {mut}", param_names=("enabled", "weight"))
+    assert h is not None and "sits behind enclosing control flow" in h
+    assert "supply an input where" not in h
+
+
+def test_boundary_hint_unconditional_predecessor_assignment_still_promotes():
+    orig = "def f(weight):\n    unit = 1\n    return weight > 10"
+    mut = "def f(weight):\n    unit = 1\n    return weight >= 10"
+    h = _boundary_hint(f"- {orig}\n+ {mut}", param_names=("weight",))
+    assert h is not None and h.startswith("distinguish at the boundary")
+
+
+def test_boundary_hint_predecessor_raise_blocks_promotion():
+    orig = "def f(weight):\n    if weight is None:\n        raise ValueError\n    return weight > 10"
+    mut = "def f(weight):\n    if weight is None:\n        raise ValueError\n    return weight >= 10"
+    h = _boundary_hint(f"- {orig}\n+ {mut}", param_names=("weight",))
+    assert h is not None and "sits behind enclosing control flow" in h

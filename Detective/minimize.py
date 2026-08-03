@@ -98,6 +98,27 @@ def redundant_2axis(kill_matrix: dict[str, list[str]], line_coverage: dict[str, 
     )
 
 
+def strip_foreign_evidence(
+    kill_matrix: dict[str, list[str]],
+    line_coverage: dict[str, list[int]],
+    foreign: set[str],
+) -> tuple[dict[str, list[str]], dict[str, list[int]]]:
+    """Remove ``foreign`` tests from both evidence axes before a redundancy decision
+    (issue #7). A sibling target's GENERATED test may genuinely kill this target's
+    mutants today, but its file is rewritten wholesale on that target's next
+    converge — support that can evaporate must not justify dropping a witness this
+    target owns. Parametrized rows carry bracket suffixes (``test_x[args0]``); a row
+    is foreign when its base name is.
+    """
+
+    def is_foreign(test: str) -> bool:
+        return test.split("[", 1)[0] in foreign
+
+    kept_matrix = {mutant: [t for t in tests if not is_foreign(t)] for mutant, tests in kill_matrix.items()}
+    kept_lines = {t: lines for t, lines in line_coverage.items() if not is_foreign(t)}
+    return kept_matrix, kept_lines
+
+
 def missing_lines(executable_lines: list[int], line_coverage: dict[str, list[int]]) -> list[int]:
     """Executable target lines no test covers — the line-completeness gap. Empty
     means line-complete. Sorted for stable reporting."""

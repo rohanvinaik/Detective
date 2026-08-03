@@ -285,6 +285,20 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
     start, end = candidate.start_line, candidate.end_line
     if start < 1 or end > len(lines) or start > end:
         return None
+    # Review finding 5: the proposed name must not collide with a symbol the module
+    # already defines — an existing `_compute_out` and a new one silently merge into
+    # whichever definition comes last. Reserve by suffixing until free.
+    taken = {
+        n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    taken |= {
+        t.id for n in tree.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)
+    }
+    helper_name = candidate.proposed_name
+    suffix = 2
+    while helper_name in taken:
+        helper_name = f"{candidate.proposed_name}_{suffix}"
+        suffix += 1
     block_text = "".join(lines[start - 1 : end])
     first = lines[start - 1]
     base_indent = first[: len(first) - len(first.lstrip())]
@@ -293,16 +307,16 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
         body += "\n"
     params = ", ".join(candidate.inputs)
     returns = ", ".join(candidate.outputs)
-    helper = f"def {candidate.proposed_name}({params}):\n{body}"
+    helper = f"def {helper_name}({params}):\n{body}"
     if candidate.outputs:
         helper += f"    return {returns}\n"
     helper += "\n\n"
     call = base_indent + (f"{returns} = " if candidate.outputs else "")
-    call += f"{candidate.proposed_name}({params})\n"
+    call += f"{helper_name}({params})\n"
     func_start = min([func.lineno, *(d.lineno for d in func.decorator_list)]) - 1
     rewritten = lines[: start - 1] + [call] + lines[end:]
     new_source = "".join(rewritten[:func_start]) + helper + "".join(rewritten[func_start:])
-    return Extraction(candidate.proposed_name, candidate.inputs, candidate.outputs, new_source)
+    return Extraction(helper_name, candidate.inputs, candidate.outputs, new_source)
 
 
 @dataclass(frozen=True)

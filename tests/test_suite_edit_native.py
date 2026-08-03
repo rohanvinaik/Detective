@@ -133,9 +133,7 @@ def test_module_safe_removals_retains_a_siblings_only_killer(tmp_path):
         {"test_boundary": [2], "test_extra": []},
     )
     with patch("Detective.audit.profile", return_value=sibling_pr):
-        safe, retained = module_safe_removals(
-            "m.py", "f", str(tmp_path), ["test_boundary", "test_extra"]
-        )
+        safe, retained = module_safe_removals("m.py", "f", str(tmp_path), ["test_boundary", "test_extra"])
     assert retained == {"test_boundary": "helper"}
     assert safe == ("test_extra",)
 
@@ -184,9 +182,7 @@ def test_parametrized_cases_are_reported_not_removed(tmp_path):
     test_file = _project(tmp_path)
     fake = [_wrapper("test_a", __wesker_origin__=str(test_file))]
     with patch("Detective.suite_edit.discover_test_callables", return_value=fake):
-        report = apply_removals(
-            "m.py", str(tmp_path), ["test_golden[case0]", "test_a"]
-        )
+        report = apply_removals("m.py", str(tmp_path), ["test_golden[case0]", "test_a"])
     assert report.parametrized == ("test_golden[case0]",)
     assert report.removed == ("test_a",)
     assert report.not_found == ()

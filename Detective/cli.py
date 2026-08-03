@@ -62,14 +62,42 @@ def _reachable_paths(root: str, targets: list[str] | None) -> list[str] | None:
         return None
 
 
-def _split_target(target: str) -> tuple[str, str]:
-    """Split ``path/to/file.py::function`` into ``(file, function)``."""
+def _split_target(target: str, project_root: str | None = None) -> tuple[str, str]:
+    """Split ``path/to/file.py::function`` into ``(file, function)``.
+
+    Issue #1: the most likely first-run mistake — forgetting ``::`` — used to be the ONE
+    bad target that got no menu, even though at that point we hold a path to a real file
+    and could list its functions exactly as the wrong-name path does. When the ``::``-less
+    target names an existing ``.py`` file, hand back that same menu, same ``detective:``
+    prefix; when it names nothing, the bare format message stands.
+    """
     if "::" not in target:
-        raise SystemExit(f"target must be 'file.py::function', got {target!r}")
+        raise SystemExit(_no_separator_message(target, project_root))
     file, function = target.rsplit("::", 1)
     if not file or not function:
-        raise SystemExit(f"target must be 'file.py::function', got {target!r}")
+        raise SystemExit(f"detective: target must be 'file.py::function', got {target!r}")
     return file, function
+
+
+def _no_separator_message(target: str, project_root: str | None) -> str:
+    """The error for a ``::``-less target — with the file's own function menu when the
+    target IS a real .py file. Never raises: this runs on the error path."""
+    base = f"detective: target must be 'file.py::function', got {target!r}"
+    names: list[str] = []
+    try:
+        from Wesker.ci import walk_functions
+
+        root = os.path.abspath(project_root or ".")
+        full = target if os.path.isabs(target) else os.path.join(root, target)
+        if target.endswith(".py") and os.path.isfile(full):
+            with open(full, encoding="utf-8") as fh:
+                names = [qn for qn, _ in walk_functions(ast.parse(fh.read(), filename=full))]
+    except Exception:  # noqa: BLE001 — a formatter that throws replaces the message with a traceback
+        names = []
+    if not names:
+        return base
+    shown = ", ".join(names[:12]) + (f", … (+{len(names) - 12} more)" if len(names) > 12 else "")
+    return f"{base}\n  functions in that file: {shown}\n  e.g.: '{target}::{names[0]}'"
 
 
 def _format_scope(scope) -> str:
@@ -325,7 +353,7 @@ def _mutated_stmt(diff_summary: str) -> str:
     return _concise_diff(diff_summary)
 
 
-def _survivor_lines(verdicts, verbose: bool) -> list[str]:
+def _survivor_lines(verdicts, verbose: bool, param_names: tuple[str, ...] | None = None) -> list[str]:
     """One survivor block — per-mutant under `verbose`, grouped by mutated statement otherwise.
 
     The grouped form keeps the BOUNDARY hints (the only actionable part) and drops the ids and
@@ -336,7 +364,7 @@ def _survivor_lines(verdicts, verbose: bool) -> list[str]:
     if verbose:
         for v in verdicts:
             out.append(f"    → mutant {v.mutant_id} [{v.category}]: {_concise_diff(v.diff_summary)}")
-            if v.category == "BOUNDARY" and (hint := _boundary_hint(v.diff_summary)):
+            if v.category == "BOUNDARY" and (hint := _boundary_hint(v.diff_summary, param_names)):
                 out.append(f"        ↳ {hint}")
             if v.crash_only and not v.suite_detected and v.crash_witness is not None:
                 # The fact that decides the next action: this survivor is invisible to the
@@ -355,22 +383,35 @@ def _survivor_lines(verdicts, verbose: bool) -> list[str]:
         shown = stmt if len(stmt) <= _STMT_W else stmt[: _STMT_W - 1] + "…"
         out.append(f"    {shown:<{_STMT_W}}  {len(vs):>3}   ({cats})")
         hints: list[str] = []
+        internal: list[str] = []
         for v in vs:
-            if v.category == "BOUNDARY" and (h := _boundary_hint(v.diff_summary)):
-                if (rel := _hint_relation(h)) not in hints:
+            if v.category == "BOUNDARY" and (h := _boundary_hint(v.diff_summary, param_names)):
+                if _is_internal_hint(h):
+                    if h not in internal:
+                        internal.append(h)
+                elif (rel := _hint_relation(h)) not in hints:
                     hints.append(rel)
         out += [f"        ↳ distinguish at the boundary — supply an input {r}" for r in hints]
+        out += [f"        ↳ {h}" for h in internal]
     out.append("    (--verbose for each mutant's id and diff)")
     return out
 
 
-def _boundary_hint(diff_summary: str) -> str | None:
+def _boundary_hint(diff_summary: str, param_names: tuple[str, ...] | None = None) -> str | None:
     """For a BOUNDARY mutant — an operator shift on a comparison — name the region a
     distinguishing input must land in: the equality edge for strict↔non-strict shifts, the
     cut-off strict side for non-strict→`==` collapses (see `_difference_region` for the table).
     The relation comes WITH its real operands, not as a generic template (BOUNDARY is
     oracle-light, not oracle-free). Recovers the operands by matching the comparison whose
     operator changed between original and mutant; None if no rule names the region.
+
+    Issue #8 — the residual's TYPE must survive to the reader. When ``param_names`` is given
+    and the comparison reads a name that is NOT a parameter (``risk > 4`` over a derived
+    local), the region is an INTERNAL condition: presenting it as a direct input requirement
+    hands the reader a predicate no call satisfies literally, with the dominating path
+    conditions silently dropped. Those render as an explicit internal-condition line — the
+    certified abstention — instead of ``supply an input where …``. With ``param_names=None``
+    the classification is unavailable and the historical rendering stands.
     """
     # diff_summary is '- <whole original>\n+ <whole mutant>'; block-diff it (as _concise_diff
     # does) to isolate the lines that actually changed, then find the comparison whose operator
@@ -397,8 +438,154 @@ def _boundary_hint(diff_summary: str) -> str | None:
                     and m_right == right
                     and (region := _difference_region(op, m_op, left, right))
                 ):
+                    if param_names is not None and not _params_only(left, right, param_names):
+                        return (
+                            f"internal condition `{region}` decides this — not a direct input "
+                            "constraint; Detective could not derive a verified call from the "
+                            "parameters"
+                        )
+                    # Review finding 3: operands being parameters does not make the
+                    # region path-complete — `weight == 10` beneath `if enabled:` is a
+                    # recipe that silently omits `enabled`. Until control-dependence is
+                    # derived, a dominated comparison abstains; only one this analysis
+                    # PROVES unconditionally evaluated keeps the actionable form.
+                    if param_names is not None and not _always_evaluated(
+                        "\n".join(orig_lines), left, op, right
+                    ):
+                        return (
+                            f"internal condition `{region}` sits behind enclosing control "
+                            "flow — the relation alone is not path-complete; supply a call "
+                            "that reaches this comparison and lands on the edge"
+                        )
                     return f"distinguish at the boundary — supply an input where {region}"
     return None
+
+
+def _always_evaluated(orig_src: str, left: str, op: type, right: str) -> bool:
+    """True only when the matched comparison PROVABLY evaluates on every call — no
+    enclosing branch, loop body, short-circuit position, ternary arm, try, match, or
+    nested scope decides whether it runs, and no SEQUENTIAL PREDECESSOR can divert
+    control before it (issue #8, second round: an earlier ``if enabled: return False``
+    is a control-flow predecessor, not an ancestor, and an ancestors-only check called
+    the final ``return weight > 10`` unconditional). Anything unparseable or
+    unlocatable is False: the promotable form is a claim, and a claim this cannot
+    verify abstains."""
+    try:
+        tree = ast.parse(textwrap.dedent(orig_src))
+    except SyntaxError:
+        return False
+    if not tree.body or not isinstance(tree.body[0], (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False
+    fn = tree.body[0]
+    target: ast.Compare | None = None
+    for node in ast.walk(fn):
+        if (
+            isinstance(node, ast.Compare)
+            and len(node.ops) == 1
+            and type(node.ops[0]) is op
+            and ast.unparse(node.left) == left
+            and ast.unparse(node.comparators[0]) == right
+        ):
+            target = node
+            break
+    if target is None:
+        return False
+
+    def path_to(node: ast.AST) -> list[ast.AST] | None:
+        if node is target:
+            return [node]
+        for child in ast.iter_child_nodes(node):
+            sub = path_to(child)
+            if sub is not None:
+                return [node, *sub]
+        return None
+
+    path = path_to(fn)
+    if path is None:
+        return False
+    for parent, child in zip(path, path[1:], strict=False):
+        if isinstance(child, ast.stmt) and not _predecessors_fall_through(parent, child):
+            return False
+        if parent is fn:
+            continue
+        if isinstance(parent, (ast.If, ast.While)):
+            if child is not parent.test:
+                return False
+        elif isinstance(parent, (ast.For, ast.AsyncFor)):
+            if child is not parent.iter:
+                return False
+        elif isinstance(parent, ast.IfExp):
+            if child is not parent.test:
+                return False
+        elif isinstance(parent, ast.BoolOp):
+            if child is not parent.values[0]:  # only the first operand always evaluates
+                return False
+        elif isinstance(
+            parent,
+            (
+                ast.Try,
+                ast.ExceptHandler,
+                ast.Match,
+                ast.ListComp,
+                ast.SetComp,
+                ast.DictComp,
+                ast.GeneratorExp,
+                ast.Lambda,
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+            ),
+        ):
+            return False
+    return True
+
+
+def _predecessors_fall_through(parent: ast.AST, child: ast.stmt) -> bool:
+    """True when every statement BEFORE ``child`` in its suite provably falls through
+    to it. A predecessor that contains a return/raise anywhere (a conditional early
+    exit included), an unbounded ``while``, or control routing this analysis does not
+    model (``try``/``match``) may prevent the comparison from ever running — the
+    promoted recipe would then name an input the function never tests."""
+    for field in ("body", "orelse", "finalbody"):
+        suite = getattr(parent, field, None)
+        if isinstance(suite, list) and child in suite:
+            return all(not _may_divert(prior) for prior in suite[: suite.index(child)])
+    return True  # child is not in a statement suite of parent (it is a test/iter expr)
+
+
+def _may_divert(node: ast.AST) -> bool:
+    """Can executing ``node`` route control away from the statement after it?
+    Return/raise anywhere within (a CONDITIONAL early exit counts — "may", not
+    "must"), an unbounded ``while``, or ``try``/``match`` routing this analysis does
+    not model. Nested function/class/lambda scopes are not descended: their
+    ``return`` belongs to them, not to the enclosing flow."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+        return False
+    if isinstance(node, (ast.Return, ast.Raise, ast.Break, ast.Continue, ast.While, ast.Try, ast.Match)):
+        return True
+    if hasattr(ast, "TryStar") and isinstance(node, ast.TryStar):
+        return True
+    return any(_may_divert(child) for child in ast.iter_child_nodes(node))
+
+
+def _params_only(left: str, right: str, param_names: tuple[str, ...]) -> bool:
+    """True when every name the comparison reads is a function parameter — the one case
+    where ``supply an input where {region}`` is literally satisfiable by a call. A derived
+    local in either operand makes the region an internal condition instead."""
+    for src in (left, right):
+        try:
+            tree = ast.parse(src, mode="eval")
+        except SyntaxError:
+            return False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id not in param_names:
+                return False
+    return True
+
+
+def _is_internal_hint(hint: str) -> bool:
+    """Classify a rendered `_boundary_hint` line without re-deriving it."""
+    return hint.startswith("internal condition ")
 
 
 def _target_lines(signature: str) -> list[str]:
@@ -574,7 +761,7 @@ def _format_survivor_report(
             f"no distinguishing input in {tried} tried. To KILL: supply an input reaching a "
             "mutated branch below (or `flag` if truly equivalent):"
         )
-        lines += _survivor_lines(unproven, verbose)
+        lines += _survivor_lines(unproven, verbose, param_names or None)
         lines += _target_lines(signature)
         lines.append(
             f"      supply:  {_input_template(param_names)}   "
@@ -607,7 +794,7 @@ def _format_survivor_report(
             )
         head += " `flag` if truly equivalent:"
         lines.append(head)
-        lines += _survivor_lines(crash_only, verbose)
+        lines += _survivor_lines(crash_only, verbose, param_names or None)
     if rep.manual_equivalent:
         lines.append(
             f"  ✓ {len(rep.manual_equivalent)} survivor(s) flagged equivalent (oracle — PROVEN, not gaps)"
@@ -881,6 +1068,14 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
         )
     elif result.minimal_test_count:
         lines.append("  ✓ line-complete — every executable line is covered by a test")
+    if result.manually_unreachable:
+        # Issue #9: closed by the human oracle, and SAID so — "modulo", never silently covered.
+        lines.append(
+            f"  · line ledger modulo {result.manually_unreachable} statement(s) manually "
+            "classified unreachable (flag-line)"
+        )
+    for stale in result.contradicted_line_flags:
+        lines.append(f"  ⚠ line flag OVERRIDDEN by execution: {stale} — the line was reached; flag ignored")
     if result.minimal_test_count:
         lines.append(f"  minimal suite: {result.minimal_test_count} test(s) cover all kills + lines")
     if result.redundant_tests:
@@ -962,6 +1157,12 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
         # the body is reached only when `x < 0`. Capped so the block stays inside its line budget.
         for ln, guard in getattr(result, "missing_line_guards", ())[:3]:
             lines.append(_row("", f"line {ln} runs only when: {guard}"))
+    if result.manually_unreachable:
+        lines.append(
+            _row("· line oracle", f"{result.manually_unreachable} statement(s) flagged unreachable (modulo)")
+        )
+    for stale in result.contradicted_line_flags:
+        lines.append(_row("⚠ flag overridden", f"executed: {stale} — execution outranks the flag"))
     if rep is not None and rep.equivalent:
         # Two rows, not one: "no input distinguishes them" is FALSE of a crash-only survivor —
         # an input does, by crash — and it was that false claim that sent a reader hunting for
@@ -1158,15 +1359,25 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
                 descs.append(d)
         return "test", descs[:_MAX_BATCH], len(witnesses)
     hints: list[str] = []
+    internal: list[str] = []
     # Skip crash-only survivors: an input already distinguishes them and no value assertion can
     # pin them, so any input we ask for here is one the caller can supply and still see NO
     # progress — the same forever-loop `find_witness` skips them to avoid.
     for v in (v for v in (rep.equivalent if rep is not None else ()) if not v.crash_only):
-        h = _boundary_hint(v.diff_summary)
-        if h and (rel := _hint_relation(h)) not in hints:
+        h = _boundary_hint(v.diff_summary, tuple(proof.param_names) if proof.param_names else None)
+        if not h:
+            continue
+        if _is_internal_hint(h):
+            if h not in internal:
+                internal.append(h)
+        elif (rel := _hint_relation(h)) not in hints:
             hints.append(rel)
     if hints:
         return "boundary", hints[:_MAX_BATCH], len(hints)
+    if internal:
+        # Issue #8: the region exists but reads a derived local — no direct input
+        # constraint is derivable, and saying so IS the result (certified abstention).
+        return "internal", internal[:_MAX_BATCH], len(internal)
     return "author", [], 0
 
 
@@ -1207,7 +1418,7 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
     if kind == "test":
         out = [f"DO THIS:  add a test that calls the target with the object(s) below, then re-run: {cmd}"]
         out.append("")
-        out.append(_row("· Why", f"Detective RAN each — a mutant differs on it — but none"))
+        out.append(_row("· Why", "Detective RAN each — a mutant differs on it — but none"))
         out.append(_row("", "can be typed as --input: they are objects only a test builds."))
         out.append(_row("· Object(s)", f"1. {items[0]}"))
         for i, d in enumerate(items[1:], start=2):
@@ -1230,6 +1441,24 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
             out.append(_row("", f"(+{total - len(items)} more in {where})"))
         out.append(_row("", "Derived from your code: two orderings differ exactly"))
         out.append(_row("", "at the equality edge."))
+        return out
+
+    if kind == "internal":
+        out = [f"DO THIS:  {cmd} {tmpl}"]
+        out.append("")
+        out.append(_row("· Signature", sig))
+        out.append("")
+        out.append(_row("· Status", "The surviving distinction sits behind an INTERNAL"))
+        out.append(_row("", "condition — a derived local, not a parameter — so no"))
+        out.append(_row("", "direct input constraint is derivable. That is a finding,"))
+        out.append(_row("", "not a gap in your report:"))
+        out.append(_row("· Condition(s)", f"1. {items[0]}"))
+        for i, cond in enumerate(items[1:], start=2):
+            out.append(_row("", f"{i}. {cond}"))
+        if total > len(items):
+            out.append(_row("", f"(+{total - len(items)} more in {where})"))
+        out.append(_row("· Task", "Author one real call whose execution drives the"))
+        out.append(_row("", "condition(s) above, and pass it as --input."))
         return out
 
     return [
@@ -1343,7 +1572,7 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
     return "\n".join(lines)
 
 
-def _format_audit(a) -> str:
+def _format_audit(a, removing: bool = False) -> str:
     """Read-only audit of an existing suite, in the report shape: what is true, then the ONE
     next action, and audit itself never writes.
 
@@ -1378,6 +1607,12 @@ def _format_audit(a) -> str:
         lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
     if a.missing_lines:
         lines.append(_row("✗ uncovered", f"{len(a.missing_lines)} line(s): {list(a.missing_lines)[:8]}"))
+    if a.manually_unreachable:
+        lines.append(
+            _row("· line oracle", f"{a.manually_unreachable} statement(s) flagged unreachable (modulo)")
+        )
+    for stale in a.contradicted_line_flags:
+        lines.append(_row("⚠ flag overridden", f"executed: {stale} — execution outranks the flag"))
     # Split the breakdown out: "no input distinguishes them" is false of the crash-only class.
     if unproven_eq := a.candidate_equivalent - a.crash_only_equivalent:
         lines.append(_row("· unproven-equiv", f"{unproven_eq} survivor(s) — no input distinguishes them"))
@@ -1396,13 +1631,18 @@ def _format_audit(a) -> str:
         lines.append(_row("· redundant", f"{len(a.redundant_tests)} test(s) pointless for kills AND lines"))
         lines.append(_row("", ", ".join(a.redundant_tests[:4])))
     lines.append("")
-    lines += _audit_action(a)
+    lines += _audit_action(a, removing)
     return "\n".join(lines)
 
 
-def _audit_action(a) -> list[str]:
+def _audit_action(a, removing: bool = False) -> list[str]:
     """Audit's ONE next action, in the report's row style. Priority order — the order IS the
     judgement.
+
+    Issue #10: ``removing`` means ``--remove`` is EXECUTING right now — recommending
+    ``audit --remove`` mid-``audit --remove`` is a stale self-instruction computed for the
+    pre-action state. The measurement stays; the recommendation yields to the removal
+    result the caller prints next.
 
     A failing test outranks everything: the suite contradicts the code, so every other number
     here was measured against a suite that does not pass, and acting on them first is acting on
@@ -1440,6 +1680,11 @@ def _audit_action(a) -> list[str]:
             _row("· Writes", "the missing tests, and wires them into pytest."),
         ]
     if a.redundant_tests:
+        if removing:
+            return [
+                _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
+                _row("", "a test pointless here can still be a sibling's only pin."),
+            ]
         return [
             f"DO THIS:  detective audit '{a.function}' --remove",
             "",
@@ -1794,6 +2039,27 @@ def _build_parser() -> argparse.ArgumentParser:
     flag_p.add_argument("--note", default="", help="why it is equivalent")
     flag_p.add_argument("--project-root", default=".")
     flag_p.add_argument("--json", action="store_true", help="emit JSON")
+
+    flag_line_p = sub.add_parser(
+        "flag-line",
+        help="mark an uncovered source line as unreachable (manual oracle — line ledger only)",
+    )
+    flag_line_p.add_argument("target", help="file.py::function")
+    flag_line_p.add_argument(
+        "line", type=int, nargs="?", help="the uncovered line number (from `audit`/`converge`)"
+    )
+    flag_line_p.add_argument("--note", default="", help="why it is unreachable")
+    flag_line_p.add_argument(
+        "--list", action="store_true", help="show this function's flags with current/orphaned status"
+    )
+    flag_line_p.add_argument(
+        "--remove", action="store_true", help="delete the flag at LINE (exact record; never bulk)"
+    )
+    flag_line_p.add_argument(
+        "--clean", action="store_true", help="delete only CONFIRMED-orphaned records for this function"
+    )
+    flag_line_p.add_argument("--project-root", default=".")
+    flag_line_p.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -2316,7 +2582,7 @@ def _run(args) -> int:
             print("nothing to purge — no cached analysis found (a clean state)")
         return 0
 
-    file, function = _split_target(args.target)
+    file, function = _split_target(args.target, getattr(args, "project_root", None))
 
     if args.command == "flag":
         from .engine import profile
@@ -2357,6 +2623,124 @@ def _run(args) -> int:
         print(f"       Next: detective audit '{result.function_key}'   # it is no longer a gap")
         return 0
 
+    if args.command == "flag-line":
+        from Wesker.ci import walk_functions as _walk
+
+        from .line_flags import add_line_flag, clean_orphaned_flags, flag_statuses, remove_line_flag
+
+        root_abs = os.path.abspath(args.project_root)
+        full = file if os.path.isabs(file) else os.path.join(root_abs, file)
+        try:
+            with open(full, encoding="utf-8") as fh:
+                node = next((n for qn, n in _walk(ast.parse(fh.read())) if qn == function), None)
+        except (OSError, SyntaxError) as exc:
+            print(f"detective: cannot read {file}: {exc}")
+            return 1
+        if node is None:
+            print(f"detective: function '{function}' not found in {file}")
+            return 1
+        # THE ledger identity — issue #9 round 2: audit/converge key on the
+        # root-relative path, so `./pkg/mod.py`, an absolute path, and `pkg/mod.py`
+        # must all land on one record, not three.
+        func_key = f"{os.path.relpath(full, root_abs)}::{function}"
+
+        if args.list or args.clean:
+            if args.list:
+                statuses = flag_statuses(args.project_root, func_key, node)
+                if args.json:
+                    print(
+                        json.dumps(
+                            {
+                                "action": "list",
+                                "function": func_key,
+                                "flags": [{**asdict(f), "status": s} for f, s in statuses],
+                            },
+                            indent=2,
+                        )
+                    )
+                    return 0
+                print(f"{func_key} — flag-line · {len(statuses)} record(s)")
+                for f, status in statuses:
+                    note = f"  ({f.note})" if f.note else ""
+                    print(f"  [{status}] line {f.line}: {f.source}{note}")
+                if not statuses:
+                    print("  (none)")
+                return 0
+            removed = clean_orphaned_flags(args.project_root, func_key, node)
+            if args.json:
+                print(
+                    json.dumps(
+                        {"action": "clean", "function": func_key, "removed": [asdict(f) for f in removed]},
+                        indent=2,
+                    )
+                )
+                return 0
+            print(f"{func_key} — flag-line --clean")
+            for f in removed:
+                print(f"  removed orphaned record: line {f.line}: {f.source}")
+            print(f"DONE:  {len(removed)} orphaned record(s) removed; current judgments untouched.")
+            return 0
+
+        if args.line is None:
+            print("detective: flag-line needs a LINE (or --list / --clean)")
+            return 1
+
+        if args.remove:
+            removed_flag = remove_line_flag(args.project_root, func_key, node, args.line)
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "action": "remove",
+                            "function": func_key,
+                            "removed": asdict(removed_flag) if removed_flag else None,
+                        },
+                        indent=2,
+                    )
+                )
+                return 0 if removed_flag else 1
+            if removed_flag is None:
+                print(f"detective: no flag recorded at line {args.line} for {func_key}")
+                return 1
+            print(f"{func_key} — flag-line --remove · line {args.line}")
+            print(_row("✓ removed", f"{removed_flag.source}"))
+            print("DONE:  the line counts as a residual again on the next audit/converge.")
+            return 0
+
+        flag = add_line_flag(args.project_root, func_key, node, args.line, note=args.note)
+        if flag is None:
+            span = f"{node.lineno}-{node.end_lineno}"
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "action": "add",
+                            "function": func_key,
+                            "line": args.line,
+                            "error": f"not a statement of {function} (lines {span})",
+                        }
+                    )
+                )
+                return 1
+            print(f"detective: line {args.line} is not a statement of {function} (lines {span})")
+            return 1
+        if args.json:
+            print(json.dumps({"action": "add", "function": func_key, **asdict(flag)}, indent=2))
+            return 0
+        suffix = f" ({args.note})" if args.note else ""
+        print(f"{func_key} — flag-line · line {args.line}")
+        print("")
+        print(_row("✓ recorded", f"unreachable{suffix}: {flag.source}"))
+        print(_row("", "keyed to this exact statement — an edit un-flags it."))
+        print("")
+        # The two ledgers stay orthogonal: this closes a LINE residual and nothing else.
+        # Say what still outranks it — observed execution is proof of reachability.
+        print("DONE:  line reports read 'line-complete modulo N flagged unreachable'. The flag")
+        print("       kills no mutant and never gates decompose. If a test ever EXECUTES the")
+        print("       line, execution overrides your flag. Proof beats judgement.")
+        print(f"       Next: detective audit '{func_key}'   # the line is no longer a gap")
+        return 0
+
     if args.command == "diagnose":
         from .engine import diagnose
 
@@ -2378,8 +2762,6 @@ def _run(args) -> int:
         return 0
 
     if args.command == "converge":
-        import os
-
         from .converge import converge
 
         supplied = (
@@ -2425,7 +2807,11 @@ def _run(args) -> int:
             args.project_root,
             progress=_stream_progress(function),
         )
-        print(json.dumps(asdict(report), indent=2, default=str) if args.json else _format_audit(report))
+        print(
+            json.dumps(asdict(report), indent=2, default=str)
+            if args.json
+            else _format_audit(report, removing=bool(args.remove and report.redundant_tests))
+        )
         if args.remove and report.redundant_tests:
             from .audit import module_safe_removals
             from .suite_edit import apply_removals
@@ -2440,11 +2826,8 @@ def _run(args) -> int:
             for name, sibling in sorted(retained.items()):
                 print(f"  retained {name} — still pins {sibling}")
             result = apply_removals(file, args.project_root, list(safe))
-            print(
-                f"  removed {len(result.removed)}: {', '.join(result.removed)}"
-                if result.removed
-                else "  removed nothing"
-            )
+            if result.removed:
+                print(f"  removed {len(result.removed)}: {', '.join(result.removed)}")
             if result.not_found:
                 print(f"  could not locate: {', '.join(result.not_found)}")
             if result.parametrized:
@@ -2460,6 +2843,26 @@ def _run(args) -> int:
                     f"  after removal: {after.test_count} test(s), "
                     f"complete={after.complete}, minimal cover={after.minimal_test_count}"
                 )
+                print(f"DONE:  removed {len(result.removed)} test(s); the suite above is what remains.")
+            else:
+                # Issue #10: the requested action RAN and retained everything — say why and
+                # stop. Repeating `audit --remove` here instructs the user to re-run a
+                # command that just proved itself a no-op.
+                why = (
+                    ", ".join(
+                        p
+                        for p in (
+                            f"{len(retained)} still pin a sibling" if retained else "",
+                            f"{len(result.parametrized)} are parametrized rows (report-only)"
+                            if result.parametrized
+                            else "",
+                            f"{len(result.not_found)} could not be located" if result.not_found else "",
+                        )
+                        if p
+                    )
+                    or "no candidate was safely removable"
+                )
+                print(f"DONE:  removed nothing — {why}. Every test is retained; the suite stands.")
         return 0
 
     if args.command == "decompose":

@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import os
 from dataclasses import dataclass
+from typing import Any
 
 from Wesker.ci import discover_test_callables, walk_functions
 
@@ -141,6 +142,4 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     # report — neither removed nor not_found — which is how a total no-op once
     # printed as a clean "removed nothing" with no reason attached.
     not_found = tuple(sorted(wanted - set(removed)))
-    return RemovalReport(
-        tuple(sorted(removed)), not_found, tuple(sorted(changed)), tuple(sorted(cases))
-    )
+    return RemovalReport(tuple(sorted(removed)), not_found, tuple(sorted(changed)), tuple(sorted(cases)))

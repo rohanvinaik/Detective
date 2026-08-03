@@ -7,7 +7,13 @@ power).
 
 from __future__ import annotations
 
-from Detective.minimize import coverage_by_test, minimal_cover, redundant_tests
+from Detective.minimize import (
+    coverage_by_test,
+    minimal_cover,
+    redundant_2axis,
+    redundant_tests,
+    strip_foreign_evidence,
+)
 
 
 # ── coverage_by_test ──────────────────────────────────────────────
@@ -47,3 +53,35 @@ def test_redundant_tests_names_only_the_droppable():
 
 def test_redundant_tests_empty_when_all_load_bearing():
     assert redundant_tests({"m1": ["ta"], "m2": ["tb"]}) == set()
+
+
+# ── issue #7: foreign generated evidence must not justify deletions ─────────────
+
+
+def test_sibling_generated_test_cannot_make_owned_witness_removable():
+    # T (owned) and S (foreign synth) kill the same mutant; unfiltered redundancy
+    # flags T, filtered redundancy keeps it — S's file evaporates on its next converge
+    km = {"m1": ["test_own_value_0", "test_sibling_value_0"]}
+    lc = {"test_own_value_0": [3], "test_sibling_value_0": [3]}
+    unfiltered = redundant_2axis(km, lc)
+    assert unfiltered  # one of the two is redundant today
+    own_km, own_lc = strip_foreign_evidence(km, lc, {"test_sibling_value_0"})
+    assert redundant_2axis(own_km, own_lc) == set()
+    assert own_km == {"m1": ["test_own_value_0"]}
+    assert "test_sibling_value_0" not in own_lc
+
+
+def test_user_written_tests_still_make_generated_witness_redundant():
+    # a user test is stable base evidence: it CAN render an owned witness redundant
+    km = {"m1": ["test_own_value_0", "test_user_pins_m1"]}
+    lc = {"test_own_value_0": [], "test_user_pins_m1": [3]}
+    own_km, own_lc = strip_foreign_evidence(km, lc, set())
+    assert "test_own_value_0" in redundant_2axis(own_km, own_lc)
+
+
+def test_parametrized_rows_are_foreign_by_base_name():
+    km = {"m1": ["test_sibling_golden[args0-1]", "test_own_value_0"]}
+    lc = {"test_sibling_golden[args0-1]": [3]}
+    own_km, own_lc = strip_foreign_evidence(km, lc, {"test_sibling_golden"})
+    assert own_km == {"m1": ["test_own_value_0"]}
+    assert own_lc == {}

@@ -180,8 +180,9 @@ def purge(project_root: str) -> tuple[tuple[str, ...], int]:
     over it. That is not merely untidy: it removes the only escape from a stale entry, and a
     cached verdict is exactly the thing a user reaches for purge to be rid of.
 
-    ONLY regeneratable things. ``inputs.json`` and ``equivalents.json`` are USER DATA — the
-    semantic prior synthesis provably could not derive, and a human's equivalence judgement.
+    ONLY regeneratable things. ``inputs.json``, ``equivalents.json`` and ``line_flags.json``
+    are USER DATA — the semantic prior synthesis provably could not derive, a human's
+    equivalence judgement, and a human's unreachability judgement.
     Purging those would ask the person to do the one irreducible piece of work over again, which
     is the opposite of this command's purpose (see :mod:`Detective.samples` §8). Everything named
     here is rebuilt from the current code on the next run, so purging can only ever cost time.

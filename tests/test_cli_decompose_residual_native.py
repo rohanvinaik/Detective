@@ -260,14 +260,17 @@ def test_witnesses_batch_too_and_carry_the_suggested_label():
 
 # ── batching: --input is repeatable, so name ALL the derived requirements ──
 def _boundary(mid: str, n: int) -> MutantVerdict:
-    """A real BOUNDARY diff: `q > n` shifted to `q >= n`, both whole-function bodies.
+    """A real BOUNDARY diff: `weight > n` shifted to `weight >= n`, both whole-function bodies.
+
+    `weight` is one of the proof's declared parameters — issue #8 classifies a
+    comparison over a non-parameter as an INTERNAL condition, which is its own kind.
 
     Operands must MATCH between original and mutant or `_boundary_hint` cannot recover them —
     that is the point of the hint: it derives the equality edge from the comparison whose
     OPERATOR moved, so a fixture that also moves the operand tests nothing.
     """
-    orig = f"def f(q):\n    if q > {n}:\n        pass"
-    mut = f"def f(q):\n    if q >= {n}:\n        pass"
+    orig = f"def f(weight):\n    if weight > {n}:\n        pass"
+    mut = f"def f(weight):\n    if weight >= {n}:\n        pass"
     return MutantVerdict(mid, "BOUNDARY", f"- {orig}\n+ {mut}", killable=False, witness=None, searched=9)
 
 
@@ -277,8 +280,8 @@ def test_every_derived_requirement_is_named_not_just_the_first():
     batchable job into N sequential rounds and never disclosed that N-1 more existed."""
     rep = _rep(verdicts=(_boundary("B0", 0), _boundary("B1", 5)), inputs_expressible=True)
     out = _out(survivor_report=rep)
-    assert "1. where q == 0" in out
-    assert "2. where q == 5" in out
+    assert "1. where weight == 0" in out
+    assert "2. where weight == 5" in out
     # One --input per requirement: the repetition IS the signal for how many calls to author.
     assert out.count('--input "(<weight>') == 2
 
@@ -299,7 +302,7 @@ def test_derive_inputs_returns_data_so_both_surfaces_cannot_drift():
     from Detective.cli import _derive_inputs
 
     kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(_boundary("B0", 0),)))
-    assert (kind, items, total) == ("boundary", ["where q == 0"], 1)
+    assert (kind, items, total) == ("boundary", ["where weight == 0"], 1)
     kind, items, total = _derive_inputs(_proof(), _rep())  # 5 killable, each with a witness
     assert kind == "witness" and items[0] == "(1,)" and total == 5
     kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(), unclassified=("U0",)))
@@ -329,7 +332,5 @@ def test_derive_inputs_untypeable_witness_becomes_test_kind_never_a_command():
     assert total == 1
     assert "a function" in items[0]
     # A typeable witness alongside it still wins the command path.
-    kind, items, total = _derive_inputs(
-        _proof(), _rep(verdicts=(untypeable, _killable("K1")))
-    )
+    kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(untypeable, _killable("K1"))))
     assert kind == "witness" and items == ["(1,)"] and total == 1

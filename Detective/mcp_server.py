@@ -144,6 +144,25 @@ def _ask_for_input(
         ]
         return out
 
+    if kind == "internal":
+        out = [
+            "",
+            f"DO THIS: {tool}(file={file!r}, function={function!r}, inputs=[{tmpl}]{tail})",
+            "",
+            f"  {why}",
+            "  The surviving distinction sits behind an INTERNAL condition — a derived local,",
+            "  not a parameter — so no direct input constraint exists. That is the verified",
+            "  finding, not a missing derivation:",
+        ]
+        out += [f"    {i}. {cond}" for i, cond in enumerate(items, start=1)]
+        if total > len(items):
+            out.append(f"    (+{total - len(items)} more in the full report — full=True.)")
+        out += [
+            f"  Author one real call to {function}{_sig_tail(proof)} whose execution drives the",
+            "  condition(s) above. Detective derives every test from the call you pass.",
+        ]
+        return out
+
     return [
         "",
         f"DO THIS: {tool}(file={file!r}, function={function!r}, inputs=[{tmpl}]{tail})",

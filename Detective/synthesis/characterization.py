@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, is_dataclass, replace
+from dataclasses import fields as dataclass_fields
 from enum import StrEnum
 from typing import Any
 
@@ -236,14 +237,57 @@ def _call_args(cap: GoldenCapture) -> str:
 
 def _contains_set(value: Any) -> bool:
     """True if ``value`` is, or nests, a set/frozenset — whose repr order is not
-    stable across processes."""
+    stable across processes. Dataclass instances nest their field values: a repr
+    like ``_Flow(uses=frozenset({...}))`` embeds the set's unstable order."""
     if isinstance(value, (set, frozenset)):
         return True
     if isinstance(value, dict):
         return any(_contains_set(k) or _contains_set(v) for k, v in value.items())
     if isinstance(value, (list, tuple)):
         return any(_contains_set(v) for v in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return any(_contains_set(getattr(value, f.name)) for f in dataclass_fields(value))
     return False
+
+
+def _stable_expr(value: Any) -> str | None:
+    """A Python expression that reconstructs ``value`` with order-STABLE source text,
+    or None when no such expression exists (a non-literal element). Sets are the one
+    order-unstable repr; render them from SORTED element expressions so the emitted
+    text cannot depend on the hash seed. Everything else round-trips through
+    ``literal_eval`` or abstains — an expression this cannot build is a value this
+    must not pin."""
+    if isinstance(value, (set, frozenset)):
+        elems = [_stable_expr(v) for v in value]
+        if any(e is None for e in elems):
+            return None
+        if not elems:
+            return "frozenset()" if isinstance(value, frozenset) else "set()"
+        inner = "{" + ", ".join(sorted(e for e in elems if e is not None)) + "}"
+        return f"frozenset({inner})" if isinstance(value, frozenset) else inner
+    if isinstance(value, tuple):
+        elems = [_stable_expr(v) for v in value]
+        if any(e is None for e in elems):
+            return None
+        return "(" + ", ".join(e for e in elems if e is not None) + ("," if len(elems) == 1 else "") + ")"
+    if isinstance(value, list):
+        elems = [_stable_expr(v) for v in value]
+        if any(e is None for e in elems):
+            return None
+        return "[" + ", ".join(e for e in elems if e is not None) + "]"
+    if isinstance(value, dict):
+        items = [(_stable_expr(k), _stable_expr(v)) for k, v in value.items()]
+        if any(k is None or v is None for k, v in items):
+            return None
+        return "{" + ", ".join(f"{k}: {v}" for k, v in items) + "}"
+    rendered = repr(value)
+    try:
+        round_tripped = ast.literal_eval(rendered)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return None
+    # equality, not identity: a repr that parses but does not reproduce the value
+    # (nan) is as unusable as one that does not parse
+    return rendered if round_tripped == value else None
 
 
 def golden_assert_line(output_repr: str, value: Any = None) -> str:
@@ -275,6 +319,23 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str:
         # different flaky assertion dressed as a fix.
         if isinstance(value, (set, frozenset)) and not any(_contains_set(v) for v in value):
             return f"assert sorted(map(repr, result)) == {sorted(map(repr, value))!r}"
+        if _contains_set(value):
+            # The repr embeds a set's unstable order somewhere INSIDE a non-literal
+            # shell — a dataclass with frozenset fields, a list of frozensets. Pin by
+            # value equality against an order-stable reconstruction; for a dataclass,
+            # field access reaches the values without needing its constructor imported.
+            if is_dataclass(value) and not isinstance(value, type):
+                dc_fields = dataclass_fields(value)
+                exprs = [_stable_expr(getattr(value, f.name)) for f in dc_fields]
+                if dc_fields and all(e is not None for e in exprs):
+                    names = ", ".join(f"result.{f.name}" for f in dc_fields)
+                    vals = ", ".join(e for e in exprs if e is not None)
+                    if len(dc_fields) == 1:
+                        return f"assert {names} == {vals}"
+                    return f"assert ({names}) == ({vals})"
+            stable = _stable_expr(value)
+            if stable is not None:
+                return f"assert result == {stable}"
         return f"assert repr(result) == {output_repr!r}"
     if output_repr in ("True", "False", "None"):
         return f"assert result is {output_repr}"
