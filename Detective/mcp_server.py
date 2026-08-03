@@ -362,14 +362,17 @@ def _render_audit(a: Any, file: str, function: str) -> str:
 
     if a.redundant_tests:
         out.append("")
-        out.append(f"{len(a.redundant_tests)} test(s) are pointless for BOTH kills and lines:")
+        out.append(f"{len(a.redundant_tests)} test(s) are pointless for THIS FUNCTION's kills and lines:")
         out += [f"    {t}" for t in a.redundant_tests[:6]]
         out.append("")
-        out.append("DONE: no gaps. The tests above earn nothing — every mutant they kill and every")
-        out.append("  line they cover is already covered by another test. Deleting them is a")
-        out.append("  PROPOSAL and it is the user's call, not yours: ask. `audit --remove` is the")
-        out.append("  terminal form and is not a tool here, deliberately — deleting someone's")
-        out.append("  tests on your own judgement is not a move this surface offers.")
+        out.append("DONE: no gaps. The tests above earn nothing HERE — every mutant of this")
+        out.append("  function they kill and every line they cover is already covered by another")
+        out.append("  test. That is single-function evidence: one of them can still be the only")
+        out.append("  killer of a SIBLING function's mutant, so do NOT delete on this report")
+        out.append("  alone. Deleting is a PROPOSAL and it is the user's call, not yours: ask.")
+        out.append("  `audit --remove` is the terminal form (it re-checks every sibling in the")
+        out.append("  file before deleting) and is not a tool here, deliberately — deleting")
+        out.append("  someone's tests on your own judgement is not a move this surface offers.")
         return "\n".join(out)
 
     if a.candidate_equivalent and a.candidate_equivalent_ids:

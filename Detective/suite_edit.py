@@ -20,6 +20,27 @@ from dataclasses import dataclass
 
 from Wesker.ci import discover_test_callables, walk_functions
 
+try:
+    from Wesker.ci import callable_origin
+except ImportError:  # Wesker < 0.9.5 — same resolution rules, applied locally
+
+    def callable_origin(call: Any) -> str | None:
+        """Absolute path of the test file a discovered callable came from.
+
+        Discovery hands out WRAPPERS: a live pytest item's runner and a
+        re-collected parametrized case are closures whose ``co_filename`` is
+        Wesker's own module, not the test's. Resolution must go tag →
+        ``__wrapped__`` → code object, or every wrapper "locates" to
+        ``pytest_runner.py`` and removal silently no-ops (or worse, edits it).
+        """
+        tagged = getattr(call, "__wesker_origin__", None)
+        if tagged:
+            return str(tagged)
+        real = getattr(call, "__wrapped__", call)
+        code = getattr(real, "__code__", None)
+        f = getattr(code, "co_filename", None)
+        return os.path.abspath(f) if f else None
+
 
 def remove_function_from_source(source: str, name: str) -> str | None:
     """``source`` with the top-level function ``name`` (and any decorators) removed,
@@ -66,9 +87,16 @@ def _locate(project_root: str, file: str, names: set[str]) -> dict[str, set[str]
         name = getattr(call, "__name__", "")
         if name not in names:
             continue
-        path = getattr(getattr(call, "__code__", None), "co_filename", None)
-        if path:
-            by_file.setdefault(path, set()).add(name)
+        path = callable_origin(call)
+        if not path:
+            continue
+        # Only files under the project root are candidates for editing. A path
+        # outside it means origin resolution fell through to a wrapper's own
+        # module (site-packages) — deleting "a test" from THERE is the one edit
+        # this function must never make, so the name stays unlocated instead.
+        if not os.path.abspath(path).startswith(root + os.sep):
+            continue
+        by_file.setdefault(path, set()).add(name)
     return by_file
 
 
@@ -81,7 +109,6 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     ``not_found``, never guessed at."""
     wanted = set(names)
     by_file = _locate(project_root, file, wanted)
-    located = {n for group in by_file.values() for n in group}
     removed: list[str] = []
     changed: list[str] = []
     for path, file_names in by_file.items():
@@ -98,5 +125,10 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(source)
             changed.append(path)
-    not_found = tuple(sorted(wanted - located))
+    # Keyed off REMOVED, not located: a name can locate to a file whose parse
+    # then shows no such top-level def (a stale collection, a nested test). The
+    # old `wanted - located` accounting made that case silently vanish from the
+    # report — neither removed nor not_found — which is how a total no-op once
+    # printed as a clean "removed nothing" with no reason attached.
+    not_found = tuple(sorted(wanted - set(removed)))
     return RemovalReport(tuple(sorted(removed)), not_found, tuple(sorted(changed)))

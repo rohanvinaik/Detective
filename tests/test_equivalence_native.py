@@ -87,18 +87,20 @@ def test_candidate_inputs_arity_zero_is_single_empty_tuple():
 
 
 def test_candidate_inputs_arity_one_is_the_base_grid():
-    assert candidate_inputs(1) == [(-1,), (0,), (1,), (2,), (3,)]
+    # 1.0625 is the pool's one decimal-rich value: without it a precision-class
+    # mutant (round ndigits, unwrap) has no possible witness here.
+    assert candidate_inputs(1) == [(-1,), (0,), (1,), (2,), (3,), (1.0625,)]
 
 
 def test_candidate_inputs_arity_two_is_full_product_including_boundaries():
     got = candidate_inputs(2)
-    assert len(got) == 25
-    assert (0, 0) in got and (-1, 2) in got
+    assert len(got) == 36
+    assert (0, 0) in got and (-1, 2) in got and (1.0625, 0) in got
 
 
 def test_candidate_inputs_wide_signature_stays_bounded():
     got = candidate_inputs(3)
-    assert len(got) == 8  # 5 diagonals + 3 varied
+    assert len(got) == 9  # 6 diagonals + 3 varied
     assert (1, 2, 3) in got and (3, 2, 1) in got
 
 
@@ -111,6 +113,7 @@ def test_candidate_inputs_arity_three_is_pinned_verbatim():
         (1, 1, 1),
         (2, 2, 2),
         (3, 3, 3),
+        (1.0625, 1.0625, 1.0625),
         (1, 2, 3),
         (3, 2, 1),
         (0, 1, 2),

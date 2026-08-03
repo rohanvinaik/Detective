@@ -591,7 +591,14 @@ def _format_survivor_report(
         # bucket. The old single sentence said "your suite already detects them" for ALL of
         # these, which was false exactly for the ones no test reaches.
         if n_det and not n_undet:
-            head += " Your suite already detects every one by crash — nothing to supply."
+            # "Detection is complete" and "a sharper witness exists" are different
+            # claims — the old "nothing to supply" flatly contradicted the ↳ hint
+            # lines below, which DO name an input worth supplying.
+            head += (
+                " Your suite already detects every one by crash — no input is owed for "
+                "detection; a ↳ line below, where present, names the boundary input that "
+                "would make the distinction explicit."
+            )
         elif n_undet:
             head += (
                 f" Your suite crash-detects {n_det} of them; the other {n_undet} are reached by "
@@ -790,14 +797,18 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
             mode = "comprehensive — full mutant universe"
         # STATS FLEX tail: the PROVEN greedy coverage floor (Wesker's
         # greedy_coverage_guarantee) — an a-priori lower bound the measured rate
-        # meets or beats. Comprehensive is exhaustive (100% guaranteed); fast shows
-        # the (1−1/e)-per-pass guarantee, so the speed/certainty trade is explicit.
+        # meets or beats. Comprehensive tests every mutant the operators generate;
+        # fast shows the (1−1/e)-per-pass guarantee, so the speed/certainty trade
+        # is explicit. Both claims are RELATIVE TO THE OPERATOR UNIVERSE — a
+        # semantic edit no operator expresses is outside them, and the tail must
+        # not read as "no human edit can slip through" (one did: round ndigits,
+        # before VALUE:int~off1 existed).
         if result.fast:
             tail = (
                 f"greedy floor ≥ {result.coverage_guarantee:.0%} of coverable DOF (proven, (1−1/e) per pass)"
             )
         else:
-            tail = "exhaustive — 100% guaranteed"
+            tail = "exhaustive — every operator-universe mutant tested"
         # SPECIFIED reads value_killed, not killed: a crash/timeout kill proves the code runs,
         # not what it computes (§0), so crediting it here would overstate the specification —
         # and disagree with `diagnose`, which counts value-pins. This number is therefore
@@ -1409,7 +1420,8 @@ def _audit_action(a) -> list[str]:
             f"DO THIS:  detective audit '{a.function}' --remove",
             "",
             _row("· Why", f"{len(a.redundant_tests)} test(s) kill no mutant AND cover no line"),
-            _row("", "that another test does not already. Nothing else changes."),
+            _row("", "OF THIS FUNCTION that another test does not already. --remove"),
+            _row("", "re-checks every sibling in the file and retains what still pins one."),
         ]
     if a.candidate_equivalent and a.candidate_equivalent_ids:
         first = a.candidate_equivalent_ids[0]
@@ -2391,9 +2403,19 @@ def _run(args) -> int:
         )
         print(json.dumps(asdict(report), indent=2, default=str) if args.json else _format_audit(report))
         if args.remove and report.redundant_tests:
+            from .audit import module_safe_removals
             from .suite_edit import apply_removals
 
-            result = apply_removals(file, args.project_root, list(report.redundant_tests))
+            # The redundant set is single-function evidence; deletion is a
+            # module-level act. Filter against every sibling in the file first —
+            # a test pointless for THIS function can be the only killer of a
+            # sibling's mutant (the post-decompose wrapper case).
+            safe, retained = module_safe_removals(
+                file, function, args.project_root, list(report.redundant_tests)
+            )
+            for name, sibling in sorted(retained.items()):
+                print(f"  retained {name} — still pins {sibling}")
+            result = apply_removals(file, args.project_root, list(safe))
             print(
                 f"  removed {len(result.removed)}: {', '.join(result.removed)}"
                 if result.removed

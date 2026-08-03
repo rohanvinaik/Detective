@@ -21,12 +21,16 @@ is a separate, explicit step — audit only observes.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import ast
+import os
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from Wesker.ci import walk_functions
+
 from .engine import classify_survivors, profile
-from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis
+from .minimize import _obligations_by_test, minimal_cover_2axis, missing_lines, redundant_2axis
 
 
 @dataclass(frozen=True)
@@ -185,3 +189,48 @@ def audit_suite(
         crash_only_equivalent=crash_only_equivalent,
         unclassified=unclassified,
     )
+
+
+def module_safe_removals(
+    file: str,
+    function: str,
+    project_root: str = ".",
+    candidates: Sequence[str] = (),
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Filter deletion candidates against every SIBLING function in ``file``.
+
+    ``redundant_tests`` is measured against ONE function's mutants and lines —
+    evidence that says nothing about the rest of the module. A test that kills
+    no mutant of ``f`` can still be the only killer of a mutant of ``g`` in the
+    same file (measured: ``test_invalid_weight_raises`` — "pointless" for a
+    post-decompose wrapper, sole killer of the helper's ``<=`` boundary mutant).
+    Deleting on single-function evidence is how a prune silently un-pins a
+    sibling.
+
+    A candidate survives only if, for every sibling, it is UNINVOLVED there
+    (kills none of its mutants, covers none of its lines) or redundant there
+    too. Anything else is retained, mapped to the sibling that needs it.
+
+    The evidence boundary is THIS FILE: a test serving a function in another
+    module is outside every kill matrix audit has, so the caller's report must
+    scope its claim to the file — not "nothing else changes".
+    """
+    wanted = set(candidates)
+    if not wanted:
+        return (), {}
+    root = os.path.abspath(project_root)
+    full = file if os.path.isabs(file) else os.path.join(root, file)
+    with open(full, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=full)
+    retained: dict[str, str] = {}
+    for qn, _node in walk_functions(tree):
+        if qn == function or not wanted:
+            continue
+        result = profile(file, qn, root)
+        needed = set(_obligations_by_test(result.kill_matrix, result.line_coverage)) - redundant_2axis(
+            result.kill_matrix, result.line_coverage
+        )
+        for name in sorted(wanted & needed):
+            retained[name] = qn
+        wanted -= needed
+    return tuple(sorted(wanted)), retained

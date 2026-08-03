@@ -388,7 +388,12 @@ def param_type_names(node) -> list[str | None]:
 
 _TYPE_GRID: dict[str, list] = {
     "int": [-1, 0, 1, 2, 3],
-    "float": [-1.0, 0.0, 1.0, 2.5],
+    # 1.0625 = 1 + 1/16: exactly representable, four decimal digits. Every other
+    # float here has ≤1, so no grid input could EVER witness a precision-class
+    # mutant — round(x, 2) vs round(x, 3) vs "the call is gone" all agree on
+    # halves. Measured: both `return round(cost, 3)` and `return cost` sat
+    # unprovable ("no distinguishing input in 35 tried") until this value.
+    "float": [-1.0, 0.0, 1.0, 2.5, 1.0625],
     "bool": [False, True],
     "str": ["", "a", "abc"],
 }
@@ -468,7 +473,9 @@ def candidate_inputs(arity: int, max_int: int = 3) -> list[tuple]:
     """
     if arity <= 0:
         return [()]
-    base = [-1, 0, 1, 2, max_int]
+    # 1.0625 for the same reason as _TYPE_GRID's: unannotated numeric code needs
+    # one decimal-rich value or precision mutants have no witness in the pool.
+    base = [-1, 0, 1, 2, max_int, 1.0625]
     if arity <= 2:
         return [tuple(combo) for combo in itertools.product(base, repeat=arity)]
     diagonals = [tuple([v] * arity) for v in base]
