@@ -112,6 +112,20 @@ def _ask_for_input(
             out.append(f"  ({total - len(items)} more are in the full report — full=True.)")
         return out
 
+    if kind == "test":
+        out = [
+            "",
+            f"DO THIS: write a test that calls {function} with the object(s) below, then re-run {tool}.",
+            "",
+            f"  {why}",
+            f"  Detective RAN each of these {total} object(s) and watched a mutant differ — but none",
+            "  can be passed as an input string: they are objects only a test can build.",
+        ]
+        out += [f"    {i}. {d}" for i, d in enumerate(items, start=1)]
+        if total > len(items):
+            out.append(f"    ({total - len(items)} more in the full report — full=True.)")
+        return out
+
     if kind == "boundary":
         inputs = ", ".join([tmpl] * len(items))
         out = [

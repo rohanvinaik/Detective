@@ -304,3 +304,32 @@ def test_derive_inputs_returns_data_so_both_surfaces_cannot_drift():
     assert kind == "witness" and items[0] == "(1,)" and total == 5
     kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(), unclassified=("U0",)))
     assert (kind, items, total) == ("author", [], 0)
+
+
+def test_derive_inputs_untypeable_witness_becomes_test_kind_never_a_command():
+    """A captured object (a function a test built) DISTINGUISHES a mutant while
+    satisfying no `--input` string ever — `--input` parses literals + ast.*. The
+    old behavior rendered its repr as a paste-this command that always errors;
+    the derivation now returns kind "test": name the object, ask for a test."""
+    from Detective.cli import _derive_inputs
+
+    def _built_by_a_test():  # pragma: no cover — a value, never called
+        pass
+
+    untypeable = MutantVerdict(
+        "K0",
+        "STATE",
+        "- return f\n+ return None",
+        killable=True,
+        witness=Witness((_built_by_a_test,), "'/x_test.py'", "None"),
+        searched=5,
+    )
+    kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(untypeable,)))
+    assert kind == "test"
+    assert total == 1
+    assert "a function" in items[0]
+    # A typeable witness alongside it still wins the command path.
+    kind, items, total = _derive_inputs(
+        _proof(), _rep(verdicts=(untypeable, _killable("K1")))
+    )
+    assert kind == "witness" and items == ["(1,)"] and total == 1

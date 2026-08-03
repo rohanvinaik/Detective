@@ -1191,41 +1191,92 @@ def classify_survivors(
     pure = _is_pure(node, is_method="." in (qualname or ""))
     by_id = {m.mutant_id: m for m in generate_mutants(node, filter_categories(node, pure))}  # type: ignore[arg-type]
 
-    verdicts: list[MutantVerdict] = []
-    unclassified: list[str] = []
-    manual_equivalent: list[str] = []
-    for rec in survivors:
-        mutant = by_id.get(rec.get("mutant_id", ""))
-        mutant_fn = _compile_mutant(mutant, original) if mutant is not None else None
-        if mutant_fn is None:
-            # Un-buildable: the manual flag is the only signal we have.
-            (manual_equivalent if _flagged(rec) else unclassified).append(
-                rec.get("diff_summary", "") if _flagged(rec) else rec.get("mutant", rec.get("mutant_id", "?"))
+    def _classify_pool(pool: list[tuple]) -> tuple[list[MutantVerdict], list[str], list[str]]:
+        _verdicts: list[MutantVerdict] = []
+        _unclassified: list[str] = []
+        _manual: list[str] = []
+        for rec in survivors:
+            mutant = by_id.get(rec.get("mutant_id", ""))
+            mutant_fn = _compile_mutant(mutant, original) if mutant is not None else None
+            if mutant_fn is None:
+                # Un-buildable: the manual flag is the only signal we have.
+                (_manual if _flagged(rec) else _unclassified).append(
+                    rec.get("diff_summary", "") if _flagged(rec) else rec.get("mutant", rec.get("mutant_id", "?"))
+                )
+                continue
+            verdict = classify_survivor(
+                rec.get("mutant_id", ""),
+                rec.get("category", ""),
+                rec.get("diff_summary", ""),
+                original,
+                mutant_fn,
+                pool,
+                # A crash-survivor record is a reshaped KILL record and carries `killed_by`; a
+                # true survivor carries none. That single field is whether "your suite already
+                # detects this by crash" is TRUE of this mutant — carried so the renderer can
+                # say it per mutant instead of assuming it for the bucket.
+                suite_detected=bool(rec.get("killed_by")),
             )
-            continue
-        verdict = classify_survivor(
-            rec.get("mutant_id", ""),
-            rec.get("category", ""),
-            rec.get("diff_summary", ""),
-            original,
-            mutant_fn,
-            inputs,
-            # A crash-survivor record is a reshaped KILL record and carries `killed_by`; a
-            # true survivor carries none. That single field is whether "your suite already
-            # detects this by crash" is TRUE of this mutant — carried so the renderer can
-            # say it per mutant instead of assuming it for the bucket.
-            suite_detected=bool(rec.get("killed_by")),
+            # A real witness is PROOF of killability and outranks the flag (keep the
+            # killable verdict); a flag on a no-witness survivor confirms equivalence.
+            if not verdict.killable and _flagged(rec):
+                _manual.append(rec.get("diff_summary", ""))
+            else:
+                _verdicts.append(verdict)
+        return _verdicts, _unclassified, _manual
+
+    verdicts, unclassified, manual_equivalent = _classify_pool(inputs)
+    note: str | None = None
+
+    # POOL-POVERTY RESCUE. The capture fallback above triggers on "every candidate
+    # RAISES" — reachability. But a total function can be reached by a degenerate
+    # input and still never be DISCRIMINATED by one: `callable_origin(1)` returns
+    # None just like every mutant of it, so ints exercise it, the raise-gate stays
+    # quiet, and 6/6 survivors file as candidate-equivalent — a claim about the
+    # input pool wearing the costume of a claim about the code. When classification
+    # finds NO killable survivor and at least one unprovable one is not crash-only
+    # (crash-only is a terminal per-semantics verdict richer inputs cannot move),
+    # capture the REAL arguments the covering tests pass — same rescue, second
+    # trigger — and reclassify. Adopt the retry only if it proved something.
+    all_unprovable = bool(verdicts) and not any(v.killable for v in verdicts)
+    if all_unprovable and any(not v.killable and not v.crash_only for v in verdicts):
+        func_names = [qn for qn, _ in walk_functions(tree)]
+        harvest_tests = discover_test_callables(
+            root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
         )
-        # A real witness is PROOF of killability and outranks the flag (keep the
-        # killable verdict); a flag on a no-witness survivor confirms equivalence.
-        if not verdict.killable and _flagged(rec):
-            manual_equivalent.append(rec.get("diff_summary", ""))
+        captured = capture_call_inputs(original, harvest_tests)
+        fresh = [t for t in captured if t not in inputs]
+        if fresh:
+            retry = _classify_pool(supplied + fresh + inputs)
+            if any(v.killable for v in retry[0]):
+                verdicts, unclassified, manual_equivalent = retry
+                # Expressibility must be judged on the WITNESS inputs, not the first
+                # input that merely exercised the function: a captured function object
+                # discriminates but cannot be typed, and the renderer's contract is
+                # that any `--input` it prints can be pasted and will parse.
+                witness_args = [
+                    v.witness.args for v in verdicts if v.killable and v.witness is not None
+                ]
+                if witness_args:
+                    expressible = all(
+                        is_expressible(a) for args in witness_args for a in args
+                    )
+            else:
+                note = (
+                    f"no candidate input discriminates any survivor — pool included "
+                    f"{len(fresh)} captured real input(s) from the covering tests"
+                )
         else:
-            verdicts.append(verdict)
+            note = (
+                "no candidate input discriminates any survivor, and the covering tests "
+                "never call this function with inputs beyond the synthesized pool — "
+                "equivalence here is a claim about the input pool, not the code"
+            )
+
     return SurvivorReport(
         tuple(verdicts),
         tuple(unclassified),
-        None,
+        note,
         manual_equivalent=tuple(manual_equivalent),
         inputs_expressible=expressible,
     )

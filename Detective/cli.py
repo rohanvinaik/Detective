@@ -24,7 +24,7 @@ from Wesker.engine import (
 )
 
 from . import __version__
-from .equivalence import crash_only_status
+from .equivalence import crash_only_status, is_expressible
 
 
 def _trace_budget(args) -> float | None:
@@ -1143,8 +1143,20 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     there. Sharing the derivation cannot do that, and it is the part that must never drift.
     """
     witnesses = [v for v in (rep.killable if rep is not None else ()) if v.witness]
+    # A witness is only a COMMAND if a human can type it: `--input` parses literals +
+    # ast.*, so a captured object (a function, a wrapper a test built) distinguishes
+    # the mutant while satisfying no `--input` string ever. Those become "test" —
+    # name the object, ask for a test — instead of a paste-this that always errors.
+    typeable = [v for v in witnesses if all(is_expressible(a) for a in v.witness.args)]
+    if typeable:
+        return "witness", [f"({_witness_args(v.witness)})" for v in typeable[:_MAX_BATCH]], len(typeable)
     if witnesses:
-        return "witness", [f"({_witness_args(v.witness)})" for v in witnesses[:_MAX_BATCH]], len(witnesses)
+        descs: list[str] = []
+        for v in witnesses:
+            d = ", ".join(f"a {type(a).__name__}: {repr(a)[:70]}" for a in v.witness.args)
+            if d not in descs:
+                descs.append(d)
+        return "test", descs[:_MAX_BATCH], len(witnesses)
     hints: list[str] = []
     # Skip crash-only survivors: an input already distinguishes them and no value assertion can
     # pin them, so any input we ask for here is one the caller can supply and still see NO
@@ -1188,6 +1200,18 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
             out.append(_row("", "(a repeat is intentional: several mutants share one call)"))
         out.append(_row("", "SUGGESTED — not written for you, because the engine"))
         out.append(_row("", "could not verify the tests sound."))
+        if total > len(items):
+            out.append(_row("", f"({total - len(items)} more in {where})"))
+        return out
+
+    if kind == "test":
+        out = [f"DO THIS:  add a test that calls the target with the object(s) below, then re-run: {cmd}"]
+        out.append("")
+        out.append(_row("· Why", f"Detective RAN each — a mutant differs on it — but none"))
+        out.append(_row("", "can be typed as --input: they are objects only a test builds."))
+        out.append(_row("· Object(s)", f"1. {items[0]}"))
+        for i, d in enumerate(items[1:], start=2):
+            out.append(_row("", f"{i}. {d}"))
         if total > len(items):
             out.append(_row("", f"({total - len(items)} more in {where})"))
         return out
