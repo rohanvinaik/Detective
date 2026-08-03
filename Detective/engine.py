@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import hashlib
 import importlib.util
 import os
 import subprocess
 import sys
 from collections.abc import Callable
+from types import CodeType
 from typing import Any
 
 from Wesker.ci import discover_test_callables, walk_functions
@@ -230,6 +232,93 @@ def _package_qualname(full_path: str) -> tuple[str, str]:
     return ".".join(parts), d
 
 
+def _purge_stale_bytecode(source_path: str) -> None:
+    """Drop the cached ``.pyc`` for ``source_path`` so imports compile the file on disk.
+
+    CPython validates a timestamp-based ``.pyc`` by source mtime truncated to WHOLE
+    SECONDS plus source size, so a same-second, same-size source replacement (a
+    scripted edit-run-revert loop, a git checkout or stash pop) leaves a stale cache
+    the import system happily serves — and every value measured from that import
+    describes a file that is no longer on disk: golden captures pin phantom
+    behaviour and an apply trial "proves" a change that never happened. A number
+    measured against the wrong file is worse than no number, so spend the one
+    recompile and unlink the cache before anything imports the target.
+    """
+    try:
+        os.remove(importlib.util.cache_from_source(os.path.abspath(source_path)))
+    except OSError:  # no cache, already gone, or unwritable tree — import handles it
+        pass
+
+def _codes_equal(a: CodeType, b: CodeType) -> bool:
+    """Structural equality of two code objects, recursing into nested code consts."""
+    if (
+        a.co_code != b.co_code
+        or a.co_names != b.co_names
+        or a.co_varnames != b.co_varnames
+        or len(a.co_consts) != len(b.co_consts)
+    ):
+        return False
+    for x, y in zip(a.co_consts, b.co_consts, strict=True):
+        if isinstance(x, CodeType) != isinstance(y, CodeType):
+            return False
+        if isinstance(x, CodeType):
+            if not _codes_equal(x, y):
+                return False
+        elif type(x) is not type(y) or x != y:
+            return False
+    return True
+
+
+def _sha256_of(path: str) -> str | None:
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def _live_module_is_stale(mod: Any, real: str, qualname: str, disk_sha: str | None) -> bool:
+    """True when a cached module's target no longer matches the source on disk.
+
+    ``_purge_stale_bytecode`` guarantees every FRESH import compiles the file on
+    disk, but a long-lived process (the MCP server) can already hold a module
+    imported before the file changed — and no cache purge fixes a live object.
+
+    Two tiers. A module ``_load_original`` itself imported carries the source
+    hash it was imported from (stamped below), so freshness is an exact hash
+    comparison — it catches ANY edit, including a module-level constant the
+    target reads. A module someone else imported (pytest, the user) has no
+    stamp; for those, compare the live target's ``__code__`` against the same
+    function compiled from today's source — catches body edits, and honestly
+    cannot see global-only edits. Only a plain function whose compiled qualname
+    matches the request is verifiable that way; anything else — a decorated
+    wrapper, a non-function target — reports fresh, preserving the reuse fast
+    path exactly as before.
+    """
+    stamp = getattr(mod, "__detective_source_sha256__", None)
+    if stamp is not None and disk_sha is not None:
+        return stamp != disk_sha
+    live = _attr_path(mod, qualname)
+    live_code = getattr(live, "__code__", None)
+    if live_code is None or live_code.co_qualname != qualname:
+        return False
+    try:
+        with open(real, encoding="utf-8") as fh:
+            disk = compile(fh.read(), real, "exec")
+    except (OSError, SyntaxError):
+        return False  # unreadable or unparsable NOW: let the import path report that
+    stack = [disk]
+    while stack:
+        code = stack.pop()
+        for const in code.co_consts:
+            if isinstance(const, CodeType):
+                if const.co_qualname == qualname:
+                    return not _codes_equal(const, live_code)
+                stack.append(const)
+    return True  # the function is gone from the file on disk — definitely stale
+
+
+
 def _load_original(full_path: str, qualname: str) -> Any | None:
     """Return the live target object from the module under test.
 
@@ -243,9 +332,17 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
     Returns None if all three fail (Wesker then degrades to an empty namespace).
     """
     real = os.path.abspath(full_path)
-    for mod in list(sys.modules.values()):
+    _purge_stale_bytecode(real)  # a fresh import below must compile the file on disk
+    disk_sha = _sha256_of(real)  # read once; stamped onto whatever this call imports
+    for name, mod in list(sys.modules.items()):
         mod_file = getattr(mod, "__file__", None)
         if mod_file and os.path.abspath(mod_file) == real:
+            if _live_module_is_stale(mod, real, qualname, disk_sha):
+                # A long-lived process (the MCP server) can hold a module imported
+                # before the file changed on disk; serving it would measure retired
+                # code. Evict every alias and fall through to a fresh import.
+                del sys.modules[name]
+                continue
             return _attr_path(mod, qualname)
 
     # Import by dotted package name so module-level RELATIVE imports resolve. A parentless path-load
@@ -256,7 +353,10 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
         try:
             if pkg_root and pkg_root not in sys.path:
                 sys.path.insert(0, pkg_root)
-            obj = _attr_path(importlib.import_module(dotted), qualname)
+            imported = importlib.import_module(dotted)
+            if disk_sha is not None:
+                imported.__detective_source_sha256__ = disk_sha
+            obj = _attr_path(imported, qualname)
             if obj is not None:
                 return obj
         except Exception:
@@ -271,6 +371,8 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod  # register before exec (dataclass/pickle resolution)
         spec.loader.exec_module(mod)
+        if disk_sha is not None:
+            mod.__detective_source_sha256__ = disk_sha
     except Exception:
         return None
     return _attr_path(mod, qualname)
@@ -317,6 +419,10 @@ def profile(
     """
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
+    # Before ANY import can touch the target — test discovery and the traced
+    # baseline both import it transitively — retire a possibly-stale bytecode
+    # cache, or every number below describes a file no longer on disk.
+    _purge_stale_bytecode(full)
     with open(full, encoding="utf-8") as fh:
         tree = ast.parse(fh.read(), filename=full)
 
@@ -944,6 +1050,10 @@ def classify_survivors(
     """
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
+    # Before ANY import can touch the target — test discovery and the traced
+    # baseline both import it transitively — retire a possibly-stale bytecode
+    # cache, or every number below describes a file no longer on disk.
+    _purge_stale_bytecode(full)
     with open(full, encoding="utf-8") as fh:
         tree = ast.parse(fh.read(), filename=full)
     qualname, node = _resolve(tree, function)

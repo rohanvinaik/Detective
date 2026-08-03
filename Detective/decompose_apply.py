@@ -438,6 +438,8 @@ def apply_decomposition(
     applied: list[Extraction] = []
     proposed: list[Decomposition] = []
     unsafe: list[str] = []
+    from .engine import _purge_stale_bytecode
+
     for _ in range(max_extractions):
         with open(full, encoding="utf-8") as fh:
             source = fh.read()
@@ -461,6 +463,9 @@ def apply_decomposition(
             )
             with open(full, "w", encoding="utf-8") as fh:
                 fh.write(extraction.new_source)
+            # The proof run must import THIS trial, not bytecode cached from the
+            # pre-trial file (same-second, same-size writes fool the .pyc check).
+            _purge_stale_bytecode(full)
             proven = baseline_green and _suite_green()
             # Three outcomes, never two: with no proof suite nothing was REJECTED, it was
             # never tried. Collapsing "could not prove" into "behavior changed" accuses a
@@ -478,6 +483,9 @@ def apply_decomposition(
                 break  # keep it; re-read and re-plan against the rewritten file
             with open(full, "w", encoding="utf-8") as fh:
                 fh.write(source)  # revert the trial
+            # Never leave the USER's next import running trial bytecode: the revert
+            # restores the pre-trial content, so retire the trial's cache with it.
+            _purge_stale_bytecode(full)
             proposed.append(Decomposition(extraction, validated=proven))
         if not (write and progressed):
             break

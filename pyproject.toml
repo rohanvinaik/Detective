@@ -202,7 +202,7 @@ classifiers = [
 # state, on any suite with a parametrized golden (i.e., every suite converge itself writes). The
 # poisoned entry also survives `purge` below 0.9.3, so no documented recovery clears it.
 dependencies = [
-    "Wesker>=0.9.3",
+    "Wesker>=0.9.4",
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it
