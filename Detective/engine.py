@@ -214,20 +214,53 @@ def _resolve_origin(module: str, root: str, extra_path: list[str]) -> str | None
     return done.stdout.strip() or None
 
 
+def _package_qualname(full_path: str) -> tuple[str, str]:
+    """(dotted module name, importable sys.path root) for ``full_path``, by walking up while an
+    ``__init__.py`` exists — the first ancestor WITHOUT one is the root that belongs on ``sys.path``.
+    ``src/mneme/anamnesis.py`` -> (``mneme.anamnesis``, ``.../src``). A module with no package parent
+    returns its bare stem (no dot), signalling "load it by path, there is nothing to import."
+    """
+    full = os.path.abspath(full_path)
+    d = os.path.dirname(full)
+    parts = [os.path.splitext(os.path.basename(full))[0]]
+    while os.path.isfile(os.path.join(d, "__init__.py")):
+        parts.append(os.path.basename(d))
+        d = os.path.dirname(d)
+    parts.reverse()
+    return ".".join(parts), d
+
+
 def _load_original(full_path: str, qualname: str) -> Any | None:
     """Return the live target object from the module under test.
 
     Wesker seeds each mutant's namespace from ``original_func.__globals__`` so the
-    mutant can resolve the module's sibling helpers, constants, and imports. Prefers
-    the already-imported module (correct package context, so module-level *relative*
-    imports resolve); falls back to loading by path. Returns None if neither works
-    (Wesker then degrades to an empty namespace).
+    mutant can resolve the module's sibling helpers, constants, and imports. Tries, in order:
+    (1) the already-imported module whose ``__file__`` matches — free, and the correct package context;
+    (2) an import by the module's DOTTED PACKAGE NAME (walk up while ``__init__.py`` exists, with the
+    package root placed on ``sys.path``) — so a module whose top level uses a RELATIVE import
+    (``from .sibling import x``) loads with a real parent package instead of raising; then only
+    (3) a bare path-load, for a genuinely top-level (non-package) module.
+    Returns None if all three fail (Wesker then degrades to an empty namespace).
     """
     real = os.path.abspath(full_path)
     for mod in list(sys.modules.values()):
         mod_file = getattr(mod, "__file__", None)
         if mod_file and os.path.abspath(mod_file) == real:
             return _attr_path(mod, qualname)
+
+    # Import by dotted package name so module-level RELATIVE imports resolve. A parentless path-load
+    # (branch 3) execs the file with no package and dies on `from .x import y`, losing every survivor to
+    # "the live original could not be loaded" — the failure mode for any target inside a real package.
+    dotted, pkg_root = _package_qualname(real)
+    if "." in dotted:
+        try:
+            if pkg_root and pkg_root not in sys.path:
+                sys.path.insert(0, pkg_root)
+            obj = _attr_path(importlib.import_module(dotted), qualname)
+            if obj is not None:
+                return obj
+        except Exception:
+            pass
 
     try:
         stem = os.path.splitext(os.path.basename(full_path))[0]
