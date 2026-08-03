@@ -2423,6 +2423,12 @@ def _run(args) -> int:
             )
             if result.not_found:
                 print(f"  could not locate: {', '.join(result.not_found)}")
+            if result.parametrized:
+                print(
+                    f"  parametrized case(s) — rows of a live test, not removable as "
+                    f"functions; prune the @parametrize row(s) yourself: "
+                    f"{', '.join(result.parametrized)}"
+                )
             if result.removed:
                 # Re-audit so the user sees the suite is still complete after pruning.
                 after = audit_suite(file, function, args.project_root)

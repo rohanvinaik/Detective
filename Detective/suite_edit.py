@@ -69,6 +69,10 @@ class RemovalReport:
     removed: tuple[str, ...]  # test names actually deleted
     not_found: tuple[str, ...]  # requested names no source definition matched
     files_changed: tuple[str, ...]  # files rewritten
+    # Bracketed names (test_x[case]) — ROWS of a live parametrized test. Removal
+    # works at function granularity: deleting the function to prune a row would
+    # take the live rows with it, so these are never attempted, only reported.
+    parametrized: tuple[str, ...] = ()
 
 
 def _locate(project_root: str, file: str, names: set[str]) -> dict[str, set[str]]:
@@ -108,6 +112,12 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     file once. A name whose definition cannot be located is reported in
     ``not_found``, never guessed at."""
     wanted = set(names)
+    # A bracketed name is one CASE of a parametrized test — a row, not a
+    # function. The function is alive (its other rows earn their keep, or it
+    # would have been proposed by its bare name), so it must not be deleted to
+    # get at the row. Set aside and report; the user prunes the row.
+    cases = {n for n in wanted if "[" in n}
+    wanted -= cases
     by_file = _locate(project_root, file, wanted)
     removed: list[str] = []
     changed: list[str] = []
@@ -131,4 +141,6 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     # report — neither removed nor not_found — which is how a total no-op once
     # printed as a clean "removed nothing" with no reason attached.
     not_found = tuple(sorted(wanted - set(removed)))
-    return RemovalReport(tuple(sorted(removed)), not_found, tuple(sorted(changed)))
+    return RemovalReport(
+        tuple(sorted(removed)), not_found, tuple(sorted(changed)), tuple(sorted(cases))
+    )

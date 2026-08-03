@@ -176,3 +176,17 @@ def test_module_safe_removals_no_siblings_is_all_safe(tmp_path):
     safe, retained = module_safe_removals("m.py", "f", str(tmp_path), ["test_a"])
     assert safe == ("test_a",)
     assert retained == {}
+
+
+def test_parametrized_cases_are_reported_not_removed(tmp_path):
+    """A bracketed name is a ROW of a live test — deleting the function to
+    prune it would take the live rows too. Reported, never attempted."""
+    test_file = _project(tmp_path)
+    fake = [_wrapper("test_a", __wesker_origin__=str(test_file))]
+    with patch("Detective.suite_edit.discover_test_callables", return_value=fake):
+        report = apply_removals(
+            "m.py", str(tmp_path), ["test_golden[case0]", "test_a"]
+        )
+    assert report.parametrized == ("test_golden[case0]",)
+    assert report.removed == ("test_a",)
+    assert report.not_found == ()
