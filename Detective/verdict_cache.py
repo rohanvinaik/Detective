@@ -20,7 +20,7 @@ import hashlib
 import inspect
 import json
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any
 
@@ -148,18 +148,26 @@ def _to_json(result: ProfilingResult) -> dict:
 def _from_json(d: dict) -> ProfilingResult:
     """Inverse of :func:`_to_json`. Rebuilds the nested CategoryResult + enum so the
     reconstructed result is indistinguishable from a fresh profile (derived ``value_*``
-    properties recompute from ``per_category``)."""
+    properties recompute from ``per_category``).
+
+    The per-category fields are read off the DATACLASS, never restated here. A hand-written
+    list silently drops whatever the engine adds later, and it had: ``killed_by_exception``
+    — the DECLARED-failure kills, a pin rather than a crash — was absent from it, so every
+    cached readback zeroed those and a warm run reported FEWER pinned behaviours than the
+    cold run that populated the cache (67 -> 64, reproducibly, on a four-branch function).
+    Nothing raised. The two numbers simply disagreed, which is the one thing a verdict cache
+    must never do: the whole point of it is that a replayed verdict IS the measured one.
+
+    Unknown keys in an older row are ignored and a missing one keeps its default, so a
+    shape change degrades to a partial row rather than a wrong one — and anything
+    ``CategoryResult`` still rejects becomes a cache MISS in :func:`get`, which recomputes.
+    """
     d = dict(d)
+    cat_fields = {f.name for f in fields(CategoryResult)} - {"category"}
     d["per_category"] = [
         CategoryResult(
             category=MutationCategory(cd["category"]),
-            total=cd.get("total", 0),
-            killed=cd.get("killed", 0),
-            survived=cd.get("survived", 0),
-            killed_by_assertion=cd.get("killed_by_assertion", 0),
-            killed_by_crash=cd.get("killed_by_crash", 0),
-            timed_out=cd.get("timed_out", 0),
-            equivalent=cd.get("equivalent", 0),
+            **{k: v for k, v in cd.items() if k in cat_fields},
         )
         for cd in d.get("per_category", [])
     ]
