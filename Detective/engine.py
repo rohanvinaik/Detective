@@ -335,30 +335,48 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
     _purge_stale_bytecode(real)  # a fresh import below must compile the file on disk
     disk_sha = _sha256_of(real)  # read once; stamped onto whatever this call imports
 
-    def _same_file(a: str, b: str) -> bool:
-        # IDENTITY, not spelling: on a case-insensitive filesystem (macOS default)
-        # `wesker/engine.py` and `Wesker/engine.py` are one file with two spellings.
-        # String equality missed the already-imported module here, both fallback
-        # imports then died on the package's relative imports, and the target loaded
-        # as None — line coverage read empty ("18-line gap") while kills, which never
-        # consult the path, stayed green ("80/80 killed") about the same body.
-        if a == b:
-            return True
-        try:
-            return os.path.samefile(a, b)
-        except OSError:
-            return False
+    def _live_matches():
+        """Already-imported modules whose file IS ``real`` — cheap spellings first.
 
-    for name, mod in list(sys.modules.items()):
-        mod_file = getattr(mod, "__file__", None)
-        if mod_file and _same_file(os.path.abspath(mod_file), real):
-            if _live_module_is_stale(mod, real, qualname, disk_sha):
-                # A long-lived process (the MCP server) can hold a module imported
-                # before the file changed on disk; serving it would measure retired
-                # code. Evict every alias and fall through to a fresh import.
-                del sys.modules[name]
+        IDENTITY, not spelling, is what this has to answer: on a case-insensitive
+        filesystem (macOS default) `wesker/engine.py` and `Wesker/engine.py` are one file
+        with two spellings. String equality missed the already-imported module, both
+        fallback imports then died on the package's relative imports, and the target
+        loaded as None — line coverage read empty ("18-line gap") while kills, which never
+        consult the path, stayed green ("80/80 killed") about the same body.
+
+        But identity costs two stats, and asking it as a single predicate paid them on
+        every NON-match — once per module in the table, on every call. String equality
+        answers the same question for every module imported under the caller's own
+        spelling, which is all of them until a symlink or a rename is involved. So: two
+        passes, not one predicate. The identity scan runs only if no spelling matched, and
+        because this is a generator the caller's first accepted match ends the search
+        before that pass begins. Same set of matches either way; only the order differs,
+        and it now prefers the caller's own spelling.
+        """
+        entries = [(n, m, getattr(m, "__file__", None)) for n, m in list(sys.modules.items())]
+        exact: set[str] = set()
+        for name, mod, mod_file in entries:
+            if mod_file and os.path.abspath(mod_file) == real:
+                exact.add(name)
+                yield name, mod
+        for name, mod, mod_file in entries:
+            if not mod_file or name in exact:
                 continue
-            return _attr_path(mod, qualname)
+            try:
+                if os.path.samefile(os.path.abspath(mod_file), real):
+                    yield name, mod
+            except OSError:
+                continue
+
+    for name, mod in _live_matches():
+        if _live_module_is_stale(mod, real, qualname, disk_sha):
+            # A long-lived process (the MCP server) can hold a module imported
+            # before the file changed on disk; serving it would measure retired
+            # code. Evict every alias and fall through to a fresh import.
+            sys.modules.pop(name, None)  # an alias may already be gone; that is not an error
+            continue
+        return _attr_path(mod, qualname)
 
     # Import by dotted package name so module-level RELATIVE imports resolve. A parentless path-load
     # (branch 3) execs the file with no package and dies on `from .x import y`, losing every survivor to
