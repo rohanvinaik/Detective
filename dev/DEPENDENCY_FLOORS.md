@@ -128,3 +128,25 @@ that universe, and its verdict cache keys on `Wesker.__version__` — so mixing 
 does not corrupt the cache, but it silently changes which specification a COMPLETE
 banner certifies. Supporting both floors would mean documenting and testing two
 universes whose verdicts genuinely differ; one floor, one meaning.
+
+---
+
+\>= 0.11.0 is a PERFORMANCE floor — the first one here that closes a defect nothing
+reports. Below it `discover_test_callables` accepts `source_file` and `func_names` and,
+on the pytest backend, uses neither: it collects the whole tree. The legacy path calls
+`discover_tests`, which does not select either — its layer 3 appends every remaining test
+file unconditionally, so the three layers RANK relevance rather than filter on it.
+Profiling ONE function in this repo was handed 49 of 49 test files (549 of 637 callables),
+and the ~12x that cannot reach the target were paid for three times over: in collection,
+in the traced baseline, and again per mutant. Measured here, that is a `converge` on
+`decompose_apply.py::extract_candidate` that produced no verdict in 10 minutes and was
+killed; scoped, the same target's discovery takes 0.15s and selects 4 files. Nothing
+failed below the floor and no number was wrong — which is exactly why it survived a green
+CI and two releases.
+
+It is also a CONTRACT change, hence Wesker's own MINOR bump, and Detective depends on the
+new half: for a target no test file names, discovery returns EMPTY rather than the suite,
+and converge reads that as "synthesize" — the `synthesized_only` banner and the
+characterization note exist only because the empty answer is now reachable. Below 0.11.0
+that branch is dead code and `relevant_test_files` does not exist at all, so the import
+fails at module load rather than degrading; there is no partial-support path to document.
