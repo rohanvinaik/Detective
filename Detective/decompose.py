@@ -23,7 +23,7 @@ because that is the signal that it is doing more than one thing.
 from __future__ import annotations
 
 import ast
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from .cognitive_complexity import compute_cognitive_complexity
@@ -484,6 +484,45 @@ def _get_param_names(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[s
     return names
 
 
+def _get_param_order(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, ...]:
+    """The same names as :func:`_get_param_names`, in the order the signature declares
+    them. The set is what membership tests want; this is what RENDERING wants — see
+    :func:`_human_order`."""
+    args = func_node.args
+    ordered = [a.arg for a in args.posonlyargs + args.args]
+    if args.vararg:
+        ordered.append(args.vararg.arg)
+    ordered += [a.arg for a in args.kwonlyargs]
+    if args.kwarg:
+        ordered.append(args.kwarg.arg)
+    return tuple(ordered)
+
+
+def _human_order(
+    names: Iterable[str], param_order: Sequence[str], infos: Sequence[_StmtInfo]
+) -> tuple[str, ...]:
+    """Order an extracted interface the way a person would write the parameter list.
+
+    Parameters of the ENCLOSING function come first, in signature order — a reader
+    checking the helper's call against the caller's header should not have to re-sort it.
+    Alphabetical (the previous rule) scrambles that reliably: the seam extracted from
+    ``shipping_cost(weight_kg, distance_km, express, member)`` came back as
+    ``(distance_km, express, member, weight_kg)``, which no one would have typed. Names
+    bound inside the body follow, in the order the reader first meets them.
+
+    Both keys are positional, so this is exactly as deterministic as sorting was — the
+    trailing name key only breaks ties among names absent from the signature and from
+    every statement, which cannot happen for a real interface but keeps the key total.
+    """
+    position = {name: i for i, name in enumerate(param_order)}
+    first_seen: dict[str, int] = {}
+    for info in infos:
+        for name in info.writes | info.reads:
+            first_seen.setdefault(name, info.index)
+    unlisted = len(position)
+    return tuple(sorted(names, key=lambda n: (position.get(n, unlisted), first_seen.get(n, len(infos)), n)))
+
+
 def _compute_block_cc(stmts: list[ast.stmt]) -> int:
     dummy = ast.FunctionDef(
         name="_dummy",
@@ -669,6 +708,7 @@ def _evaluate_block(
     start: int,
     end: int,
     param_names: set[str],
+    param_order: Sequence[str],
     parent_name: str,
     max_params: int,
     max_outputs: int,
@@ -700,15 +740,17 @@ def _evaluate_block(
     line_start = block[0].stmt.lineno
     line_end = block[-1].stmt.end_lineno or block[-1].stmt.lineno
     name = _suggest_name(outputs, parent_name, [s.stmt for s in block])
+    ordered_inputs = _human_order(inputs, param_order, infos)
+    ordered_outputs = _human_order(outputs, param_order, infos)
     return ExtractionCandidate(
         start_line=line_start,
         end_line=line_end,
         proposed_name=name,
-        inputs=tuple(sorted(inputs)),
-        outputs=tuple(sorted(outputs)),
+        inputs=ordered_inputs,
+        outputs=ordered_outputs,
         cc_reduction=block_cc,
         confidence=_confidence(block, inputs, outputs, block_cc),
-        reason=f"lines {line_start}-{line_end} → {name}({', '.join(sorted(inputs))}) "
+        reason=f"lines {line_start}-{line_end} → {name}({', '.join(ordered_inputs)}) "
         f"(complexity -{block_cc}, single-exit, {len(inputs)} in / {len(outputs)} out)",
     )
 
@@ -759,12 +801,13 @@ def find_extraction_candidates(
         return ()
     infos = [_analyze_statement(i, stmt) for i, stmt in enumerate(body)]
     param_names = _get_param_names(func_node)
+    param_order = _get_param_order(func_node)
     n = len(infos)
     found: list[ExtractionCandidate] = []
     for start in range(n):
         for end in range(start + min_statements, min(n + 1, start + _MAX_BLOCK_STMTS)):
             candidate = _evaluate_block(
-                infos, start, end, param_names, func_node.name, max_params, max_outputs
+                infos, start, end, param_names, param_order, func_node.name, max_params, max_outputs
             )
             if candidate is not None:
                 found.append(candidate)
