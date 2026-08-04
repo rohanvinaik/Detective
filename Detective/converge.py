@@ -16,7 +16,7 @@ import math
 import os
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
@@ -176,6 +176,34 @@ def _signature(
     return f"{name}({', '.join(display)})", tuple(names)
 
 
+def _kwargs_names(node: ast.AST, qualname: str) -> tuple[str, ...]:
+    """Parameter names a generated call may pass by KEYWORD, or () when it may not.
+
+    ``f(1, 2, 3, 4)`` throws away the one thing that makes a golden test readable — which
+    value is which — and the names are already on the node. This decides whether it is
+    LEGAL to use them. It is not when the signature has positional-only parameters (a
+    keyword call is a TypeError), when it has ``*args`` (values do not map 1:1 to names),
+    or for a method (the receiver is not a parameter the call site supplies). In those
+    cases the caller keeps the positional form; nothing is guessed.
+    """
+    args = getattr(node, "args", None)
+    if args is None or "." in qualname:
+        return ()
+    if args.posonlyargs or args.vararg:
+        return ()
+    return tuple(a.arg for a in args.args if a.arg != "self")
+
+
+def _render_call(fname: str, values: Sequence, kw_names: Sequence[str] = ()) -> str:
+    """``f(weight_kg=1, distance_km=2)`` when the names are usable and cover the values
+    exactly, else ``f(1, 2)``. The VALUES are identical either way — the witness that was
+    found is the witness that is written; only its presentation changes."""
+    if kw_names and len(kw_names) == len(values):
+        pairs = zip(kw_names, values, strict=True)  # lengths equal — guarded above
+        return f"{fname}({', '.join(f'{n}={v!r}' for n, v in pairs)})"
+    return f"{fname}({', '.join(repr(v) for v in values)})"
+
+
 def _remaining_summary(survivor_records: list[dict]) -> tuple[str, ...]:
     """Group remaining survivors by category, e.g. ('2 VALUE', '1 BOUNDARY')."""
     from collections import Counter
@@ -280,11 +308,13 @@ def _dataclass_imports(value: object) -> list[str]:
     return imports
 
 
-def _golden_property(func_key: str, capture, root: str | None = None) -> ExecutableProperty:
+def _golden_property(
+    func_key: str, capture, root: str | None = None, kw_names: Sequence[str] = ()
+) -> ExecutableProperty:
     """A golden-capture property: pin the exact return value. Sound by
     construction (asserts the real output) and kills any mutant that changes it."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
-    args = ", ".join(repr(a) for a in capture.inputs)
+    call = _render_call(fname, capture.inputs, kw_names)
     assertion = golden_assert_line(capture.output, capture.value)
     # Parametrizable only when the assertion is idiomatic value-equality (a literal
     # output); methods (dotted qualname) need a receiver, so they are not folded.
@@ -297,7 +327,7 @@ def _golden_property(func_key: str, capture, root: str | None = None) -> Executa
         category="VALUE",
         inputs={},
         setup_code=_setup_with_imports(mod, fname, capture.inputs, root),
-        assertion_code=f"result = {fname}({args})\n{assertion}",
+        assertion_code=f"result = {call}\n{assertion}",
         preconditions=["golden capture (pure + deterministic)"],
         confidence=0.9,
         source_lenses=["golden_capture"],
@@ -306,7 +336,9 @@ def _golden_property(func_key: str, capture, root: str | None = None) -> Executa
     )
 
 
-def _witness_property(func_key: str, witness, root: str | None = None) -> ExecutableProperty:
+def _witness_property(
+    func_key: str, witness, root: str | None = None, kw_names: Sequence[str] = ()
+) -> ExecutableProperty:
     """A golden test at a distinguishing input the equivalence search found. The
     witness proves original(args) != mutant(args), so pinning the original's real
     output there deterministically kills that mutant — an input the single golden
@@ -317,9 +349,8 @@ def _witness_property(func_key: str, witness, root: str | None = None) -> Execut
     ``1.0``), the golden ``==`` line cannot kill — ``distinction_pin_lines`` appends the
     ``type()``/``repr`` pins that can, so the witness's kill power survives rendering."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
-    args = ", ".join(repr(a) for a in witness.args)
     lines = [
-        f"result = {fname}({args})",
+        f"result = {_render_call(fname, witness.args, kw_names)}",
         golden_assert_line(witness.original, witness.original_value),
     ]
     pins = distinction_pin_lines(witness.original_value, witness.mutant)
@@ -339,7 +370,9 @@ def _witness_property(func_key: str, witness, root: str | None = None) -> Execut
     )
 
 
-def _raises_witness_property(func_key: str, witness, root: str | None = None) -> ExecutableProperty | None:
+def _raises_witness_property(
+    func_key: str, witness, root: str | None = None, kw_names: Sequence[str] = ()
+) -> ExecutableProperty | None:
     """The killing test for a witness whose ORIGINAL raises: an explicit try/except form.
 
     The witness proves original(args) != mutant(args) where the original raised
@@ -380,7 +413,6 @@ def _raises_witness_property(func_key: str, witness, root: str | None = None) ->
         return None
     exc, message = match.group(1), match.group(2)
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
-    args = ", ".join(repr(a) for a in witness.args)
     setup = _setup_with_imports(mod, fname, witness.args, root) + "\nimport pytest"
     # `_exc`/`_result` are underscore-prefixed so they cannot collide with a parameter name
     # that `_setup_with_imports` bound into the same scope.
@@ -394,7 +426,7 @@ def _raises_witness_property(func_key: str, witness, root: str | None = None) ->
     )
     assertion = (
         "try:\n"
-        f"    _result = {fname}({args})\n"
+        f"    _result = {_render_call(fname, witness.args, kw_names)}\n"
         f"{handler}"
         "except BaseException as _exc:\n"
         f'    pytest.fail(f"expected {exc}, got {{type(_exc).__name__}}: {{_exc!r}}")\n'
@@ -451,7 +483,8 @@ def _golden_properties(
     supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
     captures = corroborate_captures(capture_golden(live, sites), is_pure=True)
-    return [_golden_property(func_key, c, project_root) for c in captures if c.deterministic]
+    kw_names = _kwargs_names(node, qualname)
+    return [_golden_property(func_key, c, project_root, kw_names) for c in captures if c.deterministic]
 
 
 def _progressed(previous: int, current: int) -> bool:
@@ -542,6 +575,9 @@ def converge(
     if qualname is None:
         raise LookupError(f"function {function!r} not found in {file}")
     func_key = f"{os.path.relpath(full, root)}::{qualname}"
+    # Read once here, not per witness: every rendered call site in this run names its
+    # arguments from the same signature (see `_kwargs_names`).
+    kw_names = _kwargs_names(node, qualname)
     # A supplied input is the ONE thing here a human had to know — the semantic prior
     # synthesis provably could not build. Union it with anything remembered for this
     # function and record it, so it is asked for once, not once per command: `decompose`
@@ -658,9 +694,9 @@ def converge(
             # they hold on the unmutated function — the raises form closes the line +
             # mutant gap that error paths otherwise leave open.
             prop = (
-                _raises_witness_property(func_key, w, root)
+                _raises_witness_property(func_key, w, root, kw_names)
                 if w.original.startswith("<raised")
-                else _witness_property(func_key, w, root)
+                else _witness_property(func_key, w, root, kw_names)
             )
             if prop is None:
                 continue
@@ -683,7 +719,7 @@ def converge(
             w = verdict.crash_witness
             if w is None or verdict.suite_detected:
                 continue
-            prop = _witness_property(func_key, w, root)
+            prop = _witness_property(func_key, w, root, kw_names)
             if prop.assertion_code not in accumulated and property_holds(
                 prop.setup_code, prop.assertion_code, root
             ):
