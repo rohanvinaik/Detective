@@ -155,3 +155,41 @@ def test_safely_fresh_hostile_eq_counts_as_fresh():
         __hash__ = None
 
     assert _safely_fresh((_Cranky(),), [(1,)]) is True
+
+
+# ── _load_original: file identity beats path spelling ────────────────────
+def test_load_original_resolves_a_same_file_alias_spelling(tmp_path):
+    """A target path that is the imported module's file under another spelling
+    (case-insensitive filesystem, symlink) must serve the already-imported module —
+    string comparison missed it, both fallback imports died on relative imports,
+    and the target loaded as None: line coverage read empty ("18-line gap") while
+    kills stayed green ("80/80 killed") about the same body."""
+    import importlib.util
+    import sys as _sys
+    import textwrap
+
+    from Detective.engine import _load_original
+
+    real = tmp_path / "aliased_mod.py"
+    real.write_text(
+        textwrap.dedent(
+            """
+            class Holder:
+                @staticmethod
+                def pick(v):
+                    return v + 1
+            """
+        )
+    )
+    spec = importlib.util.spec_from_file_location("aliased_mod", real)
+    mod = importlib.util.module_from_spec(spec)
+    _sys.modules["aliased_mod"] = mod
+    try:
+        spec.loader.exec_module(mod)
+        link = tmp_path / "other_spelling.py"
+        link.symlink_to(real)
+        obj = _load_original(str(link), "Holder.pick")
+        assert obj is mod.Holder.pick  # the live module's object, not a re-import
+        assert obj(1) == 2
+    finally:
+        del _sys.modules["aliased_mod"]

@@ -334,9 +334,24 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
     real = os.path.abspath(full_path)
     _purge_stale_bytecode(real)  # a fresh import below must compile the file on disk
     disk_sha = _sha256_of(real)  # read once; stamped onto whatever this call imports
+
+    def _same_file(a: str, b: str) -> bool:
+        # IDENTITY, not spelling: on a case-insensitive filesystem (macOS default)
+        # `wesker/engine.py` and `Wesker/engine.py` are one file with two spellings.
+        # String equality missed the already-imported module here, both fallback
+        # imports then died on the package's relative imports, and the target loaded
+        # as None — line coverage read empty ("18-line gap") while kills, which never
+        # consult the path, stayed green ("80/80 killed") about the same body.
+        if a == b:
+            return True
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return False
+
     for name, mod in list(sys.modules.items()):
         mod_file = getattr(mod, "__file__", None)
-        if mod_file and os.path.abspath(mod_file) == real:
+        if mod_file and _same_file(os.path.abspath(mod_file), real):
             if _live_module_is_stale(mod, real, qualname, disk_sha):
                 # A long-lived process (the MCP server) can hold a module imported
                 # before the file changed on disk; serving it would measure retired
