@@ -99,9 +99,7 @@ def unwrap(arg: Any) -> Any:
         return type(arg)(items)
     if isinstance(arg, dict):
         pairs = {unwrap(k): unwrap(v) for k, v in arg.items()}
-        same = len(pairs) == len(arg) and all(
-            k in arg and arg[k] is v for k, v in pairs.items()
-        )
+        same = len(pairs) == len(arg) and all(k in arg and arg[k] is v for k, v in pairs.items())
         return arg if same else pairs
     return arg
 
