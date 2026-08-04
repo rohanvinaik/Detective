@@ -19,6 +19,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from Wesker.ci import relevant_test_files, walk_functions
 from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
@@ -104,6 +105,12 @@ class ConvergeResult:
     # for building the input template. Both are cheap AST reads (node.args), no execution.
     signature: str = ""  # e.g. "minimal_cover_2axis(kill_matrix: dict, line_coverage: dict)"
     param_names: tuple[str, ...] = ()  # positional param names -> --input slot placeholders
+    # No pre-existing test file named this target or any function in its file, so discovery
+    # returned the empty suite and every test below is one we synthesized. Reported because
+    # the two ways to reach "COMPLETE" are not the same claim: converging a suite the user
+    # already had says their tests now pin the behaviour; this one says there were none and
+    # here is a first suite to review. Same number, different thing to do next.
+    synthesized_only: bool = False
 
     @property
     def mutation_score(self) -> float:
@@ -578,6 +585,13 @@ def converge(
     # Read once here, not per witness: every rendered call site in this run names its
     # arguments from the same signature (see `_kwargs_names`).
     kw_names = _kwargs_names(node, qualname)
+    # Two branches, no third: either test files name this target, or none do. Asked with
+    # the SAME predicate discovery scopes by — a banner that decided this independently
+    # could contradict the run it is describing. Said while it happens, because otherwise
+    # the user watches a baseline of zero tests scroll past with no reason given.
+    synthesized_only = not relevant_test_files(root, full, [qn for qn, _ in walk_functions(tree)])
+    if synthesized_only:
+        say("no existing test reaches this target — synthesizing its suite from scratch…")
     # A supplied input is the ONE thing here a human had to know — the semantic prior
     # synthesis provably could not build. Union it with anything remembered for this
     # function and record it, so it is asked for once, not once per command: `decompose`
@@ -886,4 +900,5 @@ def converge(
         coverage_guarantee=greedy_coverage_guarantee(node, _cats, max_per_cat, len(iterations)),
         signature=sig,
         param_names=param_names,
+        synthesized_only=synthesized_only,
     )
