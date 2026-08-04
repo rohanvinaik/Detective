@@ -600,6 +600,28 @@ def _target_lines(signature: str) -> list[str]:
     return lines
 
 
+def _interactive_stderr() -> bool:
+    """True when stderr is a terminal a ``\\r`` can redraw.
+
+    Both progress reporters below overwrite ONE line in place. That is right at a terminal
+    and wrong everywhere else: a pipe, a CI log, or an agent capturing the run keeps every
+    carriage return, so a long profile arrives as one multi-kilobyte line with `\\r` buried
+    in it and no way to read the phases apart. It reads as a run that printed nothing —
+    which is exactly the "looks hung" failure these reporters exist to fix, reintroduced one
+    layer down. Off-terminal they keep the same INFORMATION and drop only the redraw: one
+    complete line per phase, in order, greppable.
+
+    Anything other than a real terminal answers False, including a stderr that has been
+    replaced or closed — a progress indicator must never be the thing that ends a run.
+    """
+    import sys
+
+    try:
+        return bool(sys.stderr.isatty())
+    except Exception:  # noqa: BLE001 — detached//closed/substituted stderr is simply not a tty
+        return False
+
+
 def _stream_trace_progress(label: str):
     """Live progress for the TRACED BASELINE pass — the phase that runs BEFORE the first mutant.
 
@@ -612,18 +634,24 @@ def _stream_trace_progress(label: str):
     """
     import sys
 
+    live = _interactive_stderr()
+    lead = "\r  … " if live else "  … "
+    pad = "   " if live else ""
     state = {"last_ms": -1e9}
 
     def cb(done: int, total: int, elapsed_ms: float) -> None:
-        if 0 < done < total and elapsed_ms - state["last_ms"] < 200.0:
-            return  # ~5 updates/sec, but always emit the last
+        if 0 < done < total:
+            # Off-terminal there is no line to redraw, so intermediate frames are noise the
+            # final line already summarises. On one, throttle to ~5 updates/sec.
+            if not live or elapsed_ms - state["last_ms"] < 200.0:
+                return
         state["last_ms"] = elapsed_ms
         secs = elapsed_ms / 1000.0
         if done >= total:
-            sys.stderr.write(f"\r  … {label}: baseline traced · {total} tests · {secs:.1f}s          \n")
+            sys.stderr.write(f"{lead}{label}: baseline traced · {total} tests · {secs:.1f}s{pad}\n")
         else:
             eta = (total - done) * (elapsed_ms / done) / 1000.0 if done else 0.0
-            sys.stderr.write(f"\r  … {label}: tracing baseline {done}/{total} tests · ETA {eta:.0f}s   ")
+            sys.stderr.write(f"{lead}{label}: tracing baseline {done}/{total} tests · ETA {eta:.0f}s{pad}")
         sys.stderr.flush()
 
     return cb
@@ -646,34 +674,41 @@ def _stream_progress(label: str):
     """
     import sys
 
+    live = _interactive_stderr()
+    lead = "\r  … " if live else "  … "
+    pad = "   " if live else ""
     prior_ms = _read_per_mutant_ms()
     state = {"last_ms": -1e9, "started": False}
 
     def cb(done: int, total: int, elapsed_ms: float) -> None:
         if not state["started"]:
             state["started"] = True
-            if prior_ms and total:
-                est = total * prior_ms / 1000.0
-                sys.stderr.write(
-                    f"\r  … {label}: 0/{total} mutants · est ~{est:.1f}s (this machine's recent rate)   "
-                )
-            else:
-                sys.stderr.write(f"\r  … {label}: 0/{total} mutants · calibrating this machine…   ")
-            sys.stderr.flush()
+            # The opener exists to say "something is happening" before the first mutant
+            # lands. Off-terminal nothing is waiting on it and the completion line carries
+            # the same numbers, so it is a duplicate rather than reassurance.
+            if live:
+                if prior_ms and total:
+                    est = total * prior_ms / 1000.0
+                    rate_note = "(this machine's recent rate)"
+                    sys.stderr.write(f"{lead}{label}: 0/{total} mutants · est ~{est:.1f}s {rate_note}{pad}")
+                else:
+                    sys.stderr.write(f"{lead}{label}: 0/{total} mutants · calibrating this machine…{pad}")
+                sys.stderr.flush()
             if done == 0:
                 return
-        if 0 < done < total and elapsed_ms - state["last_ms"] < 200.0:
-            return  # throttle to ~5 updates/sec, but always emit first + last
+        if 0 < done < total:
+            if not live or elapsed_ms - state["last_ms"] < 200.0:
+                return  # throttle to ~5 updates/sec on a terminal; off one, only first + last
         state["last_ms"] = elapsed_ms
         secs = elapsed_ms / 1000.0
         rate = done / secs if secs > 0 else 0.0
         if done >= total:
             if total:
                 _update_per_mutant_ms(elapsed_ms / total)  # learn this machine's throughput
-            sys.stderr.write(f"\r  … {label}: {done}/{total} mutants · {rate:.0f}/s · done in {secs:.1f}s\n")
+            sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate:.0f}/s · done in {secs:.1f}s\n")
         else:
             eta = (total - done) * (elapsed_ms / done) / 1000.0 if done else 0.0
-            sys.stderr.write(f"\r  … {label}: {done}/{total} mutants · {rate:.0f}/s · ETA {eta:.1f}s   ")
+            sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate:.0f}/s · ETA {eta:.1f}s{pad}")
         sys.stderr.flush()
 
     return cb
@@ -924,7 +959,17 @@ def _final_banner(result) -> str:
     count = written if result.written_path else (result.minimal_test_count or None)
     tests = f" · {count} test(s)" if count else ""
     arrow = f" → {_rel_path(result.written_path)}" if result.written_path else ""
-    return f"FINAL {result.function}: {status} · {result.killed}/{total} killed{tests}{arrow}"
+    # Two routes reach the same number and they are NOT the same claim. Converging a suite
+    # the user already had says their tests now pin the behaviour. Reaching it with no
+    # pre-existing test says the behaviour is pinned to what the code does TODAY, by tests
+    # nobody has read yet — a characterization baseline, not a review. The banner is the
+    # line people grep and quote, so the distinction belongs on it, not only in the body.
+    origin = (
+        " · synthesized — no pre-existing test reached it"
+        if getattr(result, "synthesized_only", False)
+        else ""
+    )
+    return f"FINAL {result.function}: {status}{origin} · {result.killed}/{total} killed{tests}{arrow}"
 
 
 def _written_count(result) -> int | None:
@@ -1205,6 +1250,22 @@ def _converge_action(result, rep, root: str = ".", report_path: str = "") -> lis
     blocked = rep is not None and (rep.killable or rep.unclassified)
     if blocked or result.missing_lines:
         return _derived_input(None, result, rep, fn, verb=f"detective converge '{fn}'", report=report_path)
+    # A synthesized suite has never been read by anyone. "Every behaviour pinned" is true of
+    # it and is NOT "reviewed": with no pre-existing test, the pins record what the code does
+    # TODAY — a bug included is a bug frozen, and the next `converge` will defend it. That is
+    # a different next step from the converged-a-real-suite case, and it outranks the others,
+    # so it goes last where the eye lands.
+    review = (
+        [
+            "",
+            "       NOTE: no pre-existing test reached this function, so the suite above is",
+            "       entirely synthesized — a CHARACTERIZATION of current behaviour, not a",
+            "       review of intended behaviour. Read the assertions before trusting them:",
+            "       anything wrong today is now pinned wrong.",
+        ]
+        if getattr(result, "synthesized_only", False)
+        else []
+    )
     if rep is not None and rep.equivalent:
         ids = [v.mutant_id for v in rep.equivalent]
         more = f"  ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
@@ -1213,10 +1274,12 @@ def _converge_action(result, rep, root: str = ".", report_path: str = "") -> lis
             "       by any input Detective found — whether it is truly equivalent is UNDECIDABLE",
             "       in general, so the engine will not claim it. Leave them; they are not a gap.",
             f"       If you can prove one is: detective flag '{fn}' {ids[0]} --note \"why\"{more}",
+            *review,
         ]
     return [
         "DONE:  the suite pins every behaviour this function makes.",
         f"       Next (optional): detective decompose '{fn}' --apply   # if it does too much",
+        *review,
     ]
 
 
@@ -1589,6 +1652,20 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
     return "\n".join(lines)
 
 
+def _first_n(items, n: int) -> str:
+    """``a, b, c`` — and ``a, b, c … (+4 more)`` when the list was cut.
+
+    A list that stops at N with no marker reads as the WHOLE list, and the reader then acts
+    on a count the report never showed them: the redundant line said "7 test(s)" and named
+    four, so three of the deletions being proposed were invisible. Converge already says
+    "(N more in the report)" about its survivors; this is that courtesy everywhere else.
+    """
+    seq = list(items)
+    shown = seq[:n]
+    extra = len(seq) - len(shown)
+    return ", ".join(str(s) for s in shown) + (f" … (+{extra} more)" if extra else "")
+
+
 def _format_audit(a, removing: bool = False) -> str:
     """Read-only audit of an existing suite, in the report shape: what is true, then the ONE
     next action, and audit itself never writes.
@@ -1611,7 +1688,7 @@ def _format_audit(a, removing: bool = False) -> str:
         verdict = "incomplete"
     lines = [
         _RULE,
-        f"{a.function} — audit · {a.test_count} test(s) · {a.kill_pct}% killed · {verdict}",
+        f"{a.function} — audit · {a.test_count} test(s) · {a.kill_pct}% of mutants killed · {verdict}",
         "",
     ]
     if a.failing_tests:
@@ -1619,11 +1696,11 @@ def _format_audit(a, removing: bool = False) -> str:
         # Nothing else in this report matters until that is resolved, and it is never ours
         # to delete — it is either a wrong expectation or a real regression.
         lines.append(_row("⚠ FAILING NOW", f"{len(a.failing_tests)} test(s) fail on current code:"))
-        lines.append(_row("", ", ".join(a.failing_tests[:4])))
+        lines.append(_row("", _first_n(a.failing_tests, 4)))
     if a.killable_gaps:
         lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
     if a.missing_lines:
-        lines.append(_row("✗ uncovered", f"{len(a.missing_lines)} line(s): {list(a.missing_lines)[:8]}"))
+        lines.append(_row("✗ uncovered", f"{len(a.missing_lines)} line(s): {_first_n(a.missing_lines, 8)}"))
     if a.manually_unreachable:
         lines.append(
             _row("· line oracle", f"{a.manually_unreachable} statement(s) flagged unreachable (modulo)")
@@ -1646,7 +1723,7 @@ def _format_audit(a, removing: bool = False) -> str:
         lines.append(_row("✓ flagged equivalent", f"{a.manual_equivalent} (your oracle — not gaps)"))
     if a.redundant_tests:
         lines.append(_row("· redundant", f"{len(a.redundant_tests)} test(s) pointless for kills AND lines"))
-        lines.append(_row("", ", ".join(a.redundant_tests[:4])))
+        lines.append(_row("", _first_n(a.redundant_tests, 4)))
     lines.append("")
     lines += _audit_action(a, removing)
     return "\n".join(lines)
@@ -2290,6 +2367,24 @@ def _target_error(exc: Exception, args) -> str:
     target = getattr(args, "target", None) or "?"
     if isinstance(exc, FileNotFoundError):
         return f"detective: no such file: {target} — the path is relative to --project-root"
+    if isinstance(exc, SyntaxError):
+        # An unparseable TARGET is the same class of user error as a misspelled one, and was
+        # the last one still arriving as a raw traceback: Python's own SyntaxError render
+        # (caret line included) reads as Detective crashing on itself. Name the file and the
+        # line, and say plainly that nothing was measured — a partial number here would be
+        # worse than none.
+        where = f":{exc.lineno}" if exc.lineno else ""
+        shown = exc.filename or _split_target(target)[0]
+        # Repo-relative, like every other path this CLI prints. `relpath` can raise across
+        # drives, and this is the error path — fall back to what the exception carried.
+        try:
+            shown = os.path.relpath(shown, os.path.abspath(getattr(args, "project_root", ".") or "."))
+        except (OSError, ValueError):
+            pass
+        return (
+            f"detective: cannot parse {shown}{where} — {exc.msg or 'invalid syntax'}\n"
+            "  nothing was measured; fix the file and re-run"
+        )
     names: list[str] = []
     try:
         import ast as _ast
@@ -2317,7 +2412,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         code = _run_live(args)
-    except (LookupError, FileNotFoundError) as exc:
+    except (LookupError, FileNotFoundError, SyntaxError) as exc:
         # A target that does not exist is a USER error, and it was reaching the terminal as a
         # 36-line Python traceback — the one shape a caller cannot tell from a crash. Every other
         # bad input here already exits clean (`_split_target`: "target must be 'file.py::function'"),
@@ -2906,7 +3001,28 @@ def _run(args) -> int:
             text = _format_decompose(result, args.apply, args.target, args.project_root)
             # Persist the full outcome — especially a REFUSAL, which otherwise leaves no
             # artifact and can only be re-diagnosed by re-running the slowest command here.
-            rel = _write_converge_report(args.project_root, function, text, prefix="decompose")
+            #
+            # The FILE is the full artifact and the terminal stays minimal — the split
+            # converge already makes (`_format_converge_terse` to the screen, the complete
+            # `_format_converge` to disk). Decompose printed and persisted the SAME string,
+            # so "full report" named a byte-identical copy of what the reader had just
+            # scrolled past, and the one command that promises more delivered less. The
+            # proof run is where the detail lives: per-pass, every survivor, the generated
+            # source. Absent on a refusal that never got to converge, and then the outcome
+            # text is genuinely all there is.
+            detail = text
+            if getattr(result, "proof", None) is not None:
+                detail = "\n".join(
+                    [
+                        text,
+                        "",
+                        _RULE,
+                        "PROOF RUN — the converge this decomposition was validated against",
+                        _RULE,
+                        _format_converge(result.proof, show_tests=True),
+                    ]
+                )
+            rel = _write_converge_report(args.project_root, function, detail, prefix="decompose")
             if rel:
                 _notify_stderr(f"full report: {rel}")
             print(text)
