@@ -15,6 +15,7 @@ from Detective.synthesis.characterization import (
     Provenance,
     capture_golden,
     corroborate_captures,
+    distinction_pin_lines,
     eval_call_site,
     generate_golden_test,
     golden_assert_line,
@@ -234,3 +235,61 @@ def test_golden_assert_set_of_opaque_objects_still_falls_back_to_repr():
     v = _Opaque()
     line = golden_assert_line(repr(v), v)
     assert line.startswith("assert repr(result) == ")
+
+
+# ── distinction_pin_lines (the ==-blind-spot ladder) ─────────────────────
+def test_pin_lines_scalar_int_vs_float():
+    assert distinction_pin_lines(1, "1.0") == ["assert type(result) is int"]
+
+
+def test_pin_lines_bool_vs_int():
+    # True == 1: type() is the only pin that can see it
+    assert distinction_pin_lines(True, "1") == ["assert type(result) is bool"]
+
+
+def test_pin_lines_negative_zero_same_type_pins_repr():
+    assert distinction_pin_lines(0.0, "-0.0") == ["assert repr(result) == '0.0'"]
+
+
+def test_pin_lines_walks_to_the_dict_leaf():
+    orig = {"total": 26.33, "points": 1}
+    pins = distinction_pin_lines(orig, "{'total': 26.33, 'points': 1.0}")
+    assert pins == ["assert type(result['points']) is int"]
+
+
+def test_pin_lines_walks_nested_lists_and_tuples():
+    orig = [(1, 2.0), (3, 4.0)]
+    pins = distinction_pin_lines(orig, "[(1, 2.0), (3.0, 4.0)]")
+    assert pins == ["assert type(result[1][0]) is int"]
+
+
+def test_pin_lines_empty_when_values_differ():
+    # == already kills; nothing owed
+    assert distinction_pin_lines(1, "2") == []
+
+
+def test_pin_lines_empty_for_raised_marker():
+    assert distinction_pin_lines(1, "<raised ValueError: boom>") == []
+
+
+def test_pin_lines_empty_for_unparseable_object_repr():
+    assert distinction_pin_lines(1, "<m.Thing object at 0x1>") == []
+
+
+def test_pin_lines_pass_on_the_original_and_fail_on_the_mutant():
+    # soundness both ways, evaluated live — the property gate runs exactly this
+    orig = {"points": 1}
+    pins = distinction_pin_lines(orig, "{'points': 1.0}")
+    assert all(eval(p.removeprefix("assert "), {"result": {"points": 1}}) for p in pins)
+    assert not all(eval(p.removeprefix("assert "), {"result": {"points": 1.0}}) for p in pins)
+
+
+def test_pin_lines_empty_when_comparison_itself_raises():
+    # an original whose __eq__ raises: the guard abstains rather than crash the writer
+    class _Cranky:
+        def __eq__(self, other):
+            raise TypeError("no compare")
+
+        __hash__ = None
+
+    assert distinction_pin_lines(_Cranky(), "1") == []

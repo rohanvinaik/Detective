@@ -293,10 +293,11 @@ def _stable_expr(value: Any) -> str | None:
 def golden_assert_line(output_repr: str, value: Any = None) -> str:
     """Pin ``result`` to its captured output with idiomatic VALUE equality
     (``result == <literal>``) — the way a developer actually writes a test. It reads
-    cleanly, is order-independent for sets, and loses NO kill power: no mutation operator
-    produces a result that is value-equal to the original yet a different type (VALUE
-    mutates a constant to a same-type constant; the rest change the value), so ``==``
-    catches exactly what the old ``repr(result) == "<str>"`` form did.
+    cleanly and is order-independent for sets. It is TYPE-BLIND where repr is not
+    (``1 == 1.0``, ``True == 1``): call-unwrap (``int(x)`` -> ``x``) and TYPE operators DO
+    produce value-equal, repr-distinct outcomes, so a witness whose only distinction is
+    the type needs the companion pins from :func:`distinction_pin_lines` — the ``==``
+    line alone would be written, kill nothing, and be minimized away forever.
 
     The three singletons take ``is``: ``== True`` / ``== False`` / ``== None`` are ruff
     E712/E711, and a consumer that lints the tests we write (this project does) would
@@ -340,3 +341,53 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str:
     if output_repr in ("True", "False", "None"):
         return f"assert result is {output_repr}"
     return f"assert result == {output_repr}"
+
+
+def distinction_pin_lines(original_value: Any, mutant_repr: str) -> list[str]:
+    """Assertion lines pinning a distinction ``==`` cannot see — type first, repr second.
+
+    The classifier's distinguishability relation is repr-based (``_outcome``); the golden
+    assertion is ``==``-based. A mutant whose outcome is ``==``-equal to the original's yet
+    repr-distinct — ``1`` vs ``1.0`` from call-unwrap, ``True`` vs ``1``, ``-0.0`` vs ``0.0`` —
+    is killable by witness but unpinnable by ``==``: the witness test is written, kills
+    nothing, is minimized away as zero-marginal, and the survivor is re-witnessed forever.
+    These lines restore the invariant that every distinction the classifier can observe,
+    the writer can assert.
+
+    Returns pins ONLY when the two outcomes compare equal overall (otherwise the golden
+    ``==`` line already kills), walking containers to each distinguishing leaf: a type
+    difference pins ``type(<leaf>) is <T>`` (``type() is``, not ``isinstance`` — ``True``
+    would satisfy ``isinstance(_, int)``); a same-type repr difference pins the leaf's
+    ``repr``. Empty when the mutant outcome is not a parseable literal (a raised-marker,
+    an object repr) — those paths have their own forms and owe nothing here.
+    """
+    try:
+        mutant_value = ast.literal_eval(mutant_repr)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return []
+    try:
+        if original_value != mutant_value:
+            return []
+    except Exception:  # noqa: BLE001 — un-comparable values cannot loop the == path either
+        return []
+    pins: list[str] = []
+    _walk_distinction(original_value, mutant_value, "result", pins)
+    return pins
+
+
+def _walk_distinction(orig: Any, mut: Any, path: str, pins: list[str]) -> None:
+    """Descend ``==``-equal structures; pin each leaf where type or repr still differs."""
+    if type(orig) is not type(mut):
+        pins.append(f"assert type({path}) is {type(orig).__name__}")
+        return
+    if isinstance(orig, dict):
+        for key in orig:
+            if key in mut:
+                _walk_distinction(orig[key], mut[key], f"{path}[{key!r}]", pins)
+        return
+    if isinstance(orig, (list, tuple)):
+        for i, (a, b) in enumerate(zip(orig, mut, strict=False)):  # == already proved equal length
+            _walk_distinction(a, b, f"{path}[{i}]", pins)
+        return
+    if repr(orig) != repr(mut):
+        pins.append(f"assert repr({path}) == {repr(orig)!r}")

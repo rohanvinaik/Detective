@@ -46,6 +46,28 @@ def test_witness_property_bare_func_key_has_no_import():
     assert p.assertion_code == "result = plainfunc(1)\nassert result == 2"
 
 
+def test_witness_property_pins_type_when_outcomes_are_eq_equal():
+    # the int-vs-float deadlock: == cannot kill, so the pin must appear
+    p = _witness_property("m::f", Witness((1,), "1", "1.0", original_value=1))
+    assert p.assertion_code == "result = f(1)\nassert result == 1\nassert type(result) is int"
+    assert "outcomes ==-equal; distinction pinned by type/repr" in p.preconditions
+
+
+def test_witness_property_pins_leaf_type_inside_a_dict():
+    orig = {"total": 26.33, "points": 1}
+    p = _witness_property(
+        "m::f",
+        Witness((2,), repr(orig), "{'total': 26.33, 'points': 1.0}", original_value=orig),
+    )
+    assert p.assertion_code.endswith("assert type(result['points']) is int")
+
+
+def test_witness_property_no_pins_when_eq_already_kills():
+    p = _witness_property("m::f", Witness((1,), "2", "3", original_value=2))
+    assert p.assertion_code == "result = f(1)\nassert result == 2"
+    assert p.preconditions == ["distinguishing witness (equivalence search)"]
+
+
 # ── _raises_witness_property (the killing test for an original that raises) ─
 def test_raises_witness_property_pins_the_message_when_the_witness_carries_one():
     # THE fix: `except KeyError: pass` catches a mutant that raises the right type with the

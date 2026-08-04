@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from Detective.equivalence import (
     MutantVerdict,
+    SourceExpr,
     SurvivorReport,
     Witness,
     _grid_for,
@@ -17,6 +18,7 @@ from Detective.equivalence import (
     classify_survivor,
     find_witness,
     typed_inputs,
+    unwrap,
 )
 
 
@@ -325,3 +327,39 @@ def test_classify_survivor_carries_suite_detected_and_the_crash_witness():
     assert verdict.suite_detected is True
     assert verdict.crash_witness is not None and verdict.crash_witness.args == (3,)
     assert verdict.killable is False  # crash-only is still not value-killable
+
+
+# ── unwrap: carriers nested inside containers ────────────────────────────
+def test_unwrap_descends_into_list_of_carriers():
+    import ast as _ast
+
+    stmt = _ast.parse("x = 1").body[0]
+    wrapped = [SourceExpr(stmt, "ast.parse('x = 1').body[0]")]
+    live = unwrap(wrapped)
+    # the target must receive the real node — ast.walk on a carrier raised
+    # AttributeError and the crash became a bogus killable witness
+    assert live[0] is stmt
+    assert list(_ast.walk(live[0]))
+
+
+def test_unwrap_recurses_nested_and_mixed_containers():
+    inner = SourceExpr(7, "7")
+    assert unwrap((1, [inner], {"k": inner})) == (1, [7], {"k": 7})
+    assert unwrap({"deep": {"deeper": (inner,)}}) == {"deep": {"deeper": (7,)}}
+
+
+def test_unwrap_returns_carrier_free_containers_identically():
+    plain = [1, (2, 3), {"k": {4}}]
+    assert unwrap(plain) is plain
+
+
+def test_unwrap_scalar_behavior_unchanged():
+    assert unwrap(SourceExpr(5, "5")) == 5
+    assert unwrap(42) == 42
+
+
+def test_unwrap_rebuilds_sets_of_carriers():
+    # a SourceExpr is hashable (frozen dataclass), so carriers can sit in sets
+    inner = SourceExpr(7, "7")
+    assert unwrap(frozenset({inner})) == frozenset({7})
+    assert unwrap({inner}) == {7}

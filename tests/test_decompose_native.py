@@ -11,10 +11,11 @@ leading docstring belongs to the FUNCTION and is never swept into an extracted h
 from __future__ import annotations
 
 import ast
+import textwrap
 
 import pytest
 
-from Detective.decompose import find_extraction_candidates
+from Detective.decompose import _suggest_name, find_extraction_candidates
 from Detective.decompose_apply import extract_candidate
 
 _SRC = '''\
@@ -190,3 +191,108 @@ def test_helper_name_never_collides_with_module_symbols():
     exec(compile(ex.new_source, "<rewritten>", "exec"), ns)
     assert ns["_compute_totals"]() == 1  # the pre-existing symbol is untouched
     assert ns["summarize"]([{"name": "a", "value": 5}]) == "a=5"
+
+
+# ── _suggest_name: behavioral-signature templates ────────────────────────
+def _stmts(src: str):
+    return ast.parse(textwrap.dedent(src)).body
+
+
+def test_suggest_name_compute_form_unchanged():
+    assert _suggest_name({"x"}, "abc") == "_compute_x"
+    assert _suggest_name({"total", "fee"}, "f") == "_compute_fee_total"
+
+
+def test_suggest_name_raise_only_block_is_a_validator():
+    block = _stmts("""
+        if not items:
+            raise ValueError("no items")
+        if region not in ("us", "ca"):
+            raise ValueError("bad region")
+    """)
+    assert _suggest_name(set(), "process_order", block) == "_validate_order_inputs"
+
+
+def test_suggest_name_validator_from_single_token_parent():
+    block = _stmts("""
+        if x < 0:
+            raise ValueError("bad")
+    """)
+    assert _suggest_name(set(), "handle", block) == "_validate_inputs"
+
+
+def test_suggest_name_void_block_without_raise_keeps_fallback():
+    block = _stmts("y = sink(1)")
+    assert _suggest_name(set(), "process_order", block) == "_process_order_helper"
+
+
+def test_suggest_name_boolean_output_gets_predicate_form():
+    block = _stmts("""
+        valid = a < b and c == d
+        if e:
+            valid = False
+    """)
+    assert _suggest_name({"valid"}, "check", block) == "_is_valid"
+
+
+def test_suggest_name_existing_predicate_prefix_not_doubled():
+    block = _stmts("is_ready = count > 0")
+    assert _suggest_name({"is_ready"}, "poll", block) == "_is_ready"
+
+
+def test_suggest_name_non_boolean_assignment_disqualifies_predicate():
+    block = _stmts("""
+        flag = a < b
+        flag = count + 1
+    """)
+    assert _suggest_name({"flag"}, "check", block) == "_compute_flag"
+
+
+def test_suggest_name_output_never_assigned_in_block_is_not_vacuously_boolean():
+    block = _stmts("other = 1")
+    assert _suggest_name({"flag"}, "check", block) == "_compute_flag"
+
+
+def test_suggest_name_underscored_outputs_are_ignored_for_naming():
+    block = _stmts("""
+        if x:
+            raise ValueError("bad")
+    """)
+    assert _suggest_name({"_tmp"}, "process_order", block) == "_validate_order_inputs"
+
+
+def test_suggest_name_negation_is_boolean_shaped():
+    block = _stmts("idle = not busy")
+    assert _suggest_name({"idle"}, "check", block) == "_is_idle"
+
+
+def test_suggest_name_non_not_unary_is_not_boolean_shaped():
+    block = _stmts("delta = -offset")
+    assert _suggest_name({"delta"}, "check", block) == "_compute_delta"
+
+
+def test_assigns_only_boolean_walks_into_compound_statements():
+    from Detective.decompose import _assigns_only_boolean
+
+    # a non-boolean assignment hiding inside a For disqualifies…
+    block = _stmts("""
+        total = a < b
+        for i in items:
+            total = i + 1
+    """)
+    assert _assigns_only_boolean("total", block) is False
+    # …while boolean-shaped assignments inside compounds still qualify
+    block2 = _stmts("""
+        count = 0
+        for i in items:
+            ok = i > 0
+    """)
+    assert _assigns_only_boolean("ok", block2) is True
+
+
+def test_assigns_only_boolean_int_constant_is_not_boolean_shaped():
+    from Detective.decompose import _assigns_only_boolean
+
+    # 0 is falsy but not False-the-bool: a plain int constant disqualifies
+    assert _assigns_only_boolean("done", _stmts("done = 0")) is False
+    assert _assigns_only_boolean("done", _stmts("done = True")) is True

@@ -77,8 +77,33 @@ class SourceExpr:
 def unwrap(arg: Any) -> Any:
     """The live value of an argument — a :class:`SourceExpr`'s built object, or the
     argument itself. Applied at call sites so a synthesized non-literal input runs
-    as its real value while still rendering as source."""
-    return arg.value if isinstance(arg, SourceExpr) else arg
+    as its real value while still rendering as source.
+
+    Recurses into containers: a grid row like ``[SourceExpr(<ast.stmt>)]`` renders
+    correctly (list repr calls element reprs) but used to EXECUTE with the carrier
+    still inside — the target then crashed on the carrier (``'SourceExpr' object
+    has no attribute '_fields'`` inside ``ast.walk``), and that crash became a
+    bogus "killable" witness pinning a harness artifact, not behavior. A container
+    with no carriers anywhere is returned as-is, identity intact.
+    """
+    if isinstance(arg, SourceExpr):
+        return unwrap(arg.value)
+    if isinstance(arg, (list, tuple, set, frozenset)):
+        items = [unwrap(a) for a in arg]
+        if all(new is old for new, old in zip(items, arg, strict=True)):
+            return arg
+        if isinstance(arg, list):
+            return items
+        if isinstance(arg, tuple):
+            return tuple(items)
+        return type(arg)(items)
+    if isinstance(arg, dict):
+        pairs = {unwrap(k): unwrap(v) for k, v in arg.items()}
+        same = len(pairs) == len(arg) and all(
+            k in arg and arg[k] is v for k, v in pairs.items()
+        )
+        return arg if same else pairs
+    return arg
 
 
 # Modules an input EXPRESSION may reference. An allowlist, not a sandbox: it is what makes

@@ -18,7 +18,7 @@ import importlib.util
 import os
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from types import CodeType
 from typing import Any
 
@@ -1024,6 +1024,20 @@ def _synth_inferred_inputs(
     return [tuple(values)], inferred
 
 
+def _safely_fresh(candidate: tuple, pool: Sequence[tuple]) -> bool:
+    """True when ``candidate`` is not already in ``pool`` — surviving hostile ``__eq__``.
+
+    Membership runs ``==`` between CAPTURED user values and pool inputs; a captured object
+    whose comparison raises (a test double asserting "never compare me") took down the whole
+    converge run at the dedup step. A raising comparison means "not provably a duplicate":
+    keep the candidate — the worst case is one redundant classification pass, not a crash.
+    """
+    try:
+        return candidate not in pool
+    except Exception:  # noqa: BLE001 — any raising __eq__/__contains__ counts as "fresh"
+        return True
+
+
 def classify_survivors(
     file: str,
     function: str,
@@ -1247,7 +1261,7 @@ def classify_survivors(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
         )
         captured = capture_call_inputs(original, harvest_tests)
-        fresh = [t for t in captured if t not in inputs]
+        fresh = [t for t in captured if _safely_fresh(t, inputs)]
         if fresh:
             retry = _classify_pool(supplied + fresh + inputs)
             if any(v.killable for v in retry[0]):

@@ -23,6 +23,7 @@ because that is the signal that it is doing more than one thing.
 from __future__ import annotations
 
 import ast
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .cognitive_complexity import compute_cognitive_complexity
@@ -534,14 +535,69 @@ def _compute_block_variables(
     return inputs, outputs
 
 
-def _suggest_name(outputs: set[str], parent_name: str) -> str:
-    """Name the helper for what it RETURNS (issue #3), never for an arbitrary local
-    assigned somewhere inside the block — that named helpers ``_compute_name`` after
-    a loop-local and ``_compute_b`` after a comprehension variable, neither of which
-    the helper returned. A void helper falls back to the parent's name."""
+def _assigns_only_boolean(var: str, block_stmts: Sequence[ast.stmt]) -> bool:
+    """True when every assignment to ``var`` in the block is boolean-shaped.
+
+    Boolean-shaped: a ``bool`` literal, a comparison, or a boolean operation over
+    boolean-shaped operands (``a and b < c``). One non-boolean assignment anywhere
+    disqualifies — a name must never promise a predicate the code does not keep.
+    Requires at least one sighting: a var the block never assigns is not "all
+    assignments boolean" vacuously, it is unknown.
+    """
+
+    def _boolish(expr: ast.expr) -> bool:
+        if isinstance(expr, ast.Constant):
+            return isinstance(expr.value, bool)
+        if isinstance(expr, ast.Compare):
+            return True
+        if isinstance(expr, ast.BoolOp):
+            return all(_boolish(v) for v in expr.values)
+        if isinstance(expr, ast.UnaryOp):
+            return isinstance(expr.op, ast.Not)
+        return False
+
+    seen = False
+    for stmt in block_stmts:
+        for node in ast.walk(stmt):
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == var:
+                    seen = True
+                    if not _boolish(node.value):
+                        return False
+    return seen
+
+
+def _suggest_name(outputs: set[str], parent_name: str, block_stmts: Sequence[ast.stmt] = ()) -> str:
+    """Name the helper for what it OBSERVABLY DOES, selected by behavioral signature.
+
+    Returns a value -> name it for what it RETURNS (issue #3), never for an arbitrary
+    local assigned somewhere inside the block — that named helpers ``_compute_name``
+    after a loop-local and ``_compute_b`` after a comprehension variable, neither of
+    which the helper returned. A single output the block only ever assigns from
+    boolean-shaped expressions gets the predicate form (``_is_valid``, and a var
+    already carrying an ``is_``/``has_`` prefix keeps it rather than doubling up).
+
+    Returns nothing and raises -> a guard clause, and ``_<parent>_helper`` said none
+    of that (measured on a validation seam that earned ``_process_order_helper``
+    while its three sibling extractions all got real names). ``_validate_<object>``
+    with the object read off the parent by dropping its leading verb token is
+    deterministic — same trace + AST, same name, every run — which is what lets
+    decompose be applied repeatedly across a codebase with stable diffs.
+
+    A void block that does not raise keeps the honest fallback: bland-but-true.
+    """
     named = sorted(o for o in outputs if not o.startswith("_"))
     if named:
+        if len(named) == 1 and _assigns_only_boolean(named[0], block_stmts):
+            var = named[0]
+            return f"_{var}" if var.startswith(("is_", "has_")) else f"_is_{var}"
         return f"_compute_{'_'.join(named)}"
+    if any(isinstance(n, ast.Raise) for s in block_stmts for n in ast.walk(s)):
+        tokens = parent_name.strip("_").split("_")
+        obj = "_".join(tokens[1:]) if len(tokens) > 1 else ""
+        return f"_validate_{obj}_inputs" if obj else "_validate_inputs"
     return f"_{parent_name}_helper"
 
 
@@ -643,7 +699,7 @@ def _evaluate_block(
         return None
     line_start = block[0].stmt.lineno
     line_end = block[-1].stmt.end_lineno or block[-1].stmt.lineno
-    name = _suggest_name(outputs, parent_name)
+    name = _suggest_name(outputs, parent_name, [s.stmt for s in block])
     return ExtractionCandidate(
         start_line=line_start,
         end_line=line_end,

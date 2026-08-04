@@ -28,7 +28,12 @@ from .equivalence import SourceExpr, SurvivorReport
 from .line_flags import classify_missing_lines
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
 from .purity import is_pure, world_effects
-from .synthesis.characterization import capture_golden, corroborate_captures, golden_assert_line
+from .synthesis.characterization import (
+    capture_golden,
+    corroborate_captures,
+    distinction_pin_lines,
+    golden_assert_line,
+)
 from .synthesis.oracle_light import ExecutableProperty, _import_line, generate_executable_property
 from .synthesis.writer import (
     foreign_generated_test_names,
@@ -306,17 +311,28 @@ def _witness_property(func_key: str, witness, root: str | None = None) -> Execut
     witness proves original(args) != mutant(args), so pinning the original's real
     output there deterministically kills that mutant — an input the single golden
     capture missed. (For value-returning witnesses; a raising original gets the
-    pytest.raises form from :func:`_raises_witness_property`.)"""
+    pytest.raises form from :func:`_raises_witness_property`.)
+
+    When the two outcomes are ``==``-equal and differ only in type or repr (``1`` vs
+    ``1.0``), the golden ``==`` line cannot kill — ``distinction_pin_lines`` appends the
+    ``type()``/``repr`` pins that can, so the witness's kill power survives rendering."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
     args = ", ".join(repr(a) for a in witness.args)
+    lines = [
+        f"result = {fname}({args})",
+        golden_assert_line(witness.original, witness.original_value),
+    ]
+    pins = distinction_pin_lines(witness.original_value, witness.mutant)
+    lines += pins
+    preconditions = ["distinguishing witness (equivalence search)"]
+    if pins:
+        preconditions.append("outcomes ==-equal; distinction pinned by type/repr")
     return ExecutableProperty(
         category="VALUE",
         inputs={},
         setup_code=_setup_with_imports(mod, fname, witness.args, root),
-        assertion_code=(
-            f"result = {fname}({args})\n{golden_assert_line(witness.original, witness.original_value)}"
-        ),
-        preconditions=["distinguishing witness (equivalence search)"],
+        assertion_code="\n".join(lines),
+        preconditions=preconditions,
         confidence=0.95,
         source_lenses=["witness"],
         needs_oracle=False,

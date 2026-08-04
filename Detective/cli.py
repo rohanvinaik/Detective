@@ -896,10 +896,15 @@ def _final_banner(result) -> str:
     cand = len(rep.equivalent) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
     gap = len(result.missing_lines)
+    # "COMPLETE" is a claim about the OPERATOR UNIVERSE — every mutant the engine can
+    # construct — never about all possible edits (a float threshold shifted by an
+    # arbitrary amount is outside any finite family). The report body already carries
+    # the qualifier ("every operator-universe mutant tested"); the banner is where
+    # over-trust actually happens, so the banner says it too.
     if result.complete and cand == 0:
-        status = "✓ COMPLETE"
+        status = "✓ COMPLETE (operator universe)"
     elif result.complete:
-        status = f"✓ COMPLETE (modulo {cand} unproven-equivalent)"
+        status = f"✓ COMPLETE (operator universe · modulo {cand} unproven-equivalent)"
     else:
         bits = []
         if killable:
@@ -1101,16 +1106,20 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
     return "\n".join(lines)
 
 
-def _write_converge_report(root: str, qualname: str, text: str) -> str:
+def _write_converge_report(root: str, qualname: str, text: str, prefix: str = "converge") -> str:
     """Persist the FULL report to a readable file so the terminal can stay minimal.
     The complete detail — DOF, per-pass, every survivor, the generated test source — is
-    one `cat` away. Returns a short path relative to root, or '' on failure (best-effort)."""
+    one `cat` away. Returns a short path relative to root, or '' on failure (best-effort).
+
+    ``prefix`` names the command that produced the text (``converge_f.txt``,
+    ``decompose_f.txt``): a decompose that REFUSES used to leave no artifact at all,
+    so the refusal could only be re-diagnosed by re-running it."""
 
     safe = qualname.replace("::", "__").replace("/", "_").replace(".", "_")
     d = os.path.join(root, ".detective", "reports")
     try:
         os.makedirs(d, exist_ok=True)
-        path = os.path.join(d, f"converge_{safe}.txt")
+        path = os.path.join(d, f"{prefix}_{safe}.txt")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text + "\n")
     except OSError:
@@ -1409,8 +1418,16 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
             # distinguishing call, and each is listed so the count is honest ("65 looked like 1").
             # One tight line — the block is line-budgeted (test_report_stays_within_its_line_budget).
             out.append(_row("", "(a repeat is intentional: several mutants share one call)"))
-        out.append(_row("", "SUGGESTED — not written for you, because the engine"))
-        out.append(_row("", "could not verify the tests sound."))
+        # The reason is data the engine already holds — show ONE observed pair inside the
+        # same two budgeted lines, so a dead-end reads as a diagnosis, not a loop.
+        pair = next((v.witness for v in rep.killable if v.witness), None) if rep is not None else None
+        if pair is not None:
+            seen = f"{pair.original[:20]} vs {pair.mutant[:20]}"
+            out.append(_row("", f"SUGGESTED — not written: unsound ({seen}"))
+            out.append(_row("", "observed — if == cannot tell those apart, pin type/repr by hand)."))
+        else:
+            out.append(_row("", "SUGGESTED — not written for you, because the engine"))
+            out.append(_row("", "could not verify the tests sound."))
         if total > len(items):
             out.append(_row("", f"({total - len(items)} more in {where})"))
         return out
@@ -2883,11 +2900,16 @@ def _run(args) -> int:
             # command in the CLI, and until now the only one that printed nothing while it ran.
             notify=None if args.json else _notify_stderr,
         )
-        print(
-            json.dumps(asdict(result), indent=2, default=str)
-            if args.json
-            else _format_decompose(result, args.apply, args.target, args.project_root)
-        )
+        if args.json:
+            print(json.dumps(asdict(result), indent=2, default=str))
+        else:
+            text = _format_decompose(result, args.apply, args.target, args.project_root)
+            # Persist the full outcome — especially a REFUSAL, which otherwise leaves no
+            # artifact and can only be re-diagnosed by re-running the slowest command here.
+            rel = _write_converge_report(args.project_root, function, text, prefix="decompose")
+            if rel:
+                _notify_stderr(f"full report: {rel}")
+            print(text)
         return 0
 
     # Unreachable: argparse (required subparsers) guarantees args.command is one of the

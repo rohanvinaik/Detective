@@ -142,3 +142,16 @@ def test_resolve_origin_is_none_when_the_path_does_not_reach_it(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()
     assert _resolve_origin("pkg.mod", str(empty), [str(empty)]) is None
+
+
+# ── _safely_fresh (hostile __eq__ must not crash the dedup step) ─────────
+def test_safely_fresh_hostile_eq_counts_as_fresh():
+    from Detective.engine import _safely_fresh
+
+    class _Cranky:
+        def __eq__(self, other):
+            raise TypeError("no compare")
+
+        __hash__ = None
+
+    assert _safely_fresh((_Cranky(),), [(1,)]) is True

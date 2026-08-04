@@ -53,7 +53,10 @@ def _killable(mid: str = "K1") -> MutantVerdict:
 # ── _final_banner ─────────────────────────────────────────────────
 def test_banner_complete_clean():
     b = _final_banner(_cr())
-    assert b.startswith("FINAL m.py::f: ✓ COMPLETE")
+    # the claim is scoped to the operator universe, and the banner says so — the
+    # report body's qualifier alone left the summary line more confident than
+    # the evidence (measured: a 150.0 -> 149.0 threshold shift survived "COMPLETE")
+    assert b.startswith("FINAL m.py::f: ✓ COMPLETE (operator universe)")
     assert "10/10 killed" in b
     assert "1 test(s)" in b  # what we WROTE (wiring.passed) …
     assert "3 test(s)" not in b  # … never the minimal cover, which counts the consumer's tests
@@ -63,7 +66,7 @@ def test_banner_complete_clean():
 def test_banner_complete_modulo_unproven_equivalent():
     rep = SurvivorReport((_equiv(),), ())
     b = _final_banner(_cr(final_survivors=1, killed=9, survivor_report=rep))
-    assert "✓ COMPLETE (modulo 1 unproven-equivalent)" in b
+    assert "✓ COMPLETE (operator universe · modulo 1 unproven-equivalent)" in b
     assert "9/10 killed" in b
 
 
