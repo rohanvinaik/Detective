@@ -172,3 +172,22 @@ that produced it can be named. 0.11.1 also ships policies 2–5 themselves (DATA
 return_sub slice, the three-spelling and per-target STATE repairs, type-impossible
 arithmetic exclusion), so verdicts under it are claims about a strictly more honest
 universe than 0.11.0's.
+
+## Wesker >= 0.11.2
+
+\>= 0.11.2 is a PAIRING floor, maintainer-directed, and the ledger is honest about
+its shape: the protected behavior is not on Detective's import surface. 0.11.2's
+one change is `Wesker.action._stream_reentry` — the badge/self-profile runner
+snapshots the real stdout/stderr fds before profiling and re-enters them before
+anything report-shaped is written. Below it, a mutant of the fd-capture machinery
+(a class the policy-5 universe reliably produces — DATAFLOW return-substitution
+inside fd-restore paths) kills fd 1 for the rest of the process, and the action
+completes its ENTIRE measurement and then dies at its first `::warning` with
+EBADF, taking the report with it. Measured on Wesker's own whole-codebase badge
+run, 2026-08-05.
+
+Detective never imports `Wesker.action`, so no Detective verdict changes at any
+Wesker in the 0.11.x line — this floor encodes "the pairing we ship and verified"
+for repos that run both tools' CI, where the failure genuinely lands. That is a
+weaker justification class than every floor above, and the entry says so rather
+than dressing it up as one of them.
