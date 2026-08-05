@@ -497,7 +497,9 @@ def _render_decompose(r: Any, file: str, function: str, wrote: bool) -> str:
         out.append("  Your source was not touched. converge first, then come back.")
         return "\n".join(out)
 
-    if unproven and proof_incomplete:
+    # `proof is not None` is carried by `proof_incomplete`, but only a reader knows that — the
+    # correlation dies in the bool, and every `proof.` below reads as an attribute on None.
+    if unproven and proof is not None and proof_incomplete:
         # Count what the GATE reads, not every survivor. `functionally_complete` (converge.py) is
         # `not killable and not unclassified` — a candidate-equivalent does not block. Reporting
         # `final_survivors` here fused all three populations into one number and then asked for an

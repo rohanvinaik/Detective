@@ -23,7 +23,7 @@ from Wesker.ci import relevant_test_files, walk_functions
 from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
-from .certify import PytestWiring, _write, wire_pytest
+from .certify import PytestWiring, _write, synth_filename, wire_pytest
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
 from .equivalence import SourceExpr, SurvivorReport
 from .line_flags import classify_missing_lines
@@ -579,7 +579,10 @@ def converge(
     with open(full, encoding="utf-8") as fh:
         tree = ast.parse(fh.read(), filename=full)
     qualname, node = _resolve(tree, function)
-    if qualname is None:
+    # Both, though `_resolve` only ever returns them together (`None, None` or a real pair):
+    # checking one leaves the other `... | None` for every reader below, and the twelve
+    # unnarrowed uses that follow were each a type error a checker reports and a human skips.
+    if qualname is None or node is None:
         raise LookupError(f"function {function!r} not found in {file}")
     func_key = f"{os.path.relpath(full, root)}::{qualname}"
     # Read once here, not per witness: every rendered call site in this run names its
@@ -616,7 +619,38 @@ def converge(
     # Accumulate sound properties ACROSS passes, keyed by assertion (identical
     # assertions are the same test). Each pass re-renders the UNION — never just
     # the current pass — so a later pass cannot overwrite an earlier pass's killers.
-    accumulated: dict[str, ExecutableProperty] = {}
+    #
+    # ...and across RUNS, for the same reason. This dict starting empty each invocation was
+    # the same overwrite one scope up: the suite file is re-rendered wholesale from it, so a
+    # pin the previous run wrote and this run's search did not re-derive was destroyed before
+    # anything measured it. That is why a target could alternate forever — round A's tests
+    # answered, then discarded by round B — and why re-converging silently shrank a suite.
+    from . import pins
+
+    fn_digest = pins.function_digest(node)
+    accumulated: dict[str, ExecutableProperty] = {
+        p.assertion_code: p for p in pins.load(root, func_key, fn_digest, verify=property_holds)
+    }
+    if accumulated:
+        say(f"recalled {len(accumulated)} pinned test(s) from a previous run")
+
+    # COLD START. Pins protect the second run onward; the FIRST run after an upgrade — or any
+    # run whose store was purged — still faces a suite file written by an older version, with
+    # an accumulator that does not contain it, and re-renders it wholesale. So hold the bytes
+    # and what they measured. A run that ends up killing LESS than the file it replaced has
+    # not converged anything; it has destroyed evidence, and the honest artifact is the file
+    # that was already there.
+    prior_suite_source = ""
+    prior_suite_path = ""
+    if write_dir:
+        _wdir = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
+        # Through `synth_filename`, not a second copy of the rule: the guard has to look at the
+        # file `_write` will actually replace, and two spellings of "where does it live" drift.
+        prior_suite_path = os.path.join(_wdir, synth_filename(func_key))
+        with contextlib.suppress(OSError):
+            with open(prior_suite_path, encoding="utf-8") as fh:
+                prior_suite_source = fh.read()
+    baseline_killed: int | None = None
 
     for _pass in range(max_iterations):
         result = profile(
@@ -628,6 +662,9 @@ def converge(
             extra_test_dirs=extra_test_dirs,
             progress=progress,
         )
+        if baseline_killed is None:
+            # Measured BEFORE this run writes anything: what the suite already on disk kills.
+            baseline_killed = result.total_killed
         # Value-survivors: what the suite hasn't pinned the RETURN VALUE of — true
         # survivors plus crash/timeout kills. Converging drives THIS to zero, so a
         # crash-dominated "100%" no longer reads as done.
@@ -672,7 +709,7 @@ def converge(
         source = render_module(func_key, list(accumulated.values()))
         if source and write_dir:
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname, root) or None
+            written_path = _write(source, target, func_key, root) or None
         iterations.append(ConvergeIteration(survivors, len(new_sound)))
         if new_sound:
             _wrote = f" [{os.path.basename(written_path)}]" if written_path else ""
@@ -748,7 +785,7 @@ def converge(
         if witnessed:
             source = render_module(func_key, list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-            written_path = _write(source, target, qualname, root) or None
+            written_path = _write(source, target, func_key, root) or None
             say(f"witness pass: +{n_witnessed} distinguishing kill test(s) auto-written")
 
     # Authoritative final measurement — reflects every written test, including
@@ -798,7 +835,7 @@ def converge(
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             if accumulated:
                 source = render_module(func_key, list(accumulated.values()))
-                written_path = _write(source, target, qualname, root) or None
+                written_path = _write(source, target, func_key, root) or None
             elif written_path:
                 # Every generated property was redundant against stable user evidence:
                 # the honest artifact is NO file, not an empty shell reporting itself
@@ -818,6 +855,44 @@ def converge(
                 extra_test_dirs=extra_test_dirs,
                 progress=progress,
             )
+    # The check the accumulator cannot make on a cold start: is the suite we are about to ship
+    # WORSE than the one we replaced? Kill count is the comparison because it is the number
+    # this command exists to move; a run that lowers it has destroyed evidence, not converged.
+    regressed = (
+        bool(prior_suite_source)
+        and baseline_killed is not None
+        and final_result.total_killed < baseline_killed
+    )
+    if regressed:
+        say(
+            f"kept the suite already on disk — this run's would kill {final_result.total_killed} "
+            f"where it kills {baseline_killed}"
+        )
+        with contextlib.suppress(OSError):
+            with open(prior_suite_path, "w", encoding="utf-8") as fh:
+                fh.write(prior_suite_source)
+            from Wesker.ci import refresh_live_suite
+
+            refresh_live_suite(root, prior_suite_path)
+        written_path = prior_suite_path
+        final_result = profile(
+            file,
+            function,
+            project_root,
+            extra_test_dirs=extra_test_dirs,
+            progress=progress,
+        )
+
+    # Remember what this run pinned, AFTER minimization, so the next run seeds from the suite
+    # that actually shipped rather than the pre-minimal set. Saved even when empty: an empty
+    # set is the true memory of "everything generated was redundant against your own tests",
+    # and resurrecting those next run is the overwrite this store exists to stop.
+    #
+    # NOT after a restore: `accumulated` then describes the file we just threw away, and the
+    # properties of the one we kept are exactly what this run could not recover.
+    if not regressed:
+        pins.save(root, func_key, fn_digest, list(accumulated.values()))
+
     final = final_result.value_survived
     at_ceiling = final == 0
     # Make the written suite actually runnable in the consumer and state how —

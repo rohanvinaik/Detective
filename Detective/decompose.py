@@ -225,7 +225,12 @@ def _flow_stmts(stmts: list[ast.stmt]) -> _Flow:
     return _Flow(frozenset(uses), frozenset(must), frozenset(may))
 
 
-def _scope_free_uses(scope: ast.AST) -> set[str]:
+# The four node kinds that OPEN a scope and carry a body. Named because the recursion below
+# feeds itself from `nested`, so the parameter and that list must agree or one of them lies.
+_Scope = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda
+
+
+def _scope_free_uses(scope: _Scope) -> set[str]:
     """Approximate FREE VARIABLES of a nested scope — the outer names its body reads.
 
     Review finding 2: a class body executes at definition time, and a nested function
@@ -243,7 +248,7 @@ def _scope_free_uses(scope: ast.AST) -> set[str]:
     """
     bound: set[str] = set()
     reads: set[str] = set()
-    nested: list[ast.AST] = []
+    nested: list[_Scope] = []
 
     def visit(n: ast.AST) -> None:
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):

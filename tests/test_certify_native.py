@@ -17,6 +17,7 @@ from Detective.certify import (
     _write,
     certify,
     ensure_marker_registered,
+    synth_filename,
 )
 
 # ── _wiring_message (mutation-driven — the exact CLI wording IS the product) ─
@@ -134,6 +135,43 @@ def test_write_creates_missing_directory():
     d = os.path.join(tempfile.mkdtemp(), "nested", "dir")
     path = _write("x", d, "f")
     assert os.path.isdir(d) and os.path.exists(path)
+
+
+# ── synth_filename: one file per TARGET, not per function name ────
+def test_same_function_name_in_two_modules_gets_two_files():
+    """The regression this rule exists for. Both named the file after the qualname alone, so
+    `beta.py::load`'s converge overwrote `alpha.py::load`'s suite — measured: alpha fell from
+    `✓ COMPLETE 13/13` to `0.0% killed, 10 real gaps`, silently, while beta reported success.
+    `load`/`run`/`main`/`parse` make that a matter of when, not whether."""
+    assert synth_filename("alpha.py::load") != synth_filename("beta.py::load")
+    assert synth_filename("alpha.py::load") == "test_alpha_load_synth.py"
+    assert synth_filename("beta.py::load") == "test_beta_load_synth.py"
+
+
+def test_the_extension_is_stripped_from_the_module_not_the_middle():
+    """`.py` has to go before the halves are joined. Flattening first leaves it mid-string
+    where `removesuffix` is a no-op, and the file becomes `test_orphan_py_tier_price_synth.py`."""
+    assert synth_filename("orphan.py::tier_price") == "test_orphan_tier_price_synth.py"
+    assert "_py_" not in synth_filename("orphan.py::tier_price")
+
+
+def test_a_nested_module_path_flattens_and_stays_unique():
+    """Two `mod.py` under different packages are different targets, so the package has to
+    survive into the name — otherwise the collision just moves up a directory."""
+    a = synth_filename("pkg/mod.py::run")
+    b = synth_filename("other/mod.py::run")
+    assert a == "test_pkg_mod_run_synth.py" and b == "test_other_mod_run_synth.py"
+    assert a != b
+
+
+def test_a_dotted_qualname_keeps_its_owner():
+    assert synth_filename("m.py::Counter.reset") == "test_m_Counter_reset_synth.py"
+
+
+def test_a_bare_name_is_used_as_is():
+    """Direct `_write(..., "reset")` callers pass no module half; the fallback keeps their
+    filename rather than inventing an empty one."""
+    assert synth_filename("reset") == "test_reset_synth.py"
 
 
 # ── certify (fast path only — full runs are verified out-of-suite) ─

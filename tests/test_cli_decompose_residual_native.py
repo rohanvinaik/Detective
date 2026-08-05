@@ -22,6 +22,8 @@ must decide which action is printed.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from Detective.cli import _MAX_BATCH, _format_decompose
 from Detective.converge import ConvergeResult
 from Detective.decompose_apply import Decomposition, DecompositionApply, Extraction
@@ -44,17 +46,19 @@ def _equiv(mid: str) -> MutantVerdict:
 
 
 def _rep(**over) -> SurvivorReport:
-    base = dict(
+    # `replace`, not a dict splatted into the constructor: the dict widens every value to the
+    # union of its members, so a checker cannot tell `unclassified=()` from
+    # `inputs_expressible=True` and reports one error per field of the dataclass.
+    base = SurvivorReport(
         verdicts=tuple(_killable(f"K{i}") for i in range(5)) + tuple(_equiv(f"E{i}") for i in range(17)),
         unclassified=(),
         inputs_expressible=True,
     )
-    base.update(over)
-    return SurvivorReport(**base)
+    return replace(base, **over) if over else base
 
 
 def _proof(**over) -> ConvergeResult:
-    base = dict(
+    base = ConvergeResult(
         function="p.py::quote",
         converged=False,
         at_ceiling=True,
@@ -73,8 +77,7 @@ def _proof(**over) -> ConvergeResult:
         param_names=("weight", "distance", "tier", "rush", "insured"),
         survivor_report=_rep(),
     )
-    base.update(over)
-    return ConvergeResult(**base)
+    return replace(base, **over) if over else base
 
 
 def _result(proof: ConvergeResult | None, validated: bool = False) -> DecompositionApply:
@@ -250,12 +253,34 @@ def test_a_domain_object_is_expressible_in_the_input_slot():
 # ── batching: --input is repeatable, so say what ALL the requirements are ──
 
 
-def test_witnesses_batch_too_and_carry_the_suggested_label():
-    """A witness is a call the engine RAN. Several are several real calls — batch them, and
-    keep the abstention on the line, not four rows below it."""
-    out = _out()  # 5 killable, all with witnesses
-    assert out.count('--input "(1,)"') == 5  # ALL of them, batched into one command
+def test_identical_witnesses_collapse_to_one_input_and_say_what_they_cover():
+    """Five mutants sharing ONE distinguishing call is one `--input`, not five. Passing the
+    same tuple five times kills exactly what passing it once kills, so the repetition bought
+    nothing and cost the line: at ten shared witnesses it rendered ~600 characters of argv,
+    which is not a thing anyone pastes. The count it was carrying is stated instead."""
+    out = _out()  # 5 killable, all with the SAME witness (1,)
+    assert out.count('--input "(1,)"') == 1
+    assert "1 distinct — they cover 5 mutant(s)" in out
     assert "SUGGESTED" in out
+
+
+def test_distinct_witnesses_still_all_batch_into_one_command():
+    """Collapsing duplicates must not collapse DIFFERENT calls — each real call still has to
+    reach the reader, in one command, or the batch job becomes N sequential rounds again."""
+    rep = _rep(
+        verdicts=(
+            MutantVerdict(
+                "K0", "VALUE", "- x\n+ x+1", killable=True, witness=Witness((1,), "1", "2"), searched=5
+            ),
+            MutantVerdict(
+                "K1", "VALUE", "- y\n+ y+1", killable=True, witness=Witness((7,), "7", "8"), searched=5
+            ),
+        )
+    )
+    out = _out(survivor_report=rep)
+    assert '--input "(1,)"' in out and '--input "(7,)"' in out
+    assert "the 2 call(s) above" in out
+    assert "distinct — they cover" not in out  # nothing collapsed, so nothing to disclose
 
 
 # ── batching: --input is repeatable, so name ALL the derived requirements ──
@@ -282,8 +307,11 @@ def test_every_derived_requirement_is_named_not_just_the_first():
     out = _out(survivor_report=rep)
     assert "1. where weight == 0" in out
     assert "2. where weight == 5" in out
-    # One --input per requirement: the repetition IS the signal for how many calls to author.
-    assert out.count('--input "(<weight>') == 2
+    # The count is the Task line's job, not argv's: every copy of an UNFILLED template is the
+    # same string, so repeating it says nothing the sentence does not, and the reader has to
+    # edit each one anyway. What must never regress is that both requirements are NAMED.
+    assert "Author 2 call(s)" in out
+    assert out.count('--input "(<weight>') == 1
 
 
 def test_the_batch_cap_is_disclosed_never_silent():
@@ -291,8 +319,10 @@ def test_the_batch_cap_is_disclosed_never_silent():
     many = tuple(_boundary(f"B{i}", i) for i in range(_MAX_BATCH + 4))
     out = _out(survivor_report=_rep(verdicts=many, inputs_expressible=True))
     assert "(+4 more in" in out
-    # Count the FLAG, not the word — the prose says "each as its own --input" too.
-    assert out.count('--input "(<weight>') == _MAX_BATCH
+    # The cap is disclosed in prose now that the slot is printed once — `_MAX_BATCH`
+    # requirements are named in the list, and the remainder is named beside them.
+    assert f"Author {_MAX_BATCH} call(s)" in out
+    assert out.count('--input "(<weight>') == 1
 
 
 def test_derive_inputs_returns_data_so_both_surfaces_cannot_drift():
@@ -334,3 +364,135 @@ def test_derive_inputs_untypeable_witness_becomes_test_kind_never_a_command():
     # A typeable witness alongside it still wins the command path.
     kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(untypeable, _killable("K1"))))
     assert kind == "witness" and items == ["(1,)"] and total == 1
+
+
+# ── a dark line outranks an equivalent's edge ────────────────────────
+def test_uncovered_lines_outrank_a_candidate_equivalents_boundary_edge():
+    """With nothing killable left, the only progress available is EXECUTING a line.
+
+    `hints`/`internal` are read off CANDIDATE-EQUIVALENT survivors, so reaching them means
+    every killable mutant is already dead. Asking for the edge then cannot move the number:
+    the reader supplies it, the run returns byte-identical, and the same request comes back.
+    Observed on a real 207-mutant target that sat at 144/207 across three rounds asking for
+    `billable == 1` — already satisfied — while seven lines were never executed. A mutant on
+    a line that never runs can never die, so coverage is a PRECONDITION for the kill axis."""
+    from Detective.cli import _derive_inputs
+
+    proof = _proof(missing_lines=(30, 41), missing_line_guards=((30, "service == 'overnight'"),))
+    kind, items, total = _derive_inputs(proof, _rep(verdicts=(_equiv("E0"),)))
+
+    assert kind == "lines"
+    assert total == 2
+    assert items[0] == "line 30 — reached only when: service == 'overnight'"
+    # An unconditional line sits behind no branch; it is still named, because "line 41" is
+    # actionable and silence is not.
+    assert items[1] == "line 41 — reach it"
+
+
+def test_a_killable_witness_still_outranks_an_uncovered_line():
+    """A witness is a call the engine RAN and saw a mutant differ on — proven progress. The
+    line ask exists for when that well is dry, not to displace it."""
+    from Detective.cli import _derive_inputs
+
+    proof = _proof(missing_lines=(30,), missing_line_guards=())
+    kind, items, _ = _derive_inputs(proof, _rep(verdicts=(_killable("K0"),)))
+    assert kind == "witness" and items == ["(1,)"]
+
+
+def test_a_decompose_proof_carries_no_line_axis_and_is_unchanged():
+    """Only converge measures line coverage. A proof without those fields must derive exactly
+    as before — the line ask is additive, never a behaviour change for decompose."""
+    from Detective.cli import _derive_inputs
+
+    class _NoLines:
+        signature, param_names = "", ()
+
+    kind, _, _ = _derive_inputs(_NoLines(), _rep(verdicts=(_equiv("E0"),)))
+    assert kind in {"boundary", "internal", "author"}
+
+
+def test_the_line_ask_names_every_gap_not_just_the_first():
+    """`missing_line_guards` was added so a line gap could be closed by the guidance, and it
+    reached only the informational row — capped at three — while the ACTION still asked the
+    mutant axis. Naming one line of seven is the same failure the guards were added to fix."""
+    from Detective.cli import _derive_inputs
+
+    proof = _proof(missing_lines=(30, 40, 41, 42, 43, 45, 46), missing_line_guards=())
+    kind, items, total = _derive_inputs(proof, _rep(verdicts=(_equiv("E0"),)))
+    assert kind == "lines" and total == 7 and len(items) == 7
+
+
+def test_the_line_ask_renders_a_runnable_command_and_names_each_condition():
+    """The renderer, not just the derivation: one `--input` slot per line so the count of
+    slots IS the number of calls to author, and every guard printed verbatim. The block a
+    reader pastes has to carry the conditions, because the informational row above it caps
+    at three and the report file is the thing they did not open."""
+    from Detective.cli import _derived_input
+
+    proof = _proof(
+        missing_lines=(30, 45),
+        missing_line_guards=((30, "service == 'overnight'"), (45, "hazmat == 'limited'")),
+    )
+    out = "\n".join(
+        _derived_input(
+            None,
+            proof,
+            _rep(verdicts=(_equiv("E0"),)),
+            "p.py::quote",
+            verb="detective converge 'p.py::quote'",
+        )
+    )
+
+    command = out.splitlines()[0]
+    assert command.startswith("DO THIS:  detective converge 'p.py::quote' --input ")
+    assert command.count("--input") == 1  # ONE slot; the count is the Task line's job
+    assert "Author 2 call(s)" in out
+    assert "line 30 — reached only when: service == 'overnight'" in out
+    assert "line 45 — reached only when: hazmat == 'limited'" in out
+    # The reason must be in the block: an edge on an equivalent cannot move a dark line.
+    assert "Every killable mutant is already dead" in out
+
+
+# ── the hand-pin remedy, only where it is the remedy ─────────────────
+def test_two_plain_values_do_not_get_told_that_equality_cannot_separate_them():
+    """It printed `unsound (34.41 vs 33.24 observed — if == cannot tell those apart, pin
+    type/repr by hand)`. `==` separates 34.41 from 33.24 perfectly well, so the advice
+    contradicted the evidence one line above it. The observed pair still prints; the remedy
+    does not."""
+    from Detective.cli import _outcome_needs_hand_pin
+
+    assert _outcome_needs_hand_pin("34.41", "33.24") is False
+
+    rep = _rep(
+        verdicts=(
+            MutantVerdict(
+                "K0", "VALUE", "- x\n+ x+1", killable=True,
+                witness=Witness((1,), "34.41", "33.24"), searched=5,
+            ),
+        )
+    )
+    out = _out(survivor_report=rep)
+    assert "34.41 vs 33.24 observed" in out  # the evidence stays
+    assert "pin the" not in out and "type/message by hand" not in out
+
+
+def test_a_raised_outcome_still_gets_the_hand_pin_remedy():
+    """Where it IS apt: no return-value assertion reaches an outcome that raised, so the
+    reader genuinely has to pin the exception by hand."""
+    from Detective.cli import _outcome_needs_hand_pin
+
+    assert _outcome_needs_hand_pin("<raised ValueError: nope>", "None") is True
+    assert _outcome_needs_hand_pin("None", "<raised ValueError: nope>") is True
+    # Identical reprs too: nothing for `==` to grip.
+    assert _outcome_needs_hand_pin("7", "7") is True
+
+    rep = _rep(
+        verdicts=(
+            MutantVerdict(
+                "K0", "EXCEPTION", "- raise A\n+ raise B", killable=True,
+                witness=Witness((1,), "<raised ValueError: nope>", "None"), searched=5,
+            ),
+        )
+    )
+    out = _out(survivor_report=rep)
+    assert "type/message by hand" in out

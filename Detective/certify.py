@@ -239,7 +239,9 @@ def certify(
         tree = ast.parse(fh.read(), filename=full)
 
     qualname, node = _resolve(tree, function)
-    if qualname is None:
+    # Both, as in `converge`: `_resolve` returns them together, so checking one leaves the
+    # other `... | None` for every use below (`synthesize_test_module`, `decompose`).
+    if qualname is None or node is None:
         raise LookupError(f"function {function!r} not found in {file}")
 
     result = profile(file, function, project_root)
@@ -261,14 +263,38 @@ def certify(
         # Resolve write_dir against the project root (not CWD) so tests land in
         # the consumer's tree where their imports resolve — matches converge.
         target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-        written = _write(source, target, qualname, root)
+        written = _write(source, target, func_key, root)
     # Wire the written suite so it runs under real pytest, and state how (see converge).
     wiring = wire_pytest(root, written) if written else None
     return CertifyResult(func_key, scope, result.value_survived, at_ceiling, source, written, plan, wiring)
 
 
-def _write(source: str, write_dir: str, qualname: str, project_root: str | None = None) -> str:
-    """Write synthesized source to ``write_dir/test_<qualname>_synth.py``; return the path,
+def synth_filename(func_key: str) -> str:
+    """The synth suite's basename for ``file.py::qualname`` — derived from the WHOLE key.
+
+    It was derived from the qualname alone, so `alpha.py::load` and `beta.py::load` both
+    claimed ``test_load_synth.py`` and the second converge overwrote the first's suite —
+    measured: alpha went from `✓ COMPLETE 13/13` to `0.0% killed, 10 real gaps`, silently,
+    with beta reporting success. Names like `load`/`run`/`main`/`parse` make that a matter of
+    when, not whether. The func_key is the identity the rest of the engine already uses, and
+    it is unique by construction, so the file that belongs to one target is named after it.
+
+    Ownership itself is read from the header ``render_module`` writes, never from the
+    filename (`foreign_generated_test_names`), so this naming is free to change.
+    """
+    module, _, qualname = func_key.partition("::")
+    # Strip `.py` from the MODULE half before flattening — doing it after joining leaves the
+    # extension mid-string, where `removesuffix` is a no-op and `orphan.py::tier_price` becomes
+    # `test_orphan_py_tier_price_synth.py`. A bare name (no `::`) is used as-is, which is what
+    # a direct `_write(..., "reset")` caller passes.
+    stem = f"{module.removesuffix('.py')}_{qualname}" if qualname else module.removesuffix(".py")
+    for sep in ("/", "\\", ".", "-", " "):
+        stem = stem.replace(sep, "_")
+    return f"test_{stem.strip('_')}_synth.py"
+
+
+def _write(source: str, write_dir: str, func_key: str, project_root: str | None = None) -> str:
+    """Write synthesized source to ``write_dir/`` under :func:`synth_filename`; return the path,
     or "" when there was nothing to write.
 
     Empty source means we contribute no test — e.g. converge's minimize pass dropped every
@@ -288,8 +314,7 @@ def _write(source: str, write_dir: str, qualname: str, project_root: str | None 
     session HERE is what makes "the suite changed" impossible to forget at a call site.
     Omitted (or no live session) it is a no-op and discovery re-collects per call as before."""
     os.makedirs(write_dir, exist_ok=True)
-    safe = qualname.replace(".", "_")
-    path = os.path.join(write_dir, f"test_{safe}_synth.py")
+    path = os.path.join(write_dir, synth_filename(func_key))
     if not source.strip():
         if os.path.exists(path):
             os.remove(path)

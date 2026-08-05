@@ -127,7 +127,13 @@ dependencies = [
 
 # The MCP surface is optional so the core stays Wesker + stdlib only.
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
+# CEILING, not just a floor. `mcp_server.py` is written against FastMCP (`from
+# mcp.server.fastmcp import FastMCP`, `@server.tool()`), and mcp 2.0 removed it — the class is
+# `MCPServer` on a different module path. With a bare `>=1.0`, `pip install detective-spec[mcp]`
+# resolves 2.x and `detective-mcp` dies on its import line. Migrating the ~1150-line tool
+# surface to the 2.x API is real work; shipping an extra that cannot start is not the way to
+# defer it.
+mcp = ["mcp>=1.0,<2"]
 
 [project.scripts]
 detective = "Detective.cli:main"
@@ -181,3 +187,11 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.coverage.run]
 source = ["Detective"]
 omit = ["Detective/cli.py", "Detective/__main__.py", "Detective/__init__.py"]
+
+# Point the type checker at the venv Detective actually runs in. Without it Wesker resolves
+# nowhere, so every `from Wesker...` reads as a missing import and EVERY call across that
+# boundary is unchecked — the one boundary where a signature change lands as a runtime
+# failure in a consumer's repo rather than a red squiggle here.
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

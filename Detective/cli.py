@@ -694,8 +694,14 @@ def _stream_progress(label: str):
                 else:
                     sys.stderr.write(f"{lead}{label}: 0/{total} mutants · calibrating this machine…{pad}")
                 sys.stderr.flush()
-            if done == 0:
-                return
+        # EVERY pass, not just the first. This guard used to sit inside the `started` block, so
+        # it protected the opening pass and nothing after it: converge reuses ONE callback across
+        # its re-profiles, and from the second pass on a `done=0` frame fell through to the ETA
+        # branch below. On a terminal `\r` hid it; off one there is no line to redraw, so it
+        # printed `0/207 mutants · 0/s · ETA 0.0s` immediately followed by the completion line —
+        # two frames welded into one, which is what every CI log of a converge looked like.
+        if done == 0:
+            return
         if 0 < done < total:
             if not live or elapsed_ms - state["last_ms"] < 200.0:
                 return  # throttle to ~5 updates/sec on a terminal; off one, only first + last
@@ -956,9 +962,17 @@ def _final_banner(result) -> str:
     # suite, ours and the consumer's together — and printing it beside our own path credits us
     # with the consumer's tests. See `_written_count`.
     written = _written_count(result)
-    count = written if result.written_path else (result.minimal_test_count or None)
-    tests = f" · {count} test(s)" if count else ""
-    arrow = f" → {_rel_path(result.written_path)}" if result.written_path else ""
+    if result.written_path:
+        tests = f" · {written} test(s)" if written else ""
+        arrow = f" → {_rel_path(result.written_path)}"
+    else:
+        # Nothing of OURS on disk this run — every generated property was redundant against
+        # tests that already existed. The minimal cover is still the useful number, but it
+        # cannot go in the bare slot: `· 10 test(s)` with no arrow reads as "wrote 10 tests,
+        # location unknown", and sends the reader hunting for a file that was never written.
+        # It is the same conflation the comment above guards for the with-path case.
+        tests = f" · minimal cover {result.minimal_test_count} test(s)" if result.minimal_test_count else ""
+        arrow = ""
     # Two routes reach the same number and they are NOT the same claim. Converging a suite
     # the user already had says their tests now pin the behaviour. Reaching it with no
     # pre-existing test says the behaviour is pinned to what the code does TODAY, by tests
@@ -1209,8 +1223,14 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
         # Name each uncovered line's OWN reach requirement (the branch it sits behind), so it is not
         # conflated with a mutant's kill input — the boundary mutant on `if x < 0` wants `x == 0`, but
         # the body is reached only when `x < 0`. Capped so the block stays inside its line budget.
-        for ln, guard in getattr(result, "missing_line_guards", ())[:3]:
+        guards = result.missing_line_guards
+        for ln, guard in guards[:3]:
             lines.append(_row("", f"line {ln} runs only when: {guard}"))
+        # Disclose the cap, by this report's own rule — a bound that is not named reads as
+        # "this is all of them". Three of seven printed silently, and the action block below
+        # names every one, so the reader had no way to tell the row was a sample.
+        if len(guards) > 3:
+            lines.append(_row("", f"(+{len(guards) - 3} more — all named in the action below)"))
     if result.manually_unreachable:
         lines.append(
             _row("· line oracle", f"{result.manually_unreachable} statement(s) flagged unreachable (modulo)")
@@ -1444,6 +1464,16 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
                 internal.append(h)
         elif (rel := _hint_relation(h)) not in hints:
             hints.append(rel)
+    # A DARK LINE OUTRANKS AN EQUIVALENT'S EDGE. `hints`/`internal` are read off
+    # CANDIDATE-EQUIVALENT survivors — by construction nothing killable is left, so the only
+    # progress still available is executing a line no test reaches. Asking for the edge first
+    # asks for the wrong thing and cannot move the number: the reader supplies `billable == 1`,
+    # every killable mutant is already dead, and the run returns byte-identical with the same
+    # request. `missing_line_guards` is already computed for exactly this (converge.py) and was
+    # reaching only the informational row; a mutant on a line that never runs can never die, so
+    # coverage is a PRECONDITION for the kill axis, not a parallel one.
+    if gaps := _line_gap_items(proof):
+        return "lines", gaps[:_MAX_BATCH], len(gaps)
     if hints:
         return "boundary", hints[:_MAX_BATCH], len(hints)
     if internal:
@@ -1453,6 +1483,32 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     return "author", [], 0
 
 
+def _line_gap_items(proof) -> list[str]:
+    """Uncovered lines as REACH requirements — "line 30: service == 'overnight' and zone >= 5".
+
+    Guards are per-line and may be absent (an unconditional line sits behind no branch); such a
+    line is still named, because "line 47" with no condition is actionable and silence is not.
+    Only the converge surface carries these fields, so a decompose `proof` yields nothing here
+    and the derivation is unchanged for it.
+    """
+    guards = dict(getattr(proof, "missing_line_guards", ()) or ())
+    return [
+        f"line {ln} — reached only when: {guards[ln]}" if ln in guards else f"line {ln} — reach it"
+        for ln in (getattr(proof, "missing_lines", ()) or ())
+    ]
+
+
+def _outcome_needs_hand_pin(original: str, mutant: str) -> bool:
+    """Whether a witness's two outcomes are beyond an ``==`` on the return value.
+
+    True when either side is an exception (``<raised …>`` — the engine's own encoding, see
+    ``equivalence``) or the reprs are identical. False for two plainly different values, where
+    ``==`` is exactly the thing that separates them and advice to pin a repr is a non-sequitur
+    printed under evidence that contradicts it.
+    """
+    return original.startswith("<raised") or mutant.startswith("<raised") or original == mutant
+
+
 def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "") -> list[str]:
     """The CLI's `DO THIS:` block — `derive_inputs`' data rendered as terminal syntax.
 
@@ -1460,9 +1516,14 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
     COMMAND is not, because a human runs `--input "(...)"` and a tool caller passes
     `inputs=["(...)"]`. Sharing the rendered string put terminal syntax into an MCP response.
 
-    Batched: `--input` is repeatable, each call kills what it reaches, and the repetition is the
-    signal for how many calls to author. The remainder is always named — a bound that is not
-    disclosed reads as "this is all of them".
+    Batched: `--input` is repeatable and each call kills what it reaches, so N requirements
+    close in ONE command. The COUNT is a sentence, not argv — that was the earlier design and it
+    cost the line without buying anything: an unfilled template repeated N times is the same
+    string N times (and the reader edits each anyway), and an identical witness repeated N times
+    kills exactly what one kills. Ten of either rendered ~600 characters of command, which is not
+    a thing anyone pastes. DISTINCT witnesses still all appear; only duplicates collapse, and what
+    they cover is stated. The remainder is always named — a bound that is not disclosed reads as
+    "this is all of them".
     """
     cmd = verb or f"detective decompose '{target}' --apply"
     sig = proof.signature or ""
@@ -1471,23 +1532,34 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
     where = report or "the full report"
 
     if kind == "witness":
-        flags = " ".join(f'--input "{a}"' for a in items)
+        # DISTINCT calls. `--input` is a set in effect — passing the same tuple five times kills
+        # exactly what passing it once kills — so the repetition bought nothing and cost the one
+        # thing this line is for: at 10 shared witnesses it rendered a ~600-character command,
+        # which is not a thing anyone pastes. The mutant count is what the repetition was
+        # actually carrying, so it is stated as a count instead of spelled out in argv.
+        distinct = list(dict.fromkeys(items))
+        flags = " ".join(f'--input "{a}"' for a in distinct)
         out = [f"DO THIS:  {cmd} {flags}"]
         out.append("")
-        out.append(_row("· Why these", f"Detective RAN each: the {len(items)} call(s) above each"))
+        out.append(_row("· Why these", f"Detective RAN each: the {len(distinct)} call(s) above each"))
         out.append(_row("", "make a mutant differ from your real function."))
-        if len(set(items)) < len(items):
-            # A repeated --input reads as a glitch; it is not. Distinct mutants can share ONE
-            # distinguishing call, and each is listed so the count is honest ("65 looked like 1").
-            # One tight line — the block is line-budgeted (test_report_stays_within_its_line_budget).
-            out.append(_row("", "(a repeat is intentional: several mutants share one call)"))
+        if len(distinct) < len(items):
+            out.append(_row("", f"({len(distinct)} distinct — they cover {len(items)} mutant(s))"))
         # The reason is data the engine already holds — show ONE observed pair inside the
         # same two budgeted lines, so a dead-end reads as a diagnosis, not a loop.
         pair = next((v.witness for v in rep.killable if v.witness), None) if rep is not None else None
         if pair is not None:
             seen = f"{pair.original[:20]} vs {pair.mutant[:20]}"
-            out.append(_row("", f"SUGGESTED — not written: unsound ({seen}"))
-            out.append(_row("", "observed — if == cannot tell those apart, pin type/repr by hand)."))
+            out.append(_row("", f"SUGGESTED — not written: unsound ({seen} observed)."))
+            # The hand-pin remedy ONLY where it is the remedy. It used to print unconditionally,
+            # so a pair like `34.41 vs 33.24` — which `==` separates perfectly well — was told
+            # "if == cannot tell those apart, pin type/repr by hand", advice that does not apply
+            # to the thing on the line above it. It applies when the outcomes are not VALUES
+            # (one side raised, so no return-value assertion reaches them) or when the two reprs
+            # are the same string (nothing for `==` to grip).
+            if _outcome_needs_hand_pin(pair.original, pair.mutant):
+                out.append(_row("", "No == on a return value separates those — pin the"))
+                out.append(_row("", "exception type/message by hand."))
         else:
             out.append(_row("", "SUGGESTED — not written for you, because the engine"))
             out.append(_row("", "could not verify the tests sound."))
@@ -1507,8 +1579,29 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
             out.append(_row("", f"({total - len(items)} more in {where})"))
         return out
 
+    if kind == "lines":
+        # ONE slot, not N identical ones. Every copy is the same unfilled template, so repeating
+        # it says nothing the Task line does not, and at seven uncovered lines it produced a
+        # command that was 90% the same string. How many to author is a sentence; it is not argv.
+        out = [f"DO THIS:  {cmd} {tmpl}"]
+        out.append("")
+        out.append(_row("· Signature", sig))
+        out.append("")
+        out.append(_row("· Task", f"Author {len(items)} call(s) — one per line below — each as"))
+        out.append(_row("", "its own --input. Detective derives every test from them."))
+        out.append(_row("· Why", "Every killable mutant is already dead. What is left is"))
+        out.append(_row("", "lines no test executes; a mutant on a line that never"))
+        out.append(_row("", "runs cannot be killed, so reach these first."))
+        out.append(_row("· Uncovered", f"1. {items[0]}"))
+        for i, gap in enumerate(items[1:], start=2):
+            out.append(_row("", f"{i}. {gap}"))
+        if total > len(items):
+            out.append(_row("", f"(+{total - len(items)} more in {where})"))
+        return out
+
     if kind == "boundary":
-        out = [f"DO THIS:  {cmd} " + " ".join([tmpl] * len(items))]
+        # One slot — see the `lines` branch above; the count is in the Task line.
+        out = [f"DO THIS:  {cmd} {tmpl}"]
         out.append("")
         out.append(_row("· Signature", sig))
         out.append("")

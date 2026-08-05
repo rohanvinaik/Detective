@@ -40,7 +40,10 @@ def test__final_banner_value_0():
             param_names=(),
         )
     )
-    assert result == "FINAL m.py::f: ✓ COMPLETE (operator universe) · 10/10 killed · 3 test(s)"
+    # `written_path=None` — nothing of ours reached disk, so the 3 is the minimal COVER over
+    # the whole suite, not a file we wrote. Named as such: the bare `· 3 test(s)` this pinned
+    # reads as "wrote 3 tests" and sent the reader looking for a path that is not there.
+    assert result == "FINAL m.py::f: ✓ COMPLETE (operator universe) · 10/10 killed · minimal cover 3 test(s)"
 
 
 @pytest.mark.detective

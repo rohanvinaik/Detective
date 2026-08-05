@@ -183,7 +183,10 @@ def test_orphan_target_synthesizes_instead_of_running_the_suite(project):
     assert r.returncode == 0, r.stderr
     assert "synthesized" in r.stdout, f"banner did not mark the origin:\n{r.stdout}"
     assert "CHARACTERIZATION" in r.stdout, "a suite nobody has read must say so"
-    assert list((project / "tests").glob("test_tier_price_synth.py"))
+    # Named for the whole func_key, module included: `orphan.py::tier_price`. Two modules
+    # defining the same function name would otherwise claim one file and the second converge
+    # would overwrite the first's suite.
+    assert list((project / "tests").glob("test_orphan_tier_price_synth.py"))
 
 
 def test_decompose_apply_preserves_behaviour(project):
