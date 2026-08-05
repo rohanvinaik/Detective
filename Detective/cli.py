@@ -703,8 +703,16 @@ def _stream_progress(label: str):
         if done == 0:
             return
         if 0 < done < total:
-            if not live or elapsed_ms - state["last_ms"] < 200.0:
-                return  # throttle to ~5 updates/sec on a terminal; off one, only first + last
+            if live:
+                if elapsed_ms - state["last_ms"] < 200.0:
+                    return  # throttle to ~5 updates/sec on a terminal
+            # Off-terminal there is no line to redraw, so this used to be
+            # first + last ONLY — a 20-minute mutant loop on a heavy-import
+            # target wrote NOTHING to a tee'd log, and "running" vs "hung"
+            # was decidable only by ps (issue #19). Emit a newline-terminated
+            # heartbeat instead, throttled hard so CI logs stay bounded.
+            elif elapsed_ms - state["last_ms"] < 15_000.0:
+                return
         state["last_ms"] = elapsed_ms
         secs = elapsed_ms / 1000.0
         rate = done / secs if secs > 0 else 0.0
@@ -714,7 +722,8 @@ def _stream_progress(label: str):
             sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate:.0f}/s · done in {secs:.1f}s\n")
         else:
             eta = (total - done) * (elapsed_ms / done) / 1000.0 if done else 0.0
-            sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate:.0f}/s · ETA {eta:.1f}s{pad}")
+            tail = f"{pad}" if live else " (heartbeat)\n"
+            sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate:.0f}/s · ETA {eta:.1f}s{tail}")
         sys.stderr.flush()
 
     return cb
@@ -842,10 +851,24 @@ def _format_survivor_report(
         )
     if rep.killable:
         lines.append(f"  killable — SUGGESTED tests (not auto-applied, {len(rep.killable)}):")
+        # One witness often kills many mutants — the field case printed the
+        # SAME 800-char assert twelve times (issue #18). Group by the rendered
+        # (input, expected) pair and say the useful fact instead: one pin
+        # closes N degrees of freedom. Insertion-ordered, so the first
+        # appearance keeps its place in the report.
+        grouped: dict[tuple[str, str], list] = {}
         for v in rep.killable:
             w = v.witness
             args = ", ".join(repr(a) for a in w.args)
-            lines.append(f"    → assert f({args}) == {w.original}   (mutant gives {w.mutant})")
+            grouped.setdefault((args, str(w.original)), []).append(v)
+        for (args, original), verdicts in grouped.items():
+            w = verdicts[0].witness
+            if len(verdicts) == 1:
+                kills = ""
+            else:
+                ids = ", ".join(v.mutant_id for v in verdicts)
+                kills = f"   (kills {len(verdicts)}: {ids})"
+            lines.append(f"    → assert f({args}) == {original}   (mutant gives {w.mutant}){kills}")
     if rep.unclassified:
         tail = f": {rep.note}" if rep.note else ""
         lines.append(f"  uncertain — {len(rep.unclassified)} survivor(s) not classified{tail}")
@@ -932,6 +955,16 @@ def _plain_terms(result) -> str:
 def _final_banner(result) -> str:
     """A stable, greppable, ALWAYS-LAST line — so `tail`/scroll-to-bottom always lands
     on the result, never in a generated-test body. Survives truncation by construction."""
+    # A verdict computed against a file that changed under the run is NOT a
+    # verdict (issue #17): the mutants came from the start-of-run parse while
+    # the suite imported the edited module from disk. Stamp it before any
+    # status wording — STALE overrides COMPLETE and Incomplete alike, because
+    # both would be claims about a measurement that did not happen.
+    if getattr(result, "stale_target", False):
+        return (
+            f"FINAL {result.function}: ⚠ STALE — target changed during run; "
+            "measurement invalid, re-run required"
+        )
     total = result.total_mutants
     rep = result.survivor_report
     cand = len(rep.equivalent) if rep is not None else 0
@@ -1064,10 +1097,16 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
         # not what it computes (§0), so crediting it here would overstate the specification —
         # and disagree with `diagnose`, which counts value-pins. This number is therefore
         # allowed to sit below the "N killed" above it; they are different claims.
+        # "complete" is a claim under a VERSIONED mutation policy (issues #8/#14),
+        # and the report is where that scope belongs in human-readable form — the
+        # id is what a receipt or a re-run months later is compared against. An
+        # engine from before policy versioning prints nothing here (unversioned,
+        # not unchanged).
+        policy = f" · policy {result.policy_id}" if getattr(result, "policy_id", None) else ""
         lines.append(
             f"  DOF: {universe} behavioral degrees of freedom · {mode} · "
             f"{result.value_killed}/{universe} = {_score(result.value_killed, universe)} "
-            f"of DOF specified · {tail}"
+            f"of DOF specified · {tail}{policy}"
         )
     for i, it in enumerate(result.iterations):
         lines.append(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
@@ -1140,6 +1179,10 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
         )
     for stale in result.contradicted_line_flags:
         lines.append(f"  ⚠ line flag OVERRIDDEN by execution: {stale} — the line was reached; flag ignored")
+    # Issue #23: goldens refused because the invocation read default-path
+    # files — the capture would have pinned the environment, not the function.
+    for refusal in getattr(result, "environment_coupled", ()):
+        lines.append(f"  ⚠ {refusal}")
     if result.minimal_test_count:
         lines.append(f"  minimal suite: {result.minimal_test_count} test(s) cover all kills + lines")
     if result.redundant_tests:
@@ -1196,7 +1239,28 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
     """
     fn = result.function
     rep = result.survivor_report
-    lines = [_RULE, f"{fn} — converge{_headline_counts(result, rep)}", ""]
+    # A stale headline must not carry counts either — "26 behaviours · 0
+    # pinned" is the invalid measurement wearing the headline's authority.
+    stale = getattr(result, "stale_target", False)
+    counts = "" if stale else _headline_counts(result, rep)
+    lines = [_RULE, f"{fn} — converge{counts}", ""]
+
+    # A stale run's rows would describe an invalid measurement — survivor
+    # counts and line gaps computed against a file that changed under the run
+    # (issue #17). The staleness story is the WHOLE report: what happened, the
+    # one action, the stamped banner. Anything more is advice from a reading
+    # the instrument itself has disowned.
+    if stale:
+        lines.append(_row("⚠ stale", "the target file changed while the run was measuring it"))
+        if report_path:
+            lines.append(_row("· full report", f"{report_path} (measurement invalid)"))
+        lines.append("")
+        lines.append("DO THIS:  re-run the same converge on the now-stable file — nothing")
+        lines.append("       below the edit was measured; this run's numbers describe a")
+        lines.append("       function that no longer exists.")
+        lines.append("")
+        lines.append(_final_banner(result))
+        return "\n".join(lines)
 
     if result.written_path:
         # `_rel_path`, like the banner: converge stores ABSOLUTE paths, and a 90-character
@@ -1247,6 +1311,13 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
             lines.append(
                 _row("· crash-only-equiv", f"{len(crash_only)} — detected by crash; no value pins them")
             )
+    # Refused goldens are a residual the USER can act on (supply inputs or a
+    # tmp fixture), so they earn a terse row like every other residual class;
+    # the full report names each call and touched path (issue #23).
+    if coupled := getattr(result, "environment_coupled", ()):
+        lines.append(
+            _row("· env-coupled", f"{len(coupled)} golden(s) refused — default-path I/O; see report")
+        )
     if report_path:
         lines.append(_row("· full report", report_path))
     lines.append("")
@@ -2126,7 +2197,14 @@ def _build_parser() -> argparse.ArgumentParser:
             ),
         )
         if name == "converge":
-            p.add_argument("--write-dir", default="tests", help="write synthesized tests here")
+            p.add_argument(
+                "--write-dir",
+                default="tests/detective",
+                # The generated-tests home (issue #21): certificates separate
+                # from hand-written specs at a glance. A file this target left
+                # at the old tests/ root default is migrated on next write.
+                help="write synthesized tests here (default: tests/detective)",
+            )
             p.add_argument(
                 "--max-iterations",
                 type=int,
@@ -2987,7 +3065,7 @@ def _run(args) -> int:
         )
         if args.json:
             print(json.dumps(asdict(result), indent=2, default=str))
-            return 0
+            return 3 if result.stale_target else 0
         # The full report always goes to a readable file; the terminal stays minimal
         # (a banner + the one quick action) unless --full is asked for. The FILE is always
         # verbose — it is the archive `flag` reads mutant ids out of, and a file has no
@@ -3001,7 +3079,10 @@ def _run(args) -> int:
             print(_format_converge(result, show_tests=True, verbose=args.verbose))
         else:
             print(_format_converge_terse(result, report_path, args.project_root))
-        return 0
+        # 3, not 1: "the measurement is invalid, re-run" is a different failure
+        # from "the run errored", and CI that gates on converge needs to tell
+        # them apart (issue #17).
+        return 3 if result.stale_target else 0
 
     if args.command == "audit":
         from .audit import audit_suite

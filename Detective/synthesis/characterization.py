@@ -13,7 +13,11 @@ itself, so the logic is pure and directly testable.
 from __future__ import annotations
 
 import ast
+import contextlib
+import os
+import sys
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, field, is_dataclass, replace
 from dataclasses import fields as dataclass_fields
 from enum import StrEnum
@@ -51,6 +55,12 @@ class GoldenCapture:
     deterministic: bool = False
     provenance: Provenance = Provenance.PROVISIONAL
     corroborating_lens: str = ""
+    # Filesystem paths the invocation opened that are NOT derived from its own
+    # arguments (issue #23). Non-empty means the capture pinned the ENVIRONMENT
+    # — a default-path data file — not the function: green until the data file
+    # legitimately changes, then a phantom regression. Consumers refuse to emit
+    # such a capture as a golden and say why instead.
+    environment_paths: tuple[str, ...] = ()
 
 
 def eval_call_site(site: dict) -> tuple[tuple[Any, ...], dict[str, Any]] | None:
@@ -179,6 +189,59 @@ def _candidate_inputs(call_site_inputs: list[dict]) -> list[tuple[tuple[Any, ...
     return candidates
 
 
+# ── Environment-coupling watch (issue #23) ─────────────────────────────
+#
+# An audit hook is PERMANENT once installed (sys.addaudithook has no remove),
+# so there is exactly one, installed lazily, gated by a ContextVar that is
+# None except during a capture invocation. Static purity analysis missed the
+# field case (open() reached through nested calls), which is why this is a
+# RUNTIME watch: the audit event fires for io.open however deep the call.
+
+_OPEN_WATCH: ContextVar[list[str] | None] = ContextVar("detective_open_watch", default=None)
+_watch_installed = False
+
+
+def _open_watch_hook(event: str, args: tuple) -> None:
+    if event != "open":
+        return
+    sink = _OPEN_WATCH.get()
+    if sink is None:
+        return
+    target = args[0]
+    if isinstance(target, (str, bytes, os.PathLike)):
+        with contextlib.suppress(TypeError, UnicodeDecodeError):
+            sink.append(os.fsdecode(target))
+
+
+def _install_open_watch() -> None:
+    global _watch_installed
+    if not _watch_installed:
+        sys.addaudithook(_open_watch_hook)
+        _watch_installed = True
+
+
+def _environment_paths(opened: list[str], args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[str, ...]:
+    """The opened paths that are NOT explained by the invocation itself:
+    code loading (imports open .py/.pyc) is not data, and a path derived from
+    an argument (the arg itself, or a join on an arg directory) is the
+    function doing its job. What remains is default-path I/O — the
+    environment, which a golden must not pin."""
+    arg_strings = [
+        os.fspath(v)
+        for v in (*args, *kwargs.values())
+        if isinstance(v, (str, bytes, os.PathLike))
+        and not isinstance(v, bytes)  # byte-paths: rare, and substring math lies
+    ]
+    out: list[str] = []
+    for path in opened:
+        if path.endswith((".py", ".pyc", ".pyi")) or "__pycache__" in path:
+            continue
+        if any(a and a in path for a in arg_strings):
+            continue
+        out.append(path)
+    return tuple(sorted(set(out)))
+
+
 def _try_capture(
     func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> GoldenCapture | None:
@@ -197,18 +260,24 @@ def _try_capture(
     repr (``<Foo object at 0x…>``), where two calls build two objects and disagree."""
     call_args = tuple(unwrap(a) for a in args)
     call_kwargs = {k: unwrap(v) for k, v in kwargs.items()}
+    _install_open_watch()
+    opened: list[str] = []
+    token = _OPEN_WATCH.set(opened)
     try:
         result = func(*call_args, **call_kwargs)
         first = repr(result)
         second = repr(func(*call_args, **call_kwargs))
     except Exception:
         return None
+    finally:
+        _OPEN_WATCH.reset(token)
     return GoldenCapture(
         inputs=args,
         kwargs=dict(kwargs),
         output=first,
         value=result,
         deterministic=first == second,
+        environment_paths=_environment_paths(opened, call_args, call_kwargs),
     )
 
 

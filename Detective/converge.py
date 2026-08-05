@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import hashlib
 import math
 import os
 import re
@@ -30,6 +31,7 @@ from .line_flags import classify_missing_lines
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
 from .purity import is_pure, world_effects
 from .synthesis.characterization import (
+    GoldenCapture,
     capture_golden,
     corroborate_captures,
     distinction_pin_lines,
@@ -42,6 +44,7 @@ from .synthesis.writer import (
     individual_test_names,
     render_module,
 )
+from .verdict_cache import wesker_policy_id
 
 # Fast mode tests this many greedily-selected mutants per category per pass. Greedy
 # (1−1/e)-optimal coverage means a small budget kills nearly every killable mutant on the
@@ -111,6 +114,24 @@ class ConvergeResult:
     # already had says their tests now pin the behaviour; this one says there were none and
     # here is a first suite to review. Same number, different thing to do next.
     synthesized_only: bool = False
+    # The claim's scope (issue #14): "complete" means specified under THIS versioned
+    # Wesker mutation policy — never universality beyond it. None = the installed
+    # engine predates policy versioning (policy unversioned, not unchanged).
+    policy_id: str | None = None
+    # Golden captures refused because the invocation opened default-path files
+    # (issue #23) — each entry names the call and the touched path(s). The
+    # capture would have pinned the ENVIRONMENT, so it was not emitted; these
+    # notes are the typed hand-back ("supply inputs or a tmp fixture").
+    environment_coupled: tuple[str, ...] = ()
+    # The target file changed while the run was measuring it (issue #17). The
+    # verdict was computed against the START-of-run snapshot while the suite
+    # imported the edited module from disk — an incoherent measurement, not a
+    # verdict. Formatters stamp the FINAL line STALE; the CLI exits non-zero;
+    # decompose refuses to treat a stale converge as proof. Scope: the TARGET
+    # file only — converge legitimately rewrites test files mid-run (its own
+    # synth suite), so test-file staleness needs the write ledger to separate
+    # our edits from the user's and is deliberately not claimed here.
+    stale_target: bool = False
 
     @property
     def mutation_score(self) -> float:
@@ -471,9 +492,10 @@ def _golden_properties(
     qualname: str,
     project_root: str,
     supplied_inputs: list[tuple] | None = None,
-) -> list[ExecutableProperty]:
-    """Golden-capture properties for a pure function, or [] if it can't be run
-    deterministically. Real call-sites are captured FIRST (they exercise structured /
+) -> tuple[list[ExecutableProperty], tuple[str, ...]]:
+    """Golden-capture properties for a pure function plus the typed refusals
+    for captures that touched default-path I/O (issue #23), or ([], ()) if it
+    can't be run deterministically. Real call-sites are captured FIRST (they exercise structured /
     unannotated arguments the synthesized single site cannot); a synthesized site that
     crashes on those inputs simply yields no capture and is dropped.
 
@@ -485,13 +507,30 @@ def _golden_properties(
     """
     live = _load_original(full_path, qualname)
     if live is None:
-        return []
+        return [], ()
     namespace = getattr(live, "__globals__", {}) or {}
     supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
     captures = corroborate_captures(capture_golden(live, sites), is_pure=True)
     kw_names = _kwargs_names(node, qualname)
-    return [_golden_property(func_key, c, project_root, kw_names) for c in captures if c.deterministic]
+    # A capture that opened a default-path file pinned the ENVIRONMENT, not
+    # the function (issue #23): green until the data file legitimately
+    # changes, then a phantom regression. Refuse the golden and say exactly
+    # why — the static purity gate above let this through because the open()
+    # sat behind nested calls, which is why the watch is runtime.
+    refusals: list[str] = []
+    emitted: list[GoldenCapture] = []
+    for c in captures:
+        if c.environment_paths:
+            rendered = ", ".join(repr(a) for a in c.inputs)
+            paths = ", ".join(c.environment_paths)
+            refusals.append(
+                f"golden at ({rendered}) refused — default-path I/O would pin the "
+                f"environment ({paths}); supply inputs or a tmp fixture"
+            )
+        elif c.deterministic:
+            emitted.append(c)
+    return [_golden_property(func_key, c, project_root, kw_names) for c in emitted], tuple(refusals)
 
 
 def _progressed(previous: int, current: int) -> bool:
@@ -537,12 +576,24 @@ def _line_guards(func_node: ast.AST, lineno: int) -> list[str]:
     return [g for _, g in guards]
 
 
+def _target_changed(full_path: str, snapshot: str) -> bool:
+    """True when the target file no longer matches the start-of-run snapshot —
+    including when it can no longer be read at all (deleted or moved is the
+    limit case of edited). Two hashes; cheap enough to run on every verdict."""
+    try:
+        with open(full_path, encoding="utf-8") as fh:
+            current = hashlib.sha256(fh.read().encode("utf-8")).hexdigest()
+    except OSError:
+        return True
+    return current != snapshot
+
+
 def converge(
     file: str,
     function: str,
     project_root: str = ".",
     *,
-    write_dir: str | None = "tests",
+    write_dir: str | None = "tests/detective",
     max_iterations: int = 3,
     call_site_inputs: list[dict] | None = None,
     supplied_inputs: list[tuple] | None = None,
@@ -564,6 +615,9 @@ def converge(
     """
     max_per_cat = _FAST_MAX_PER_CATEGORY if fast else 0
     say = notify or (lambda _m: None)
+    # Typed refusals for goldens that would have pinned the environment
+    # (issue #23) — accumulated across passes, deduped, carried on the result.
+    environment_coupled: list[str] = []
     root = os.path.abspath(project_root)
     # When write_dir escapes the project tree (an absolute or ../ path), the
     # re-profile's project-tree test discovery cannot see the tests converge writes
@@ -577,7 +631,15 @@ def converge(
             extra_test_dirs = (_wd,)
     full = file if os.path.isabs(file) else os.path.join(root, file)
     with open(full, encoding="utf-8") as fh:
-        tree = ast.parse(fh.read(), filename=full)
+        source_text = fh.read()
+    # The snapshot every verdict below is ABOUT. If the file changes under the
+    # run, the mutants come from this parse while the suite imports the edited
+    # module from disk — an incoherent measurement that used to print as a
+    # clean verdict (issue #17: an edit mid-run produced `0/26 killed` with
+    # line numbers pointing at moved lines). Re-checked at verdict time;
+    # a mismatch stamps the result STALE instead of letting it stand.
+    source_snapshot = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+    tree = ast.parse(source_text, filename=full)
     qualname, node = _resolve(tree, function)
     # Both, though `_resolve` only ever returns them together (`None, None` or a real pair):
     # checking one leaves the other `... | None` for every reader below, and the twelve
@@ -699,7 +761,14 @@ def converge(
         # `representative_site`, i.e. a path we invented. `is_pure` alone put "delete this
         # directory tree" one synthesized argument away from running.
         if is_pure(node, is_method="." in (qualname or "")) and not world_effects(node):
-            props += _golden_properties(func_key, node, full, qualname, root, supplied_inputs=supplied_inputs)
+            golden_props, refused = _golden_properties(
+                func_key, node, full, qualname, root, supplied_inputs=supplied_inputs
+            )
+            props += golden_props
+            for note in refused:
+                if note not in environment_coupled:
+                    environment_coupled.append(note)
+                    say(f"⚠ {note}")
         sound = [
             p for p in props if not p.needs_oracle and property_holds(p.setup_code, p.assertion_code, root)
         ]
@@ -976,4 +1045,7 @@ def converge(
         signature=sig,
         param_names=param_names,
         synthesized_only=synthesized_only,
+        policy_id=wesker_policy_id(),
+        stale_target=_target_changed(full, source_snapshot),
+        environment_coupled=tuple(environment_coupled),
     )

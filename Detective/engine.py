@@ -1283,14 +1283,24 @@ def classify_survivors(
     # RAISES" — reachability. But a total function can be reached by a degenerate
     # input and still never be DISCRIMINATED by one: `callable_origin(1)` returns
     # None just like every mutant of it, so ints exercise it, the raise-gate stays
-    # quiet, and 6/6 survivors file as candidate-equivalent — a claim about the
-    # input pool wearing the costume of a claim about the code. When classification
-    # finds NO killable survivor and at least one unprovable one is not crash-only
-    # (crash-only is a terminal per-semantics verdict richer inputs cannot move),
-    # capture the REAL arguments the covering tests pass — same rescue, second
-    # trigger — and reclassify. Adopt the retry only if it proved something.
-    all_unprovable = bool(verdicts) and not any(v.killable for v in verdicts)
-    if all_unprovable and any(not v.killable and not v.crash_only for v in verdicts):
+    # quiet, and survivors file as candidate-equivalent — a claim about the input
+    # pool wearing the costume of a claim about the code. The rescue used to fire
+    # only when NO survivor proved killable; the field case (issue #22) is PARTIAL
+    # poverty — some survivors proven by synthetic inputs while others filed
+    # candidate-equivalent, or proved killable with witnesses only a test can
+    # build, while the covering tests were constructing the real objects all
+    # along. So it now fires when ANY residual is rescuable: a non-crash-only
+    # unprovable (crash-only is a terminal per-semantics verdict richer inputs
+    # cannot move), or a killable whose witness cannot be rendered as a
+    # paste-able `--input`. Captures rank ahead of synthetics in the retry pool,
+    # so a witness that CAN come from a suite-built value does. Adopt the retry
+    # only if it improved something: more kills, or same kills with witnesses
+    # the renderer can actually hand back.
+    def _inexpressible_witness(v: MutantVerdict) -> bool:
+        return v.killable and v.witness is not None and not all(is_expressible(a) for a in v.witness.args)
+
+    rescuable = any((not v.killable and not v.crash_only) or _inexpressible_witness(v) for v in verdicts)
+    if rescuable:
         func_names = [qn for qn, _ in walk_functions(tree)]
         harvest_tests = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
@@ -1299,7 +1309,14 @@ def classify_survivors(
         fresh = [t for t in captured if _safely_fresh(t, inputs)]
         if fresh:
             retry = _classify_pool(supplied + fresh + inputs)
-            if any(v.killable for v in retry[0]):
+            before_kills = sum(1 for v in verdicts if v.killable)
+            after_kills = sum(1 for v in retry[0] if v.killable)
+            improved = after_kills > before_kills or (
+                after_kills == before_kills
+                and sum(1 for v in retry[0] if _inexpressible_witness(v))
+                < sum(1 for v in verdicts if _inexpressible_witness(v))
+            )
+            if improved:
                 verdicts, unclassified, manual_equivalent = retry
                 # Expressibility must be judged on the WITNESS inputs, not the first
                 # input that merely exercised the function: a captured function object
@@ -1308,12 +1325,12 @@ def classify_survivors(
                 witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
                 if witness_args:
                     expressible = all(is_expressible(a) for args in witness_args for a in args)
-            else:
+            elif after_kills == 0:
                 note = (
                     f"no candidate input discriminates any survivor — pool included "
                     f"{len(fresh)} captured real input(s) from the covering tests"
                 )
-        else:
+        elif not any(v.killable for v in verdicts):
             note = (
                 "no candidate input discriminates any survivor, and the covering tests "
                 "never call this function with inputs beyond the synthesized pool — "

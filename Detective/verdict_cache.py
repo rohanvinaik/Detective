@@ -100,7 +100,29 @@ def engine_fingerprint() -> str:
 
     from . import __version__ as _detective
 
-    return f"d{_detective}+w{_wesker}"
+    base = f"d{_detective}+w{_wesker}"
+    pid = wesker_policy_id()
+    # Package version alone is insufficient the day policy semantics move
+    # independently of a release (issue #14): the policy id is behavior-hashed
+    # upstream (Wesker fingerprints its own eligibility over an embedded
+    # corpus), so a universe change invalidates these verdicts even if someone
+    # forgets every other bump.
+    return f"{base}+p{pid}" if pid else base
+
+
+def wesker_policy_id() -> str | None:
+    """The engine's versioned mutation-policy id, when the installed Wesker
+    publishes one (``mutation_policy()``, Wesker > 0.11). ``None`` on older
+    engines — callers must treat that as "policy unversioned", never as
+    "policy unchanged". Lazily imported for the same circularity reason as
+    ``engine_fingerprint``."""
+    try:
+        # Feature detection, not a hard import: the checker resolves against
+        # the FLOOR Wesker (0.11.0, pre-policy), the runtime may see newer.
+        from Wesker import mutation_policy  # type: ignore[attr-defined]
+    except ImportError:
+        return None
+    return mutation_policy().policy_id
 
 
 def cache_key(

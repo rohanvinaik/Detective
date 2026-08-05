@@ -146,7 +146,9 @@ def test_converge_writes_a_suite_that_actually_passes(project):
     r = _run(project, "converge", "shipping.py::shipping_cost")
     assert r.returncode == 0, r.stderr
     assert "FINAL" in r.stdout
-    written = list((project / "tests").glob("test_*_synth.py"))
+    # Synth suites live in their own home under tests/ (issue #21) — rglob so
+    # the assertion follows the certificate, not one directory layout.
+    written = list((project / "tests").rglob("test_*_synth.py"))
     assert written, "converge reported success but wrote nothing"
     run = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(project / "tests")],
@@ -170,7 +172,7 @@ def test_generated_calls_name_their_arguments(project):
     """`f(1, 2, 3, 4)` is unreadable as a permanent regression test and the parameter names
     are already on the node. Keyword form, whenever the signature allows it."""
     assert _run(project, "converge", "shipping.py::shipping_cost").returncode == 0
-    src = "\n".join(p.read_text() for p in (project / "tests").glob("test_*_synth.py"))
+    src = "\n".join(p.read_text() for p in (project / "tests").rglob("test_*_synth.py"))
     assert "shipping_cost(" in src
     assert "weight_kg=" in src, f"positional call survived rendering:\n{src}"
 
@@ -186,7 +188,7 @@ def test_orphan_target_synthesizes_instead_of_running_the_suite(project):
     # Named for the whole func_key, module included: `orphan.py::tier_price`. Two modules
     # defining the same function name would otherwise claim one file and the second converge
     # would overwrite the first's suite.
-    assert list((project / "tests").glob("test_orphan_tier_price_synth.py"))
+    assert list((project / "tests").rglob("test_orphan_tier_price_synth.py"))
 
 
 def test_decompose_apply_preserves_behaviour(project):

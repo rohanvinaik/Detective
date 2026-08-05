@@ -16,10 +16,14 @@ extractable at all.
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from .verdict_cache import wesker_policy_id
 
 if TYPE_CHECKING:
     from .converge import ConvergeResult
@@ -217,6 +221,45 @@ def _resolve(tree: ast.Module, function: str) -> ast.FunctionDef | ast.AsyncFunc
     return None
 
 
+# ── The versioned transformation class (issue #14) ─────────────────────
+#
+# A `PROVEN` decomposition is a claim with TWO parameters: the mutation policy
+# the proof suite is complete under (Wesker's, carried as `policy_id`), and
+# the rewrite model the trial exercised — THIS. The id changes when the
+# transformer's semantics change (a new interface algorithm, a loosened
+# refusal), so a receipt minted under one rewrite model can never silently
+# stand for another. Bump discipline is enforced the same way as Wesker's
+# POLICY_VERSION: a golden test pins the id and its failure message names the
+# two legal moves.
+
+TRANSFORM_CLASS_VERSION = 1
+
+_TRANSFORM_SURFACE: dict[str, object] = {
+    "transform_class_version": TRANSFORM_CLASS_VERSION,
+    "shape": "contiguous single-exit statement block extracted to a module-level helper",
+    "interface": (
+        "params = names read before written inside the block, in first-use order; "
+        "returns = block-assigned names live after the block, in assignment order"
+    ),
+    "refusals": [
+        "blocks with break/continue/return escaping the block",
+        "nonlocal/closure-cell relocation (cell identity is not preserved)",
+        "a leading docstring never moves into the helper",
+        "candidates below cognitive-complexity 3 or above 4-in/2-out interface",
+    ],
+    "placement": "helper inserted before the parent; call site replaces the block",
+    "supported": "sync functions; generators/async are structural refusals",
+}
+
+
+def transform_class_id() -> str:
+    """The versioned identifier of the supported rewrite model — the Τ in the
+    proof claim "τ ∈ Τ preserved every obligation under policy μ"."""
+    canonical = json.dumps(_TRANSFORM_SURFACE, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+    return f"{TRANSFORM_CLASS_VERSION}.{digest}"
+
+
 @dataclass(frozen=True)
 class Extraction:
     """A generated (not-yet-validated) extraction: the helper's interface and the
@@ -341,7 +384,14 @@ class DecompositionApply:
     # (a KILLABLE mutant synthesis could not reach), the extraction cannot be proven — and
     # this carries the exact residual (signature, param shape, killable survivors) so the CLI
     # can hand the user the ``--input`` to supply, instead of a dead-end "review it yourself".
-    proof: ConvergeResult | None = None  # blocks skipped as non-extractable (control escape)
+    proof: ConvergeResult | None = None
+    # The claim's two parameters (issue #14): a PROVEN result means "the trial
+    # rewrite, drawn from transformation class `transform_class_id`, preserved
+    # every obligation in a suite complete under Wesker policy `policy_id`" —
+    # reconstructable, and invalidated by a change to either. None policy_id =
+    # the installed engine predates policy versioning.
+    policy_id: str | None = None
+    transform_class_id: str | None = None
 
 
 def apply_decomposition(
@@ -431,7 +481,9 @@ def apply_decomposition(
     # the proof is those hand-written files. Gating on ``written_path`` alone rejected
     # exactly that case, and misreported the cause as "not mutation-complete".
     proof_suite: str | tuple[str, ...] | None = None
-    if conv is not None and conv.functionally_complete:
+    # A stale converge (target edited under the run, issue #17) is not a proof
+    # of anything — its suite pinned a function that no longer exists.
+    if conv is not None and conv.functionally_complete and not conv.stale_target:
         if conv.written_path:
             proof_suite = conv.written_path
         else:
@@ -444,7 +496,16 @@ def apply_decomposition(
         return ok and count > 0
 
     if proof_suite is None:
-        say("no proof suite — nothing can be proven; extractions will be proposed only")
+        # Two distinct causes, two distinct sentences (issue #17): a stale
+        # converge HAD a suite — it pinned a function that no longer exists —
+        # and "no proof suite" would send the user to build one they have.
+        if conv is not None and conv.stale_target:
+            say(
+                "proof suite is STALE — the target changed during the converge; "
+                "re-run to prove; extractions will be proposed only"
+            )
+        else:
+            say("no proof suite — nothing can be proven; extractions will be proposed only")
     else:
         say("baseline: running the proof suite against the UNCHANGED function…")
     baseline_green = _suite_green()
@@ -509,4 +570,6 @@ def apply_decomposition(
         proposed=tuple(proposed),
         unsafe_blocks=tuple(dict.fromkeys(unsafe)),
         proof=conv,
+        policy_id=conv.policy_id if conv is not None else wesker_policy_id(),
+        transform_class_id=transform_class_id(),
     )

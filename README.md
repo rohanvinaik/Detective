@@ -130,6 +130,13 @@ def test_anomaly_score_value_0():
 
 Every test carries the warrant it was written under, and every test is in the minimal cover — Detective drops its *own* output when a test is redundant for both kills and lines, so what lands is the minimal suite, not the full set with a cleanup list. Run only the generated tests with `pytest -m detective`, or only yours with `pytest -m 'not detective'`.
 
+**Generated tests & lint.** Synth suites live in their own home — `tests/detective/` by default (`--write-dir` moves it) — so certificates and hand-written specs never interleave, and a file this target once wrote at the old `tests/` root is migrated on its next converge. The files are regenerated wholesale and carry witness lines at full fidelity, so they will trip prose-style lint (long lines, derived names) in a strict repo; that is signal separation, not a defect. Exclude them by glob rather than editing them:
+
+```toml
+[tool.ruff.lint.per-file-ignores]
+"tests/detective/*" = ["E501", "N802"]
+```
+
 `audit` assesses a suite you already have, and it never deletes without confirmation:
 
 ```
