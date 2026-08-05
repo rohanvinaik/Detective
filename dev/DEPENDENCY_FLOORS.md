@@ -150,3 +150,25 @@ and converge reads that as "synthesize" — the `synthesized_only` banner and th
 characterization note exist only because the empty answer is now reachable. Below 0.11.0
 that branch is dead code and `relevant_test_files` does not exist at all, so the import
 fails at module load rather than degrading; there is no partial-support path to document.
+
+## Wesker >= 0.11.1
+
+\>= 0.11.1 is a CLAIM-SCOPE floor. It is the first Wesker that publishes
+`mutation_policy()` — the versioned mutation-policy manifest whose `policy_id` is
+behavior-hashed over the engine's own eligibility (an embedded fingerprint corpus), so
+the id moves when the universe's meaning moves, with no one remembering anything.
+Detective 0.10.1 consumes it in two load-bearing places: every `ConvergeResult` and
+`DecompositionApply` receipt records `policy_id` (a PROVEN decomposition is a claim
+parameterized by the policy its proof suite is complete under — issue #14), and
+`engine_fingerprint()` appends `+p<policy_id>` so the verdict cache invalidates exactly
+the entries a policy change undermines.
+
+Below the floor nothing crashes — `wesker_policy_id()` feature-detects and returns
+None, receipts read "policy unversioned", the fingerprint keeps its historical format —
+but the release's central claim (receipts that name their universe) is silently absent,
+and a cached verdict's policy scope is unknowable after the fact. That is the same
+one-fact-two-homes shape every floor above guards: the claim exists only if the engine
+that produced it can be named. 0.11.1 also ships policies 2–5 themselves (DATAFLOW's
+return_sub slice, the three-spelling and per-target STATE repairs, type-impossible
+arithmetic exclusion), so verdicts under it are claims about a strictly more honest
+universe than 0.11.0's.

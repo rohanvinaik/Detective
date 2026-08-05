@@ -102,6 +102,9 @@ classifiers = [
 # reproduced, and why each is a requirement rather than a preference — live in
 # dev/DEPENDENCY_FLOORS.md. One-line pointers:
 #
+#   Wesker >= 0.11.1 mutation_policy(): proof receipts and the verdict-cache fingerprint
+#                    carry the versioned policy id — a policy change invalidates exactly
+#                    the verdicts it undermines, not "whatever a version bump implies"
 #   Wesker >= 0.10.0 the callee-dual mutation universe: completeness verdicts are claims
 #                    about THIS operator basis, and the verdict cache keys on it
 #   Wesker >= 0.9.3  parametrize trace-cache aliasing: sibling cases share one fingerprint
@@ -112,7 +115,7 @@ classifiers = [
 #   Wesker >= 0.6.0  stdout-buffer death: full report written to a dead buffer, exit 0
 #   pytest, ruff     RUNTIME deps: the product is a pytest file that must pass ruff format
 dependencies = [
-    "Wesker>=0.11.0",  # scoped discovery + `relevant_test_files` — see dev/DEPENDENCY_FLOORS.md
+    "Wesker>=0.11.1",  # mutation_policy() for policy-carrying receipts — see dev/DEPENDENCY_FLOORS.md
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it
