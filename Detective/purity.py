@@ -297,3 +297,83 @@ def _param_names(args: ast.arguments) -> set[str]:
     if args.kwarg:
         names.add(args.kwarg.arg)
     return names
+
+
+# ── Environment READS that gate REACHABILITY ─────────────────────────────────────────────────
+# `world_effects` answers "is it unsafe to CALL this with an invented argument?" (writes / blast
+# radius). This answers the different question the residual hand-back needs: "can an `--input`
+# value even REACH this branch?" A line behind `if path.exists():`, `if time.time() - t > TTL:`,
+# or `os.environ.get("X")` is gated by state the caller's ARGUMENT CANNOT SET — no `model_id`
+# string makes a file appear on disk, no int freezes the clock. Without this, converge asks for
+# an `--input` that PROVABLY cannot close the line gap, and a driver (human or small model) loops
+# forever supplying values that never land. Reporting the read lets the residual say
+# "fixture / manual test, not `--input`" instead. Local scan, same v1 boundary as
+# `analyze_function`: a read one helper down is not seen (documented, not a bug).
+_CLOCK_CALLS = frozenset({"time", "monotonic", "perf_counter", "time_ns", "monotonic_ns",
+                          "now", "utcnow", "today", "fromtimestamp"})
+_ENV_CALLS = frozenset({"getenv", "getpid", "getppid", "urandom", "uname", "getuser",
+                        "getlogin", "getcwd", "cpu_count"})
+_FS_READ_METHODS = frozenset({"exists", "is_file", "is_dir", "is_symlink", "stat", "lstat",
+                              "glob", "rglob", "iterdir", "read_text", "read_bytes", "samefile"})
+_FS_READ_CALLS = frozenset({"exists", "isfile", "isdir", "islink", "getsize", "getmtime",
+                            "getctime", "listdir", "scandir", "stat", "lstat"})
+_ENTROPY_ROOTS = frozenset({"random", "secrets"})
+
+
+def environment_reads(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, ...]:
+    """The ways ``func`` READS state a caller's argument cannot set — empty if it reads none.
+
+    This exists to answer: **can an ``--input`` value reach an un-exercised branch, or is that
+    branch gated by the environment?** Detective's line-gap residual hands the driver a
+    ``--input "(…)"`` skeleton to reach uncovered lines. For a line behind `path.exists()`,
+    `time.time()`, `os.environ[…]`, or `random.random()`, that ask is impossible: the gate reads
+    the filesystem / clock / process, not the argument, so no value of the argument reaches it —
+    and a driver that keeps trying makes no progress. Surfacing the read turns "author more
+    `--input`" into the honest "supply a fixture or write this by hand".
+
+    NOT ``world_effects``: that flags WRITES and is about blast radius. A pure read like
+    `path.exists()` has no blast radius but still gates reachability, and the two questions have
+    opposite answers here. Local scan only — an environment read one helper down is not seen.
+    """
+    visitor = _EnvironmentReadVisitor()
+    visitor.visit(func)
+    return tuple(dict.fromkeys(visitor.reasons))  # deduped, order preserved
+
+
+class _EnvironmentReadVisitor(ast.NodeVisitor):
+    """Finds reads of clock / filesystem / process-env / entropy that gate reachability."""
+
+    def __init__(self) -> None:
+        self.reasons: list[str] = []
+
+    def visit_Call(self, node: ast.Call) -> None:
+        name = get_name(node.func)
+        if name:
+            root, method = name.split(".")[0], name.split(".")[-1]
+            if root in ("time", "datetime", "date") and method in _CLOCK_CALLS:
+                self.reasons.append(f"reads the clock via {name}()")
+            elif root == "os" and method in _ENV_CALLS:
+                self.reasons.append(f"reads process/env via os.{method}()")
+            elif root == "os" and method in _FS_READ_CALLS:  # os.path.exists(), os.listdir(), …
+                self.reasons.append(f"reads the filesystem via {name}()")
+            elif name == "open":
+                self.reasons.append("reads a file via open() (the file must exist)")
+            elif root in _ENTROPY_ROOTS:
+                self.reasons.append(f"reads entropy via {name}()")
+            elif root == "uuid" and method in ("uuid1", "uuid3", "uuid4", "uuid5"):
+                self.reasons.append(f"reads entropy via {name}()")
+            elif root in _WORLD_MODULES:
+                self.reasons.append(f"reads the world via {root}.{method}()")
+        # Path/os read methods on any receiver — `Path(p).exists()`, `p.read_text()`. Checked via
+        # `node.func.attr` directly, NOT `get_name`: the receiver is often itself a Call the namer
+        # cannot resolve, exactly as `_WorldEffectVisitor` documents for the write side.
+        if isinstance(node.func, ast.Attribute) and node.func.attr in _FS_READ_METHODS:
+            self.reasons.append(f"reads the filesystem via .{node.func.attr}()")
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        # `os.environ` in any access form — `os.environ["X"]`, `os.environ.get("X")` — resolves to
+        # this attribute node; naming it once (deduped) covers both.
+        if get_name(node) == "os.environ":
+            self.reasons.append("reads process env via os.environ")
+        self.generic_visit(node)

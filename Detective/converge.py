@@ -29,7 +29,7 @@ from .engine import _load_original, _resolve, classify_survivors, profile, repre
 from .equivalence import SourceExpr, SurvivorReport
 from .line_flags import classify_missing_lines
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
-from .purity import is_pure, world_effects
+from .purity import environment_reads, is_pure, world_effects
 from .synthesis.characterization import (
     GoldenCapture,
     capture_golden,
@@ -132,6 +132,15 @@ class ConvergeResult:
     # synth suite), so test-file staleness needs the write ledger to separate
     # our edits from the user's and is deliberately not claimed here.
     stale_target: bool = False
+    # Reads of clock / filesystem / process-env / entropy the target performs (issue: the
+    # impure-line trap). These gate reachability by STATE A CALLER'S ARGUMENT CANNOT SET, so a
+    # line behind one cannot be reached by any `--input` value — the residual is a fixture or a
+    # hand-written test, not an input to author. Computed statically from the AST (not empirical
+    # like `environment_coupled`, which only fires on lines that actually executed), so it flags
+    # the trap even when the impure branch was never reached. Empty for a pure function. The CLI
+    # turns a non-empty value + a live line gap into an honest "supply a fixture" hand-back
+    # instead of an impossible `--input` ask; the harness reads it to skip these, not spin.
+    environment_gated: tuple[str, ...] = ()
 
     @property
     def mutation_score(self) -> float:
@@ -340,23 +349,47 @@ def _golden_property(
     func_key: str, capture, root: str | None = None, kw_names: Sequence[str] = ()
 ) -> ExecutableProperty:
     """A golden-capture property: pin the exact return value. Sound by
-    construction (asserts the real output) and kills any mutant that changes it."""
+    construction (asserts the real output) and kills any mutant that changes it.
+
+    When the capture was taken under a FROZEN clock (`capture.clock`), the assertion is
+    wrapped so ``time.time`` is pinned to that value and restored in a ``finally`` — the same
+    self-contained form runs in ``property_holds``'s exec AND in the emitted pytest, with no
+    fixture and no leak. Such a property is never folded into a parametrized row (each carries
+    its own freeze), so ``golden_case`` is None for it."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
     call = _render_call(fname, capture.inputs, kw_names)
     assertion = golden_assert_line(capture.output, capture.value)
-    # Parametrizable only when the assertion is idiomatic value-equality (a literal
-    # output); methods (dotted qualname) need a receiver, so they are not folded.
-    golden_case = (
-        (repr(tuple(capture.inputs)), capture.output)
-        if assertion.startswith("assert result == ") and "." not in fname
-        else None
-    )
+    frozen = getattr(capture, "clock", None)
+    if frozen is not None:
+        body = f"result = {call}\n{assertion}"
+        indented = "\n".join(f"    {ln}" if ln else "" for ln in body.split("\n"))
+        assertion_code = (
+            "import time as _dtv_clock\n"
+            "_dtv_clock_saved = _dtv_clock.time\n"
+            f"_dtv_clock.time = lambda: {frozen!r}  # --clock: freeze the wall clock so this pins\n"
+            "try:\n"
+            f"{indented}\n"
+            "finally:\n"
+            "    _dtv_clock.time = _dtv_clock_saved"
+        )
+        preconditions = [f"golden capture (deterministic under time.time()=={frozen!r})"]
+        golden_case = None  # a freeze-wrapped test is standalone — not a parametrizable row
+    else:
+        assertion_code = f"result = {call}\n{assertion}"
+        preconditions = ["golden capture (pure + deterministic)"]
+        # Parametrizable only when the assertion is idiomatic value-equality (a literal
+        # output); methods (dotted qualname) need a receiver, so they are not folded.
+        golden_case = (
+            (repr(tuple(capture.inputs)), capture.output)
+            if assertion.startswith("assert result == ") and "." not in fname
+            else None
+        )
     return ExecutableProperty(
         category="VALUE",
         inputs={},
         setup_code=_setup_with_imports(mod, fname, capture.inputs, root),
-        assertion_code=f"result = {call}\n{assertion}",
-        preconditions=["golden capture (pure + deterministic)"],
+        assertion_code=assertion_code,
+        preconditions=preconditions,
         confidence=0.9,
         source_lenses=["golden_capture"],
         needs_oracle=False,
@@ -492,6 +525,7 @@ def _golden_properties(
     qualname: str,
     project_root: str,
     supplied_inputs: list[tuple] | None = None,
+    clock: float | None = None,
 ) -> tuple[list[ExecutableProperty], tuple[str, ...]]:
     """Golden-capture properties for a pure function plus the typed refusals
     for captures that touched default-path I/O (issue #23), or ([], ()) if it
@@ -511,7 +545,7 @@ def _golden_properties(
     namespace = getattr(live, "__globals__", {}) or {}
     supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
-    captures = corroborate_captures(capture_golden(live, sites), is_pure=True)
+    captures = corroborate_captures(capture_golden(live, sites, clock=clock), is_pure=True)
     kw_names = _kwargs_names(node, qualname)
     # A capture that opened a default-path file pinned the ENVIRONMENT, not
     # the function (issue #23): green until the data file legitimately
@@ -597,6 +631,7 @@ def converge(
     max_iterations: int = 3,
     call_site_inputs: list[dict] | None = None,
     supplied_inputs: list[tuple] | None = None,
+    clock: float | None = None,
     fast: bool = False,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
@@ -762,7 +797,7 @@ def converge(
         # directory tree" one synthesized argument away from running.
         if is_pure(node, is_method="." in (qualname or "")) and not world_effects(node):
             golden_props, refused = _golden_properties(
-                func_key, node, full, qualname, root, supplied_inputs=supplied_inputs
+                func_key, node, full, qualname, root, supplied_inputs=supplied_inputs, clock=clock
             )
             props += golden_props
             for note in refused:
@@ -1048,4 +1083,5 @@ def converge(
         policy_id=wesker_policy_id(),
         stale_target=_target_changed(full, source_snapshot),
         environment_coupled=tuple(environment_coupled),
+        environment_gated=environment_reads(node),
     )

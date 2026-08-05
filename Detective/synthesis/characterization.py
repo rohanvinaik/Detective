@@ -16,6 +16,7 @@ import ast
 import contextlib
 import os
 import sys
+import time
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field, is_dataclass, replace
@@ -61,6 +62,11 @@ class GoldenCapture:
     # legitimately changes, then a phantom regression. Consumers refuse to emit
     # such a capture as a golden and say why instead.
     environment_paths: tuple[str, ...] = ()
+    # The wall-clock value `time.time()` was FROZEN to for this capture (the `--clock` residual
+    # for a time-gated function), or None if the clock ran free. A frozen clock is what makes a
+    # `time.time()`-reading function DETERMINISTIC — hence capturable and pinnable — and the
+    # emitted test restores `time.time` in a `finally` so the freeze never leaks to another test.
+    clock: float | None = None
 
 
 def eval_call_site(site: dict) -> tuple[tuple[Any, ...], dict[str, Any]] | None:
@@ -87,12 +93,19 @@ def eval_call_site(site: dict) -> tuple[tuple[Any, ...], dict[str, Any]] | None:
     return tuple(args), kwargs
 
 
-def capture_golden(func: Callable[..., Any], call_site_inputs: list[dict]) -> list[GoldenCapture]:
+def capture_golden(
+    func: Callable[..., Any], call_site_inputs: list[dict], clock: float | None = None
+) -> list[GoldenCapture]:
     """Capture golden values for ``func`` from zero-arg and literal call sites.
 
     Each candidate invocation is run twice; a stable repr marks the capture
     deterministic. Duplicate argument sets are captured once. Invocations that
     raise are skipped.
+
+    ``clock`` (the `--clock` residual) FREEZES ``time.time()`` to a fixed value for the
+    duration of each call. A function whose output depends on the wall clock is
+    non-deterministic and would be abstained; with the clock frozen the two calls agree, the
+    capture is deterministic, and the emitted test re-freezes the clock so it stays true.
     """
     captures: list[GoldenCapture] = []
     seen: set[str] = set()
@@ -102,7 +115,7 @@ def capture_golden(func: Callable[..., Any], call_site_inputs: list[dict]) -> li
         if key in seen:
             continue
         seen.add(key)
-        capture = _try_capture(func, args, kwargs)
+        capture = _try_capture(func, args, kwargs, clock=clock)
         if capture is not None:
             captures.append(capture)
 
@@ -243,7 +256,7 @@ def _environment_paths(opened: list[str], args: tuple[Any, ...], kwargs: dict[st
 
 
 def _try_capture(
-    func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+    func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any], clock: float | None = None
 ) -> GoldenCapture | None:
     """Call ``func`` twice; capture repr + determinism, or None if it raises.
 
@@ -251,6 +264,13 @@ def _try_capture(
     node paired with its source) runs as its live value; the original args — carrier
     intact — are stored on the capture so the emitted test renders as ``repr`` =
     the constructor source, not an opaque object repr.
+
+    ``clock`` freezes ``time.time`` to a fixed value across both calls (restored in ``finally``,
+    so no leak). This is what turns a wall-clock reader deterministic: without it the two calls
+    disagree and the capture is dropped. Only ``time.time`` is frozen (v1 of the `--clock`
+    residual); ``time.monotonic`` / ``datetime.now`` are follow-ups. Reaches a function that calls
+    ``time.time()`` on the module (``import time; time.time()``); a ``from time import time`` local
+    binding keeps its own reference and is a documented miss.
 
     ``deterministic`` asks whether the VALUE is stable, and compares reprs to decide. Both
     calls share one process, so this cannot observe hash-seed effects — which is correct,
@@ -263,13 +283,18 @@ def _try_capture(
     _install_open_watch()
     opened: list[str] = []
     token = _OPEN_WATCH.set(opened)
+    saved_time = time.time if clock is not None else None
     try:
+        if clock is not None:
+            time.time = lambda: clock  # freeze the wall clock -> the function is now deterministic
         result = func(*call_args, **call_kwargs)
         first = repr(result)
         second = repr(func(*call_args, **call_kwargs))
     except Exception:
         return None
     finally:
+        if saved_time is not None:
+            time.time = saved_time  # restore — the freeze must never outlive the capture
         _OPEN_WATCH.reset(token)
     return GoldenCapture(
         inputs=args,
@@ -278,6 +303,7 @@ def _try_capture(
         value=result,
         deterministic=first == second,
         environment_paths=_environment_paths(opened, call_args, call_kwargs),
+        clock=clock,
     )
 
 

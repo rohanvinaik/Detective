@@ -1318,6 +1318,13 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
         lines.append(
             _row("· env-coupled", f"{len(coupled)} golden(s) refused — default-path I/O; see report")
         )
+    # Static environment-read gating on a live line gap: a distinct residual class from the
+    # golden-refusal row above — those lines cannot be reached by ANY --input, so they are a
+    # fixture/manual hand-back, not an input to author.
+    if (gated := getattr(result, "environment_gated", ())) and result.missing_lines:
+        lines.append(
+            _row("· env-gated", f"{len(gated)} read(s) gate uncovered line(s) — fixture/manual, not --input")
+        )
     if report_path:
         lines.append(_row("· full report", report_path))
     lines.append("")
@@ -1340,7 +1347,14 @@ def _converge_action(result, rep, root: str = ".", report_path: str = "") -> lis
     fn = result.function
     blocked = rep is not None and (rep.killable or rep.unclassified)
     if blocked or result.missing_lines:
-        return _derived_input(None, result, rep, fn, verb=f"detective converge '{fn}'", report=report_path)
+        action = _derived_input(None, result, rep, fn, verb=f"detective converge '{fn}'", report=report_path)
+        # An environment-gated line gap earns the honest decline FIRST: some uncovered lines sit
+        # behind a read of the clock/filesystem/env, which no `--input` value reaches, so the ask
+        # below is impossible for them. Saying so up front is the difference between a driver that
+        # supplies a fixture and one that loops forever on inputs that never land.
+        if result.missing_lines and getattr(result, "environment_gated", ()):
+            return _environment_gated_caveat(result.environment_gated) + action
+        return action
     # A synthesized suite has never been read by anyone. "Every behaviour pinned" is true of
     # it and is NOT "reviewed": with no pre-existing test, the pins record what the code does
     # TODAY — a bug included is a bug frozen, and the next `converge` will defend it. That is
@@ -1371,6 +1385,25 @@ def _converge_action(result, rep, root: str = ".", report_path: str = "") -> lis
         "DONE:  the suite pins every behaviour this function makes.",
         f"       Next (optional): detective decompose '{fn}' --apply   # if it does too much",
         *review,
+    ]
+
+
+def _environment_gated_caveat(reads: tuple[str, ...]) -> list[str]:
+    """The honest decline for an environment-gated line gap. Some uncovered lines sit behind a
+    read the caller's ARGUMENT cannot set — the clock, the filesystem, the process env — so no
+    `--input` value reaches them. Name the reads, point at the two ways in (a fixture or a
+    hand-written test), and keep the `--input` ask that follows for any ARGUMENT-gated line.
+    Without this, the tool asks for an input that provably cannot close the gap (the impure-line
+    trap): `get_cached_model(model_id)` returns early unless `<id>/meta.json` exists, so its body
+    is unreachable by any `model_id` string, yet the tool kept asking for one."""
+    shown = "; ".join(reads[:3]) + (f" (+{len(reads) - 3} more)" if len(reads) > 3 else "")
+    return [
+        _row("⚠ environment-gated", "some uncovered lines sit behind external state, not arguments:"),
+        _row("", f"  {shown}"),
+        _row("", "  no --input value reaches a branch gated by the clock / filesystem / env."),
+        _row("", "  supply a fixture (tmp file, monkeypatched clock) or write those lines by hand;"),
+        _row("", "  the --input ask below still applies to any ARGUMENT-gated line."),
+        "",
     ]
 
 
@@ -2237,6 +2270,17 @@ def _build_parser() -> argparse.ArgumentParser:
                 "with a real object and Detective captures the arguments from it. The report "
                 "tells you which of the two applies; it never asks for an --input it will refuse.",
             )
+            p.add_argument(
+                "--clock",
+                type=float,
+                metavar="EPOCH",
+                default=None,
+                help="freeze time.time() to this UNIX-epoch value while pinning — for a function "
+                "whose output reads the wall clock (a TTL/expiry check), which is otherwise "
+                "non-deterministic and cannot be pinned. The emitted test re-freezes and restores "
+                "the clock, so the pin holds. v1 freezes time.time() only; the report flags "
+                "time-gated lines under `env-gated`.",
+            )
         if name == "audit":
             p.add_argument(
                 "--remove",
@@ -3059,6 +3103,7 @@ def _run(args) -> int:
             write_dir=args.write_dir,
             max_iterations=args.max_iterations,
             supplied_inputs=supplied,
+            clock=args.clock,
             fast=args.fast,
             progress=_stream_progress(function),
             notify=_notify_stderr,
