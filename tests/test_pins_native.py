@@ -150,7 +150,7 @@ def test_saving_a_new_body_drops_the_previous_bodys_entry(tmp_path):
 
 
 def test_saving_empty_is_a_real_memory_not_a_no_op(tmp_path):
-    """"Everything generated was redundant against your own tests" is a fact worth
+    """ "Everything generated was redundant against your own tests" is a fact worth
     remembering. If empty were skipped, the previous run's pins would load again and be
     re-rendered — resurrecting exactly the file the minimizer just decided not to ship."""
     pins.save(str(tmp_path), _KEY, _DIGEST, [_prop()])

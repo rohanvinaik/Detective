@@ -114,4 +114,3 @@ def test__derived_input_value_2():
         "                       meaning is not in the code. A class from the module goes",
         "                       in as its constructor. Repeatable for another branch.",
     ]
-

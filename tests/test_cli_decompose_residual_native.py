@@ -466,8 +466,12 @@ def test_two_plain_values_do_not_get_told_that_equality_cannot_separate_them():
     rep = _rep(
         verdicts=(
             MutantVerdict(
-                "K0", "VALUE", "- x\n+ x+1", killable=True,
-                witness=Witness((1,), "34.41", "33.24"), searched=5,
+                "K0",
+                "VALUE",
+                "- x\n+ x+1",
+                killable=True,
+                witness=Witness((1,), "34.41", "33.24"),
+                searched=5,
             ),
         )
     )
@@ -489,8 +493,12 @@ def test_a_raised_outcome_still_gets_the_hand_pin_remedy():
     rep = _rep(
         verdicts=(
             MutantVerdict(
-                "K0", "EXCEPTION", "- raise A\n+ raise B", killable=True,
-                witness=Witness((1,), "<raised ValueError: nope>", "None"), searched=5,
+                "K0",
+                "EXCEPTION",
+                "- raise A\n+ raise B",
+                killable=True,
+                witness=Witness((1,), "<raised ValueError: nope>", "None"),
+                searched=5,
             ),
         )
     )
