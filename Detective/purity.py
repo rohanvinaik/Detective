@@ -309,14 +309,53 @@ def _param_names(args: ast.arguments) -> set[str]:
 # forever supplying values that never land. Reporting the read lets the residual say
 # "fixture / manual test, not `--input`" instead. Local scan, same v1 boundary as
 # `analyze_function`: a read one helper down is not seen (documented, not a bug).
-_CLOCK_CALLS = frozenset({"time", "monotonic", "perf_counter", "time_ns", "monotonic_ns",
-                          "now", "utcnow", "today", "fromtimestamp"})
-_ENV_CALLS = frozenset({"getenv", "getpid", "getppid", "urandom", "uname", "getuser",
-                        "getlogin", "getcwd", "cpu_count"})
-_FS_READ_METHODS = frozenset({"exists", "is_file", "is_dir", "is_symlink", "stat", "lstat",
-                              "glob", "rglob", "iterdir", "read_text", "read_bytes", "samefile"})
-_FS_READ_CALLS = frozenset({"exists", "isfile", "isdir", "islink", "getsize", "getmtime",
-                            "getctime", "listdir", "scandir", "stat", "lstat"})
+_CLOCK_CALLS = frozenset(
+    {
+        "time",
+        "monotonic",
+        "perf_counter",
+        "time_ns",
+        "monotonic_ns",
+        "now",
+        "utcnow",
+        "today",
+        "fromtimestamp",
+    }
+)
+_ENV_CALLS = frozenset(
+    {"getenv", "getpid", "getppid", "urandom", "uname", "getuser", "getlogin", "getcwd", "cpu_count"}
+)
+_FS_READ_METHODS = frozenset(
+    {
+        "exists",
+        "is_file",
+        "is_dir",
+        "is_symlink",
+        "stat",
+        "lstat",
+        "glob",
+        "rglob",
+        "iterdir",
+        "read_text",
+        "read_bytes",
+        "samefile",
+    }
+)
+_FS_READ_CALLS = frozenset(
+    {
+        "exists",
+        "isfile",
+        "isdir",
+        "islink",
+        "getsize",
+        "getmtime",
+        "getctime",
+        "listdir",
+        "scandir",
+        "stat",
+        "lstat",
+    }
+)
 _ENTROPY_ROOTS = frozenset({"random", "secrets"})
 
 
