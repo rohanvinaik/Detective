@@ -973,6 +973,11 @@ def _completeness_verdict(result) -> str:
     if getattr(result, "budget_exhausted", False):
         phase = getattr(result, "cut_phase", "") or "a profiling phase"
         return f"⚠ CUT — aggregate deadline exhausted during {phase}; measurement partial"
+    # A proof basis that ran red/uncollectable (issue #38): name the verification status, not just
+    # "Incomplete" — the mutants are all killed; what failed is the suite running green.
+    _ver = getattr(result, "verification", None)
+    if _ver is not None and not _ver.ok:
+        return f"⚠ UNVERIFIED — proof basis {_ver.status} under real pytest; certificate withheld"
     if not result.complete:
         # Not "✗": the residual is stated on the lines that follow, and marking a run that
         # pinned every killable behavior as a failure misreads the tool's own result.
@@ -1048,6 +1053,15 @@ def _final_banner(result) -> str:
         return (
             f"FINAL {result.function}: ⚠ CUT — aggregate deadline exhausted during {phase}; "
             "measurement partial, re-run with a larger --deadline"
+        )
+    # A proof basis that RAN and did not pass (issue #38) is not a certificate either — the
+    # mutation score can be perfect while the written suite is red or uncollectable under real
+    # pytest. Named before COMPLETE, like STALE/CUT, because it too disowns the verdict.
+    _ver = getattr(result, "verification", None)
+    if _ver is not None and not _ver.ok:
+        return (
+            f"FINAL {result.function}: ⚠ UNVERIFIED — proof basis {_ver.status} under pytest "
+            f"({_ver.passed} passed / {_ver.failed} failed / {_ver.errors} error); certificate withheld"
         )
     total = result.total_mutants
     rep = result.survivor_report
@@ -3298,7 +3312,7 @@ def _run(args) -> int:
             print(json.dumps(asdict(result), indent=2, default=str))
             # 3 for either invalid-measurement stamp: a stale target (issue #17) or a
             # deadline CUT (issue #31) both mean "this run's numbers are partial — re-run".
-            return 3 if result.stale_target or result.budget_exhausted else 0
+            return 3 if result.stale_target or result.budget_exhausted or (result.verification is not None and not result.verification.ok) else 0
         # The full report always goes to a readable file; the terminal stays minimal
         # (a banner + the one quick action) unless --full is asked for. The FILE is always
         # verbose — it is the archive `flag` reads mutant ids out of, and a file has no
@@ -3316,7 +3330,7 @@ def _run(args) -> int:
         # from "the run errored", and CI that gates on converge needs to tell
         # them apart (issue #17). A deadline CUT (issue #31) is the same class of
         # invalid-measurement signal — partial evidence, re-run with more budget.
-        return 3 if result.stale_target or result.budget_exhausted else 0
+        return 3 if result.stale_target or result.budget_exhausted or (result.verification is not None and not result.verification.ok) else 0
 
     if args.command == "audit":
         from .audit import audit_suite

@@ -26,7 +26,14 @@ from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
 from ._contain import contained_stdout, remaining_budget_ms
-from .certify import PytestWiring, _write, synth_filename, wire_pytest
+from .certify import (
+    PytestVerification,
+    PytestWiring,
+    _write,
+    run_pytest_verification,
+    synth_filename,
+    wire_pytest,
+)
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
 from .equivalence import SourceExpr, SurvivorReport
 from .line_flags import classify_missing_lines
@@ -155,6 +162,12 @@ class ConvergeResult:
     # "minimization" / "regression-check") — named so the CUT diagnosis says where the
     # budget went, not merely that it ran out.
     cut_phase: str = ""
+    # The typed final pytest verification of the target proof basis (issue #38): a certificate
+    # requires a GREEN run of the exact generated + hand-written proof suite under real pytest,
+    # not just Wesker's direct-call runner. Computed only for an otherwise-complete run (the only
+    # case it changes the verdict); None means the run was already incomplete on another axis. A
+    # non-``ok`` verification — red, uncollectable, unverified — blocks ``complete`` with its status.
+    verification: PytestVerification | None = None
     # Bytes the consumer target emitted to stdout while it was being measured, all
     # contained off the report/JSON channel (issue #31 output contract). Nonzero names
     # an integration/side-effecting target honestly ("N bytes emitted, contained")
@@ -168,8 +181,27 @@ class ConvergeResult:
         return self.killed / self.total_mutants if self.total_mutants else 1.0
 
     @property
+    def verified(self) -> bool:
+        """The proof basis was CONFIRMED green under real pytest (issue #38) — true only when a
+        verification ran and passed. Distinct from ``complete``'s gate: this is the positive fact
+        for the report, while ``complete`` merely refuses to stand on a FAILED verification."""
+        return self.verification is not None and self.verification.ok
+
+    @property
     def complete(self) -> bool:
-        """The full acceptance bar: mutant-complete AND line-complete."""
+        """The full acceptance bar: mutant-complete AND line-complete AND not proof-basis-red (#38).
+
+        The verification conjunct stops a red or uncollectable generated suite from printing ✓
+        COMPLETE — the mutation score can be perfect while the file Detective wrote does not run
+        green in the consumer's own pytest. It gates ONLY when a verification actually RAN: a
+        computed-but-non-``ok`` result (tests_failed / collection_failed / runner_missing /
+        timed_out / no_tests) blocks; a None verification (not computed — the run was already
+        incomplete on another axis, or the result was built without a proof run) falls back to the
+        mutation+line axes, so nothing that never had a verification changes meaning. converge sets
+        it for every otherwise-complete run — to ``no_tests`` when there is no proof basis at all —
+        so an absent basis still refuses."""
+        if self.verification is not None and not self.verification.ok:
+            return False
         return self.functionally_complete and self.line_complete
 
 
@@ -1189,6 +1221,35 @@ def _converge_impl(
     missing_guards = tuple((ln, " and ".join(g)) for ln in missing if (g := _line_guards(node, ln)))
     redundant = redundant_2axis(final_result.kill_matrix, final_result.line_coverage)
     minimal = minimal_cover_2axis(final_result.kill_matrix, final_result.line_coverage)
+    # #38: the certificate's verification axis. COMPLETE requires a GREEN run of the exact target
+    # proof basis under REAL pytest — the generated file PLUS the hand-written files that supplied
+    # target kills (`_covering_test_files`), not merely Wesker's direct-call runner. Run it only
+    # when the run is OTHERWISE complete (the sole case it changes the verdict), so an already-
+    # incomplete run never pays for a subprocess; a red / uncollectable / unverified basis then
+    # blocks ✓ COMPLETE with its typed status. `basis` records generated-only vs target-complete so
+    # verifying just our file is never presented as proof of the larger hand-written basis.
+    stale = _target_changed(full, source_snapshot)
+    verification: PytestVerification | None = None
+    if functionally_complete and not missing and not budget_cut and not stale:
+        from .decompose_apply import _covering_test_files
+
+        covering = _covering_test_files(root, final_result.kill_matrix)
+        basis_paths = tuple(
+            dict.fromkeys(
+                ([written_path] if written_path else [])
+                + [c if os.path.isabs(c) else os.path.join(root, c) for c in covering]
+            )
+        )
+        if basis_paths:
+            verification = run_pytest_verification(
+                root, list(basis_paths), basis="target-complete" if covering else "generated-only"
+            )
+        else:
+            # Otherwise-complete but NO proof suite on disk at all — an absent basis is a refusal,
+            # not a silent pass (a certificate with nothing to verify is not a certificate).
+            verification = PytestVerification("no_tests", None, 0, 0, 0, 0, (), "generated-only")
+        if not verification.ok:
+            say(f"⚠ proof basis did NOT verify under pytest ({verification.status}) — certificate withheld")
     sig, param_names = _signature(qualname, node)
     # For parameters the source leaves un-annotated, recover a best-effort type from how
     # the function is CALLED across the repo, so the residual's `target:` still names a
@@ -1232,10 +1293,11 @@ def _converge_impl(
         param_names=param_names,
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(),
-        stale_target=_target_changed(full, source_snapshot),
+        stale_target=stale,
         environment_coupled=tuple(environment_coupled),
         environment_gated=environment_reads(node),
         budget_exhausted=budget_cut,
         cut_phase=cut_phase,
+        verification=verification,
         # stdout_bytes is stamped by the ``converge`` containment shell, which owns the sink.
     )

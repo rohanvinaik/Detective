@@ -137,6 +137,10 @@ class PytestWiring:
     collects: bool  # did the written suite collect+pass under real pytest?
     passed: int  # number of tests that passed under pytest
     message: str  # the stated, CLI-surfaced diagnosis + fix — read this
+    # The typed verification behind ``collects``/``passed`` (issue #38) — distinguishes
+    # tests_failed / collection_failed / runner_missing / timed_out / no_tests. Optional so
+    # older constructions (and any external caller) keep working; wire_pytest always sets it.
+    verification: PytestVerification | None = None
 
 
 def _pytest_available() -> bool:
@@ -176,51 +180,131 @@ def _wiring_message(
     return f"pytest wiring: {fix}; {proof}"
 
 
-def verify_under_pytest(project_root: str, test_path: str | Sequence[str]) -> tuple[bool, int]:
-    """Run the test file(s) under REAL pytest (the consumer path, which Wesker's
-    direct-call runner bypasses). Returns (collected_and_passed, count).
+_VERIFY_TIMEOUT_S = 120.0
 
-    ``test_path`` is one path or several: a suite Detective wrote is a single file,
-    but the PRE-EXISTING suite that proves a decomposition can span several
-    hand-written files (`decompose_apply._covering_test_files`)."""
+
+@dataclass(frozen=True)
+class PytestVerification:
+    """The typed outcome of running the proof suite under real pytest — the certificate's
+    verification axis (issue #38). A single ``ok`` boolean collapsed five distinct outcomes into
+    one "could not collect", so a suite that COLLECTED AND FAILED could still print ✓ COMPLETE.
+    Each is now its own status a certificate can serialize and a gate can read, with the counts and
+    paths that produced it.
+
+    ``basis`` records WHAT was verified: ``"generated-only"`` (just the file Detective wrote) versus
+    ``"target-complete"`` (the generated file plus the hand-written files that supplied target kills)
+    — because generated-only verification must never be presented as proof of the larger basis.
+    """
+
+    status: str  # passed | tests_failed | collection_failed | runner_missing | timed_out | no_tests
+    exit_code: int | None  # pytest's return code; None when it never ran (missing runner / timeout)
+    collected: int
+    passed: int
+    failed: int
+    errors: int
+    paths: tuple[str, ...]
+    basis: str
+
+    @property
+    def ok(self) -> bool:
+        """Green: pytest ran the basis and every collected test passed (at least one ran).
+
+        The ONLY status that admits a certificate. tests_failed / collection_failed name affirmative
+        red; runner_missing / timed_out / no_tests are UNVERIFIED — absence of evidence is not a
+        pass, so none of them is ``ok`` either."""
+        return self.status == "passed"
+
+
+def run_pytest_verification(
+    project_root: str, test_path: str | Sequence[str], *, basis: str = "generated-only"
+) -> PytestVerification:
+    """Run the proof suite under real pytest and CLASSIFY the outcome (issue #38).
+
+    Distinguishes — by pytest's own return code, the authoritative signal — a green run from a
+    test failure (rc 1), a collection/import error (rc 2), no tests collected (rc 5), a missing
+    runner, and a timeout. Counts are parsed from the summary for the report; the STATUS is the
+    return code, not a substring, so "collected and failed" can never read as "could not collect".
+    """
     import re
     import subprocess
     import sys
 
     paths = [test_path] if isinstance(test_path, str) else list(test_path)
     if not paths:
-        return False, 0
+        return PytestVerification("no_tests", None, 0, 0, 0, 0, (), basis)
+    if not _pytest_available():
+        return PytestVerification("runner_missing", None, 0, 0, 0, 0, tuple(paths), basis)
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", *paths, "-o", "addopts=", "-q", "-p", "no:cacheprovider"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_VERIFY_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return PytestVerification("timed_out", None, 0, 0, 0, 0, tuple(paths), basis)
+    out = proc.stdout + "\n" + proc.stderr
 
-    # ``-o addopts=`` neutralizes the CONSUMER's pyproject addopts: a project that
-    # already sets ``-q`` would combine with ours into ``-qq`` (double-quiet), which
-    # suppresses the "N passed" summary this parse depends on — reporting 0 passed
-    # for a suite that in fact passes. Controlling our own output makes the verifier
-    # robust to whatever addopts the target project carries.
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", *paths, "-o", "addopts=", "-q", "-p", "no:cacheprovider"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
+    def _n(word: str) -> int:
+        m = re.search(rf"(\d+) {word}", out)
+        return int(m.group(1)) if m else 0
+
+    passed, failed, errors = _n("passed"), _n("failed"), (_n("errors") or _n("error"))
+    status = pytest_status(proc.returncode, passed)
+    return PytestVerification(
+        status, proc.returncode, passed + failed + errors, passed, failed, errors, tuple(paths), basis
     )
-    passed = 0
-    m = re.search(r"(\d+) passed", proc.stdout)
-    if m:
-        passed = int(m.group(1))
-    ok = proc.returncode == 0 and "error" not in proc.stdout.lower()
-    return ok, passed
+
+
+def pytest_status(returncode: int, passed: int) -> str:
+    """Map pytest's exit code to a typed verification status (issue #38, pure — Detective-pinned).
+
+    The return code is the AUTHORITATIVE classifier, never a substring of stdout: parsing "error"
+    out of the text collapsed a real test failure into "could not collect", which is the misreport
+    that let a red suite print ✓ COMPLETE. pytest's codes: 0 all passed, 1 tests failed, 2
+    collection/usage error, 5 no tests collected. rc 0 with zero collected is ``no_tests`` (a green
+    run of an empty basis is not a pass); any unlisted code is treated as not-green (``tests_failed``)
+    so an unknown failure never reads as admissible.
+    """
+    if returncode == 0:
+        return "passed" if passed > 0 else "no_tests"
+    if returncode == 1:
+        return "tests_failed"
+    if returncode == 2:
+        return "collection_failed"
+    if returncode == 5:
+        return "no_tests"
+    return "tests_failed"
+
+
+def verify_under_pytest(project_root: str, test_path: str | Sequence[str]) -> tuple[bool, int]:
+    """Run the test file(s) under REAL pytest (the consumer path, which Wesker's
+    direct-call runner bypasses). Returns (collected_and_passed, count).
+
+    ``test_path`` is one path or several: a suite Detective wrote is a single file,
+    but the PRE-EXISTING suite that proves a decomposition can span several
+    hand-written files (`decompose_apply._covering_test_files`).
+
+    Compatibility shim over :func:`run_pytest_verification`: the ``(ok, passed)`` tuple is what
+    ``_suite_green`` needs; every caller that must distinguish tests_failed from a collection error
+    or a missing runner (issue #38) calls the typed function directly."""
+    v = run_pytest_verification(project_root, test_path)
+    return v.ok, v.passed
 
 
 def wire_pytest(project_root: str, test_path: str) -> PytestWiring:
     """Make the generated suite runnable in the consumer and STATE what was done: declare the
     marker in pyproject, then verify the tests actually collect+pass under pytest."""
     conftest_wired = ensure_marker_registered(project_root)
-    collects, passed = verify_under_pytest(project_root, test_path)
+    verification = run_pytest_verification(project_root, test_path, basis="generated-only")
     return PytestWiring(
         conftest_wired,
-        collects,
-        passed,
-        _wiring_message(conftest_wired, collects, passed, _pytest_available()),
+        verification.ok,
+        verification.passed,
+        _wiring_message(conftest_wired, verification.ok, verification.passed, _pytest_available()),
+        verification,
     )
 
 
