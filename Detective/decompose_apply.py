@@ -348,6 +348,29 @@ def _worth_extracting(block_lines, parent_lines, is_wrapper, *, max_body_fractio
     return (block_lines / parent_lines) <= max_body_fraction
 
 
+def _block_span_with_comments(lines, start, end):
+    """Grow a statement span ``[start, end]`` (1-based, inclusive) to absorb TRAILING comment
+    lines that sit DEEPER than the block's base indent — i.e. inside the last compound statement
+    being moved (a loop / if body) but after the AST's final statement, which does not count them
+    in its ``end_lineno``. Without this they are left in the parent at the moved code's original
+    (now-broken) indentation, documenting code that is no longer there (#29). Stops at the first
+    line that is blank, not a comment, or at/shallower than the base indent: a comment at the
+    block's OWN indent is ambiguous (it may lead the NEXT statement), so it is left where it is —
+    validly indented — rather than mis-attributed to the helper."""
+    base = lines[start - 1]
+    base_indent = len(base) - len(base.lstrip())
+    e = end
+    while e < len(lines):
+        nxt = lines[e]                       # 0-based index e is line number e+1
+        stripped = nxt.strip()
+        indent = len(nxt) - len(nxt.lstrip())
+        if stripped.startswith("#") and indent > base_indent:
+            e += 1
+        else:
+            break
+    return start, e
+
+
 def extract_candidate(source: str, function: str, candidate) -> Extraction | None:
     """Extract the finder's contiguous block (``candidate.start_line..end_line``)
     into ``candidate.proposed_name``, using the def-use interface the deterministic
@@ -362,6 +385,9 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
     start, end = candidate.start_line, candidate.end_line
     if start < 1 or end > len(lines) or start > end:
         return None
+    # Carry trailing comments that live inside the moved construct along with it, so a design
+    # comment does not strand in the parent at broken indentation, pointing at code that left (#29).
+    start, end = _block_span_with_comments(lines, start, end)
     # Review finding 5: the proposed name must not collide with a symbol the module
     # already defines — an existing `_compute_out` and a new one silently merge into
     # whichever definition comes last. Reserve by suffixing until free.
@@ -399,7 +425,8 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
         helper += f"    return {returns}\n"
     helper += "\n\n"
     call = base_indent + (f"{returns} = " if candidate.outputs else "")
-    call += f"{helper_name}({params})\n"
+    # The DEFINITION carries annotated params (#28); the CALL passes bare argument names.
+    call += f"{helper_name}({', '.join(candidate.inputs)})\n"
     func_start = min([func.lineno, *(d.lineno for d in func.decorator_list)]) - 1
     rewritten = lines[: start - 1] + [call] + lines[end:]
     new_source = "".join(rewritten[:func_start]) + helper + "".join(rewritten[func_start:])

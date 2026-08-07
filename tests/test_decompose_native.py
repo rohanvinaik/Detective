@@ -128,6 +128,45 @@ def test_retracted_extraction_runs_green():
         assert [ns["summarize"](rows) for rows in cases] == expected
 
 
+
+def test_extract_from_annotated_function_types_def_bare_call_and_keeps_comment():
+    """Applying a split to an ANNOTATED function must (a) type the helper's DEF from the parent's
+    params (#28), (b) keep the CALL bare — a typed call site is a SyntaxError that broke a target
+    repo's build on every applied split — and (c) not strand/drop a comment inside the moved block
+    (#29). The pre-existing fixtures are unannotated, which hid the typed-call regression."""
+    src = (
+        "def summarize(rows: list[dict], cap: int) -> str:\n"
+        "    totals: dict = {}\n"
+        "    for r in rows:\n"
+        "        name = r.get('name') or 'unknown'\n"
+        "        v = r.get('value', 0)\n"
+        "        if v < 0:\n"
+        "            v = 0\n"
+        "        totals[name] = totals.get(name, 0) + v\n"
+        "        # clamp negatives before tallying\n"
+        "\n"
+        "    out = []\n"
+        "    for key in sorted(totals):\n"
+        "        t = totals[key]\n"
+        "        if t == 0:\n"
+        "            continue\n"
+        "        label = key.upper() if t > cap else key\n"
+        "        out.append(f'{label}={t}')\n"
+        "    return ', '.join(out)\n"
+    )
+    cands = find_extraction_candidates(_funcdef(src))
+    assert cands, "the annotated fixture should offer an extraction"
+    ext = extract_candidate(src, "summarize", cands[0])
+    assert ext is not None
+    ast.parse(ext.new_source)  # valid Python — a typed call site would raise here
+    lines = ext.new_source.splitlines()
+    defsig = next(line for line in lines if line.startswith(f"def {ext.helper_name}("))
+    callln = next(line for line in lines if f"{ext.helper_name}(" in line and not line.lstrip().startswith("def "))
+    assert ": " in defsig.split("(", 1)[1], f"def should carry parent annotations: {defsig}"
+    assert ": " not in callln.split("(", 1)[1], f"call must be bare: {callln}"
+    assert "# clamp negatives before tallying" in ext.new_source  # comment preserved, not dropped
+
+
 @pytest.mark.parametrize(
     "src, expected",
     [
