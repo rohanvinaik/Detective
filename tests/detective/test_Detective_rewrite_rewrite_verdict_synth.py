@@ -14,27 +14,15 @@ from Detective.rewrite import rewrite_verdict
 @pytest.mark.parametrize(
     "args, expected",
     [
-        ((True, 1, 2, 3), "CHANGED"),
-        ((False, 0, 0, 0), "CHANGED"),
-        ((True, 0, 1, 0), "CHANGED"),
-        ((True, 2, 0, 0), "UNREVIEWED"),
-        ((True, 0, 0, 1), "ABSTAIN"),
+        ((False, True, True, 0, 0, 0), "ABSTAIN"),
+        ((True, False, True, 0, 0, 0), "ABSTAIN"),
+        ((True, True, False, 0, 0, 0), "CHANGED"),
+        ((True, True, True, 1, 0, 0), "UNREVIEWED"),
+        ((True, True, True, 0, 1, 0), "CHANGED"),
+        ((True, True, True, 0, 0, 1), "ABSTAIN"),
+        ((True, True, True, 0, 0, 0), "PRESERVED"),
     ],
 )
 def test_rewrite_verdict_golden(args, expected):
-    """VALUE golden captures — pure + deterministic (5 inputs)."""
+    """VALUE golden captures — pure + deterministic (7 inputs)."""
     assert rewrite_verdict(*args) == expected
-
-
-@pytest.mark.detective
-def test_rewrite_verdict_value_0():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = rewrite_verdict(proof_replayed_ok=True, new_dimensions=0, differences=0, abstentions=0)
-    assert result == "PRESERVED"
-
-
-@pytest.mark.detective
-def test_rewrite_verdict_value_1():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = rewrite_verdict(proof_replayed_ok=True, new_dimensions=1, differences=0, abstentions=0)
-    assert result == "UNREVIEWED"

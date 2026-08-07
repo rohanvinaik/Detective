@@ -1480,7 +1480,11 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
     # the full report names each call and touched path (issue #23).
     if coupled := getattr(result, "environment_coupled", ()):
         lines.append(
-            _row("· env-coupled", f"{len(coupled)} golden(s) refused — default-path I/O; see report")
+            _row(
+                "· env-coupled",
+                f"{len(coupled)} golden(s) refused — environment-dependent (clock / process / "
+                "default-path I/O / transitive write); see report for the exact reason per capture",
+            )
         )
     # Static environment-read gating on a live line gap: a distinct residual class from the
     # golden-refusal row above — those lines cannot be reached by ANY --input, so they are a
@@ -3263,8 +3267,10 @@ def _run(args) -> int:
             _notify_stderr(f"receipt written: {args.out}  (proof status: {rec.proof_status})")
         else:
             print(text)
-        # A receipt whose proof did not verify green is a weak baseline — surface it via exit code.
-        return 0 if rec.proof_status == "passed" or rec.functionally_complete else 3
+        # A valid baseline receipt needs BOTH a mutation-complete proof AND a green verification of it
+        # (issue #37): either alone is a weak baseline verify-rewrite must not treat as sound, so this
+        # is AND, not OR. A weak receipt exits 3 so it is caught at creation, not silently trusted later.
+        return 0 if (rec.proof_status == "passed" and rec.functionally_complete) else 3
 
     if args.command == "verify-rewrite":
         from .rewrite import RewriteReceipt, verify_rewrite

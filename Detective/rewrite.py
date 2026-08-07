@@ -76,17 +76,33 @@ class RewriteVerification:
         return json.dumps(asdict(self), indent=2, default=str)
 
 
-def rewrite_verdict(proof_replayed_ok: bool, new_dimensions: int, differences: int, abstentions: int) -> str:
+def rewrite_verdict(
+    receipt_valid: bool,
+    classification_ran: bool,
+    proof_replayed_ok: bool,
+    new_dimensions: int,
+    differences: int,
+    abstentions: int,
+) -> str:
     """The rewrite-preservation verdict (issue #37, pure — Detective-pinned).
 
-    PRESERVED is the STRONGEST claim and the hardest to earn: the original proof suite still passes on
-    the new source, the new source introduces no behavioural dimension the old proof never covered,
-    AND no distinguishing input made the old and new implementations disagree. Any failure downgrades
-    to the most serious applicable refusal, in order: CHANGED (an obligation broke or old≠new at some
-    input — a proven behaviour change), UNREVIEWED (the new source added an unproven dimension the
-    receipt never reviewed), ABSTAIN (something could not be compared safely). "No witness found" is
-    never silently promoted to preservation; only this exhaustive check is.
+    PRESERVED is the STRONGEST claim and the hardest to earn: it requires POSITIVE evidence on EVERY
+    axis, so absence of evidence can never masquerade as it. In order of severity —
+
+    * ABSTAIN when the check could not be MADE: the receipt is not a valid baseline (the original was
+      not itself a complete, green-verified proof, so replaying its obligations proves nothing), OR
+      survivor classification could not run (a raised/None report is 'we did not look', never 'we
+      looked and found zero new dimensions'). This is the soundness gate: no measurement, no verdict.
+    * CHANGED when a difference is PROVEN: the old proof suite fails on the new source, or old and new
+      disagree at a distinguishing input.
+    * UNREVIEWED when the new source added a behavioural dimension the receipt never covered.
+    * ABSTAIN again for any residual that could not be compared (unclassified / candidate-equivalent
+      survivors fold into ``abstentions``).
+    * PRESERVED only when ALL hold: valid baseline, classification ran, proof replays green, no new
+      dimension, no difference, no abstention.
     """
+    if not receipt_valid or not classification_ran:
+        return "ABSTAIN"
     if not proof_replayed_ok or differences > 0:
         return "CHANGED"
     if new_dimensions > 0:
@@ -242,8 +258,24 @@ def verify_rewrite(
                 abstentions.append(f"{verdict.mutant_id} @ {w.args!r}")
             elif old_out != new_out:
                 differences.append(f"{w.args!r}: old={old_out} new={new_out}")
+        # Survivors the search could not classify, and mutants no input distinguished, are behaviours
+        # the old proof did not pin and this run could not resolve — they must forbid PRESERVED, not
+        # be silently ignored (they were). Fold both into abstentions (absence of a resolving witness).
+        abstentions.extend(f"unclassified:{u}" for u in report.unclassified)
+        abstentions.extend(f"candidate-equivalent:{v.mutant_id}" for v in report.candidate_equivalent)
 
-    verdict_str = rewrite_verdict(proof_ok, len(new_dimensions), len(differences), len(abstentions))
+    # SOUNDNESS GATES (issue #37, reopened): PRESERVED is impossible unless the baseline itself was a
+    # complete, green-verified proof (else replaying its obligations proves nothing), and unless the
+    # classification actually ran (a None report is 'we did not look'). Both feed the pure verdict.
+    receipt_valid = receipt.functionally_complete and receipt.proof_status == "passed"
+    classification_ran = report is not None
+    if not receipt_valid:
+        say("⚠ the receipt is not a complete, verified baseline — preservation cannot be established")
+    if not classification_ran:
+        say("⚠ survivor classification could not run on the rewritten source — abstaining")
+    verdict_str = rewrite_verdict(
+        receipt_valid, classification_ran, proof_ok, len(new_dimensions), len(differences), len(abstentions)
+    )
     return RewriteVerification(
         verdict=verdict_str,
         function=receipt.function,

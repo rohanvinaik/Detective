@@ -564,9 +564,25 @@ def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
     return "witness"
 
 
-def _outcome(fn: Callable[..., Any], args: tuple) -> str:
+def _outcome_budget_s(deadline: float | None) -> float:
+    """How long a single ``_outcome`` may run — ``min(the per-call cap, the remaining aggregate
+    wall)`` (issue #31, reopened). The per-input search checked the wall only BEFORE each call, so a
+    single ``_outcome`` still ran its fixed 5s even with 100ms of budget left; the classifier's wall
+    was bounded but not truly AGGREGATE. Clamped at 0 so a blown deadline abandons the call at once
+    rather than granting it a full cap. ``None`` = no aggregate wall → the per-call cap stands."""
+    import time as _t
+
+    if deadline is None:
+        return _CLASSIFY_TIMEOUT_S
+    return max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - _t.monotonic()))
+
+
+def _outcome(fn: Callable[..., Any], args: tuple, timeout_s: float = _CLASSIFY_TIMEOUT_S) -> str:
     """The repr of ``fn(*args)``, or a raised-marker — so a mutant that starts
     raising (or stops raising) counts as an observable difference, not a crash.
+
+    ``timeout_s`` bounds this single call (default the per-call cap); the witness search passes the
+    remaining aggregate wall so one classification cannot overrun the command deadline by a full cap.
 
     The marker carries the exception's MESSAGE as well as its type, because the type alone is
     not the behaviour. Given `if key not in slots: raise KeyError(f"unknown slot {key}")`, both
@@ -615,7 +631,7 @@ def _outcome(fn: Callable[..., Any], args: tuple) -> str:
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    thread.join(_CLASSIFY_TIMEOUT_S)
+    thread.join(timeout_s)
     if thread.is_alive():
         # A non-terminating mutant re-executed here used to hang the classifier FOREVER. Stop the
         # runaway (abandon unwinds pure-Python loops) and report a distinct timeout outcome, which
@@ -741,7 +757,10 @@ def _search_witness(
             # correctly left a survivor and surfaces as an `--input` residual — the I_solve ask,
             # where a human supplies the instance synthesis cannot build.
             continue
-        original_outcome, mutant_outcome = _outcome(original, args), _outcome(mutant, args)
+        # Each classification is bounded by the REMAINING aggregate wall, recomputed per call, so a
+        # single non-terminating _outcome cannot overrun the command deadline by a full 5s cap (#31).
+        original_outcome = _outcome(original, args, _outcome_budget_s(deadline))
+        mutant_outcome = _outcome(mutant, args, _outcome_budget_s(deadline))
         disposition = _pair_disposition(original_outcome, mutant_outcome)
         if disposition == "blocked":
             # #42: classification TIMED OUT on this input — record it and move on. The mutant is
