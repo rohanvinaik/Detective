@@ -40,6 +40,16 @@ The suite is not the product. It is the receipt.
 
 ---
 
+## SICP on a chip
+
+The discipline behind clean code has a name. Build programs from small pieces whose behavior is pinned, keep the abstraction barriers honest, and split a tangle only at a seam you can prove is a seam. It is the *Structure and Interpretation* method, and for forty years it has been a thing you hold by hand — by taste, by review, by remembering to.
+
+Detective runs it as a background process. No model, no inference, no sampling: an AST, the tests you already have, and a decidable question, evaluated the same way every time. Point it at a function and it comes back with the behavior pinned by a minimal suite and the tangles split at seams it has proven behavior-preserving. Run it twice on the same input and you get the same bytes out. It is not a linter's opinion and not a language model's guess. It is a proof, produced deterministically, on a CPU, while you get coffee.
+
+Everything below is that one idea at three ranges: read a function (`diagnose`), pin it (`converge`), split it (`decompose`), and see where a whole codebase drifts from the discipline (`parsimony`).
+
+---
+
 ## See it, write it, prove it
 
 **`diagnose`** reads a function and tells you what your tests leave unpinned, then names the one thing to run next. It writes nothing.
@@ -95,6 +105,39 @@ Three outcomes, and Detective never blurs them:
 | **`unproven`** | Nothing was tried — there is no complete suite to prove against yet. Your file is untouched. |
 
 All three assume `--apply`. Without it, no candidate is ever trial-written: you get the proposals and your source is not touched. Detective refactors automatically out to the edge of what your tests specify. Past that edge, it stops and asks.
+
+---
+
+## Where a codebase drifts: `parsimony`
+
+Pinning and splitting are provable, and they own one function at a time. Whether a function is *doing too much* is not provable — it is a judgment — so Detective keeps it strictly separate: an advisory read that points, and never writes.
+
+`diagnose` carries it per function. When two or more independent lenses agree, it says so, below the mutation report and above the action it never touches:
+
+```
+  · shape              entangled, but structurally one piece — no seam to split
+  · parsimony          ⚠ advisory — 4 lenses agree, stylistic (not a proof)
+                       overload (147 DOF / 37 ln) · cohesion (2 disjoint components) · regime (B) · complexity (CC 36)
+                       a human/model call — any split still goes through decompose's proof gate
+```
+
+`overload` is the lens no linter has: the count of behavioral dimensions the mutation engine finds, per line — a function that is not just long but *behaviorally* dense. It is fused with the static ones (cohesion, interface width, structural seam) by agreement, never a weighted sum, and a lens whose input was never measured stays silent rather than guess.
+
+`detective parsimony <path>` rolls the static lenses up a whole tree — the one repo-scale surface, and it proves nothing:
+
+```
+$ detective parsimony Detective/
+
+Detective — parsimony · 459 functions · 36 flagged · 92% clean   (static advisory)
+
+  worst functions      36 flagged · 10 shown
+                       3⚠  converge.py::converge
+                           complexity (CC 110) · interface_width (11 parameter(s)) · seam (3 seam(s))
+                       3⚠  decompose_apply.py::apply_decomposition
+                           complexity (CC 46) · interface_width (7 parameter(s)) · seam (2 seam(s))
+```
+
+That is Detective pointed at its own source, naming its own heaviest functions. It runs no mutant and rewrites nothing here — it tells you where to aim `decompose`, which is where the proof lives.
 
 ---
 
@@ -159,7 +202,7 @@ Two functions are the same when they draw the same distinctions — kill the sam
 
 $$f \equiv g \iff \mathrm{kills}(f) = \mathrm{kills}(g)$$
 
-Once behavior is pinned that tightly, the form stops mattering. Slice the function into sashimi, rewrite it in Comic Sans, have it print the 95 Theses on the way out — if it kills the same mutants, it is the same function. `x + y` and `(3x + 3y) / 3` are one and the same, provably. That equivalence is the ground `decompose` stands on, and it is why the suite is written *first*: it is the thing being proved against.
+Once behavior is pinned that tightly, the form stops mattering. Rewrite it in a different style, split it into forty helpers or fuse it into one expression, run it through a different paradigm on the way out — if it kills the same mutants, it is the same function. `x + y` and `(3x + 3y) / 3` are one and the same, provably. That equivalence is the ground `decompose` stands on, and it is why the suite is written *first*: it is the thing being proved against.
 
 It is also why this is fast. Detective does not profile your codebase. It asks a decidable question about one function, from two things that are already static and free — the operators in its AST, and the tests you already have. There is no repo-scale artifact to build.
 
@@ -180,6 +223,7 @@ It installs as `detective-spec`, imports as `Detective`, and runs as `detective`
 | `converge file.py::fn` | test files | give me a complete, minimal suite |
 | `decompose file.py::fn --apply` | your source | split it — applied only when proven behavior-preserving |
 | `audit file.py::fn` | nothing | is the suite I have complete? minimal? what can I cut? |
+| `parsimony path/` | nothing | where does this codebase drift from the discipline? (static, advisory) |
 | `regime` | config | how does this repo import and test — and can the suite even reach my file? |
 
 When a parameter carries meaning the code does not hold — a plan name, a lookup key, a domain object — Detective will not guess it. It shows the shape it needs; you hand it one real call (`--input "([1.0, 2.0, 10.0], 4, 1.0)"`) and it remembers your example (`.detective/inputs.json`), so every later command on that function already has it. A low number beside a residual is a question, not a failure.
@@ -193,6 +237,7 @@ detective diagnose  file.py::fn                  # what it does, and the one thi
 detective converge  file.py::fn [--fast]         # greedy (1−1/e)-optimal subset per pass
 detective decompose file.py::fn [--apply]        # without --apply: propose only
 detective audit     file.py::fn [--remove]       # confirm deletion of pointless tests
+detective parsimony path/ [--top N]              # static repo/module/class SICP map (advisory)
 detective flag      file.py::fn MUTANT_ID        # record: this survivor is truly equivalent
 detective purge                                  # delete regeneratable analysis cruft
 ```
@@ -215,7 +260,8 @@ One function at a time, deterministic, narrow on purpose.
 - **It preserves behavior, not correctness.** A proof says your rewrite does what the original did. If the original was wrong, the rewrite is wrong the same way — provably. Detective does not know what your code is *for*.
 - **It will not invent a domain value.** When a parameter's meaning is not in the code, you supply one example; it asks rather than guessing, instead of reporting a confident number over a value it made up.
 - **A search is not a proof of equivalence.** A survivor nothing could distinguish stays `candidate-equivalent — UNPROVEN`, never `equivalent`; `flag` records a human judgment that a later distinguishing input overrides.
-- **One function, not a repo.** There is no `detective src/`.
+- **One function, not a repo — for proof.** There is no repo-scale mutation profile: `converge`, `decompose`, and `audit` each own exactly one function, and always will. The one repo-scale surface is `parsimony` — a static, advisory map that runs no mutant and proves nothing. It points; the proof stays one function at a time.
+- **Parsimony advises, it never gates.** The stylistic read names where to look. It never triggers a rewrite; only the proof gate writes.
 - **Python 3.11+.**
 
 Detective was pointed at the engine it runs on. It found one of that engine's own functions unspecifiable — the return value was a set of `id()`s, different every run, so no assertion could ever hold. It declined to write the test. It was right, and the function was changed.
