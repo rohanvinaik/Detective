@@ -16,6 +16,7 @@ import ast
 import contextlib
 import os
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from contextvars import ContextVar
@@ -214,8 +215,19 @@ _OPEN_WATCH: ContextVar[list[str] | None] = ContextVar("detective_open_watch", d
 _watch_installed = False
 
 
+# Filesystem-effect audit events whose FIRST arg is the path touched. `open` covers
+# `write_text`/`read_text` and plain I/O; the `os.*` events cover writes that never open a file
+# (a helper that only `mkdir`s a default dir, renames, or deletes). Watching all of them makes a
+# TRANSITIVE effect — one the target reaches only through a callee — visible regardless of call
+# depth, which AST-local purity cannot see (#30). `os.makedirs`/`Path.mkdir`/`Path.write_text`
+# decompose into these primitives, so they are covered without being named.
+_FS_EFFECT_EVENTS = frozenset(
+    {"open", "os.mkdir", "os.rename", "os.replace", "os.remove", "os.rmdir", "os.unlink", "os.symlink"}
+)
+
+
 def _open_watch_hook(event: str, args: tuple) -> None:
-    if event != "open":
+    if event not in _FS_EFFECT_EVENTS:
         return
     sink = _OPEN_WATCH.get()
     if sink is None:
@@ -345,6 +357,20 @@ def _contains_set(value: Any) -> bool:
     return False
 
 
+def _is_machine_specific(text: str) -> bool:
+    """True when a captured string carries a value specific to THIS machine/checkout — it contains
+    the current working directory, the user home, the interpreter prefix, or the temp dir. A golden
+    pinned to such a value (a `Path.resolve()` / `os.getcwd()` / `__file__` result baked into a
+    return) is green on this checkout and red on any other, INDEPENDENT of whether any I/O happened
+    — the door #23's default-path-I/O guard does not cover. Substrings of the real environment, not
+    a path SHAPE: a stable absolute path that is identical on every machine (`/etc/hosts`) is fine
+    to pin; only paths that differ per machine are refused, so the guard never false-flags data."""
+    for probe in (os.getcwd(), os.path.expanduser("~"), sys.prefix, tempfile.gettempdir()):
+        if probe and len(probe) > 3 and probe in text:
+            return True
+    return False
+
+
 def _stable_expr(value: Any) -> str | None:
     """A Python expression that reconstructs ``value`` with order-STABLE source text,
     or None when no such expression exists (a non-literal element). Sets are the one
@@ -375,6 +401,8 @@ def _stable_expr(value: Any) -> str | None:
         if any(k is None or v is None for k, v in items):
             return None
         return "{" + ", ".join(f"{k}: {v}" for k, v in items) + "}"
+    if isinstance(value, str) and _is_machine_specific(value):
+        return None  # a golden pinned to this machine's paths is green here, red elsewhere (#30)
     rendered = repr(value)
     try:
         round_tripped = ast.literal_eval(rendered)
