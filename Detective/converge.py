@@ -31,7 +31,7 @@ from .engine import _load_original, _resolve, classify_survivors, profile, repre
 from .equivalence import SourceExpr, SurvivorReport
 from .line_flags import classify_missing_lines
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
-from .purity import environment_reads, is_pure, world_effects
+from .purity import environment_reads, is_pure, uncovered_env_reads, world_effects
 from .synthesis.characterization import (
     GoldenCapture,
     capture_golden,
@@ -562,6 +562,21 @@ def _golden_properties(
     live = _load_original(full_path, qualname)
     if live is None:
         return [], ()
+    # CAPTURABILITY gate (issue #39), BEFORE any sampling. A golden pins the return VALUE, so a
+    # return that depends on an uncontrolled environment read (the clock without --clock, the
+    # calendar date, the PID, the process env, entropy) is not deterministic — it merely repeats
+    # within the sampling interval, then diverges (green at capture, red a second/day/host later).
+    # `environment_reads` already names those dependencies; consult it here and DECLINE with the
+    # exact reason instead of guessing "now". --clock is the one capability that covers time.time();
+    # everything else waits for its fixture (#24). Declining leaves the value survivor un-pinned, so
+    # the function reads Incomplete — the honest verdict the README promises, not a false COMPLETE.
+    uncovered = uncovered_env_reads(environment_reads(node), clock is not None)
+    if uncovered:
+        return [], tuple(
+            f"golden refused — {reason}; not capturable without an explicit fixture/capability"
+            + (" (supply --clock <epoch> to freeze it)" if "time.time()" in reason else "")
+            for reason in uncovered
+        )
     namespace = getattr(live, "__globals__", {}) or {}
     supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
@@ -922,6 +937,13 @@ def _converge_impl(
     # loop left standing. A witness is a PROOF of killability, so the golden test at
     # that input deterministically kills the mutant — auto-write it (auto-apply
     # principle: deterministically-guaranteed-correct → just do it).
+    # #39: a return that depends on an uncontrolled environment read is not value-capturable,
+    # so the witness pass must not auto-write a value golden either — its original-vs-mutant
+    # search would pin the ORIGINAL's clock/pid/env value, green this second and red the next,
+    # the same straddle `_golden_properties` declines. Error-path (raises) witnesses stay
+    # allowed: a raise is not an env-coupled value. The golden-capture pass above already
+    # surfaced the dependency reason, so the skip here is silent.
+    _capturable = not uncovered_env_reads(environment_reads(node), clock is not None)
     if write_dir:
         say("witness pass: searching richer inputs for a distinguishing kill…")
         pre = classify_survivors(
@@ -942,9 +964,13 @@ def _converge_impl(
             # a value-returning one gets the golden form. Both are auto-written when
             # they hold on the unmutated function — the raises form closes the line +
             # mutant gap that error paths otherwise leave open.
+            is_raises = w.original.startswith("<raised")
+            # An env-coupled value golden is declined (#39); the raises form is not a value.
+            if not _capturable and not is_raises:
+                continue
             prop = (
                 _raises_witness_property(func_key, w, root, kw_names)
-                if w.original.startswith("<raised")
+                if is_raises
                 else _witness_property(func_key, w, root, kw_names)
             )
             if prop is None:
@@ -966,7 +992,9 @@ def _converge_impl(
         n_crash_detect = 0
         for verdict in pre.equivalent:
             w = verdict.crash_witness
-            if w is None or verdict.suite_detected:
+            # A crash-detection golden also captures the ORIGINAL's value — declined when the
+            # return is env-coupled (#39), for the same straddle reason as the value witnesses.
+            if w is None or verdict.suite_detected or not _capturable:
                 continue
             prop = _witness_property(func_key, w, root, kw_names)
             if prop.assertion_code not in accumulated and property_holds(

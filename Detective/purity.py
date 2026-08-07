@@ -379,6 +379,27 @@ def environment_reads(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str
     return tuple(dict.fromkeys(visitor.reasons))  # deduped, order preserved
 
 
+def uncovered_env_reads(env_reads: tuple[str, ...], clock_supplied: bool) -> tuple[str, ...]:
+    """Which of ``env_reads`` have NO explicit capability controlling them — the reads that make a
+    golden capture INADMISSIBLE and must be declined rather than guessed (issue #39).
+
+    Capturability is not purity. ``is_pure`` + no world writes says the function does not *change*
+    the world; it says nothing about whether its RETURN depends on external state a caller cannot
+    set. Golden synthesis calls "two back-to-back reprs match" deterministic, which admits any read
+    whose stability window is longer than the sampling interval — the clock (``int(time.time())``
+    is stable for a second, then not), the calendar date, the PID, the process environment. Each is
+    the README's declined case, and each can end in ``✓ COMPLETE``.
+
+    A read is COVERED only by a caller-supplied capability. The one capability today is ``--clock``,
+    which freezes ``time.time()`` to a fixed value threaded into every capture — so a ``time.time()``
+    read is covered when ``clock_supplied``. EVERY other read is uncovered until its fixture exists
+    (#24): ``date.today`` (v1 ``--clock`` freezes ``time.time()`` only — a date golden passes today
+    and fails tomorrow), ``os.getpid``, ``os.environ``, filesystem reads, entropy. Returned as the
+    exact dependency reasons so the refusal names why, not merely that.
+    """
+    return tuple(r for r in env_reads if not (clock_supplied and "time.time()" in r))
+
+
 class _EnvironmentReadVisitor(ast.NodeVisitor):
     """Finds reads of clock / filesystem / process-env / entropy that gate reachability."""
 
