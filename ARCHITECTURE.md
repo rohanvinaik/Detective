@@ -40,6 +40,25 @@ Detective's "specified/complete" always means *value*-specified:
 
 ---
 
+## 0.5 The advisory read — SICP parsimony (Detective-native)
+
+Everything above is the **provable** half of clean code: behaviour pinned, seams proven. The
+**stylistic / epistemic** half — cohesion, the right abstraction, the behaviourally-overloaded
+God-function — is **not provable**, so Detective carries it as an **advisory read**, never a gate.
+It is Detective-native by design: a stylistic call needs judgement, and Detective is the layer a
+human or large model drives. `diagnose` surfaces a per-function parsimony consensus (complexity,
+purity, cohesion, interface width, structural seam, and Wesker's behavioural overload — fused by
+lens *agreement*, never a weighted sum) that points *where* to look; the proof gate still decides
+*whether* a change is safe. The signal never writes source. Full design: `docs/PARSIMONY_ADVISORY.md`.
+
+This is the trilogy's division of labour, which is also its epistemology: **Wesker** drives
+(mutation); **Detective** is the operational layer a strong intelligence drives to change code, and
+the home of these advisory signals; **Uroboros** is the mindless whole-repo purifier that churns on
+the *provable* axis only — SICP decisions are out of its scope, because a dumb relentless process
+cannot adjudicate them.
+
+---
+
 ## 1. Mental model (the pipeline in one breath)
 
 ```

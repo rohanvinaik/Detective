@@ -140,6 +140,7 @@ def _format_scope(scope) -> str:
     if spec.inert_freedom:
         lines.append(_row("· inert", f"{spec.inert_freedom} — no test could ever tell the difference"))
     lines.append(_row("· shape", _shape_phrase(entangled, seams)))
+    lines += _parsimony_rows(scope)
     lines.append("")
     lines += _diagnose_action(scope, spec, entangled, seams)
     return "\n".join(lines)
@@ -157,6 +158,75 @@ def _shape_phrase(entangled: bool, seams: int) -> str:
     if seams >= 1:
         return f"cohesive, but {seams} clean seam(s) exist — splitting is optional"
     return "cohesive and structurally one piece"
+
+
+def _parsimony_rows(scope) -> list[str]:
+    """The SICP parsimony advisory row — shown ONLY when ≥2 lenses agree a function reads heavy.
+
+    Advisory, stylistic, NOT a proof: it points where a human or large model driving Detective
+    might look, and it deliberately never touches the ``DO THIS`` action, which stays the one
+    provable next step. Absent read or no flag → nothing, so a clean function adds no noise (the
+    same "show only what matters" rule the rest of the report follows). The lenses are already in
+    priority order, so the first named IS the dominant one — attribution, not a bare number.
+    """
+    par = getattr(scope, "parsimony", None)
+    if par is None or not par.flagged:
+        return []
+    smells = " · ".join(f"{lens.name} ({lens.detail})" for lens in par.lenses if lens.vote == -1)
+    return [
+        _row("· parsimony", f"⚠ advisory — {par.agreement} lenses agree, stylistic (not a proof)"),
+        _row("", smells),
+        _row("", "a human/model call — any split still goes through decompose's proof gate"),
+    ]
+
+
+def _format_parsimony_map(score, top: int = 10) -> str:
+    """The `detective parsimony <path>` report: a repo/module/class SICP map, worst-first.
+
+    Static and ADVISORY — it runs no mutant and writes nothing, and every line here says so, the
+    same way `_format_scope` never lets the per-function advisory touch the DO THIS action. A scope
+    lists only its FLAGGED members (the report's "show what matters" rule); a fully clean tree gets
+    one line, not a wall of green.
+    """
+    lines = [
+        _RULE,
+        f"{score.name} — parsimony · {score.functions} functions · {score.flagged} flagged "
+        f"· {score.clean_pct}% clean   (static advisory)",
+        "",
+    ]
+    modules = sorted(
+        (c for c in score.children if c.kind == "module" and c.flagged),
+        key=lambda m: (m.clean_pct, -m.flagged),
+    )
+    classes = sorted(
+        (cc for c in score.children for cc in c.children if cc.flagged),
+        key=lambda cc: (cc.clean_pct, -cc.flagged),
+    )
+    offenders = sorted((r for r in score.reads if r.flagged), key=lambda r: (-r.smells, r.qualname))
+
+    if modules:
+        lines.append(_row("worst modules", "clean% · flagged/total"))
+        for m in modules[:top]:
+            lines.append(_row("", f"{m.clean_pct:>3}%  {m.flagged:>2}/{m.functions:<3}  {m.name}"))
+        lines.append("")
+    if classes:
+        lines.append(_row("worst classes", "clean% · flagged/total"))
+        for c in classes[:top]:
+            lines.append(_row("", f"{c.clean_pct:>3}%  {c.flagged:>2}/{c.functions:<3}  {c.name}"))
+        lines.append("")
+    if offenders:
+        lines.append(_row("worst functions", f"{len(offenders)} flagged · {min(top, len(offenders))} shown"))
+        for r in offenders[:top]:
+            lines.append(_row("", f"{r.smells}⚠  {r.qualname}"))
+            lines.append(_row("", f"    {r.detail}"))
+        lines.append("")
+    else:
+        lines.append(_row("✓ clean", "no function trips ≥2 static lenses — nothing to flag"))
+        lines.append("")
+    lines.append(_row("· advisory", "a STATIC read (complexity · cohesion · interface · seam) — guidance,"))
+    lines.append(_row("", "NOT a proof, and it writes nothing. For the behavioural lenses (overload,"))
+    lines.append(_row("", "regime) and the PROOF: detective diagnose <file>::<function>"))
+    return "\n".join(lines)
 
 
 def _trace_cut_rows(scope) -> list[str]:
@@ -2369,6 +2439,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     flag_line_p.add_argument("--project-root", default=".")
     flag_line_p.add_argument("--json", action="store_true", help="emit JSON")
+
+    parsimony_p = sub.add_parser(
+        "parsimony",
+        help="STATIC repo/module/class SICP map (advisory) — no mutation, no proof",
+        description=(
+            "Roll up the AST-only parsimony lenses (complexity, cohesion, interface width, "
+            "structural seam) over a file or directory and report the shape of its parsimony: a "
+            "clean-percent score per module and class, and the worst-offending functions.\n\n"
+            "ADVISORY, not a proof. It runs no mutant and writes nothing — the one repo-scale "
+            "surface, and it says so. There is no repo-scale PROOF: the behavioural lenses "
+            "(overload, regime), the per-function detail, and any proof stay in "
+            "`detective diagnose`/`converge`, one function at a time."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parsimony_p.add_argument("path", help="a .py file or a directory to scan")
+    parsimony_p.add_argument("--project-root", default=".", help="project root the path is relative to")
+    parsimony_p.add_argument("--top", type=int, default=10, help="worst offenders to show (default 10)")
+    parsimony_p.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -2676,7 +2765,7 @@ def _run_live(args) -> int:
     # `purge` runs no tests; `regime` READS the setup and must answer even when that setup is
     # what is broken — opening a live session to report that a live session cannot open would
     # be the one command guaranteed to fail exactly when it is needed.
-    if getattr(args, "command", None) in ("purge", "regime") or not root:
+    if getattr(args, "command", None) in ("purge", "regime", "parsimony") or not root:
         return _run(args)
     # Resolve the testing regime BEFORE the session — the session is the expensive part, and
     # tracing a suite that cannot reach the target is the longest possible way to learn nothing.
@@ -2907,6 +2996,16 @@ def _run(args) -> int:
                 print(f"  - {path}")
         else:
             print("nothing to purge — no cached analysis found (a clean state)")
+        return 0
+
+    if args.command == "parsimony":
+        from .parsimony_map import score_path
+
+        score = score_path(args.path, args.project_root)
+        if args.json:
+            print(json.dumps(asdict(score), indent=2, default=str))
+        else:
+            print(_format_parsimony_map(score, top=args.top))
         return 0
 
     file, function = _split_target(args.target, getattr(args, "project_root", None))

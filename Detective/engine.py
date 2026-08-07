@@ -20,9 +20,12 @@ import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from types import CodeType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from Wesker.ci import discover_test_callables, walk_functions
+
+if TYPE_CHECKING:
+    from .parsimony import ParsimonySignals
 from Wesker.engine import (  # imported, never restated — one owner for each of these numbers
     DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S,
 )
@@ -569,6 +572,31 @@ def _count_decompose_seams(file: str, function: str, project_root: str = ".") ->
         return 0
 
 
+def _parsimony_signals(
+    file: str, function: str, scope: ScopeMap, project_root: str = "."
+) -> ParsimonySignals | None:
+    """The SICP parsimony advisory read for ``function`` — cohesion / complexity / interface width
+    (from the AST) fused with the overload / regime / seam lenses off ``scope`` (from the mutation
+    profile). Advisory ONLY, never a proof, and never drives the ``DO THIS`` action. Best-effort:
+    any failure returns None, so the stylistic read never breaks a diagnose — the same discipline
+    as :func:`_count_decompose_seams`. Takes ``scope`` already carrying ``decompose_seams`` so the
+    seam / regime lenses read the finished map."""
+    try:
+        from .parsimony import parsimony_from_function
+
+        root = os.path.abspath(project_root)
+        full = file if os.path.isabs(file) else os.path.join(root, file)
+        with open(full, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename=full)
+        _, node = _resolve(tree, function)
+        if node is None:
+            return None
+        line_span = (node.end_lineno or node.lineno) - node.lineno + 1
+        return parsimony_from_function(node, scope, line_span)  # type: ignore[arg-type]
+    except Exception:  # noqa: BLE001 — an advisory read must never fail a diagnose
+        return None
+
+
 def diagnose(
     file: str,
     function: str,
@@ -603,8 +631,10 @@ def diagnose(
 
     from dataclasses import replace
 
-    updates: dict[str, Any] = {"decompose_seams": _count_decompose_seams(file, function, project_root)}
-    return replace(scope, **updates)
+    # Attach the structural seam count FIRST, then the parsimony read — its seam / regime lenses
+    # read the finished map (§ the advisory is a superset of the seam+regime "is this >1 thing").
+    scope = replace(scope, decompose_seams=_count_decompose_seams(file, function, project_root))
+    return replace(scope, parsimony=_parsimony_signals(file, function, scope, project_root))
 
 
 def _compile_mutant(mutant: Any, original: Callable[..., Any]) -> Callable[..., Any] | None:

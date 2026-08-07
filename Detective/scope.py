@@ -15,8 +15,12 @@ per-category ``killed_by_assertion``/``killed_by_crash`` aggregates directly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from Wesker.engine import CategoryResult, ProfilingResult
+
+if TYPE_CHECKING:
+    from .parsimony import ParsimonySignals
 
 _CRASH_DOMINATED = (
     "crash-dominated: every mutant dies by raising, not by a value assertion — the tests pin "
@@ -104,6 +108,10 @@ class ScopeMap:
     # what else was running at the time. The reader cannot act on that the way they can act on a
     # fresh cut, so the two must not render identically.
     served_from_cache: bool = False
+    # The SICP parsimony advisory read (Detective-native, never a proof) — attached by
+    # ``engine.diagnose`` AFTER the seam count is set, so its structural lenses see the final scope.
+    # None on any path that did not compute it (older callers, or a best-effort read that failed).
+    parsimony: ParsimonySignals | None = None
 
 
 def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -> str | None:
