@@ -486,7 +486,11 @@ def apply_decomposition(
             file,
             function,
             project_root,
-            write_dir="tests",
+            # Canonical home is tests/detective/ (issue #21); this call still passed the old
+            # tests/ root, so decompose's proof suite and any new-helper test landed at root while
+            # every other converge wrote to tests/detective/ (issue #27). Aligning it also lets
+            # `_write` retire the legacy root-level sibling on the way past.
+            write_dir="tests/detective",
             supplied_inputs=supplied_inputs,
             notify=notify,
         )
