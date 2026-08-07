@@ -261,6 +261,7 @@ detective diagnose  file.py::fn                  # what it does, and the one thi
 detective converge  file.py::fn [--fast]         # greedy (1−1/e)-optimal subset per pass
 detective decompose file.py::fn [--apply]        # without --apply: propose only
 detective audit     file.py::fn [--remove]       # confirm deletion of pointless tests
+detective audit     file.py::fn --check           # CI gate: exit non-zero on a real gap
 detective parsimony path/ [--top N]              # static repo/module/class SICP map (advisory)
 detective flag      file.py::fn MUTANT_ID        # record: this survivor is truly equivalent
 detective purge                                  # delete regeneratable analysis cruft
@@ -272,8 +273,10 @@ detective purge                                  # delete regeneratable analysis
 - name: The critical path stays specified
   run: |
     uv pip install detective-spec
-    detective audit src/pricing.py::compute_invoice --json > audit.json
+    detective audit src/pricing.py::compute_invoice --check --json > audit.json
 ```
+
+`--check` makes the step **fail** when the suite has a real gap — a killable mutant it no longer kills, a reachable uncovered line, a failing test, or an unclassified survivor. A newly introduced, unspecified branch turns the step red; candidate-equivalent survivors do not (they are unproven-equivalent, resolved with `flag`). Without `--check`, `audit` only records an artifact and always exits 0.
 
 ---
 

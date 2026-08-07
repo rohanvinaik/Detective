@@ -92,6 +92,22 @@ class SuiteAudit:
         return max(0, self.test_count - self.minimal_test_count)
 
 
+def audit_check_failed(
+    killable_gaps: int, missing_lines: int, failing_tests: int, unclassified: int
+) -> bool:
+    """Whether ``detective audit --check`` should FAIL the CI ratchet (issue #35).
+
+    True when the suite has a real, actionable gap: a KILLABLE mutant it does not kill (a
+    specification hole), a reachable line no test covers, a currently-FAILING test, or an
+    UNCLASSIFIED survivor (which may be killable — honest uncertainty counts against the ratchet).
+    Candidate-equivalent and crash-only survivors are DELIBERATELY excluded: they are unproven-
+    equivalent, resolved by ``flag`` or a killing input, never a spec hole a green-field edit
+    introduced — folding them in would fail CI on residuals that were always there. The policy is
+    explicit here, not an accident of which counts the caller happened to sum.
+    """
+    return bool(killable_gaps) or bool(missing_lines) or bool(failing_tests) or unclassified > 0
+
+
 def _gap_desc(verdict: Any, expressible: bool) -> str:
     """One killable gap: the mutant, and the input to kill it with ONLY if that input can be
     written down.

@@ -2447,6 +2447,15 @@ def _build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="CONFIRM deletion of the proposed pointless tests (removes them from your files)",
             )
+            p.add_argument(
+                "--check",
+                action="store_true",
+                help="CI mode: exit non-zero when the suite has a real gap — a killable mutant it "
+                "does not kill, a reachable uncovered line, a failing test, or an unclassified "
+                "survivor. Candidate-equivalent / crash-only survivors do NOT fail (unproven-"
+                "equivalent, resolved by `flag`). Combine with --json for a machine-readable "
+                "artifact that carries the same exit status. This is the surface a CI ratchet gates on.",
+            )
         if name == "decompose":
             p.add_argument(
                 "--apply",
@@ -3346,6 +3355,19 @@ def _run(args) -> int:
             if args.json
             else _format_audit(report, removing=bool(args.remove and report.redundant_tests))
         )
+        # CI ratchet (issue #35): audit found the gaps; --check makes that finding an enforceable
+        # process result. The SAME exit status backs human and --json output, so a pipeline gates
+        # on it identically. Distinct from --remove (interactive pruning); a checker does not delete.
+        if getattr(args, "check", False):
+            from .audit import audit_check_failed
+
+            failed = audit_check_failed(
+                len(report.killable_gaps),
+                len(report.missing_lines),
+                len(report.failing_tests),
+                report.unclassified,
+            )
+            return 1 if failed else 0
         if args.remove and report.redundant_tests:
             from .audit import module_safe_removals
             from .suite_edit import apply_removals
