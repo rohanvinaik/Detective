@@ -126,9 +126,14 @@ def _format_scope(scope) -> str:
         lines.append(_row("", "reflect ABSENT tests, not weak ones."))
     for row in _trace_cut_rows(scope):
         lines.append(row)
-    lines.append(
-        _row("✓ pinned", f"{kq.by_value_assertion} pin the RETURN VALUE · {kq.by_crash} only prove it runs")
-    )
+    # #40: two rows, never one. A crash/timeout kill proves the code RUNS, not what it returns, so
+    # it must not sit under the checked "pinned" gutter — a scanning reader reads everything beside
+    # ✓ as specified. value-pinned is the checked population; run-only is its own unchecked row.
+    lines.append(_row("✓ value-pinned", f"{kq.by_value_assertion} pin the RETURN VALUE"))
+    if kq.by_crash:
+        lines.append(
+            _row("· run-only", f"{kq.by_crash} crash/timeout detection(s) — return value still unspecified")
+        )
     if kq.warning:
         # The ENGINE's sentence, verbatim. Substituting a generic one here throws away the
         # specific thing it measured and says something adjacent instead — the same defect as
@@ -983,13 +988,21 @@ def _completeness_verdict(result) -> str:
         # pinned every killable behavior as a failure misreads the tool's own result.
         return "Incomplete"
     rep = result.survivor_report
-    candidate = len(rep.equivalent) if rep is not None else 0
-    if candidate == 0:
+    # #36: name the two residual classes separately — a crash-only mutant HAS a distinguishing
+    # input (by crash), so it is not "candidate-equivalent / no input distinguishes it".
+    candidate = len(rep.candidate_equivalent) if rep is not None else 0
+    crash_only = len(rep.crash_only) if rep is not None else 0
+    if candidate == 0 and crash_only == 0:
         return "✓ COMPLETE — every mutant killed or oracle-proven-equivalent, line-complete"
-    return (
-        f"✓ every killable mutant killed + line-complete — {candidate} survivor(s) "
-        "candidate-equivalent (UNPROVEN: `flag` if truly equivalent, or add a distinguishing input)"
-    )
+    bits = []
+    if candidate:
+        bits.append(
+            f"{candidate} candidate-equivalent (UNPROVEN: `flag` if truly equivalent, "
+            "or add a distinguishing input)"
+        )
+    if crash_only:
+        bits.append(f"{crash_only} crash-only value gap(s) — detected by crash; no value pins them")
+    return "✓ every killable mutant killed + line-complete — " + "; ".join(bits)
 
 
 def _rel_path(path: str) -> str:
@@ -1011,7 +1024,10 @@ def _plain_terms(result) -> str:
     line gap — so INCOMPLETE is never opaque. Candidate-equivalents lead with 'supply an
     input' (they are usually killable with a richer input), not 'flag' (which is giving up)."""
     rep = result.survivor_report
-    cand = len(rep.equivalent) if rep is not None else 0
+    # #36: this row leads candidate-equivalents with "supply an input" (usually killable with a
+    # richer one) — TRUE of candidate-equivalent, FALSE of crash-only (no value can pin them), so
+    # count only the former here.
+    cand = len(rep.candidate_equivalent) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
     uncertain = len(rep.unclassified) if rep is not None else 0
     gap = len(result.missing_lines)
@@ -1065,7 +1081,11 @@ def _final_banner(result) -> str:
         )
     total = result.total_mutants
     rep = result.survivor_report
-    cand = len(rep.equivalent) if rep is not None else 0
+    # #36: candidate-equivalent (no input distinguishes it) and crash-only (a crash input DOES) are
+    # different residual classes; the banner must not fuse them into "N unproven-equivalent". Consume
+    # the named partitions, never len(rep.equivalent) which is their union.
+    cand = len(rep.candidate_equivalent) if rep is not None else 0
+    crash_only = len(rep.crash_only) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
     gap = len(result.missing_lines)
     # "COMPLETE" is a claim about the OPERATOR UNIVERSE — every mutant the engine can
@@ -1073,10 +1093,15 @@ def _final_banner(result) -> str:
     # arbitrary amount is outside any finite family). The report body already carries
     # the qualifier ("every operator-universe mutant tested"); the banner is where
     # over-trust actually happens, so the banner says it too.
-    if result.complete and cand == 0:
+    if result.complete and cand == 0 and crash_only == 0:
         status = "✓ COMPLETE (operator universe)"
     elif result.complete:
-        status = f"✓ COMPLETE (operator universe · modulo {cand} unproven-equivalent)"
+        modulo = []
+        if cand:
+            modulo.append(f"{cand} unproven-equivalent")
+        if crash_only:
+            modulo.append(f"{crash_only} crash-only value gap{'s' if crash_only != 1 else ''}")
+        status = f"✓ COMPLETE (operator universe · modulo {' · '.join(modulo)})"
     else:
         bits = []
         if killable:
@@ -1424,12 +1449,13 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
     for stale in result.contradicted_line_flags:
         lines.append(_row("⚠ flag overridden", f"executed: {stale} — execution outranks the flag"))
     if rep is not None and rep.equivalent:
-        # Two rows, not one: "no input distinguishes them" is FALSE of a crash-only survivor —
+        # Two rows, not one (#36): "no input distinguishes them" is FALSE of a crash-only survivor —
         # an input does, by crash — and it was that false claim that sent a reader hunting for
-        # the input. Each row states the one true thing about its own class.
-        if unproven := [v for v in rep.equivalent if not v.crash_only]:
+        # the input. Each row states the one true thing about its own class, from the named
+        # partitions the banner and verdict also consume (single source).
+        if unproven := rep.candidate_equivalent:
             lines.append(_row("· unproven-equiv", f"{len(unproven)} — no input distinguishes them"))
-        if crash_only := [v for v in rep.equivalent if v.crash_only]:
+        if crash_only := rep.crash_only:
             lines.append(
                 _row("· crash-only-equiv", f"{len(crash_only)} — detected by crash; no value pins them")
             )
@@ -1590,8 +1616,13 @@ def _headline_counts(proof, rep) -> str:
     if proof is None:
         return ""
     parts = [f"{proof.total_mutants} behaviours", f"{proof.value_killed} pinned"]
-    if rep is not None and rep.equivalent:
-        parts.append(f"{len(rep.equivalent)} candidate-equivalent")
+    # #36: name the two residual classes, never the union labelled "candidate-equivalent" — a
+    # crash-only mutant has a distinguishing input and is not an unproven equivalence.
+    if rep is not None:
+        if rep.candidate_equivalent:
+            parts.append(f"{len(rep.candidate_equivalent)} candidate-equivalent")
+        if rep.crash_only:
+            parts.append(f"{len(rep.crash_only)} crash-only")
     return " · " + " · ".join(parts)
 
 

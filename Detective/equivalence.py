@@ -887,7 +887,24 @@ class SurvivorReport:
 
     @property
     def equivalent(self) -> tuple[MutantVerdict, ...]:
+        """Every non-killable verdict — the UNION of candidate-equivalent and crash-only. Kept for
+        back-compat; renderers that must not fuse the two consume the named partitions below (#36)."""
         return tuple(v for v in self.verdicts if not v.killable)
+
+    @property
+    def candidate_equivalent(self) -> tuple[MutantVerdict, ...]:
+        """Non-killable AND no distinguishing input found at all — the TRUE 'unproven-equivalent'
+        population (issue #36). Excludes crash-only, which a concrete input DOES distinguish; calling
+        those 'unproven-equivalent' is the false claim that sent readers hunting for an input that
+        already exists."""
+        return tuple(v for v in self.verdicts if not v.killable and not v.crash_only)
+
+    @property
+    def crash_only(self) -> tuple[MutantVerdict, ...]:
+        """Non-killable by VALUE but distinguished by a crash input (original returns, mutant raises)
+        — a value-specification residual with a known distinguishing input, NOT an equivalence
+        claim (issue #36). A different class from candidate-equivalent, and never fused with it."""
+        return tuple(v for v in self.verdicts if not v.killable and v.crash_only)
 
 
 def classify_survivor(

@@ -71,7 +71,10 @@ def test_format_scope_core_lines_exact():
         "─" * 78 + "\n"
         "m::f — diagnose · 10 behaviours · 8 pinned · 2 unpinned\n"
         "\n"
-        "  ✓ pinned             6 pin the RETURN VALUE · 2 only prove it runs\n"
+        # #40: value-pinned and run-only are TWO rows — a crash/timeout kill proves the code runs,
+        # not what it returns, so it never sits under the checked "pinned" gutter.
+        "  ✓ value-pinned       6 pin the RETURN VALUE\n"
+        "  · run-only           2 crash/timeout detection(s) — return value still unspecified\n"
         "  ✗ unpinned           2 · —\n"
         "  · shape              cohesive and structurally one piece\n"
         "\n"

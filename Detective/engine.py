@@ -557,19 +557,24 @@ def profile(
 
 
 def _count_decompose_seams(file: str, function: str, project_root: str = ".") -> int:
-    """Clean structural extraction candidates (single-exit, small-interface, worth-it) the
-    deterministic clustering finds for ``function`` — the STRUCTURAL decomposability signal,
-    read from the AST alone (no tests). Best-effort: any failure returns 0, so a structural
-    read never breaks a diagnose. Paired with regime B in the CLI as the convergent flag."""
+    """ACTIONABLE structural extraction candidates for ``function`` — single-exit, small-interface,
+    AND worth applying — the STRUCTURAL decomposability signal, read from the AST alone (no tests).
+
+    Single-sources the actionable-seam predicate with ``apply_decomposition`` (issue #33): it counts
+    only candidates that also pass the wrapper / body-fraction value gate apply trials, so a diagnose
+    that reports a 'clean seam' and routes to ``decompose --apply`` cannot land on a candidate apply
+    then declines as low-value. Best-effort: any failure returns 0, so a structural read never breaks
+    a diagnose. Paired with regime B in the CLI as the convergent flag.
+    """
     try:
-        from .decompose import find_extraction_candidates
+        from .decompose_apply import actionable_seam_count
 
         root = os.path.abspath(project_root)
         full = file if os.path.isabs(file) else os.path.join(root, file)
         with open(full, encoding="utf-8") as fh:
             tree = ast.parse(fh.read(), filename=full)
         _, node = _resolve(tree, function)
-        return len(find_extraction_candidates(node)) if node is not None else 0  # type: ignore[arg-type]
+        return actionable_seam_count(node) if node is not None else 0
     except Exception:  # noqa: BLE001 — a structural read must never fail a diagnose
         return 0
 

@@ -350,6 +350,31 @@ def _worth_extracting(block_lines, parent_lines, is_wrapper, *, max_body_fractio
     return (block_lines / parent_lines) <= max_body_fraction
 
 
+def _candidate_worth(node, candidate) -> bool:
+    """The value gate one extraction candidate must pass to be APPLIED — the SINGLE predicate shared
+    by diagnose's seam count and apply's trial loop (issue #33). Before this was single-sourced,
+    diagnose counted a delegating-wrapper candidate as a 'clean seam' and routed to
+    `decompose --apply`, which then rejected it as low-value and printed 'no seam to split'.
+    """
+    parent_lines = (node.end_lineno or node.lineno) - node.body[0].lineno + 1
+    is_wrapper = _leaves_pure_wrapper(node, candidate.start_line, candidate.end_line)
+    block_lines = candidate.end_line - candidate.start_line + 1
+    return _worth_extracting(block_lines, parent_lines, is_wrapper)
+
+
+def actionable_seam_count(node) -> int:
+    """Extraction candidates that would actually be APPLIED — the count passing the same value gate
+    apply trials, not the raw structural count (issue #33). This is the number diagnose must report
+    as 'clean seams' and route on, so its next action terminates usefully. Best-effort: 0 on any
+    failure, so a structural read never breaks a diagnose."""
+    try:
+        from .decompose import find_extraction_candidates
+
+        return sum(1 for c in find_extraction_candidates(node) if _candidate_worth(node, c))
+    except Exception:  # noqa: BLE001 — a structural read must never fail a diagnose
+        return 0
+
+
 def _block_span_with_comments(lines, start, end):
     """Grow a statement span ``[start, end]`` (1-based, inclusive) to absorb TRAILING comment
     lines that sit DEEPER than the block's base indent — i.e. inside the last compound statement
@@ -712,7 +737,8 @@ def _apply_decomposition_impl(
             block_lines = candidate.end_line - candidate.start_line + 1
             parent_lines = (func.end_lineno or func.lineno) - func.body[0].lineno + 1
             is_wrapper = _leaves_pure_wrapper(func, candidate.start_line, candidate.end_line)
-            if not _worth_extracting(block_lines, parent_lines, is_wrapper):
+            # The SAME predicate diagnose counts on (issue #33), so the two never disagree.
+            if not _candidate_worth(func, candidate):
                 say(f"skipping low-value extraction {candidate.proposed_name}: "
                     + ("leaves a pure delegating wrapper" if is_wrapper
                        else f"near-total, {block_lines}/{parent_lines} lines") + " — not a seam")
