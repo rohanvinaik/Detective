@@ -198,9 +198,20 @@ def _stmts(src: str):
     return ast.parse(textwrap.dedent(src)).body
 
 
-def test_suggest_name_compute_form_unchanged():
-    assert _suggest_name({"x"}, "abc") == "_compute_x"
-    assert _suggest_name({"total", "fee"}, "f") == "_compute_fee_total"
+def test_suggest_name_single_meaningful_output_keeps_compute_form():
+    # A single, descriptive output still names the helper for what it returns.
+    assert _suggest_name({"totals"}, "abc") == "_compute_totals"
+
+
+def test_suggest_name_generic_or_multi_output_does_not_concatenate():
+    # Issue #26: never dress a throwaway name or a return TUPLE up as a purpose. A single
+    # signal-free output (`x`, `out`, `result`) and 2+ outputs both fall to the honest bland
+    # parent-derived form for the human to rename — not `_compute_x` / `_compute_fee_total`.
+    assert _suggest_name({"x"}, "abc") == "_abc_helper"
+    assert _suggest_name({"out"}, "abc") == "_abc_helper"
+    assert _suggest_name({"total", "fee"}, "process_row") == "_process_row_helper"
+    # An already-underscored parent must not double up into a name-mangling `__` prefix.
+    assert _suggest_name({"a", "b"}, "_conjunction_sentences") == "_conjunction_sentences_helper"
 
 
 def test_suggest_name_raise_only_block_is_a_validator():

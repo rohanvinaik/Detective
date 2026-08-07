@@ -314,6 +314,40 @@ def extract_block(source: str, function: str, index: int) -> Extraction | None:
     return Extraction(helper_name, iface.params, iface.returns, new_source)
 
 
+def _annotated_params(inputs, annotations) -> str:
+    """Pure: the extracted helper's parameter list. Each input name carries the parent's
+    declared type where it is one of the parent's params (``annotations`` maps name→type
+    source), and is left bare where it is a local computed before the block — which has no
+    declared type. Threading these keeps an applied split from redding strict ANN lint (#28)."""
+    return ", ".join(f"{n}: {annotations[n]}" if n in annotations else n for n in inputs)
+
+
+def _leaves_pure_wrapper(func, start_line, end_line) -> bool:
+    """Does extracting the statements in ``[start_line, end_line]`` leave the parent a PURE
+    delegating wrapper — nothing but a single ``return`` besides the call the block becomes?
+    Excludes a leading docstring. True means the split turns the parent into
+    ``<outputs> = helper(<inputs>); return <outputs>`` — a call hop and a test-indirection layer
+    for zero readability gain, not a real seam. False when meaningful residual logic stays behind
+    (another statement besides the return), which is a legitimate split (its only fault may be the
+    helper's NAME, a separate concern)."""
+    body = func.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+    outside = [s for s in body if not (start_line <= s.lineno <= end_line)]
+    return len(outside) == 1 and isinstance(outside[0], ast.Return)
+
+
+def _worth_extracting(block_lines, parent_lines, is_wrapper, *, max_body_fraction=0.95) -> bool:
+    """Pure: is a PROVEN-preserving extraction worth APPLYING? Detective only trials safe splits,
+    but safe is not the same as worth it. Reject a pure delegating wrapper (``is_wrapper``), and —
+    as a loose structural backstop, not a fitted threshold — a near-total extraction whose block is
+    over ``max_body_fraction`` of the parent body (a wrapper in all but a trivial residual). Keep
+    everything else: a large split that leaves real residual logic is a legitimate seam."""
+    if is_wrapper or parent_lines <= 0:
+        return False
+    return (block_lines / parent_lines) <= max_body_fraction
+
+
 def extract_candidate(source: str, function: str, candidate) -> Extraction | None:
     """Extract the finder's contiguous block (``candidate.start_line..end_line``)
     into ``candidate.proposed_name``, using the def-use interface the deterministic
@@ -348,7 +382,17 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
     body = textwrap.indent(textwrap.dedent(block_text), "    ")
     if not body.endswith("\n"):
         body += "\n"
-    params = ", ".join(candidate.inputs)
+    # Thread the enclosing def's parameter annotations onto the extracted helper (issue #28):
+    # an input that is one of the parent's params carries its declared type; an input that is a
+    # local computed before the block has none. Dropping them all reds strict annotation lint
+    # (ruff ANN001 / a mypy call-site) and broke a target repo's CI on every applied split — a
+    # split that is behaviour-preserving must also stay mergeable.
+    annotations = {
+        a.arg: ast.unparse(a.annotation)
+        for a in [*func.args.posonlyargs, *func.args.args, *func.args.kwonlyargs]
+        if a.annotation is not None
+    }
+    params = _annotated_params(candidate.inputs, annotations)
     returns = ", ".join(candidate.outputs)
     helper = f"def {helper_name}({params}):\n{body}"
     if candidate.outputs:
@@ -525,6 +569,18 @@ def apply_decomposition(
         plan = decompose(func, function, surviving_categories)
         progressed = False
         for candidate in plan.candidates:
+            # Value gate (#3): reject a non-seam BEFORE trialling it. A split that leaves the parent
+            # a pure delegating wrapper (or extracts all but a trivial residual) adds a call hop and
+            # a test-indirection layer for zero readability gain — proven-preserving, but not worth
+            # applying. Skip to the next candidate; the outer loop ends if none is worth it.
+            block_lines = candidate.end_line - candidate.start_line + 1
+            parent_lines = (func.end_lineno or func.lineno) - func.body[0].lineno + 1
+            is_wrapper = _leaves_pure_wrapper(func, candidate.start_line, candidate.end_line)
+            if not _worth_extracting(block_lines, parent_lines, is_wrapper):
+                say(f"skipping low-value extraction {candidate.proposed_name}: "
+                    + ("leaves a pure delegating wrapper" if is_wrapper
+                       else f"near-total, {block_lines}/{parent_lines} lines") + " — not a seam")
+                continue
             extraction = extract_candidate(source, function, candidate)
             if extraction is None:
                 unsafe.append(f"block lines {candidate.start_line}-{candidate.end_line}")

@@ -613,6 +613,14 @@ def _assigns_only_boolean(var: str, block_stmts: Sequence[ast.stmt]) -> bool:
     return seen
 
 
+# Return names that carry no naming signal — a helper called `_compute_out` / `_compute_result`
+# is no better than `_helper`. When the single output is one of these, fall through to the honest
+# parent-derived form rather than dress a throwaway up as a purpose.
+_GENERIC_OUTPUT_NAMES = frozenset(
+    {"out", "output", "result", "res", "ret", "val", "value", "tmp", "temp", "data", "r", "v", "x"}
+)
+
+
 def _suggest_name(outputs: set[str], parent_name: str, block_stmts: Sequence[ast.stmt] = ()) -> str:
     """Name the helper for what it OBSERVABLY DOES, selected by behavioral signature.
 
@@ -637,7 +645,14 @@ def _suggest_name(outputs: set[str], parent_name: str, block_stmts: Sequence[ast
         if len(named) == 1 and _assigns_only_boolean(named[0], block_stmts):
             var = named[0]
             return f"_{var}" if var.startswith(("is_", "has_")) else f"_is_{var}"
-        return f"_compute_{'_'.join(named)}"
+        if len(named) == 1 and named[0] not in _GENERIC_OUTPUT_NAMES:
+            return f"_compute_{named[0]}"
+        # 2+ outputs, or a single throwaway name: do NOT concatenate return names into
+        # `_compute_a_b_c` — a mechanical string that helps no reader (issue #26). A deterministic
+        # engine cannot infer the block's PURPOSE (that is the model layer's job), so use the honest
+        # bland form that says only what is true — an extraction from this parent — for the human to
+        # rename, rather than dress the return tuple up as one.
+        return f"_{parent_name.lstrip('_')}_helper"
     if any(isinstance(n, ast.Raise) for s in block_stmts for n in ast.walk(s)):
         tokens = parent_name.strip("_").split("_")
         obj = "_".join(tokens[1:]) if len(tokens) > 1 else ""
