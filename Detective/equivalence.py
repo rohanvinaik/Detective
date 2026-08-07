@@ -928,9 +928,7 @@ def classify_survivor(
     ``deadline`` (absolute monotonic seconds) is the aggregate command wall (issue #31): the
     witness search stops when it passes, and the verdict comes back ``blocked`` — never a
     false candidate-equivalent from a search the budget cut short."""
-    witness, crash_witness, blocked = _search_witness(
-        original, mutant, candidate_inputs, deadline=deadline
-    )
+    witness, crash_witness, blocked = _search_witness(original, mutant, candidate_inputs, deadline=deadline)
     return MutantVerdict(
         mutant_id=mutant_id,
         category=category,

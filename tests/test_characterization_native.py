@@ -237,7 +237,6 @@ def test_golden_assert_set_of_opaque_objects_still_falls_back_to_repr():
     assert line.startswith("assert repr(result) == ")
 
 
-
 def test_stable_expr_abstains_on_machine_specific_value():
     """A captured value carrying THIS machine's paths (a Path.resolve()/getcwd()/__file__ result
     baked into a return) must not be pinned — green here, red on any other checkout (#30). Portable
@@ -248,9 +247,9 @@ def test_stable_expr_abstains_on_machine_specific_value():
 
     machine = f"Universe(root='{os.path.expanduser('~')}/proj/data/session', notes='')"
     assert _is_machine_specific(machine)
-    assert _stable_expr(machine) is None              # refused
-    assert _stable_expr([1, machine]) is None         # refused when nested, too
-    assert _stable_expr("hello") == "'hello'"          # a portable value still pins
+    assert _stable_expr(machine) is None  # refused
+    assert _stable_expr([1, machine]) is None  # refused when nested, too
+    assert _stable_expr("hello") == "'hello'"  # a portable value still pins
     assert _stable_expr("/etc/hosts") == "'/etc/hosts'"  # a stable abs path is not machine-specific
     assert _stable_expr(42) == "42"
 

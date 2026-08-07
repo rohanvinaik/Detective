@@ -388,7 +388,7 @@ def _block_span_with_comments(lines, start, end):
     base_indent = len(base) - len(base.lstrip())
     e = end
     while e < len(lines):
-        nxt = lines[e]                       # 0-based index e is line number e+1
+        nxt = lines[e]  # 0-based index e is line number e+1
         stripped = nxt.strip()
         indent = len(nxt) - len(nxt.lstrip())
         if stripped.startswith("#") and indent > base_indent:
@@ -739,9 +739,15 @@ def _apply_decomposition_impl(
             is_wrapper = _leaves_pure_wrapper(func, candidate.start_line, candidate.end_line)
             # The SAME predicate diagnose counts on (issue #33), so the two never disagree.
             if not _candidate_worth(func, candidate):
-                say(f"skipping low-value extraction {candidate.proposed_name}: "
-                    + ("leaves a pure delegating wrapper" if is_wrapper
-                       else f"near-total, {block_lines}/{parent_lines} lines") + " — not a seam")
+                say(
+                    f"skipping low-value extraction {candidate.proposed_name}: "
+                    + (
+                        "leaves a pure delegating wrapper"
+                        if is_wrapper
+                        else f"near-total, {block_lines}/{parent_lines} lines"
+                    )
+                    + " — not a seam"
+                )
                 continue
             extraction = extract_candidate(source, function, candidate)
             if extraction is None:

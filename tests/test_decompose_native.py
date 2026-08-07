@@ -128,7 +128,6 @@ def test_retracted_extraction_runs_green():
         assert [ns["summarize"](rows) for rows in cases] == expected
 
 
-
 def test_extract_from_annotated_function_types_def_bare_call_and_keeps_comment():
     """Applying a split to an ANNOTATED function must (a) type the helper's DEF from the parent's
     params (#28), (b) keep the CALL bare — a typed call site is a SyntaxError that broke a target
@@ -161,7 +160,9 @@ def test_extract_from_annotated_function_types_def_bare_call_and_keeps_comment()
     ast.parse(ext.new_source)  # valid Python — a typed call site would raise here
     lines = ext.new_source.splitlines()
     defsig = next(line for line in lines if line.startswith(f"def {ext.helper_name}("))
-    callln = next(line for line in lines if f"{ext.helper_name}(" in line and not line.lstrip().startswith("def "))
+    callln = next(
+        line for line in lines if f"{ext.helper_name}(" in line and not line.lstrip().startswith("def ")
+    )
     assert ": " in defsig.split("(", 1)[1], f"def should carry parent annotations: {defsig}"
     assert ": " not in callln.split("(", 1)[1], f"call must be bare: {callln}"
     assert "# clamp negatives before tallying" in ext.new_source  # comment preserved, not dropped

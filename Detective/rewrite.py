@@ -23,10 +23,9 @@ import ast
 import hashlib
 import json
 import os
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any, Callable
-
-from .verdict_cache import wesker_policy_id
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -54,7 +53,7 @@ class RewriteReceipt:
         return json.dumps(asdict(self), indent=2, default=str)
 
     @staticmethod
-    def from_json(text: str) -> "RewriteReceipt":
+    def from_json(text: str) -> RewriteReceipt:
         d = json.loads(text)
         d.pop("schema", None)
         d["proof_suite"] = tuple(d.get("proof_suite", ()))
@@ -77,9 +76,7 @@ class RewriteVerification:
         return json.dumps(asdict(self), indent=2, default=str)
 
 
-def rewrite_verdict(
-    proof_replayed_ok: bool, new_dimensions: int, differences: int, abstentions: int
-) -> str:
+def rewrite_verdict(proof_replayed_ok: bool, new_dimensions: int, differences: int, abstentions: int) -> str:
     """The rewrite-preservation verdict (issue #37, pure — Detective-pinned).
 
     PRESERVED is the STRONGEST claim and the hardest to earn: the original proof suite still passes on
@@ -113,15 +110,17 @@ def _function_source(file_full: str, function: str) -> tuple[str, Any] | None:
     return (seg or "", node)
 
 
-def make_receipt(file: str, function: str, project_root: str = ".", *, notify: Callable[[str], None] | None = None) -> RewriteReceipt:
+def make_receipt(
+    file: str, function: str, project_root: str = ".", *, notify: Callable[[str], None] | None = None
+) -> RewriteReceipt:
     """Record the CURRENT function as the baseline a later rewrite is checked against (#37).
 
     Converges the target first, so the receipt's proof basis is the mutation-complete suite (the same
     obligations ``decompose`` would prove against) and the verification status is real, not assumed.
     """
+    from . import pins
     from .converge import converge
     from .decompose_apply import _covering_test_files, _kill_matrix
-    from . import pins
 
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
@@ -145,12 +144,16 @@ def make_receipt(file: str, function: str, project_root: str = ".", *, notify: C
         policy_id=conv.policy_id,
         universe_size=conv.universe_size,
         proof_suite=proof_paths,
-        proof_status=(ver.status if ver is not None else ("passed" if conv.functionally_complete else "unverified")),
+        proof_status=(
+            ver.status if ver is not None else ("passed" if conv.functionally_complete else "unverified")
+        ),
         functionally_complete=conv.functionally_complete,
     )
 
 
-def _load_old_callable(receipt: RewriteReceipt, new_globals: dict[str, Any], function: str) -> Callable[..., Any] | None:
+def _load_old_callable(
+    receipt: RewriteReceipt, new_globals: dict[str, Any], function: str
+) -> Callable[..., Any] | None:
     """Exec the receipt's original source in a namespace seeded from the NEW module's globals, so the
     old implementation's free names (imports, module helpers) resolve. Returns the old callable."""
     name = function.split(".")[-1]
@@ -164,17 +167,22 @@ def _load_old_callable(receipt: RewriteReceipt, new_globals: dict[str, Any], fun
 
 
 def verify_rewrite(
-    receipt: RewriteReceipt, file: str, function: str, project_root: str = ".", *, notify: Callable[[str], None] | None = None
+    receipt: RewriteReceipt,
+    file: str,
+    function: str,
+    project_root: str = ".",
+    *,
+    notify: Callable[[str], None] | None = None,
 ) -> RewriteVerification:
     """Check a rewrite against its receipt (issue #37) — replay, new-dimension scan, old-vs-new compare.
 
     Reports rather than learns: a distinguishing input is EVALUATED against both implementations and
     surfaced as equal / different / abstained, never captured as the new golden.
     """
+    from . import pins
     from .certify import run_pytest_verification
     from .engine import _load_original, classify_survivors
     from .equivalence import _outcome
-    from . import pins
 
     say = notify or (lambda _m: None)
     root = os.path.abspath(project_root)
@@ -188,7 +196,12 @@ def verify_rewrite(
     # nothing to verify, and "PRESERVED" would be a vacuous pass. Say so distinctly.
     if pins.function_digest(new_node) == receipt.function_digest:
         return RewriteVerification(
-            "STALE_RECEIPT", receipt.function, "skipped", (), (), (),
+            "STALE_RECEIPT",
+            receipt.function,
+            "skipped",
+            (),
+            (),
+            (),
             note="the current source is identical to the receipt's original — nothing was rewritten",
         )
 
@@ -211,7 +224,9 @@ def verify_rewrite(
         report = None
 
     new_fn = _load_original(full, function)
-    old_fn = _load_old_callable(receipt, getattr(new_fn, "__globals__", {}) or {}, function) if new_fn else None
+    old_fn = (
+        _load_old_callable(receipt, getattr(new_fn, "__globals__", {}) or {}, function) if new_fn else None
+    )
 
     if report is not None:
         for verdict in report.killable:

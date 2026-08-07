@@ -1395,8 +1395,11 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
         contained = getattr(result, "stdout_bytes", 0)
         if contained:
             lines.append(
-                _row("· contained", f"{contained:,} bytes the target printed to stdout — "
-                     "integration/side-effecting; kept off this report")
+                _row(
+                    "· contained",
+                    f"{contained:,} bytes the target printed to stdout — "
+                    "integration/side-effecting; kept off this report",
+                )
             )
         if report_path:
             lines.append(_row("· full report", f"{report_path} (measurement partial)"))
@@ -1466,8 +1469,11 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
     # print reads differently from a multi-MB tracing flood.
     if contained := getattr(result, "stdout_bytes", 0):
         lines.append(
-            _row("· contained", f"{contained:,} bytes the target printed to stdout — "
-                 "integration/side-effecting; kept off this report")
+            _row(
+                "· contained",
+                f"{contained:,} bytes the target printed to stdout — "
+                "integration/side-effecting; kept off this report",
+            )
         )
     # Refused goldens are a residual the USER can act on (supply inputs or a
     # tmp fixture), so they earn a terse row like every other residual class;
@@ -1961,17 +1967,27 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
     # the action — this is the original wrap_trace regression's user-visible landing.
     if getattr(r, "budget_exhausted", False):
         phase = getattr(r, "cut_phase", "") or "the proof converge"
-        out = [_RULE, f"{r.function} — decompose", "",
-               _row("⚠ CUT", f"the aggregate deadline ran out during {phase} — nothing proven, "
-                    "nothing applied")]
+        out = [
+            _RULE,
+            f"{r.function} — decompose",
+            "",
+            _row("⚠ CUT", f"the aggregate deadline ran out during {phase} — nothing proven, nothing applied"),
+        ]
         contained = getattr(r, "stdout_bytes", 0)
         if contained:
-            out.append(_row("· contained", f"{contained:,} bytes the target printed to stdout — "
-                            "an integration/tracing function that cannot be isolated in-process"))
-        out += ["",
-                "DO THIS:  re-run with a larger wall, e.g. --deadline 900 (or 0 to disable). If",
-                "       the target floods stdout above, that IS the finding — it is not a pure",
-                "       function a suite can pin; decompose safely declined to rewrite it."]
+            out.append(
+                _row(
+                    "· contained",
+                    f"{contained:,} bytes the target printed to stdout — "
+                    "an integration/tracing function that cannot be isolated in-process",
+                )
+            )
+        out += [
+            "",
+            "DO THIS:  re-run with a larger wall, e.g. --deadline 900 (or 0 to disable). If",
+            "       the target floods stdout above, that IS the finding — it is not a pure",
+            "       function a suite can pin; decompose safely declined to rewrite it.",
+        ]
         return "\n".join(out)
     if not r.applied and not r.proposed and not r.unsafe_blocks:
         return f"{r.function} — decompose\n\nDONE:  no separable block. There is no seam here to split."
@@ -2616,7 +2632,9 @@ def _build_parser() -> argparse.ArgumentParser:
     receipt_p.add_argument("target", help="file.py::function to snapshot")
     receipt_p.add_argument("--project-root", default=".", help="project root the target is relative to")
     receipt_p.add_argument("-o", "--out", default=None, help="write the receipt JSON here (default: stdout)")
-    receipt_p.add_argument("--json", action="store_true", help="the receipt is always JSON; accepted for uniformity")
+    receipt_p.add_argument(
+        "--json", action="store_true", help="the receipt is always JSON; accepted for uniformity"
+    )
 
     verify_p = sub.add_parser(
         "verify-rewrite",
@@ -2630,7 +2648,9 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    verify_p.add_argument("receipt_path", metavar="receipt.json", help="the baseline from `detective receipt`")
+    verify_p.add_argument(
+        "receipt_path", metavar="receipt.json", help="the baseline from `detective receipt`"
+    )
     verify_p.add_argument("target", help="file.py::function — the rewritten source to check")
     verify_p.add_argument("--project-root", default=".", help="project root the target is relative to")
     verify_p.add_argument("--json", action="store_true", help="emit the verification as JSON")
@@ -3149,11 +3169,24 @@ def _format_rewrite(r) -> str:
         lines.append(_row("· abstained", f"{len(r.abstentions)} input(s) could not be safely compared"))
     lines.append("")
     verdict_msg = {
-        "PRESERVED": "DONE:  behaviour preserved — the rewrite passes the original obligations, adds no new\n       dimension, and matches old-vs-new at every tested input.",
-        "CHANGED": "STOP.  behaviour CHANGED — an original obligation failed, or old and new disagree at\n       some input. This is not a behaviour-preserving rewrite.",
-        "UNREVIEWED": "STOP.  the rewrite adds behaviour the original proof never reviewed. Converge and review\n       the new dimension(s), or narrow the rewrite — do not assume preservation.",
-        "ABSTAIN": "STOP.  old vs new could not be compared at every point — treat as unproven; review by hand.",
-        "STALE_RECEIPT": "DONE:  nothing was rewritten — the current source is identical to the receipt's original.",
+        "PRESERVED": (
+            "DONE:  behaviour preserved — the rewrite passes the original obligations, adds no new\n"
+            "       dimension, and matches old-vs-new at every tested input."
+        ),
+        "CHANGED": (
+            "STOP.  behaviour CHANGED — an original obligation failed, or old and new disagree at\n"
+            "       some input. This is not a behaviour-preserving rewrite."
+        ),
+        "UNREVIEWED": (
+            "STOP.  the rewrite adds behaviour the original proof never reviewed. Converge and review\n"
+            "       the new dimension(s), or narrow the rewrite — do not assume preservation."
+        ),
+        "ABSTAIN": (
+            "STOP.  old vs new could not be compared at every point — treat as unproven; review by hand."
+        ),
+        "STALE_RECEIPT": (
+            "DONE:  nothing was rewritten — the current source is identical to the receipt's original."
+        ),
     }
     lines.append(verdict_msg.get(r.verdict, ""))
     if r.note:
@@ -3451,7 +3484,13 @@ def _run(args) -> int:
             print(json.dumps(asdict(result), indent=2, default=str))
             # 3 for either invalid-measurement stamp: a stale target (issue #17) or a
             # deadline CUT (issue #31) both mean "this run's numbers are partial — re-run".
-            return 3 if result.stale_target or result.budget_exhausted or (result.verification is not None and not result.verification.ok) else 0
+            return (
+                3
+                if result.stale_target
+                or result.budget_exhausted
+                or (result.verification is not None and not result.verification.ok)
+                else 0
+            )
         # The full report always goes to a readable file; the terminal stays minimal
         # (a banner + the one quick action) unless --full is asked for. The FILE is always
         # verbose — it is the archive `flag` reads mutant ids out of, and a file has no
@@ -3469,7 +3508,13 @@ def _run(args) -> int:
         # from "the run errored", and CI that gates on converge needs to tell
         # them apart (issue #17). A deadline CUT (issue #31) is the same class of
         # invalid-measurement signal — partial evidence, re-run with more budget.
-        return 3 if result.stale_target or result.budget_exhausted or (result.verification is not None and not result.verification.ok) else 0
+        return (
+            3
+            if result.stale_target
+            or result.budget_exhausted
+            or (result.verification is not None and not result.verification.ok)
+            else 0
+        )
 
     if args.command == "audit":
         from .audit import audit_suite

@@ -331,7 +331,9 @@ def wire_pytest(project_root: str, test_path: str) -> PytestWiring:
         conftest_wired,
         verification.ok,
         verification.passed,
-        _wiring_message(disposition, conftest_wired, verification.ok, verification.passed, _pytest_available()),
+        _wiring_message(
+            disposition, conftest_wired, verification.ok, verification.passed, _pytest_available()
+        ),
         verification,
     )
 

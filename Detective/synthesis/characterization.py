@@ -217,6 +217,7 @@ def _candidate_inputs(call_site_inputs: list[dict]) -> list[tuple[tuple[Any, ...
 # field case (open() reached through nested calls), which is why this is a
 # RUNTIME watch: the audit event fires for io.open however deep the call.
 
+
 @dataclass
 class _EffectSink:
     """What a speculative capture invocation touched, and whether to PREVENT its writes.

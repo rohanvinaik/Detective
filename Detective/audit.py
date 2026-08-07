@@ -92,9 +92,7 @@ class SuiteAudit:
         return max(0, self.test_count - self.minimal_test_count)
 
 
-def audit_check_failed(
-    killable_gaps: int, missing_lines: int, failing_tests: int, unclassified: int
-) -> bool:
+def audit_check_failed(killable_gaps: int, missing_lines: int, failing_tests: int, unclassified: int) -> bool:
     """Whether ``detective audit --check`` should FAIL the CI ratchet (issue #35).
 
     True when the suite has a real, actionable gap: a KILLABLE mutant it does not kill (a

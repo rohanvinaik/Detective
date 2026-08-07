@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import sys
 import threading
 from collections.abc import Iterator
 
