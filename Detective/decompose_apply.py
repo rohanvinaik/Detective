@@ -477,6 +477,22 @@ class DecompositionApply:
     stdout_bytes: int = 0
 
 
+def preservation_admissible(functionally_complete: bool, stale: bool, candidate_equivalents: int) -> bool:
+    """Whether a converge proof may authorize ``decompose --apply`` (issue #41).
+
+    A green before/after trial proves the rewrite preserved the behaviours the proof suite PINNED —
+    and says nothing about the ones it did not. A candidate-equivalent survivor is exactly a
+    behaviour finite-input search could not pin (no distinguishing witness FOUND — not equivalence
+    PROVEN), so applying across it is unproven preservation: the 3-of-31 case where a suite pinning a
+    tenth of the operator universe auto-rewrote, green before and after because the trial was silent
+    on the other 28 dimensions. Admissible only when the proof is mutation-complete, not stale, AND
+    carries ZERO candidate-equivalents — zero survivors, or a residual every one of which a human
+    flagged equivalent (the recorded oracle, which lands in ``manual_equivalent``, never in the
+    candidate ``equivalent`` population). Any candidate-equivalent makes the extraction proposal-only.
+    """
+    return functionally_complete and not stale and candidate_equivalents == 0
+
+
 def apply_decomposition(
     file: str,
     function: str,
@@ -625,9 +641,15 @@ def _apply_decomposition_impl(
     # the proof is those hand-written files. Gating on ``written_path`` alone rejected
     # exactly that case, and misreported the cause as "not mutation-complete".
     proof_suite: str | tuple[str, ...] | None = None
-    # A stale converge (target edited under the run, issue #17) is not a proof
-    # of anything — its suite pinned a function that no longer exists.
-    if conv is not None and conv.functionally_complete and not conv.stale_target:
+    # Candidate-equivalents are finite-search "no witness found", NOT proven equivalence — they
+    # are the behaviours the proof suite did not pin, so they cannot authorize an auto-rewrite
+    # (issue #41). Counted here so both the gate and the refusal message name them.
+    _cand_equiv = len(conv.survivor_report.equivalent) if (conv and conv.survivor_report) else 0
+    # A stale converge (target edited under the run, issue #17) is not a proof of anything, and a
+    # proof carrying candidate-equivalents proves preservation only of the pinned behaviours (#41).
+    if conv is not None and preservation_admissible(
+        conv.functionally_complete, conv.stale_target, _cand_equiv
+    ):
         if conv.written_path:
             proof_suite = conv.written_path
         else:
@@ -640,13 +662,20 @@ def _apply_decomposition_impl(
         return ok and count > 0
 
     if proof_suite is None:
-        # Two distinct causes, two distinct sentences (issue #17): a stale
-        # converge HAD a suite — it pinned a function that no longer exists —
-        # and "no proof suite" would send the user to build one they have.
+        # Distinct causes, distinct sentences: a stale converge HAD a suite (it pinned a function
+        # that no longer exists); candidate-equivalents mean the suite is complete but proves only
+        # the pinned behaviours (#41); "no proof suite" would send a user to build one they have.
         if conv is not None and conv.stale_target:
             say(
                 "proof suite is STALE — the target changed during the converge; "
                 "re-run to prove; extractions will be proposed only"
+            )
+        elif _cand_equiv:
+            say(
+                f"{_cand_equiv} candidate-equivalent survivor(s) block automatic application (#41) — "
+                "a green trial would prove only the pinned behaviours, not these unproven ones. "
+                "`detective flag` each that is truly equivalent, or supply a stronger proof; "
+                "extractions will be proposed only"
             )
         else:
             say("no proof suite — nothing can be proven; extractions will be proposed only")
