@@ -622,7 +622,17 @@ def _golden_properties(
     refusals: list[str] = []
     emitted: list[GoldenCapture] = []
     for c in captures:
-        if c.environment_paths:
+        if c.filesystem_writes:
+            # The function mutates the tree — transitively, past AST-local purity (issue #30). The
+            # write was BLOCKED during capture (no litter); a golden of its return would pin nothing
+            # portable regardless. Refuse and name the paths, like the #23 default-path-read case.
+            paths = ", ".join(c.filesystem_writes)
+            rendered = ", ".join(repr(a) for a in c.inputs)
+            refusals.append(
+                f"golden at ({rendered}) refused — the function writes the filesystem "
+                f"({paths}) transitively; a tmp fixture or explicit sandbox is needed, not a golden"
+            )
+        elif c.environment_paths:
             rendered = ", ".join(repr(a) for a in c.inputs)
             paths = ", ".join(c.environment_paths)
             refusals.append(

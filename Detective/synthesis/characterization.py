@@ -63,6 +63,12 @@ class GoldenCapture:
     # legitimately changes, then a phantom regression. Consumers refuse to emit
     # such a capture as a golden and say why instead.
     environment_paths: tuple[str, ...] = ()
+    # Filesystem paths the invocation WROTE (mkdir / write / rename / delete), at any call depth
+    # (issue #30). Non-empty means the function mutates the tree — transitively, past AST-local
+    # purity — so no golden of its return is portable, and the write was BLOCKED during capture so
+    # it did not litter. Consumers refuse such a capture and name the writes. Distinct from
+    # ``environment_paths`` (default-path READS, #23): a read pins the environment, a write changes it.
+    filesystem_writes: tuple[str, ...] = ()
     # The wall-clock value `time.time()` was FROZEN to for this capture (the `--clock` residual
     # for a time-gated function), or None if the clock ran free. A frozen clock is what makes a
     # `time.time()`-reading function DETERMINISTIC — hence capturable and pinnable — and the
@@ -211,7 +217,33 @@ def _candidate_inputs(call_site_inputs: list[dict]) -> list[tuple[tuple[Any, ...
 # field case (open() reached through nested calls), which is why this is a
 # RUNTIME watch: the audit event fires for io.open however deep the call.
 
-_OPEN_WATCH: ContextVar[list[str] | None] = ContextVar("detective_open_watch", default=None)
+@dataclass
+class _EffectSink:
+    """What a speculative capture invocation touched, and whether to PREVENT its writes.
+
+    ``opened`` — every fs-effect path (reads included), for the #23 default-path-I/O refusal.
+    ``writes`` — the MUTATING subset (a golden of a function that writes pins nothing portable, #30).
+    ``block`` — when True the hook RAISES on a write, so a transitive/default-path write is prevented
+    before it litters the tree, not merely observed after (#30: 'observing a write after it has
+    littered the tree is not a safety gate'). Blocking is scoped to this capture by the ContextVar,
+    so the consumer's own tests and Wesker's profiling — where the sink is None — write freely.
+    """
+
+    opened: list[str] = field(default_factory=list)
+    writes: list[str] = field(default_factory=list)
+    block: bool = False
+
+
+class _CaptureWriteBlocked(Exception):
+    """A filesystem write attempted during speculative golden capture was prevented (#30).
+
+    Raised INSIDE the audit hook, so it unwinds the target mid-write: the effect never lands, and
+    the capture is dropped and reported as a filesystem-writing refusal. Not an ``Exception`` the
+    target's own ``except`` should swallow in practice — it fires from the interpreter's audit
+    machinery, before the target's write call returns."""
+
+
+_OPEN_WATCH: ContextVar[_EffectSink | None] = ContextVar("detective_open_watch", default=None)
 _watch_installed = False
 
 
@@ -224,6 +256,25 @@ _watch_installed = False
 _FS_EFFECT_EVENTS = frozenset(
     {"open", "os.mkdir", "os.rename", "os.replace", "os.remove", "os.rmdir", "os.unlink", "os.symlink"}
 )
+# The events that ALWAYS mutate the filesystem — `open` is the exception (it reads OR writes,
+# decided by mode/flags via `open_is_write`). Everything else here only ever changes the tree.
+_MUTATING_EFFECT_EVENTS = _FS_EFFECT_EVENTS - {"open"}
+
+
+def open_is_write(mode: object, flags: object) -> bool:
+    """Whether an ``open`` audit event is a WRITE (issue #30, pure — Detective-pinned).
+
+    The audit event carries ``(path, mode, flags)``. A text mode string writes when it names any of
+    ``w a x +`` (``r``/``rb`` are pure reads); when mode is absent (``os.open`` with integer flags)
+    the flags decide — any of ``O_WRONLY O_RDWR O_CREAT O_APPEND O_TRUNC`` is a write. Unknown shapes
+    are treated as READS, so the block never aborts a legitimate read the #23 path already handles.
+    """
+    if isinstance(mode, str):
+        return any(ch in mode for ch in "wax+")
+    if isinstance(flags, int):
+        write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
+        return bool(flags & write_flags)
+    return False
 
 
 def _open_watch_hook(event: str, args: tuple) -> None:
@@ -233,9 +284,22 @@ def _open_watch_hook(event: str, args: tuple) -> None:
     if sink is None:
         return
     target = args[0]
+    path: str | None = None
     if isinstance(target, (str, bytes, os.PathLike)):
         with contextlib.suppress(TypeError, UnicodeDecodeError):
-            sink.append(os.fsdecode(target))
+            path = os.fsdecode(target)
+    if path is not None:
+        sink.opened.append(path)
+    is_write = event in _MUTATING_EFFECT_EVENTS or (
+        event == "open" and open_is_write(args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else 0)
+    )
+    if is_write:
+        if path is not None:
+            sink.writes.append(path)
+        if sink.block:
+            # Prevent the write BEFORE it lands (#30). The raise unwinds the target; the caller
+            # records the attempt and refuses the golden.
+            raise _CaptureWriteBlocked(path or event)
 
 
 def _install_open_watch() -> None:
@@ -243,6 +307,27 @@ def _install_open_watch() -> None:
     if not _watch_installed:
         sys.addaudithook(_open_watch_hook)
         _watch_installed = True
+
+
+@contextlib.contextmanager
+def block_fs_writes():
+    """Run a block of SPECULATIVE target execution with filesystem writes prevented (issue #30).
+
+    Detective runs the consumer's function on inputs IT invented — golden capture, the witness
+    search's original-vs-mutant comparison — and a transitive write there litters the consumer's
+    tree for a run that was only ever measuring. Inside this context the audit hook raises on a
+    write, so the effect never lands; the call unwinds and the caller treats it as a raise. Scoped
+    by the ContextVar to the wrapped block and its thread, so the consumer's OWN tests and Wesker's
+    profiling — where no sink is set — still write freely. Yields the sink (its ``writes`` lists what
+    was prevented). NOT a general sandbox: it blocks writes, not reads, and only where installed.
+    """
+    _install_open_watch()
+    sink = _EffectSink(block=True)
+    token = _OPEN_WATCH.set(sink)
+    try:
+        yield sink
+    finally:
+        _OPEN_WATCH.reset(token)
 
 
 def _environment_paths(opened: list[str], args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[str, ...]:
@@ -293,28 +378,43 @@ def _try_capture(
     call_args = tuple(unwrap(a) for a in args)
     call_kwargs = {k: unwrap(v) for k, v in kwargs.items()}
     _install_open_watch()
-    opened: list[str] = []
-    token = _OPEN_WATCH.set(opened)
+    # block=True: a transitive/default-path WRITE is prevented, not just recorded — so a speculative
+    # capture of a tree-mutating function (issue #30) cannot litter the consumer's checkout.
+    sink = _EffectSink(block=True)
+    token = _OPEN_WATCH.set(sink)
     saved_time = time.time if clock is not None else None
+    blocked_write = False
     try:
         if clock is not None:
             time.time = lambda: clock  # freeze the wall clock -> the function is now deterministic
         result = func(*call_args, **call_kwargs)
         first = repr(result)
         second = repr(func(*call_args, **call_kwargs))
+    except _CaptureWriteBlocked:
+        blocked_write = True
     except Exception:
         return None
     finally:
         if saved_time is not None:
             time.time = saved_time  # restore — the freeze must never outlive the capture
         _OPEN_WATCH.reset(token)
+    if blocked_write:
+        # A tree-mutating function is not golden-capturable; the write was prevented (no litter),
+        # and the attempt is surfaced so the refusal names it rather than reading as a bare drop.
+        return GoldenCapture(
+            inputs=args,
+            kwargs=dict(kwargs),
+            deterministic=False,
+            filesystem_writes=tuple(dict.fromkeys(sink.writes)),
+            clock=clock,
+        )
     return GoldenCapture(
         inputs=args,
         kwargs=dict(kwargs),
         output=first,
         value=result,
         deterministic=first == second,
-        environment_paths=_environment_paths(opened, call_args, call_kwargs),
+        environment_paths=_environment_paths(sink.opened, call_args, call_kwargs),
         clock=clock,
     )
 

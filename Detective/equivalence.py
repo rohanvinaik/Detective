@@ -589,10 +589,18 @@ def _outcome(fn: Callable[..., Any], args: tuple) -> str:
     re-classified killable off this same witness, rebuilt identically, forever.
     """
     box: dict[str, str] = {}
+    # Speculative execution: Detective is running the target on inputs IT chose, only to compare
+    # return values. A transitive write here would litter the consumer's tree (issue #30), so block
+    # writes for the duration — a blocked write unwinds into the `<raised …>` marker below, which is
+    # identical for original and mutant, so a writing function yields no false value-witness. The
+    # consumer's own tests (run elsewhere, no sink set) are unaffected. Lazy import breaks the
+    # characterization→equivalence module cycle.
+    from .synthesis.characterization import block_fs_writes
 
     def _run() -> None:
         try:
-            box["v"] = repr(fn(*(unwrap(a) for a in args)))
+            with block_fs_writes():
+                box["v"] = repr(fn(*(unwrap(a) for a in args)))
         except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
             message = str(exc)
             box["v"] = (
