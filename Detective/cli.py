@@ -968,6 +968,11 @@ def _completeness_verdict(result) -> str:
     found' — automated search never proves equivalence; only a manual `flag` or a killing
     input resolves it). When candidate-equivalents remain, we killed every mutant we could
     distinguish but cannot claim completeness, and we say exactly that."""
+    # A CUT run (issue #31) never measured the full universe; its headline is the CUT, not a
+    # completeness claim (``result.complete`` is already False, but say WHY, not just "Incomplete").
+    if getattr(result, "budget_exhausted", False):
+        phase = getattr(result, "cut_phase", "") or "a profiling phase"
+        return f"⚠ CUT — aggregate deadline exhausted during {phase}; measurement partial"
     if not result.complete:
         # Not "✗": the residual is stated on the lines that follow, and marking a run that
         # pinned every killable behavior as a failure misreads the tool's own result.
@@ -1034,6 +1039,15 @@ def _final_banner(result) -> str:
         return (
             f"FINAL {result.function}: ⚠ STALE — target changed during run; "
             "measurement invalid, re-run required"
+        )
+    # A CUT run (issue #31) is likewise a non-verdict — the wall stopped it before the
+    # universe was measured — so CUT overrides COMPLETE/Incomplete for the same reason
+    # STALE does: both would claim a measurement that did not finish.
+    if getattr(result, "budget_exhausted", False):
+        phase = getattr(result, "cut_phase", "") or "a profiling phase"
+        return (
+            f"FINAL {result.function}: ⚠ CUT — aggregate deadline exhausted during {phase}; "
+            "measurement partial, re-run with a larger --deadline"
         )
     total = result.total_mutants
     rep = result.survivor_report
@@ -1332,6 +1346,30 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
         lines.append(_final_banner(result))
         return "\n".join(lines)
 
+    # A CUT run (issue #31) is the same class of story as stale: the measurement is PARTIAL,
+    # so counts would misrepresent a half-run universe. Name the phase the wall ran out in,
+    # the integration signal if the target flooded, and the one action — re-run with more
+    # budget — then the banner. Non-gateable: no COMPLETE can appear below this.
+    if getattr(result, "budget_exhausted", False):
+        phase = getattr(result, "cut_phase", "") or "a profiling phase"
+        lines.append(_row("⚠ CUT", f"the aggregate deadline ran out during {phase}"))
+        contained = getattr(result, "stdout_bytes", 0)
+        if contained:
+            lines.append(
+                _row("· contained", f"{contained:,} bytes the target printed to stdout — "
+                     "integration/side-effecting; kept off this report")
+            )
+        if report_path:
+            lines.append(_row("· full report", f"{report_path} (measurement partial)"))
+        lines.append("")
+        lines.append("DO THIS:  re-run with a larger wall, e.g. --deadline 900 — or 0 to")
+        lines.append("       disable it — on a target that genuinely needs longer. If the")
+        lines.append("       target prints megabytes above, it is an integration function")
+        lines.append("       that cannot be isolated in-process; that is the real finding.")
+        lines.append("")
+        lines.append(_final_banner(result))
+        return "\n".join(lines)
+
     if result.written_path:
         # `_rel_path`, like the banner: converge stores ABSOLUTE paths, and a 90-character
         # /private/tmp/... string in a fixed-width column wraps and destroys the report.
@@ -1381,6 +1419,16 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
             lines.append(
                 _row("· crash-only-equiv", f"{len(crash_only)} — detected by crash; no value pins them")
             )
+    # The target printed to stdout while being measured, all contained off this channel
+    # (issue #31). Named on EVERY run that produced output — not just cut ones — because a
+    # function that traces/prints is side-effecting whether or not its return also pinned:
+    # the row is the honest "this is an integration target" signal, sized so a 4KB debug
+    # print reads differently from a multi-MB tracing flood.
+    if contained := getattr(result, "stdout_bytes", 0):
+        lines.append(
+            _row("· contained", f"{contained:,} bytes the target printed to stdout — "
+                 "integration/side-effecting; kept off this report")
+        )
     # Refused goldens are a residual the USER can act on (supply inputs or a
     # tmp fixture), so they earn a terse row like every other residual class;
     # the full report names each call and touched path (issue #23).
@@ -1863,6 +1911,23 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
     # target from memory — the reader this report exists for cannot do that.
     tgt = target or r.function
     lines: list[str] = []
+    # A CUT decompose (issue #31) never got a completed proof, so it can neither apply nor
+    # honestly say "no seam". Name the cut, the integration signal if the target flooded, and
+    # the action — this is the original wrap_trace regression's user-visible landing.
+    if getattr(r, "budget_exhausted", False):
+        phase = getattr(r, "cut_phase", "") or "the proof converge"
+        out = [_RULE, f"{r.function} — decompose", "",
+               _row("⚠ CUT", f"the aggregate deadline ran out during {phase} — nothing proven, "
+                    "nothing applied")]
+        contained = getattr(r, "stdout_bytes", 0)
+        if contained:
+            out.append(_row("· contained", f"{contained:,} bytes the target printed to stdout — "
+                            "an integration/tracing function that cannot be isolated in-process"))
+        out += ["",
+                "DO THIS:  re-run with a larger wall, e.g. --deadline 900 (or 0 to disable). If",
+                "       the target floods stdout above, that IS the finding — it is not a pure",
+                "       function a suite can pin; decompose safely declined to rewrite it."]
+        return "\n".join(out)
     if not r.applied and not r.proposed and not r.unsafe_blocks:
         return f"{r.function} — decompose\n\nDONE:  no separable block. There is no seam here to split."
 
@@ -2351,6 +2416,17 @@ def _build_parser() -> argparse.ArgumentParser:
                 "the clock, so the pin holds. v1 freezes time.time() only; the report flags "
                 "time-gated lines under `env-gated`.",
             )
+            p.add_argument(
+                "--deadline",
+                type=float,
+                metavar="SECONDS",
+                default=300.0,
+                help="ONE aggregate wall for the whole command (default 300s; 0 = unbounded). "
+                "Every phase — profiling, witness search, minimization, finalization — draws "
+                "from the SAME remaining budget, so a runaway or a flooding integration target "
+                "is CUT with a named diagnosis instead of hanging. A cut run is non-gateable: "
+                "no `✓ COMPLETE`, and decompose will not treat it as a preservation proof.",
+            )
         if name == "audit":
             p.add_argument(
                 "--remove",
@@ -2370,6 +2446,16 @@ def _build_parser() -> argparse.ArgumentParser:
                 help="supply a residual input (Python-literal positional-arg tuple) to the proof suite, "
                 "so a function whose completeness needs a human sample can still reach the "
                 "behavior-preservation gate. Same form as `converge --input`. Repeatable.",
+            )
+            p.add_argument(
+                "--deadline",
+                type=float,
+                metavar="SECONDS",
+                default=300.0,
+                help="ONE aggregate wall for the whole decompose — the proof converge AND every "
+                "trial-apply draw from the same remaining budget (default 300s; 0 = unbounded). "
+                "A cut proof is never auto-applied: the source is rewritten only on a COMPLETE, "
+                "non-cut proof.",
             )
     purge_p = sub.add_parser(
         "purge",
@@ -3204,12 +3290,15 @@ def _run(args) -> int:
             supplied_inputs=supplied,
             clock=args.clock,
             fast=args.fast,
+            deadline_s=args.deadline,
             progress=_stream_progress(function),
             notify=_notify_stderr,
         )
         if args.json:
             print(json.dumps(asdict(result), indent=2, default=str))
-            return 3 if result.stale_target else 0
+            # 3 for either invalid-measurement stamp: a stale target (issue #17) or a
+            # deadline CUT (issue #31) both mean "this run's numbers are partial — re-run".
+            return 3 if result.stale_target or result.budget_exhausted else 0
         # The full report always goes to a readable file; the terminal stays minimal
         # (a banner + the one quick action) unless --full is asked for. The FILE is always
         # verbose — it is the archive `flag` reads mutant ids out of, and a file has no
@@ -3225,8 +3314,9 @@ def _run(args) -> int:
             print(_format_converge_terse(result, report_path, args.project_root))
         # 3, not 1: "the measurement is invalid, re-run" is a different failure
         # from "the run errored", and CI that gates on converge needs to tell
-        # them apart (issue #17).
-        return 3 if result.stale_target else 0
+        # them apart (issue #17). A deadline CUT (issue #31) is the same class of
+        # invalid-measurement signal — partial evidence, re-run with more budget.
+        return 3 if result.stale_target or result.budget_exhausted else 0
 
     if args.command == "audit":
         from .audit import audit_suite
@@ -3309,6 +3399,7 @@ def _run(args) -> int:
             args.project_root,
             write=args.apply,
             supplied_inputs=supplied,
+            deadline_s=args.deadline,
             # decompose's work IS a converge plus a trial-apply per candidate — the slowest
             # command in the CLI, and until now the only one that printed nothing while it ran.
             notify=None if args.json else _notify_stderr,
@@ -3344,7 +3435,9 @@ def _run(args) -> int:
             if rel:
                 _notify_stderr(f"full report: {rel}")
             print(text)
-        return 0
+        # 3 on a CUT proof (issue #31), mirroring converge: the run did not complete its
+        # proof within the wall, so CI must tell it apart from a clean "nothing to decompose".
+        return 3 if getattr(result, "budget_exhausted", False) else 0
 
     # Unreachable: argparse (required subparsers) guarantees args.command is one of the
     # registered commands, each handled above. Kept as a defensive guard.

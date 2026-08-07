@@ -17,13 +17,15 @@ import math
 import os
 import re
 import sys
+import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from Wesker.ci import relevant_test_files, walk_functions
 from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
+from ._contain import contained_stdout, remaining_budget_ms
 from .certify import PytestWiring, _write, synth_filename, wire_pytest
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
 from .equivalence import SourceExpr, SurvivorReport
@@ -141,6 +143,24 @@ class ConvergeResult:
     # turns a non-empty value + a live line gap into an honest "supply a fixture" hand-back
     # instead of an impossible `--input` ask; the harness reads it to skip these, not spin.
     environment_gated: tuple[str, ...] = ()
+    # The aggregate command deadline (issue #31) was exhausted mid-run: some phase
+    # was CUT before it finished, so the measurement is PARTIAL. Like ``stale_target``
+    # this is an invalid-measurement stamp, not a verdict — the formatter withholds
+    # counts, the CLI exits non-zero, ``functionally_complete`` is forced False, and
+    # decompose refuses to treat a cut converge as proof. A run that completes inside
+    # the wall never sets it. (A per-phase timeout that resets each pass is NOT this;
+    # this is one wall drawn down across every phase.)
+    budget_exhausted: bool = False
+    # Which phase the deadline was exhausted in ("mutant profiling" / "finalization" /
+    # "minimization" / "regression-check") — named so the CUT diagnosis says where the
+    # budget went, not merely that it ran out.
+    cut_phase: str = ""
+    # Bytes the consumer target emitted to stdout while it was being measured, all
+    # contained off the report/JSON channel (issue #31 output contract). Nonzero names
+    # an integration/side-effecting target honestly ("N bytes emitted, contained")
+    # WITHOUT gating completeness on volume — the deadline and survivor logic decide
+    # gateability, this only reports what was silenced.
+    stdout_bytes: int = 0
 
     @property
     def mutation_score(self) -> float:
@@ -633,6 +653,51 @@ def converge(
     supplied_inputs: list[tuple] | None = None,
     clock: float | None = None,
     fast: bool = False,
+    deadline_s: float | None = 300.0,
+    progress: Callable[[int, int, float], None] | None = None,
+    notify: Callable[[str], None] | None = None,
+) -> ConvergeResult:
+    """Converge, with the consumer target's stdout contained off the report channel.
+
+    A thin shell over :func:`_converge_impl`. The impl re-executes the target throughout
+    (every profile, the witness search, golden capture), so a target that prints — or that
+    RETURNS a printing object Detective then reprs — would spray the human/JSON channel from
+    outside any per-test redirect. One command-level ``sys.stdout`` redirect catches every
+    such site (``print`` binds ``sys.stdout`` at call time); the byte count is stamped onto
+    the result so the run can name an integration target without gating on volume. stderr —
+    the phase narrative — is untouched. This is #31's output contract; ``deadline_s`` (the
+    one aggregate wall) is its termination contract, threaded through the impl.
+    """
+    with contained_stdout() as _sink:
+        result = _converge_impl(
+            file,
+            function,
+            project_root,
+            write_dir=write_dir,
+            max_iterations=max_iterations,
+            call_site_inputs=call_site_inputs,
+            supplied_inputs=supplied_inputs,
+            clock=clock,
+            fast=fast,
+            deadline_s=deadline_s,
+            progress=progress,
+            notify=notify,
+        )
+    return replace(result, stdout_bytes=_sink.bytes_written) if _sink.bytes_written else result
+
+
+def _converge_impl(
+    file: str,
+    function: str,
+    project_root: str = ".",
+    *,
+    write_dir: str | None = "tests/detective",
+    max_iterations: int = 3,
+    call_site_inputs: list[dict] | None = None,
+    supplied_inputs: list[tuple] | None = None,
+    clock: float | None = None,
+    fast: bool = False,
+    deadline_s: float | None = 300.0,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
@@ -650,6 +715,24 @@ def converge(
     """
     max_per_cat = _FAST_MAX_PER_CATEGORY if fast else 0
     say = notify or (lambda _m: None)
+    # The ONE aggregate wall (issue #31). Every profile below draws ``budget_ms`` from the
+    # SAME remaining budget — a monotonic clock started here, drawn down, floored at zero by
+    # ``remaining_budget_ms`` — so no phase can reset or exceed it. ``deadline_s`` None or
+    # <=0 means unbounded (``_deadline_ms`` None), restoring pre-#31 behaviour for a caller
+    # that opts out. A blown wall stamps ``budget_cut`` in the phase that hit it; the run is
+    # then non-gateable and cannot read COMPLETE.
+    _deadline_ms = deadline_s * 1000.0 if deadline_s and deadline_s > 0 else None
+    _t0 = time.monotonic()
+
+    def _budget_ms() -> float | None:
+        return remaining_budget_ms(_deadline_ms, (time.monotonic() - _t0) * 1000.0)
+
+    def _budget_s() -> float | None:
+        _ms = _budget_ms()
+        return None if _ms is None else _ms / 1000.0
+
+    budget_cut = False
+    cut_phase = ""
     # Typed refusals for goldens that would have pinned the environment
     # (issue #23) — accumulated across passes, deduped, carried on the result.
     environment_coupled: list[str] = []
@@ -750,15 +833,25 @@ def converge(
     baseline_killed: int | None = None
 
     for _pass in range(max_iterations):
+        # Stop STARTING new work once the wall is gone (issue #31): a fresh pass would only
+        # re-enter profiling with a zero budget and produce another cut. Break here so the
+        # finalize/classify below run on what we have, cut-stamped.
+        if _deadline_ms is not None and _budget_ms() <= 0.0:
+            budget_cut, cut_phase = True, cut_phase or "mutant profiling"
+            say("⚠ aggregate deadline exhausted — cutting the profiling loop")
+            break
         result = profile(
             file,
             function,
             project_root,
+            budget_ms=_budget_ms(),
             max_per_category=max_per_cat,
             pass_index=_pass,
             extra_test_dirs=extra_test_dirs,
             progress=progress,
         )
+        if result.budget_exhausted and not budget_cut:
+            budget_cut, cut_phase = True, "mutant profiling"
         if baseline_killed is None:
             # Measured BEFORE this run writes anything: what the suite already on disk kills.
             baseline_killed = result.total_killed
@@ -837,6 +930,7 @@ def converge(
             project_root,
             call_site_inputs=supplied_inputs,
             extra_test_dirs=extra_test_dirs,
+            deadline_s=_budget_s(),
         )
         witnessed = False
         n_witnessed = 0
@@ -899,9 +993,12 @@ def converge(
         file,
         function,
         project_root,
+        budget_ms=_budget_ms(),
         extra_test_dirs=extra_test_dirs,
         progress=progress,
     )
+    if final_result.budget_exhausted and not budget_cut:
+        budget_cut, cut_phase = True, "finalization"
     # Don't SHIP a suite our own minimal-cover immediately flags as non-minimal: drop any test
     # WE generated that is redundant for BOTH kills AND lines (zero marginal contribution), then
     # re-profile so every reported number reflects what is actually on disk. Only individual
@@ -956,9 +1053,12 @@ def converge(
                 file,
                 function,
                 project_root,
+                budget_ms=_budget_ms(),
                 extra_test_dirs=extra_test_dirs,
                 progress=progress,
             )
+            if final_result.budget_exhausted and not budget_cut:
+                budget_cut, cut_phase = True, "minimization"
     # The check the accumulator cannot make on a cold start: is the suite we are about to ship
     # WORSE than the one we replaced? Kill count is the comparison because it is the number
     # this command exists to move; a run that lowers it has destroyed evidence, not converged.
@@ -983,9 +1083,12 @@ def converge(
             file,
             function,
             project_root,
+            budget_ms=_budget_ms(),
             extra_test_dirs=extra_test_dirs,
             progress=progress,
         )
+        if final_result.budget_exhausted and not budget_cut:
+            budget_cut, cut_phase = True, "regression-check"
 
     # Remember what this run pinned, AFTER minimization, so the next run seeds from the suite
     # that actually shipped rather than the pre-minimal set. Saved even when empty: an empty
@@ -1014,6 +1117,7 @@ def converge(
                 project_root,
                 call_site_inputs=supplied_inputs,
                 extra_test_dirs=extra_test_dirs,
+                deadline_s=_budget_s(),
             )
         except Exception:  # noqa: BLE001 — classification is advisory; never fail the run
             survivor_report = None
@@ -1023,6 +1127,23 @@ def converge(
     functionally_complete = final == 0 or (
         survivor_report is not None and not survivor_report.killable and not survivor_report.unclassified
     )
+    # A CUT run measured only PART of the universe (issue #31): its "every killable mutant
+    # killed" is a claim about mutants that never ran. The wall makes the measurement
+    # non-gateable, so completeness cannot stand on it — forced False here, which is also
+    # what blocks decompose from treating a cut converge as a preservation proof and what
+    # keeps ``✓ COMPLETE`` off a partial run. Belt: a final measurement that itself came back
+    # budget-exhausted counts as cut even if no earlier phase flagged it.
+    if final_result.budget_exhausted and not budget_cut:
+        budget_cut, cut_phase = True, cut_phase or "finalization"
+    # The wall can also be consumed by the classification phase (advisory, bounded per #31)
+    # without any profile flagging it — its survivors come back unclassified, which already
+    # blocks COMPLETE, but stamp the run CUT so the verdict SAYS the budget ran out rather
+    # than reading as an ordinary "incomplete: N unclassified".
+    if _deadline_ms is not None and _budget_ms() <= 0.0 and not budget_cut:
+        budget_cut, cut_phase = True, cut_phase or "classification"
+    if budget_cut:
+        functionally_complete = False
+        say(f"⚠ aggregate deadline exhausted during {cut_phase} — result CUT, non-gateable")
     # Second completeness axis + minimality, from Wesker's baseline line-coverage
     # pass on the final suite: which executable lines remain uncovered, the smallest
     # test set that preserves both kills and line coverage, and the tests redundant
@@ -1054,7 +1175,9 @@ def converge(
             sig, param_names = _signature(qualname, node, inferred=inferred)
     return ConvergeResult(
         function=func_key,
-        converged=_converged(at_ceiling, hit_max),
+        # A cut run has not "converged" anything either — it stopped short, so the
+        # ceiling/floor reasoning that ``_converged`` encodes never got to run.
+        converged=_converged(at_ceiling, hit_max) and not budget_cut,
         at_ceiling=at_ceiling,
         initial_survivors=initial or 0,
         final_survivors=final,
@@ -1084,4 +1207,7 @@ def converge(
         stale_target=_target_changed(full, source_snapshot),
         environment_coupled=tuple(environment_coupled),
         environment_gated=environment_reads(node),
+        budget_exhausted=budget_cut,
+        cut_phase=cut_phase,
+        # stdout_bytes is stamped by the ``converge`` containment shell, which owns the sink.
     )

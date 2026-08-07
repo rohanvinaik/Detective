@@ -26,6 +26,7 @@ import ast
 import itertools
 import re
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -683,7 +684,11 @@ def _binds(fn: Callable[..., Any], args: tuple) -> bool:
 
 
 def _search_witness(
-    original: Callable[..., Any], mutant: Callable[..., Any], candidate_inputs: list[tuple]
+    original: Callable[..., Any],
+    mutant: Callable[..., Any],
+    candidate_inputs: list[tuple],
+    *,
+    deadline: float | None = None,
 ) -> tuple[Witness | None, Witness | None]:
     """``(witness, crash_witness, blocked)`` — the search `find_witness` runs, plus the two facts it
     used to throw away: a crash-only distinguishing input, and whether classification TIMED OUT (#42).
@@ -700,6 +705,14 @@ def _search_witness(
     crash_witness: Witness | None = None
     blocked = False
     for args in candidate_inputs:
+        # The aggregate wall (issue #31) is checked PER INPUT, not just per mutant: a
+        # non-terminating mutant pays #42's 5s classifier timeout on EVERY candidate, so a
+        # pool of ten inputs is 50s on one mutant alone. When the wall is gone, stop searching
+        # and report ``blocked`` — honest uncertainty (the same signal a per-input timeout
+        # gives), never a false "no input distinguishes it". ``deadline`` is absolute monotonic.
+        if deadline is not None and time.monotonic() >= deadline:
+            blocked = True
+            break
         if not _binds(original, args):
             # These args do not FIT the callable, so nothing below measures the function — it
             # measures Python's call protocol, and it fabricates a witness while doing it.
@@ -877,14 +890,22 @@ def classify_survivor(
     mutant: Callable[..., Any],
     candidate_inputs: list[tuple],
     suite_detected: bool = False,
+    *,
+    deadline: float | None = None,
 ) -> MutantVerdict:
     """Killable (with a witness) if any input distinguishes the mutant, else an
     equivalent-candidate documented with how many inputs were tried.
 
     ``suite_detected`` is the caller's knowledge, not the search's: whether some current
     test already fails under this mutant (a crash/timeout kill in the profile). Carried on
-    the verdict so a renderer states it per mutant instead of assuming it for the bucket."""
-    witness, crash_witness, blocked = _search_witness(original, mutant, candidate_inputs)
+    the verdict so a renderer states it per mutant instead of assuming it for the bucket.
+
+    ``deadline`` (absolute monotonic seconds) is the aggregate command wall (issue #31): the
+    witness search stops when it passes, and the verdict comes back ``blocked`` — never a
+    false candidate-equivalent from a search the budget cut short."""
+    witness, crash_witness, blocked = _search_witness(
+        original, mutant, candidate_inputs, deadline=deadline
+    )
     return MutantVerdict(
         mutant_id=mutant_id,
         category=category,

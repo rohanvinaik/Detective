@@ -19,10 +19,12 @@ import ast
 import hashlib
 import json
 import textwrap
+import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from ._contain import contained_stdout, remaining_budget_ms
 from .verdict_cache import wesker_policy_id
 
 if TYPE_CHECKING:
@@ -463,6 +465,16 @@ class DecompositionApply:
     # the installed engine predates policy versioning.
     policy_id: str | None = None
     transform_class_id: str | None = None
+    # The aggregate command deadline (issue #31) was exhausted during the proof converge or
+    # the trial loop. A cut proof is already blocked from applying — a cut converge is not
+    # ``functionally_complete``, so ``proof_suite`` stays None and nothing is written — but
+    # this stamps the cause explicitly so the CLI says "CUT during <phase>", exits non-zero,
+    # and never reads the run as "nothing to decompose".
+    budget_exhausted: bool = False
+    cut_phase: str = ""
+    # Bytes the target emitted to stdout during the whole decompose, contained off the
+    # report/JSON channel — nonzero names an integration target (the wrap_trace regression).
+    stdout_bytes: int = 0
 
 
 def apply_decomposition(
@@ -473,6 +485,41 @@ def apply_decomposition(
     write: bool = False,
     max_extractions: int = 8,
     supplied_inputs: list[tuple] | None = None,
+    deadline_s: float | None = 300.0,
+    notify: Callable[[str], None] | None = None,
+) -> DecompositionApply:
+    """Decompose, with the consumer target's stdout contained off the report channel.
+
+    A thin shell over :func:`_apply_decomposition_impl`. Decompose's proof step converges the
+    target and its trial loop re-runs the suite, so the same integration-target flood converge
+    guards against applies here (the original ``wrap_trace`` regression). One command-level
+    ``sys.stdout`` redirect for the whole run keeps it off the human/JSON channel; the byte
+    count is stamped on the result. ``deadline_s`` is the one aggregate wall, threaded into the
+    proof converge and drawn down across the trial loop (issue #31).
+    """
+    with contained_stdout() as _sink:
+        result = _apply_decomposition_impl(
+            file,
+            function,
+            project_root,
+            write=write,
+            max_extractions=max_extractions,
+            supplied_inputs=supplied_inputs,
+            deadline_s=deadline_s,
+            notify=notify,
+        )
+    return replace(result, stdout_bytes=_sink.bytes_written) if _sink.bytes_written else result
+
+
+def _apply_decomposition_impl(
+    file: str,
+    function: str,
+    project_root: str = ".",
+    *,
+    write: bool = False,
+    max_extractions: int = 8,
+    supplied_inputs: list[tuple] | None = None,
+    deadline_s: float | None = 300.0,
     notify: Callable[[str], None] | None = None,
 ) -> DecompositionApply:
     """The full decomposition loop — a decomposition is applied only when PROVED
@@ -499,6 +546,21 @@ def apply_decomposition(
     # decompose's cost IS the converge below (mutating + running the suite), so without this
     # the slowest command is also the only silent one — it looks hung while doing the most.
     say = notify or (lambda _m: None)
+    # The ONE aggregate wall (issue #31), shared across the proof converge AND the trial loop.
+    # ``_budget_s`` hands converge whatever seconds remain as ITS deadline (converge draws down
+    # from there), and the trial loop below checks the same wall before each extraction.
+    _deadline_ms = deadline_s * 1000.0 if deadline_s and deadline_s > 0 else None
+    _t0 = time.monotonic()
+
+    def _budget_ms() -> float | None:
+        return remaining_budget_ms(_deadline_ms, (time.monotonic() - _t0) * 1000.0)
+
+    def _budget_s() -> float | None:
+        _ms = _budget_ms()
+        return None if _ms is None else _ms / 1000.0
+
+    budget_cut = False
+    cut_phase = ""
 
     # STEP 1 — the mutant-complete suite is both the spec and the proof.
     surviving_categories: tuple[str, ...] = ()
@@ -519,21 +581,28 @@ def apply_decomposition(
             # `_write` retire the legacy root-level sibling on the way past.
             write_dir="tests/detective",
             supplied_inputs=supplied_inputs,
+            # The proof converge draws from the shared wall — its own containment nests
+            # harmlessly inside ours (idempotent stdout redirect).
+            deadline_s=_budget_s(),
             notify=notify,
         )
         report = conv.survivor_report
         if report is not None:
             surviving_categories = tuple(sorted({v.category for v in report.verdicts}))
+        if conv.budget_exhausted and not budget_cut:
+            budget_cut, cut_phase = True, conv.cut_phase or "proof converge"
     except Exception:  # noqa: BLE001 — no suite -> no proof possible
         conv = None
     if not surviving_categories:
         from .engine import profile
 
         try:
-            _prof = profile(file, function, project_root)
+            _prof = profile(file, function, project_root, budget_ms=_budget_ms())
             surviving_categories = tuple(
                 sorted({r.get("category", "") for r in _prof.value_survivor_records})
             )
+            if _prof.budget_exhausted and not budget_cut:
+                budget_cut, cut_phase = True, "mutant profiling"
         except Exception:  # noqa: BLE001
             surviving_categories = ()
 
@@ -591,6 +660,13 @@ def apply_decomposition(
     from .engine import _purge_stale_bytecode
 
     for _ in range(max_extractions):
+        # The trial loop draws from the same wall (issue #31): each extraction re-runs the
+        # proof suite (pytest), so an unbounded loop over many candidates could outlive the
+        # deadline the proof converge respected. Stop starting new trials once it is gone.
+        if _deadline_ms is not None and _budget_ms() <= 0.0:
+            budget_cut, cut_phase = True, cut_phase or "decompose trial"
+            say("⚠ aggregate deadline exhausted — stopping decompose trials")
+            break
         with open(full, encoding="utf-8") as fh:
             source = fh.read()
         tree = ast.parse(source)
@@ -659,4 +735,7 @@ def apply_decomposition(
         proof=conv,
         policy_id=conv.policy_id if conv is not None else wesker_policy_id(),
         transform_class_id=transform_class_id(),
+        budget_exhausted=budget_cut,
+        cut_phase=cut_phase,
+        # stdout_bytes is stamped by the ``apply_decomposition`` containment shell.
     )

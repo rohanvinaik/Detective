@@ -18,6 +18,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Sequence
 from types import CodeType
 from typing import TYPE_CHECKING, Any
@@ -35,6 +36,7 @@ from Wesker.engine import (
 from Wesker.engine import ProfilingResult, generate_mutants, run_function_profiling
 from Wesker.filter import filter_categories
 
+from ._contain import remaining_budget_ms
 from .call_sites import discover_call_site_inputs, infer_param_types
 from .capture import capture_call_inputs
 from .equivalence import (
@@ -1111,6 +1113,7 @@ def classify_survivors(
     max_int: int = 3,
     call_site_inputs: list[tuple] | None = None,
     extra_test_dirs: tuple[str, ...] = (),
+    deadline_s: float | None = None,
 ) -> SurvivorReport:
     """Classify each surviving mutant as killable (with a distinguishing witness),
     equivalent-candidate, or unclassified — by running the original against the
@@ -1133,6 +1136,29 @@ def classify_survivors(
     # baseline both import it transitively — retire a possibly-stale bytecode
     # cache, or every number below describes a file no longer on disk.
     _purge_stale_bytecode(full)
+    # The classification phase (issue #31, phase 4) draws from the caller's aggregate wall.
+    # #42 bounds each individual witness ``_outcome`` at 5s so no single mutant hangs; the
+    # DEADLINE bounds the SEARCH ACROSS survivors, so a countdown with many non-terminating
+    # mutants (each paying its 5s classifier timeout) cannot sum past the command budget.
+    # When the wall runs out mid-search the survivors not yet reached become ``unclassified``
+    # (honest uncertainty), never a false candidate-equivalent. ``deadline_s`` None = unbounded.
+    # None = unbounded; any number (INCLUDING 0.0) = that many ms remain. This is a computed
+    # REMAINING budget from the caller, so 0.0 means EXHAUSTED — search nothing — NOT the CLI's
+    # "--deadline 0 = unbounded" opt-out, which the command layer already mapped to None before
+    # it ever reaches here. Conflating the two let an exhausted wall run the classifier unbounded.
+    _cls_deadline_ms = None if deadline_s is None else max(0.0, deadline_s * 1000.0)
+    _cls_t0 = time.monotonic()
+    # Absolute monotonic cutoff handed to the per-mutant witness search, so it stops mid-pool
+    # (a non-terminating mutant costs 5s PER input) rather than only between survivors.
+    _cls_abs_deadline = None if _cls_deadline_ms is None else _cls_t0 + _cls_deadline_ms / 1000.0
+
+    def _cls_budget_ms() -> float | None:
+        return remaining_budget_ms(_cls_deadline_ms, (time.monotonic() - _cls_t0) * 1000.0)
+
+    def _cls_exhausted() -> bool:
+        _b = _cls_budget_ms()
+        return _b is not None and _b <= 0.0
+
     with open(full, encoding="utf-8") as fh:
         tree = ast.parse(fh.read(), filename=full)
     qualname, node = _resolve(tree, function)
@@ -1162,7 +1188,9 @@ def classify_survivors(
     # including any out-of-tree write-dir (extra_test_dirs). Without this, an out-of-tree
     # written test that already kills a mutant is invisible here, so the survivor report
     # would classify a mutant the headline count reports as killed (a real inconsistency).
-    result = profile(file, function, project_root, extra_test_dirs=extra_test_dirs)
+    result = profile(
+        file, function, project_root, budget_ms=_cls_budget_ms(), extra_test_dirs=extra_test_dirs
+    )
     # Value-survivors: true survivors PLUS crash/timeout kills — the mutants whose RETURN
     # VALUE no test pins. Classifying THESE is how a crash-killed mutant gets a real
     # value-distinguishing witness (or is judged equivalent), instead of being silently
@@ -1275,6 +1303,12 @@ def classify_survivors(
         _unclassified: list[str] = []
         _manual: list[str] = []
         for rec in survivors:
+            # Aggregate wall exhausted (issue #31): stop starting new witness searches. Every
+            # survivor not yet classified is UNCLASSIFIED — honest uncertainty, the same bucket
+            # #42's per-mutant timeout uses — never defaulted to a false candidate-equivalent.
+            if _cls_exhausted():
+                _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
+                continue
             mutant = by_id.get(rec.get("mutant_id", ""))
             mutant_fn = _compile_mutant(mutant, original) if mutant is not None else None
             if mutant_fn is None:
@@ -1297,6 +1331,7 @@ def classify_survivors(
                 # detects this by crash" is TRUE of this mutant — carried so the renderer can
                 # say it per mutant instead of assuming it for the bucket.
                 suite_detected=bool(rec.get("killed_by")),
+                deadline=_cls_abs_deadline,
             )
             # A real witness is PROOF of killability and outranks the flag (keep the
             # killable verdict); a flag on a no-witness survivor confirms equivalence.
@@ -1335,8 +1370,11 @@ def classify_survivors(
     def _inexpressible_witness(v: MutantVerdict) -> bool:
         return v.killable and v.witness is not None and not all(is_expressible(a) for a in v.witness.args)
 
+    # The rescue re-runs the whole classification over a richer pool — real work, so it is
+    # skipped once the aggregate wall is gone (issue #31): a cut run keeps its first-pass
+    # verdicts rather than starting a second search it cannot finish.
     rescuable = any((not v.killable and not v.crash_only) or _inexpressible_witness(v) for v in verdicts)
-    if rescuable:
+    if rescuable and not _cls_exhausted():
         func_names = [qn for qn, _ in walk_functions(tree)]
         harvest_tests = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
