@@ -2567,6 +2567,42 @@ def _build_parser() -> argparse.ArgumentParser:
     parsimony_p.add_argument("--project-root", default=".", help="project root the path is relative to")
     parsimony_p.add_argument("--top", type=int, default=10, help="worst offenders to show (default 10)")
     parsimony_p.add_argument("--json", action="store_true", help="emit JSON")
+
+    # Arbitrary-rewrite old-vs-new preservation gate (issue #37). `decompose` proves its OWN
+    # transform; these two commands bracket an EXTERNAL/model rewrite: snapshot before, verify after.
+    receipt_p = sub.add_parser(
+        "receipt",
+        help="snapshot a function's specification BEFORE an arbitrary rewrite, for verify-rewrite (#37)",
+        description=(
+            "Record a baseline receipt of a function: its source (so the OLD implementation can be run), "
+            "its mutation-complete proof suite, its policy and operator universe. Take this BEFORE you "
+            "let a model (or anyone) rewrite the function; `verify-rewrite` then proves the rewrite did "
+            "not change behaviour against this receipt. Converges the target first, so the recorded "
+            "proof basis is real."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    receipt_p.add_argument("target", help="file.py::function to snapshot")
+    receipt_p.add_argument("--project-root", default=".", help="project root the target is relative to")
+    receipt_p.add_argument("-o", "--out", default=None, help="write the receipt JSON here (default: stdout)")
+    receipt_p.add_argument("--json", action="store_true", help="the receipt is always JSON; accepted for uniformity")
+
+    verify_p = sub.add_parser(
+        "verify-rewrite",
+        help="prove an arbitrary/model rewrite preserved behaviour, against a receipt (#37)",
+        description=(
+            "Check a rewritten function against the receipt taken before the rewrite. Replays the "
+            "original proof suite on the new source, profiles the new source for behaviours the old "
+            "proof never covered, and evaluates the OLD and NEW implementations at each distinguishing "
+            "input — reporting equal / different / abstained rather than silently learning the new "
+            "behaviour. PRESERVED only when all three hold; exits non-zero otherwise."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    verify_p.add_argument("receipt_path", metavar="receipt.json", help="the baseline from `detective receipt`")
+    verify_p.add_argument("target", help="file.py::function — the rewritten source to check")
+    verify_p.add_argument("--project-root", default=".", help="project root the target is relative to")
+    verify_p.add_argument("--json", action="store_true", help="emit the verification as JSON")
     return parser
 
 
@@ -3061,6 +3097,39 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
     )
 
 
+def _format_rewrite(r) -> str:
+    """The rewrite-verification report (issue #37): verdict first, then the evidence behind it."""
+    icon = {"PRESERVED": "✓", "CHANGED": "✗", "UNREVIEWED": "⚠", "ABSTAIN": "⚠", "STALE_RECEIPT": "·"}
+    lines = [_RULE, f"{r.function} — verify-rewrite: {icon.get(r.verdict, '·')} {r.verdict}", ""]
+    lines.append(_row("· proof replay", f"the original suite ran {r.proof_replayed} on the rewritten source"))
+    if r.new_dimensions:
+        lines.append(
+            _row("⚠ new dimensions", f"{len(r.new_dimensions)} behaviour(s) the original proof never covered")
+        )
+    # The old-vs-new differences are the load-bearing evidence — a proven behaviour change at a
+    # concrete input, not "no witness found". Show them (deduped, capped); full set in --json.
+    if r.differences:
+        lines.append(_row("✗ old ≠ new", f"{len(r.differences)} input(s) where the implementations disagree"))
+        for d in r.differences[:6]:
+            lines.append(_row("", d))
+        if len(r.differences) > 6:
+            lines.append(_row("", f"(+{len(r.differences) - 6} more — all in --json)"))
+    if r.abstentions:
+        lines.append(_row("· abstained", f"{len(r.abstentions)} input(s) could not be safely compared"))
+    lines.append("")
+    verdict_msg = {
+        "PRESERVED": "DONE:  behaviour preserved — the rewrite passes the original obligations, adds no new\n       dimension, and matches old-vs-new at every tested input.",
+        "CHANGED": "STOP.  behaviour CHANGED — an original obligation failed, or old and new disagree at\n       some input. This is not a behaviour-preserving rewrite.",
+        "UNREVIEWED": "STOP.  the rewrite adds behaviour the original proof never reviewed. Converge and review\n       the new dimension(s), or narrow the rewrite — do not assume preservation.",
+        "ABSTAIN": "STOP.  old vs new could not be compared at every point — treat as unproven; review by hand.",
+        "STALE_RECEIPT": "DONE:  nothing was rewritten — the current source is identical to the receipt's original.",
+    }
+    lines.append(verdict_msg.get(r.verdict, ""))
+    if r.note:
+        lines.append(f"       {r.note}")
+    return "\n".join(lines)
+
+
 def _run(args) -> int:
     if args.command == "regime":
         from dataclasses import asdict as _asdict
@@ -3118,6 +3187,36 @@ def _run(args) -> int:
         return 0
 
     file, function = _split_target(args.target, getattr(args, "project_root", None))
+
+    if args.command == "receipt":
+        from .rewrite import make_receipt
+
+        rec = make_receipt(file, function, args.project_root, notify=_notify_stderr)
+        text = rec.to_json()
+        if getattr(args, "out", None):
+            with open(args.out, "w", encoding="utf-8") as fh:
+                fh.write(text + "\n")
+            _notify_stderr(f"receipt written: {args.out}  (proof status: {rec.proof_status})")
+        else:
+            print(text)
+        # A receipt whose proof did not verify green is a weak baseline — surface it via exit code.
+        return 0 if rec.proof_status == "passed" or rec.functionally_complete else 3
+
+    if args.command == "verify-rewrite":
+        from .rewrite import RewriteReceipt, verify_rewrite
+
+        with open(args.receipt_path, encoding="utf-8") as fh:
+            receipt = RewriteReceipt.from_json(fh.read())
+        result = verify_rewrite(
+            receipt, file, function, args.project_root, notify=None if args.json else _notify_stderr
+        )
+        if args.json:
+            print(result.to_json())
+        else:
+            print(_format_rewrite(result))
+        # Only PRESERVED is a pass; every other verdict (CHANGED / UNREVIEWED / ABSTAIN / STALE) is a
+        # refusal CI must catch, so it exits non-zero.
+        return 0 if result.verdict == "PRESERVED" else 1
 
     if args.command == "flag":
         from .engine import profile

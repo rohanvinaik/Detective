@@ -262,10 +262,20 @@ detective converge  file.py::fn [--fast]         # greedy (1−1/e)-optimal subs
 detective decompose file.py::fn [--apply]        # without --apply: propose only
 detective audit     file.py::fn [--remove]       # confirm deletion of pointless tests
 detective audit     file.py::fn --check           # CI gate: exit non-zero on a real gap
+detective receipt   file.py::fn -o receipt.json  # snapshot BEFORE a model/arbitrary rewrite
+detective verify-rewrite receipt.json file.py::fn # prove the rewrite preserved behavior
 detective parsimony path/ [--top N]              # static repo/module/class SICP map (advisory)
 detective flag      file.py::fn MUTANT_ID        # record: this survivor is truly equivalent
 detective purge                                  # delete regeneratable analysis cruft
 ```
+
+"Refactor a function — or let a model rewrite it — and prove the behavior didn't change" has two
+routes. `decompose` proves its **own** extraction transform (converge → trial → re-run). For an
+**arbitrary** rewrite — a model rewrote the whole function — `receipt` snapshots the original's
+proof suite and source first; `verify-rewrite` then replays those obligations on the new source,
+flags any behavior the original never specified, and evaluates the old and new implementations at
+each distinguishing input, reporting `PRESERVED` / `CHANGED` / `UNREVIEWED` rather than silently
+learning the new behavior. Re-converging the rewrite alone only characterizes what it now does.
 
 `--json` on any command emits the full result object. Generated tests land in `tests/test_<fn>_synth.py` with a wired `conftest.py`. In CI:
 
