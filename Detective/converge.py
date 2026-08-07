@@ -979,13 +979,15 @@ def _converge_impl(
     # loop left standing. A witness is a PROOF of killability, so the golden test at
     # that input deterministically kills the mutant — auto-write it (auto-apply
     # principle: deterministically-guaranteed-correct → just do it).
-    # #39: a return that depends on an uncontrolled environment read is not value-capturable,
-    # so the witness pass must not auto-write a value golden either — its original-vs-mutant
-    # search would pin the ORIGINAL's clock/pid/env value, green this second and red the next,
-    # the same straddle `_golden_properties` declines. Error-path (raises) witnesses stay
-    # allowed: a raise is not an env-coupled value. The golden-capture pass above already
-    # surfaced the dependency reason, so the skip here is silent.
-    _capturable = not uncovered_env_reads(environment_reads(node), clock is not None)
+    # #39: a return that reads the environment is not value-capturable by the witness pass — its
+    # original-vs-mutant search pins the ORIGINAL's clock/pid/env value, green this second and red
+    # the next. Unlike the golden-capture pass above, the witness pass CANNOT freeze the clock (it
+    # does not thread `--clock` into its search or its emitted row), so even WITH --clock it would
+    # emit an unfrozen witness row — violating "every emitted row uses that same value". So it skips
+    # value goldens for ANY env-reading function; the `--clock`-aware golden-capture pass is the only
+    # path that emits a frozen, deterministic row. Error-path (raises) witnesses stay allowed: a
+    # raise is not an env-coupled value. The golden-capture pass already surfaced the reason.
+    _capturable = not environment_reads(node)
     if write_dir:
         say("witness pass: searching richer inputs for a distinguishing kill…")
         pre = classify_survivors(
