@@ -211,7 +211,7 @@ stats.py::anomaly_score: 4 existing test(s) — incomplete   [audit reads only �
   ✗ 2 uncovered line(s): [31, 36]
   PROPOSED removals (1, pointless for BOTH kills and lines — confirm to delete, never auto): test_anomaly_score_golden[args2-0.0]
   · 14 survivor(s) candidate-equivalent — no distinguishing input found (UNPROVEN: `flag` to confirm equivalent, or add a distinguishing input to kill)
-  ▶ next: `converge` to synthesize the missing tests (WRITES test files + wires conftest)
+  ▶ next: `converge` to synthesize the missing tests (WRITES test files + declares the pytest marker)
 ```
 
 ---
@@ -277,7 +277,7 @@ flags any behavior the original never specified, and evaluates the old and new i
 each distinguishing input, reporting `PRESERVED` / `CHANGED` / `UNREVIEWED` rather than silently
 learning the new behavior. Re-converging the rewrite alone only characterizes what it now does.
 
-`--json` on any command emits the full result object. Generated tests land in `tests/test_<fn>_synth.py` with a wired `conftest.py`. In CI:
+`--json` on any command emits the full result object. Generated tests land in `tests/detective/` under module-prefixed names (see "Generated tests & lint" above); the `@pytest.mark.detective` marker is declared in your pytest config — Detective never writes a `conftest.py`. In CI:
 
 ```yaml
 - name: The critical path stays specified

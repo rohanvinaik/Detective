@@ -151,21 +151,44 @@ def _pytest_available() -> bool:
     return importlib.util.find_spec("pytest") is not None
 
 
+def marker_disposition(registered: str | None, has_config: bool) -> str:
+    """Which wiring state the marker step reached (issue #32) — explicit, never inferred from a
+    fused ``None``. ``ensure_marker_registered`` returns a description when it WROTE the marker and
+    None otherwise, but None conflated 'already declared' with 'there is no pytest config to declare
+    into'. Split by whether a config exists: a written marker is ``registered_now``; None WITH a
+    config is ``already_declared``; None with NO config is ``no_config`` — the case that must never
+    read as 'nothing to change', because plain pytest then warns on every generated test until the
+    user runs ``detective regime --migrate``. Pure — Detective-pinned."""
+    if registered:
+        return "registered_now"
+    return "already_declared" if has_config else "no_config"
+
+
 def _wiring_message(
-    conftest_wired: str | None, collects: bool, passed: int, pytest_available: bool = True
+    disposition: str, registered: str | None, collects: bool, passed: int, pytest_available: bool = True
 ) -> str:
     """State, in plain language, the wiring gap Detective found and how it fixed it.
 
     This is the line a first-time user reads to know the generated tests will
-    actually run — the fix must be obvious, not implied.
+    actually run — the fix must be obvious, not implied. Consumes the explicit
+    ``disposition`` (issue #32), never re-deriving it from a truthy/falsy ``registered``.
     """
-    if conftest_wired:
+    if disposition == "registered_now":
         fix = (
-            f"{conftest_wired} — the generated tests carry `@pytest.mark.detective`, which "
+            f"{registered} — the generated tests carry `@pytest.mark.detective`, which "
             f"`--strict-markers` rejects unless it is declared. Declared in config, so nothing "
             f"new is importable and nothing can collide"
         )
-    else:
+    elif disposition == "no_config":
+        # The false-positive #32 fixes: there is NO config, so the marker is NOT declared, and plain
+        # pytest warns on every generated test. Name the working next action rather than "nothing to
+        # change" — and never a conftest.py, which the declarative design deliberately avoids.
+        fix = (
+            "no pytest config here, so `@pytest.mark.detective` is undeclared — plain pytest will "
+            "warn on every generated test. Run `detective regime --migrate` to declare it (writes a "
+            "minimal pyproject marker; never a conftest.py)"
+        )
+    else:  # already_declared
         fix = "pytest config already declares the marker — nothing to change"
     if collects:
         proof = f"verified {passed} test(s) pass under pytest"
@@ -297,13 +320,18 @@ def verify_under_pytest(project_root: str, test_path: str | Sequence[str]) -> tu
 def wire_pytest(project_root: str, test_path: str) -> PytestWiring:
     """Make the generated suite runnable in the consumer and STATE what was done: declare the
     marker in pyproject, then verify the tests actually collect+pass under pytest."""
+    from .regime import pytest_config
+
     conftest_wired = ensure_marker_registered(project_root)
+    # #32: distinguish 'wrote it' / 'already declared' / 'no config here' explicitly — pytest_config
+    # is None exactly when there is no config to declare into, which None-as-registered could not say.
+    disposition = marker_disposition(conftest_wired, pytest_config(project_root) is not None)
     verification = run_pytest_verification(project_root, test_path, basis="generated-only")
     return PytestWiring(
         conftest_wired,
         verification.ok,
         verification.passed,
-        _wiring_message(conftest_wired, verification.ok, verification.passed, _pytest_available()),
+        _wiring_message(disposition, conftest_wired, verification.ok, verification.passed, _pytest_available()),
         verification,
     )
 

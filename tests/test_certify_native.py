@@ -32,20 +32,37 @@ _DID = "registered the `detective` marker in [tool.pytest.ini_options]"
 
 
 def test_wiring_message_wired_and_verified_verbatim():
-    msg = _wiring_message(conftest_wired=_DID, collects=True, passed=3)
+    msg = _wiring_message("registered_now", _DID, collects=True, passed=3)
     assert msg == f"pytest wiring: {_DID} — {_WIRED_TAIL}; verified 3 test(s) pass under pytest"
 
 
 def test_wiring_message_already_declared_verbatim():
-    msg = _wiring_message(conftest_wired=None, collects=True, passed=2)
+    msg = _wiring_message("already_declared", None, collects=True, passed=2)
     assert msg == (
         "pytest wiring: pytest config already declares the marker — nothing to change; "
         "verified 2 test(s) pass under pytest"
     )
 
 
+def test_wiring_message_no_config_directs_to_migrate():
+    # #32: no config is NOT "already declared" — say so, and give the working next action.
+    msg = _wiring_message("no_config", None, collects=True, passed=2)
+    assert "no pytest config here" in msg
+    assert "detective regime --migrate" in msg
+    assert "never a conftest.py" in msg
+    assert "already declares" not in msg
+
+
+def test_marker_disposition_splits_no_config_from_already_declared():
+    from Detective.certify import marker_disposition
+
+    assert marker_disposition(_DID, has_config=True) == "registered_now"
+    assert marker_disposition(None, has_config=True) == "already_declared"
+    assert marker_disposition(None, has_config=False) == "no_config"
+
+
 def test_wiring_message_warns_when_tests_do_not_collect_verbatim():
-    msg = _wiring_message(conftest_wired=_DID, collects=False, passed=0)
+    msg = _wiring_message("registered_now", _DID, collects=False, passed=0)
     assert msg == (
         f"pytest wiring: {_DID} — {_WIRED_TAIL}; "
         "⚠ pytest could NOT collect the generated tests — check the import path"
