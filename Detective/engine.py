@@ -1300,7 +1300,13 @@ def classify_survivors(
             )
             # A real witness is PROOF of killability and outranks the flag (keep the
             # killable verdict); a flag on a no-witness survivor confirms equivalence.
-            if not verdict.killable and _flagged(rec):
+            if verdict.killable:
+                _verdicts.append(verdict)
+            elif verdict.blocked:
+                # #42: the witness search TIMED OUT on this mutant — honest uncertainty, not a false
+                # "equivalent". Route it to unclassified with the rest of the un-searchable.
+                _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
+            elif _flagged(rec):
                 _manual.append(rec.get("diff_summary", ""))
             else:
                 _verdicts.append(verdict)

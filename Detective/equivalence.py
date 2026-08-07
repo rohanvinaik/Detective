@@ -25,9 +25,12 @@ from __future__ import annotations
 import ast
 import itertools
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+from Wesker.interrupt import abandon as _abandon
 
 
 def _type_of(ann) -> str | None:
@@ -534,6 +537,32 @@ class Witness:
 _VOLATILE_IN_MESSAGE = re.compile(r"0x[0-9a-fA-F]{4,}")
 
 
+# Bounded classification (#42): the witness/equivalence search re-executes surviving mutants
+# DIRECTLY, and a non-terminating mutant here hung Detective forever — past Wesker's profile bound,
+# which this path never crosses. Each direct execution is capped; a timeout is a distinct, non-
+# witness outcome, and interrupt.abandon (the same primitive the engine uses) stops the runaway.
+_CLASSIFY_TIMEOUT_S = 5.0
+_CLASSIFY_UNWIND_S = 0.25
+_OUTCOME_TIMEOUT = "<classifier-timeout>"
+
+
+def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
+    """How one input distinguishes a mutant, from the ORIGINAL's and the MUTANT's outcomes.
+
+    ``blocked`` — a classifier timeout on either side (#42): the input could not be classified, so
+    the mutant is left UNCLASSIFIED, never silently ``equivalent``. ``same`` — no observable
+    difference. ``crash-only`` — the mutant NEWLY raises where the original returns (a crash-kill,
+    which value-specification accounting does not credit). ``witness`` — a value-killable difference.
+    """
+    if original_outcome == _OUTCOME_TIMEOUT or mutant_outcome == _OUTCOME_TIMEOUT:
+        return "blocked"
+    if original_outcome == mutant_outcome:
+        return "same"
+    if mutant_outcome.startswith("<raised ") and not original_outcome.startswith("<raised "):
+        return "crash-only"
+    return "witness"
+
+
 def _outcome(fn: Callable[..., Any], args: tuple) -> str:
     """The repr of ``fn(*args)``, or a raised-marker — so a mutant that starts
     raising (or stops raising) counts as an observable difference, not a crash.
@@ -558,13 +587,34 @@ def _outcome(fn: Callable[..., Any], args: tuple) -> str:
     witness whose generated test cannot kill the mutant — re-listed as a survivor,
     re-classified killable off this same witness, rebuilt identically, forever.
     """
-    try:
-        return repr(fn(*(unwrap(a) for a in args)))
-    except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
-        message = str(exc)
-        if not message or _VOLATILE_IN_MESSAGE.search(message):
-            return f"<raised {type(exc).__name__}>"
-        return f"<raised {type(exc).__name__}: {message}>"
+    box: dict[str, str] = {}
+
+    def _run() -> None:
+        try:
+            box["v"] = repr(fn(*(unwrap(a) for a in args)))
+        except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
+            message = str(exc)
+            box["v"] = (
+                f"<raised {type(exc).__name__}>"
+                if (not message or _VOLATILE_IN_MESSAGE.search(message))
+                else f"<raised {type(exc).__name__}: {message}>"
+            )
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 — the abandon unwind (#42); exit the worker quietly
+            pass
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(_CLASSIFY_TIMEOUT_S)
+    if thread.is_alive():
+        # A non-terminating mutant re-executed here used to hang the classifier FOREVER. Stop the
+        # runaway (abandon unwinds pure-Python loops) and report a distinct timeout outcome, which
+        # `_pair_disposition` maps to 'blocked' — an unclassified mutant, never a value-witness (#42).
+        _abandon(thread)
+        thread.join(_CLASSIFY_UNWIND_S)
+        return _OUTCOME_TIMEOUT
+    return box.get("v", _OUTCOME_TIMEOUT)
 
 
 def _outcome_value(fn: Callable[..., Any], args: tuple) -> Any:
@@ -635,7 +685,8 @@ def _binds(fn: Callable[..., Any], args: tuple) -> bool:
 def _search_witness(
     original: Callable[..., Any], mutant: Callable[..., Any], candidate_inputs: list[tuple]
 ) -> tuple[Witness | None, Witness | None]:
-    """``(witness, crash_witness)`` — the search `find_witness` runs, plus the fact it used to throw away.
+    """``(witness, crash_witness, blocked)`` — the search `find_witness` runs, plus the two facts it
+    used to throw away: a crash-only distinguishing input, and whether classification TIMED OUT (#42).
 
     ``crash_witness`` is set when NO value-witness exists but some input DID distinguish the mutant
     by newly raising. That is a real and reportable distinction: such a mutant is not "equivalent —
@@ -647,6 +698,7 @@ def _search_witness(
     Returned as data, not text, because the CLI and the MCP word it differently.
     """
     crash_witness: Witness | None = None
+    blocked = False
     for args in candidate_inputs:
         if not _binds(original, args):
             # These args do not FIT the callable, so nothing below measures the function — it
@@ -669,9 +721,16 @@ def _search_witness(
             # where a human supplies the instance synthesis cannot build.
             continue
         original_outcome, mutant_outcome = _outcome(original, args), _outcome(mutant, args)
-        if original_outcome == mutant_outcome:
+        disposition = _pair_disposition(original_outcome, mutant_outcome)
+        if disposition == "blocked":
+            # #42: classification TIMED OUT on this input — record it and move on. The mutant is
+            # unclassified (honest uncertainty), never candidate-equivalent (a false claim that no
+            # input distinguishes it). A value-witness on a LATER input still outranks this.
+            blocked = True
             continue
-        if mutant_outcome.startswith("<raised ") and not original_outcome.startswith("<raised "):
+        if disposition == "same":
+            continue
+        if disposition == "crash-only":
             # Crash-only kill — not a value-witness (see crash-as-spec), but not nothing
             # either: the input IS the fact that decides what a caller can do next (write a
             # golden capture at it, so a suite that never exercised the weakened guard at
@@ -682,8 +741,12 @@ def _search_witness(
                     tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)
                 )
             continue
-        return Witness(tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)), None
-    return None, crash_witness
+        return (
+            Witness(tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)),
+            None,
+            blocked,
+        )
+    return None, crash_witness, blocked
 
 
 @dataclass(frozen=True)
@@ -707,6 +770,10 @@ class MutantVerdict:
     # profile)? Decides the honest sentence: "your suite already detects this by crash" is
     # true exactly when this is True, and was previously claimed for the whole bucket.
     suite_detected: bool = False
+    # The witness search TIMED OUT on this mutant before it could be classified (#42). Distinct from
+    # candidate-equivalent (no input distinguishes it): honest uncertainty, routed to the report's
+    # ``unclassified`` bucket rather than counted as an equivalence claim. Never true when killable.
+    blocked: bool = False
 
     @property
     def label(self) -> str:
@@ -817,7 +884,7 @@ def classify_survivor(
     ``suite_detected`` is the caller's knowledge, not the search's: whether some current
     test already fails under this mutant (a crash/timeout kill in the profile). Carried on
     the verdict so a renderer states it per mutant instead of assuming it for the bucket."""
-    witness, crash_witness = _search_witness(original, mutant, candidate_inputs)
+    witness, crash_witness, blocked = _search_witness(original, mutant, candidate_inputs)
     return MutantVerdict(
         mutant_id=mutant_id,
         category=category,
@@ -828,4 +895,5 @@ def classify_survivor(
         crash_only=crash_witness is not None,
         crash_witness=crash_witness,
         suite_detected=suite_detected,
+        blocked=blocked and witness is None,
     )

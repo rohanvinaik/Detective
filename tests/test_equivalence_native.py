@@ -215,20 +215,22 @@ def test_search_witness_reports_crash_only_when_only_the_mutant_raises():
     # witness (with the original's own value at it), because it is what converge writes the
     # reaching golden capture at -- throwing it away is what left the renderer asserting a
     # detection no test performed.
-    witness, crash_witness = _search_witness(_double, _raises_on_anything, [(3,)])
+    witness, crash_witness, blocked = _search_witness(_double, _raises_on_anything, [(3,)])
     assert witness is None
     assert crash_witness is not None
     assert crash_witness.args == (3,)
     assert crash_witness.original == "6"  # the original's value AT the witness -- the capture
     assert crash_witness.mutant.startswith("<raised ")
+    assert blocked is False
 
 
 def test_search_witness_not_crash_only_when_the_ORIGINAL_raises():
     # The mirror image: the original raises and the mutant returns. `pytest.raises` pins the
     # original's behaviour, so this IS a value-witness -- and must not be filed as crash-only.
-    witness, crash_witness = _search_witness(_raises_on_anything, _double, [(3,)])
+    witness, crash_witness, blocked = _search_witness(_raises_on_anything, _double, [(3,)])
     assert witness is not None
     assert crash_witness is None
+    assert blocked is False
 
 
 def test_search_witness_prefers_a_value_witness_over_an_earlier_crash_only_input():
@@ -240,15 +242,17 @@ def test_search_witness_prefers_a_value_witness_over_an_earlier_crash_only_input
             raise ValueError("boom")
         return x + 1
 
-    witness, crash_witness = _search_witness(_double, mutant, [(3,), (0,)])
+    witness, crash_witness, blocked = _search_witness(_double, mutant, [(3,), (0,)])
     assert witness == Witness((0,), "0", "1")
     assert crash_witness is None
+    assert blocked is False
 
 
 def test_search_witness_no_difference_at_all_is_neither_witness_nor_crash_only():
-    witness, crash_witness = _search_witness(_double, lambda x: x * 2, [(3,), (0,)])
+    witness, crash_witness, blocked = _search_witness(_double, lambda x: x * 2, [(3,), (0,)])
     assert witness is None
     assert crash_witness is None
+    assert blocked is False
 
 
 def test_find_witness_still_hides_the_crash_only_input_from_its_callers():
