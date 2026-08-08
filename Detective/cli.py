@@ -748,6 +748,34 @@ def rate_label(done: int, elapsed_ms: float) -> str:
     return f"{rate:.1f}/s" if rate >= 1.0 else f"{secs / done:.1f}s/mutant"
 
 
+def _print_tier0_static(file: str, function: str, project_root: str) -> None:
+    """Stream TIER 0 — the AST-only static read — the instant the file parses (issue #52).
+
+    audit's cost is tiered (static ~0s · traced · mutation) but only the final tier was ever shown, so
+    a first-time user faced a dead terminal for minutes. This prints the cheapest tier immediately: the
+    same parsimony lenses `parsimony`/`--plan` use, carrying their own warrant (``static · proves
+    nothing``) so it can never be mistaken for the mutation verdict below. Best-effort, to stderr (the
+    result/--json owns stdout); a courtesy that must never fail the audit."""
+    import sys
+
+    try:
+        from .engine import _resolve
+        from .parsimony_map import read_function
+
+        root = os.path.abspath(project_root)
+        full = file if os.path.isabs(file) else os.path.join(root, file)
+        with open(full, encoding="utf-8") as fh:
+            _qn, node = _resolve(ast.parse(fh.read()), function)
+        if node is None:
+            return
+        read = read_function(node, function)
+        detail = read.detail if read.detail else "no static smell"
+        sys.stderr.write(f"  … {function}: static · {detail} · proves nothing (advisory)\n")
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001 — tier 0 is a courtesy; the audit stands without it
+        return
+
+
 def _stream_trace_progress(label: str):
     """Live progress for the TRACED BASELINE pass — the phase that runs BEFORE the first mutant.
 
@@ -3696,6 +3724,10 @@ def _run(args) -> int:
     if args.command == "audit":
         from .audit import audit_suite
 
+        # Tier 0 first (issue #52): the ~0s static read, streamed the instant the file parses, so
+        # audit shows a grounded first line immediately instead of a dead terminal — then the trace
+        # (tier 1) and mutation (tier 2) heartbeats follow, each carrying its own warrant.
+        _print_tier0_static(file, function, args.project_root)
         report = audit_suite(
             file,
             function,
