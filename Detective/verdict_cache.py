@@ -272,6 +272,37 @@ def get(project_root: str, key: str) -> ProfilingResult | None:
     return hit  # a schema drift is a miss, never a crash
 
 
+def proof_cache_admits(gateable: bool, budget_exhausted: bool, engine_reports_gateable: bool) -> bool:
+    """Whether a measurement may be STORED as replayable proof (#60, pure — pinned).
+
+    The cache admitted on ``not budget_exhausted``, which is not the same question. A budget
+    overrun is ONE way a measurement becomes invalid; the engine also refuses to gate on an
+    uncontained worker, a cut phase, or a coverage depth that never reached the universe — and
+    reports every one of those as ``is_gateable=False`` with ``budget_exhausted`` still False.
+    Each was cached and later served as a verdict, with the fact of its invalidity dropped at
+    the moment of storage, where nothing downstream could recover it.
+
+    Wesker #19 WIDENED this. An uncontained BASELINE TRACE now clears gateability without
+    touching the budget, so the exact state this check misses became more reachable — a fix
+    upstream that makes a downstream proxy wronger is the argument for consuming the
+    authoritative signal rather than a correlate of it.
+
+    ``engine_reports_gateable`` is separate because absence and falsehood are different facts.
+    An engine that does not publish the field has not told us the measurement is invalid; it has
+    told us nothing, and refusing every insertion on that basis would disable the cache against
+    any engine predating the field. The compatibility decision is therefore EXPLICIT and
+    conservative in the direction that preserves behaviour: fall back to the budget proxy, which
+    is what the cache already did, rather than silently assuming a capability (the assumption
+    #60 forbids) or silently assuming failure.
+
+    Gateability is ABSORBING when it IS reported: no combination of other signals restores it,
+    because downstream code may diagnose a refusal but never reconstruct it as a pass.
+    """
+    if not engine_reports_gateable:
+        return not budget_exhausted
+    return gateable and not budget_exhausted
+
+
 def put(project_root: str, key: str, prefix: str, result: ProfilingResult) -> None:
     """Store ``result`` under ``key``, purging this function's stale-hash entries first
     (single-valid-copy) so the file cannot grow unbounded across edits."""

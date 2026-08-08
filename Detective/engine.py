@@ -554,7 +554,20 @@ def profile(
     )
     # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
     # later as if it were the whole profile.
-    if use_cache and not result.budget_exhausted:
+    # Admit on the engine's OWN validity verdict, not a correlate of it (#60). `not
+    # budget_exhausted` answers a narrower question: a budget overrun is one way a measurement
+    # becomes invalid, and the engine also refuses to gate on an uncontained worker or a cut
+    # phase — reporting those as `is_gateable=False` with `budget_exhausted` still False. Every
+    # such result was cached here and later served as a verdict, its invalidity discarded at the
+    # one point downstream code could no longer recover it. Wesker #19 made that state MORE
+    # reachable by clearing gateability from the baseline trace.
+    _absent = object()
+    _gateable = getattr(result, "is_gateable", _absent)
+    if use_cache and verdict_cache.proof_cache_admits(
+        gateable=_gateable is not _absent and bool(_gateable),
+        budget_exhausted=result.budget_exhausted,
+        engine_reports_gateable=_gateable is not _absent,
+    ):
         verdict_cache.put(root, ck, verdict_cache.key_prefix(func_key), result)
     return result
 
