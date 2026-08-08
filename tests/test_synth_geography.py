@@ -12,7 +12,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from Detective.certify import _legacy_synth_path, _owned_by, _write, synth_filename
+from Detective.certify import (
+    _legacy_synth_path,
+    _owned_by,
+    _write,
+    synth_filename,
+    undigested_synth_filename,
+)
 
 KEY = "calc.py::add"
 
@@ -30,7 +36,7 @@ def _owned_source() -> str:
 
 def test_legacy_path_only_for_the_moved_default(tmp_path: Path):
     assert _legacy_synth_path(str(tmp_path / "tests" / "detective"), KEY) == str(
-        tmp_path / "tests" / synth_filename(KEY)
+        tmp_path / "tests" / undigested_synth_filename(KEY)
     )
     # A custom --write-dir carries no migration story.
     assert _legacy_synth_path(str(tmp_path / "generated"), KEY) is None
@@ -39,7 +45,7 @@ def test_legacy_path_only_for_the_moved_default(tmp_path: Path):
 def test_migration_removes_the_owned_legacy_file(tmp_path: Path):
     tests = tmp_path / "tests"
     tests.mkdir()
-    legacy = tests / synth_filename(KEY)
+    legacy = tests / undigested_synth_filename(KEY)
     legacy.write_text(_owned_source())
 
     new_path = _write(_owned_source(), str(tests / "detective"), KEY)
@@ -50,7 +56,7 @@ def test_migration_removes_the_owned_legacy_file(tmp_path: Path):
 def test_migration_never_touches_a_user_file(tmp_path: Path):
     tests = tmp_path / "tests"
     tests.mkdir()
-    legacy = tests / synth_filename(KEY)
+    legacy = tests / undigested_synth_filename(KEY)
     legacy.write_text("def test_add_hand_written():\n    assert True\n")
 
     _write(_owned_source(), str(tests / "detective"), KEY)

@@ -11,6 +11,7 @@ certify again, until ``at_ceiling``.
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -425,18 +426,24 @@ def certify(
     return CertifyResult(func_key, scope, result.value_survived, at_ceiling, source, written, plan, wiring)
 
 
-def synth_filename(func_key: str) -> str:
-    """The synth suite's basename for ``file.py::qualname`` — derived from the WHOLE key.
+def _sha10(text: str) -> str:
+    """Ten hex characters of SHA-256 — the disambiguating half of a synth basename.
 
-    It was derived from the qualname alone, so `alpha.py::load` and `beta.py::load` both
-    claimed ``test_load_synth.py`` and the second converge overwrote the first's suite —
-    measured: alpha went from `✓ COMPLETE 13/13` to `0.0% killed, 10 real gaps`, silently,
-    with beta reporting success. Names like `load`/`run`/`main`/`parse` make that a matter of
-    when, not whether. The func_key is the identity the rest of the engine already uses, and
-    it is unique by construction, so the file that belongs to one target is named after it.
+    Ten rather than eight: a birthday collision moves from roughly sixty-five thousand targets
+    to roughly a million, and eight was close enough to a large monorepo to be worth the two
+    extra characters. Not security-sensitive; `usedforsecurity=False` says so to the reader and
+    to any FIPS-restricted build that would otherwise refuse the call.
+    """
+    return hashlib.sha256(text.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
 
-    Ownership itself is read from the header ``render_module`` writes, never from the
-    filename (`foreign_generated_test_names`), so this naming is free to change.
+
+def _readable_stem(func_key: str) -> str:
+    """The human-facing half of a synth basename — lossy by design, never the identity.
+
+    Flattens the path separators and punctuation a filename cannot carry. It is NOT injective
+    and is not asked to be: `/ \\ . - space` all become `_`, so `a/b.py::c` and `a_b.py::c`
+    reduce to one stem. Injectivity is the digest's job (:func:`synth_filename`); this exists
+    only so a human can tell at a glance which target a file belongs to.
     """
     module, _, qualname = func_key.partition("::")
     # Strip `.py` from the MODULE half before flattening — doing it after joining leaves the
@@ -446,7 +453,41 @@ def synth_filename(func_key: str) -> str:
     stem = f"{module.removesuffix('.py')}_{qualname}" if qualname else module.removesuffix(".py")
     for sep in ("/", "\\", ".", "-", " "):
         stem = stem.replace(sep, "_")
-    return f"test_{stem.strip('_')}_synth.py"
+    return stem.strip("_")
+
+
+def undigested_synth_filename(func_key: str) -> str:
+    """The pre-digest basename this target used before #61 — for migration only.
+
+    Kept so `_write` can retire a file THIS target wrote under the old scheme. Without it the
+    old file keeps running beside the new one: pytest collects both, and the stale certificate
+    content is scored as if current.
+    """
+    return f"test_{_readable_stem(func_key)}_synth.py"
+
+
+def synth_filename(func_key: str) -> str:
+    """The synth suite's basename for ``file.py::qualname`` — readable stem plus a key digest.
+
+    It was derived from the qualname alone, so `alpha.py::load` and `beta.py::load` both
+    claimed ``test_load_synth.py`` and the second converge overwrote the first's suite —
+    measured: alpha went from `✓ COMPLETE 13/13` to `0.0% killed, 10 real gaps`, silently, with
+    beta reporting success. Deriving it from the whole key fixed THAT collision and left a
+    subtler one: the flattening is many-to-one, so `a/b.py::c`, `a_b.py::c`, `a-b.py::c` and
+    `a b.py::c` still named one file (#61).
+
+    The digest is over the EXACT func_key, so distinct targets get distinct names by
+    construction rather than by hoping their punctuation differs. Ten hex characters — a
+    birthday collision needs on the order of a million targets in one write dir, which is far
+    past where a shared directory is the problem.
+
+    IT IS NOT A PROOF, and it does not have to be. A digest collision would produce the same
+    filename for two targets, and `write_disposition` then REFUSES rather than overwriting,
+    because ownership is read from the header the file carries and never inferred from its
+    name. Probabilistic naming plus a deterministic ownership check composes to "no silent
+    loss" — which is the property that matters — where either alone does not.
+    """
+    return f"test_{_readable_stem(func_key)}_{_sha10(func_key)}_synth.py"
 
 
 def _legacy_synth_path(write_dir: str, func_key: str) -> str | None:
@@ -456,7 +497,10 @@ def _legacy_synth_path(write_dir: str, func_key: str) -> str | None:
     norm = os.path.normpath(write_dir)
     if os.path.basename(norm) != "detective":
         return None
-    return os.path.join(os.path.dirname(norm), synth_filename(func_key))
+    # The UNDIGESTED name, because a file in the pre-#21 location was necessarily written
+    # before #61 renamed anything. Building this from `synth_filename` would look for a name
+    # that has never existed there and quietly leave the real stale file collecting.
+    return os.path.join(os.path.dirname(norm), undigested_synth_filename(func_key))
 
 
 _HEADER_PREFIX = "Auto-generated by Detective — warrant-classed tests for "
@@ -571,10 +615,18 @@ def _write(source: str, write_dir: str, func_key: str, project_root: str | None 
     # the new one — stale certificate content pytest still collects — so the
     # legacy sibling is removed on the way past. Ownership is checked by the
     # header grammar, never assumed from the name; user files are untouchable.
-    legacy = _legacy_synth_path(write_dir, func_key)
-    if legacy and os.path.exists(legacy) and _owned_by(legacy, func_key):
-        os.remove(legacy)
-        _publish_suite_change(project_root, legacy)
+    # Retire every path a PREVIOUS scheme would have used for this target. There are two
+    # dimensions now: the write dir moved (#21) and the basename gained a key digest (#61), so
+    # a suite written before either change keeps running beside the new one — pytest collects
+    # both and scores stale certificate content as current. Only files whose header claims THIS
+    # target are touched; a name match alone is never enough.
+    for retired in (
+        os.path.join(write_dir, undigested_synth_filename(func_key)),
+        _legacy_synth_path(write_dir, func_key),
+    ):
+        if retired and retired != path and os.path.exists(retired) and _owned_by(retired, func_key):
+            os.remove(retired)
+            _publish_suite_change(project_root, retired)
     # The PRIMARY destination gets the same ownership check the legacy sibling above already
     # had (#61). It did not, and the comment three lines up promised it did — so a file this
     # target does not own was removed or overwritten without a word. `synth_filename` flattens

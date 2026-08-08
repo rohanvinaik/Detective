@@ -188,7 +188,7 @@ def test_orphan_target_synthesizes_instead_of_running_the_suite(project):
     # Named for the whole func_key, module included: `orphan.py::tier_price`. Two modules
     # defining the same function name would otherwise claim one file and the second converge
     # would overwrite the first's suite.
-    assert list((project / "tests").rglob("test_orphan_tier_price_synth.py"))
+    assert list((project / "tests").rglob("test_orphan_tier_price_*_synth.py"))
 
 
 def test_decompose_apply_preserves_behaviour(project):

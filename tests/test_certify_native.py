@@ -139,7 +139,7 @@ def test_it_never_writes_a_conftest():
 def test_write_creates_named_file():
     d = tempfile.mkdtemp()
     path = _write("# content\n", d, "reset")
-    assert path == os.path.join(d, "test_reset_synth.py")
+    assert path == os.path.join(d, synth_filename("reset"))
     with open(path, encoding="utf-8") as fh:
         assert fh.read() == "# content\n"
 
@@ -147,7 +147,7 @@ def test_write_creates_named_file():
 def test_write_converts_dotted_qualname():
     d = tempfile.mkdtemp()
     path = _write("x", d, "Counter.reset")
-    assert os.path.basename(path) == "test_Counter_reset_synth.py"
+    assert os.path.basename(path) == synth_filename("Counter.reset")
 
 
 def test_write_creates_missing_directory():
@@ -163,14 +163,14 @@ def test_same_function_name_in_two_modules_gets_two_files():
     `✓ COMPLETE 13/13` to `0.0% killed, 10 real gaps`, silently, while beta reported success.
     `load`/`run`/`main`/`parse` make that a matter of when, not whether."""
     assert synth_filename("alpha.py::load") != synth_filename("beta.py::load")
-    assert synth_filename("alpha.py::load") == "test_alpha_load_synth.py"
-    assert synth_filename("beta.py::load") == "test_beta_load_synth.py"
+    assert synth_filename("alpha.py::load").startswith("test_alpha_load_")
+    assert synth_filename("beta.py::load").startswith("test_beta_load_")
 
 
 def test_the_extension_is_stripped_from_the_module_not_the_middle():
     """`.py` has to go before the halves are joined. Flattening first leaves it mid-string
     where `removesuffix` is a no-op, and the file becomes `test_orphan_py_tier_price_synth.py`."""
-    assert synth_filename("orphan.py::tier_price") == "test_orphan_tier_price_synth.py"
+    assert synth_filename("orphan.py::tier_price").startswith("test_orphan_tier_price_")
     assert "_py_" not in synth_filename("orphan.py::tier_price")
 
 
@@ -179,18 +179,22 @@ def test_a_nested_module_path_flattens_and_stays_unique():
     survive into the name — otherwise the collision just moves up a directory."""
     a = synth_filename("pkg/mod.py::run")
     b = synth_filename("other/mod.py::run")
-    assert a == "test_pkg_mod_run_synth.py" and b == "test_other_mod_run_synth.py"
+    assert a.startswith("test_pkg_mod_run_") and b.startswith("test_other_mod_run_")
     assert a != b
 
 
 def test_a_dotted_qualname_keeps_its_owner():
-    assert synth_filename("m.py::Counter.reset") == "test_m_Counter_reset_synth.py"
+    assert synth_filename("m.py::Counter.reset").startswith("test_m_Counter_reset_")
 
 
 def test_a_bare_name_is_used_as_is():
     """Direct `_write(..., "reset")` callers pass no module half; the fallback keeps their
-    filename rather than inventing an empty one."""
-    assert synth_filename("reset") == "test_reset_synth.py"
+    name in the readable stem rather than inventing an empty one. The key digest still follows
+    it (#61) — a bare name is a key like any other, and exempting it would reintroduce exactly
+    the collision the digest exists to prevent between `reset` and `a/reset.py::`."""
+    assert synth_filename("reset").startswith("test_reset_")
+    assert synth_filename("reset").endswith("_synth.py")
+    assert synth_filename("reset") != synth_filename("other.py::reset")
 
 
 # ── certify (fast path only — full runs are verified out-of-suite) ─

@@ -19,6 +19,7 @@ import pytest
 
 from Detective.certify import (
     GeneratedSuiteCollision,
+    _readable_stem,
     _write,
     generated_owner,
     synth_filename,
@@ -32,11 +33,20 @@ def _generated(key: str) -> str:
     return f'"""{_HEADER.format(key=key)}\n\nbody\n"""\n\n\ndef test_x():\n    assert True\n'
 
 
-def test_the_filename_scheme_is_not_injective():
-    """The precondition for everything below, stated as a fact rather than an assumption. If
-    this ever becomes false the guard is still correct, but the URGENCY changes."""
-    names = {synth_filename(k) for k in ("a/b.py::c", "a_b.py::c", "a-b.py::c", "a b.py::c")}
-    assert len(names) == 1, f"expected one colliding name, got {names}"
+def test_the_filename_scheme_is_injective_over_the_colliding_family():
+    """The four keys the issue names once produced ONE filename — the flattening turns
+    ``/ \\ . - space`` all into ``_``. The key digest separates them by construction rather than
+    by hoping their punctuation survives."""
+    keys = ("a/b.py::c", "a_b.py::c", "a-b.py::c", "a b.py::c")
+    names = {synth_filename(k) for k in keys}
+    assert len(names) == len(keys), f"expected {len(keys)} distinct names, got {names}"
+
+
+def test_the_readable_stem_alone_still_collides():
+    """And that is fine — the stem is for humans. Pinned so nobody 'fixes' the flattening into
+    something unreadable believing it carries identity; the digest is what does."""
+    stems = {_readable_stem(k) for k in ("a/b.py::c", "a_b.py::c", "a-b.py::c")}
+    assert len(stems) == 1
 
 
 def test_a_users_file_is_refused_not_destroyed(tmp_path):
@@ -55,7 +65,10 @@ def test_another_targets_file_is_refused_and_names_the_owner(tmp_path):
     """Our collision, not the user's problem — so the message has to carry the OTHER func_key.
     A refusal that says only 'not yours' sends the reader to inspect their own tests."""
     mine, theirs = "a/b.py::c", "a_b.py::c"
-    assert synth_filename(mine) == synth_filename(theirs)
+    # The digest now separates these two, so the collision is staged directly at OUR
+    # destination. That is the case the guard still has to cover: a digest collision, a
+    # hand-copied file, or any future naming change can put a foreign-owned file here, and
+    # naming is probabilistic while this check is not.
     dest = tmp_path / synth_filename(mine)
     dest.write_text(_generated(theirs), encoding="utf-8")
 
