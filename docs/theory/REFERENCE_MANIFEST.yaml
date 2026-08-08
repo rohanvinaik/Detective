@@ -1,0 +1,214 @@
+# The reference corpus for the negative-specification work, machine-checkable.
+#
+# Verify:  python docs/theory/check_reference_manifest.py
+#
+# WHY hashes and not copies. The theory priors live in ARC_AGI_3, which is their
+# home and where they are maintained. Forking copies into this repo would create
+# two truths and silent drift. Instead we record path + sha256 of the ORIGINAL,
+# so a prior changing under a claim that cites it FAILS LOUDLY instead of quietly
+# invalidating the claim. `external_root` makes the location configurable; a
+# missing root is reported as UNRESOLVED, never as a pass (Law 3 shape: a vacuous
+# check is a failure).
+#
+# `verified: false` on an external citation means RECALLED, NOT LOOKED UP. Those
+# must not be quoted publicly until checked. This field is the whole point of the
+# manifest for externals — it is the difference between a citation and a memory.
+
+external_root: ~/Projects/ARC_AGI_3
+
+# ─── Bundled priors: read directly, cite by file + section, do not re-derive ───
+priors:
+  - id: ssl-skeleton
+    path: docs/theory/SSL_PAPER_SKELETON.md
+    root: external
+    role: >
+      understanding as constrained resolution; the completeness equation
+      dH/dt = -(N + C(H)); L / I_solve / H*; the falsifiability guard; negative
+      learning DEFINED (§3.1); the homology table whose code end is asymmetric (§6.1)
+    sha256: ba83e3a65a1ffa59429c078e93a01af33e7c9e1d07bad81b541a16a4722ec573
+    sections_cited: ["1.4b", "1.4c", "2.5", "3.1", "4.3", "4.4", "6.1", "7.3"]
+    cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md, docs/theory/GLOSSARY.md]
+
+  - id: specification-complexity
+    path: docs/theory/specification_complexity_paper.md
+    root: external
+    role: >
+      sigma as a Blum measure; sigma = teaching dimension (Thm 2.7 / T5.17);
+      sigma is mu-PARAMETERIZED (§2.3 — the load-bearing fact for this work);
+      representation independence (Thm 2.3); redundancy = zero information gain
+      (Thm 3.11); composition gap (Thm 3.15)
+    sha256: 64bdc521a17ad2b0835ff79e057a74d3bc5d8902fc292719a6234d3833aca694
+    sections_cited: ["2.3", "2.4", "Thm 2.3", "Thm 2.7", "Thm 3.11", "Thm 3.15"]
+    cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md, docs/theory/GLOSSARY.md]
+
+  - id: significance-weighting
+    path: docs/theory/SIGNIFICANCE_WEIGHTING.md
+    root: external
+    role: >
+      kappa-gated induction; I_solve = I_ind + I_ext and L_ind (§12 — where
+      censors live); THE BRIDGE CRUX, submodularity fails and that is the target
+      (§13); admissibility as a WELL-DEFINEDNESS condition (§14); safe forgetting
+      = sigma-preserving reduction under kappa (§17)
+    sha256: b3f5e0744f0e9a2b9fc21ddbbd58cb63b94a370a330ad072028893b943aa2502
+    sections_cited: ["12", "13", "14", "17", "17.1"]
+    cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md, docs/theory/GLOSSARY.md]
+
+  - id: law-as-architecture
+    path: docs/theory/law_as_architecture.md
+    root: external
+    role: >
+      censors — "forbidding what no real instance does" (§7: Winston near-miss
+      made hard, a veto not a penalty); regime stratification and why the regime
+      must be part of the key, exact keys over-reach (§8)
+    sha256: c6b441edffa984537665bb8f5a14df25e6df7c0ddf202b866a006b67592aecbc
+    sections_cited: ["7", "8"]
+    cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md, docs/theory/GLOSSARY.md]
+
+  - id: arc-glossary
+    path: docs/GLOSSARY.md
+    root: external
+    role: >
+      the theory librarian this system is modelled on; the entry form
+      (what / commitment / sketch / read) and the entry point for the whole corpus
+    sha256: 9b819e6fb7b8f7637799cf04c2b03e144068e4c64e5905149f7a9bd288e3d945
+    cited_by: [docs/theory/GLOSSARY.md]
+
+# ─── Primary sources held as PDFs in the ARC_AGI_3 corpus ───
+  - id: winston-strong-story
+    path: docs/theory/external/winston_strong_story_hypothesis_2011.pdf
+    root: external
+    role: the Strong Story / Directed Perception hypotheses (AAAI Fall Symposium 2011)
+    sha256: b5eac912a11ca4d9e4cb4da51987f17bc60137f7bbe52d080d88d22477c61c51
+    cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md]
+
+  - id: winston-genesis-manifesto
+    path: docs/theory/external/winston_holmes_genesis_manifesto.pdf
+    root: external
+    role: the Genesis Enterprise (Winston & Holmes, MIT CSAIL 2018)
+    sha256: 11503df284169b8219c97d6c223645632f1d09a5fbb91ae3c533406eb7ddb9fa
+    cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md]
+
+# ─── This repo's own standing design docs ───
+  - id: detective-architecture
+    path: ARCHITECTURE.md
+    root: local
+    role: >
+      the operational map; §0 value-vs-run specification (the P/R boundary the
+      negative channel must respect); §11 the one-function law that §4.1 of the
+      theory doc must not violate
+    sha256: c1feeec3fc406956dd47b476b0bc6dbaaeb90fbd9ef4b0829593a384584c783d
+    sections_cited: ["0", "9", "11"]
+    cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md, docs/theory/GLOSSARY.md]
+
+  - id: parsimony-advisory
+    path: docs/PARSIMONY_ADVISORY.md
+    root: local
+    role: >
+      the advisory/proof separation this work inherits — the signal points WHERE,
+      the proof decides WHETHER; the invariant that an advisory channel cannot
+      cause a write
+    sha256: d35a1b90ec67ec4041d5215b1b123368a90916df1cc58df0ba050515814e33d2
+    cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md, docs/theory/GLOSSARY.md]
+
+  - id: negative-specification
+    path: docs/theory/NEGATIVE_SPECIFICATION.md
+    root: local
+    role: the theory document this manifest serves
+    sha256: 9a978387d06fff2ee286e113aab378ca9aa66322902c6dab6ba6d99a3a792d30
+    cited_by: [docs/theory/GLOSSARY.md, docs/theory/CONSTRAINT_BLOCK.md]
+
+  - id: negative-spec-glossary
+    path: docs/theory/GLOSSARY.md
+    root: local
+    role: the theory librarian for this work — stage, commitment, reading
+    sha256: 54b8d176213998fd6385d1bb5ad009e56dbacec4b8801f8c45b0f7c93a5ff1a0
+    cited_by: [docs/theory/CONSTRAINT_BLOCK.md]
+
+  - id: negative-spec-constraint-block
+    path: docs/theory/CONSTRAINT_BLOCK.md
+    root: local
+    role: the handoff artifact — carry verbatim into any summary; passes the remove-X check
+    sha256: 4cb5a227df907c00c39bab555653dbb19ef9464fdb6e155436703c9e9594ebbc
+    cited_by: [docs/theory/GLOSSARY.md]
+
+# ─── External citations: RECALLED, NOT VERIFIED. Do not quote until checked. ───
+# These have no hash because we do not hold them. `verified: false` is a standing
+# claim that the citation is a memory, not a source. Flipping one to true requires
+# actually reading it and recording where.
+external_citations:
+  - key: winston-1970
+    cite: "Winston, Learning Structural Descriptions from Examples, MIT AI-TR-231, 1970"
+    lends: "the near-miss operator — specialization by the example that just fails"
+    load_bearing: true   # §1 of the theory doc rests on this
+    verified: false
+  - key: minsky-censors
+    cite: "Minsky, A Framework for Representing Knowledge (1974); K-lines (1980); Society of Mind (1986)"
+    lends: "censors as learned exceptions that block a default without retracting the rule"
+    load_bearing: true
+    verified: false
+  - key: goldman-kearns-1995
+    cite: "Goldman & Kearns, On the Complexity of Teaching, JCSS 1995"
+    lends: "teaching dimension; TD(C) = max_c TD(c)"
+    load_bearing: true   # §2.1: TD is defined over BOTH labels
+    verified: false
+  - key: goldman-mathias-1996
+    cite: "Goldman & Mathias, Teaching a Smarter Learner, JCSS 1996"
+    lends: "the teaching-set formulation sigma is proved equal to"
+    load_bearing: true
+    verified: false
+  - key: mitchell-1982
+    cite: "Mitchell, Generalization as Search / version spaces, 1982"
+    lends: "candidate elimination; the two-operator structure negatives complete"
+    load_bearing: false
+    verified: false
+  - key: ammann-offutt-ripr
+    cite: "Ammann & Offutt, Introduction to Software Testing (RIPR model)"
+    lends: "Reachability/Infection/Propagation/Revealability — the phase model behind Wesker#18"
+    load_bearing: false  # cited in Wesker#23, not load-bearing here
+    verified: false
+  - key: budd-angluin-1982
+    cite: "Budd & Angluin, Two notions of correctness and their relation to testing, 1982"
+    lends: "mutant equivalence is undecidable in general"
+    load_bearing: false
+    verified: false
+  - key: feige-izsak
+    cite: "Feige & Izsak, bounded supermodular degree"
+    lends: "the degraded greedy guarantee when submodularity fails by a controlled amount"
+    load_bearing: true   # §6 target theorem shape
+    verified: false
+  - key: nemhauser-wolsey-fisher
+    cite: "Nemhauser, Wolsey & Fisher, greedy (1-1/e) for monotone submodular maximization"
+    lends: "the bound recovered at d = 0"
+    load_bearing: false
+    verified: false
+  - key: golovin-krause-2011
+    cite: "Golovin & Krause, Adaptive Submodularity, 2011"
+    lends: "the other candidate frame for the adaptive promotion loop; fails at bridges too"
+    load_bearing: false
+    verified: false
+  - key: hindle-naturalness
+    cite: "Hindle et al., On the Naturalness of Software"
+    lends: >
+      the empirical basis for structure-carries-purpose: program text is far more
+      predictable than natural language, so the choice among semantically
+      equivalent programs is recoverable signal
+    load_bearing: false
+    verified: false
+  - key: landauer-1961
+    cite: "Landauer, Irreversibility and Heat Generation in the Computing Process, 1961"
+    lends: >
+      the correct frame for the DNA-repair motivation — local entropy decrease is a
+      Maxwell demon paying its bill, NOT a violation. Use this instead of
+      "violating entropy", which is attackable and unnecessary.
+    load_bearing: false
+    verified: false
+  - key: papadakis-tce
+    cite: "Papadakis et al., Trivial Compiler Equivalence"
+    lends: "sound, execution-free detection of equivalent mutants (Wesker#24)"
+    load_bearing: false
+    verified: false
+  - key: crick-mitchison-1983
+    cite: "Crick & Mitchison, The function of dream sleep, 1983"
+    lends: "reverse-learning; the prior SIGNIFICANCE_WEIGHTING §17.1 makes rigorous"
+    load_bearing: false
+    verified: false

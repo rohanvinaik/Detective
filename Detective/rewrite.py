@@ -115,6 +115,55 @@ def receipt_refusal(
     return None
 
 
+def receipt_load_refusal(text: str, expected_schema: str) -> str:
+    """Why a receipt FILE cannot be loaded at all, "" when it can (#57, pure — pinned).
+
+    :func:`receipt_refusal` gates a receipt that already exists as an object. Everything that
+    goes wrong BEFORE that — unparseable JSON, a JSON array where an object belongs, a foreign
+    schema, a digest that does not match its own recorded source — reached the CLI as a raised
+    exception, so `verify-rewrite` printed a traceback and, under ``--json``, printed NOTHING at
+    all. A caller cannot consume a refusal state the tool never emitted, and a traceback is not
+    a verdict: the whole point of a typed-outcome contract is that every ending is one of the
+    named ones.
+
+    Returns a STABLE CODE, not prose. These are consumed by callers deciding what to do next,
+    and a message that reads well is worth nothing if it changes between versions:
+
+    * ``malformed_json``  — not JSON at all.
+    * ``not_an_object``   — valid JSON of the wrong shape (a list, a bare string, null).
+    * ``missing_schema``  — no ``schema`` key, or one that is not a non-empty string.
+    * ``unknown_schema``  — a receipt some other version wrote.
+    * ``bad_fields``      — required fields absent or of the wrong type.
+    * ``digest_mismatch`` — the recorded source does not hash to its recorded digest, so the
+      original implementation this receipt would be REPLAYED from cannot be trusted.
+
+    Ordered from the most fundamental breach outward, because a later check cannot be meaningful
+    once an earlier one has failed: there is no schema to read in a file that is not JSON, and no
+    digest to compare without a source field to hash.
+
+    ``expected_schema`` is a parameter rather than a module read so the whole contract sits
+    inside a literal grammar and can be pinned — the same split as `resolve_test_id` upstream.
+    """
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return "malformed_json"
+    if not isinstance(parsed, dict):
+        return "not_an_object"
+    schema = parsed.get("schema")
+    if not isinstance(schema, str) or not schema:
+        return "missing_schema"
+    if schema != expected_schema:
+        return "unknown_schema"
+    source = parsed.get("original_source")
+    digest = parsed.get("source_digest")
+    if not isinstance(source, str) or not isinstance(digest, str):
+        return "bad_fields"
+    if hashlib.sha256(source.encode("utf-8")).hexdigest() != digest:
+        return "digest_mismatch"
+    return ""
+
+
 @dataclass(frozen=True)
 class RewriteVerification:
     """The typed outcome of verifying a rewrite against a receipt (#37)."""

@@ -3516,10 +3516,51 @@ def _run(args) -> int:
         return 0 if (rec.proof_status == "passed" and rec.functionally_complete) else 3
 
     if args.command == "verify-rewrite":
-        from .rewrite import RewriteReceipt, verify_rewrite
+        from .rewrite import (
+            _RECEIPT_SCHEMA,
+            RewriteReceipt,
+            RewriteVerification,
+            receipt_load_refusal,
+            verify_rewrite,
+        )
 
-        with open(args.receipt_path, encoding="utf-8") as fh:
-            receipt = RewriteReceipt.from_json(fh.read())
+        def _invalid(reason: str) -> int:
+            """Emit INVALID_RECEIPT through the SAME channel a real verdict uses (#57).
+
+            The load boundary raised, so a corrupt or foreign receipt reached the user as a
+            Python traceback — and under ``--json`` as NOTHING AT ALL, since the exception
+            escaped before anything was printed. A caller cannot consume a refusal the tool
+            never emitted. Every ending of this command is a `RewriteVerification`, including
+            the ones where no verification could begin.
+            """
+            res = RewriteVerification(
+                verdict="INVALID_RECEIPT",
+                function=f"{file}::{function}",
+                proof_replayed="",
+                new_dimensions=(),
+                differences=(),
+                abstentions=(),
+                note=reason,
+            )
+            print(res.to_json() if args.json else _format_rewrite(res))
+            return 1
+
+        try:
+            with open(args.receipt_path, encoding="utf-8") as fh:
+                _text = fh.read()
+        except OSError as exc:
+            return _invalid(f"unreadable_receipt: {exc}")
+        _reason = receipt_load_refusal(_text, _RECEIPT_SCHEMA)
+        if _reason:
+            return _invalid(_reason)
+        try:
+            receipt = RewriteReceipt.from_json(_text)
+        except (TypeError, ValueError) as exc:
+            # Residual. `receipt_load_refusal` names every failure derivable from the TEXT, but
+            # construction can still reject a shape it does not model — an unexpected key, a
+            # field whose type it does not inspect. Catching here keeps the promise that no
+            # input reaches the user as a traceback, instead of assuming that list is total.
+            return _invalid(f"bad_fields: {exc}")
         result = verify_rewrite(
             receipt, file, function, args.project_root, notify=None if args.json else _notify_stderr
         )
