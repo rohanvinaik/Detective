@@ -11,11 +11,11 @@
 
 `Deterministic · No LLM · Applies nothing it cannot prove`
 
-Your suite is green. Detective reversed the arguments to a `round()` call in your code — `round(score, 4)` became `round(4, score)` — and the suite is still green:
+Your suite is green. Detective loosened a comparison in your code — `deviation > threshold` became `deviation >= threshold` — and the suite is still green:
 
 ```diff
-- return round(score, 4)
-+ return round(4, score)      # every test you wrote still passes
+- if deviation > threshold:
++ if deviation >= threshold:      # every test you wrote still passes
 ```
 
 That is a real change to what your function computes, and nothing you wrote noticed. Every refactor you have ever shipped placed its bet in that gap. So does every line a model writes for you.
@@ -80,7 +80,7 @@ $ detective converge stats.py::anomaly_score
   0% → 73% (27/37 behaviors pinned) · 4 tests written
 
   4 behaviors nothing distinguishes — each with the input that would:
-    return round(score, 4)   →  round(4, score)
+    return round(score, 4)   →  round(score, 2)   supply a score with a nonzero 3rd–4th decimal
     if deviation > peak:      →  >=   supply an input where deviation == peak
     if score > 1.0:           →  >=   supply an input where score == 1.0
 ```
