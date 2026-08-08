@@ -6,7 +6,14 @@ ACTUALLY does, so a test that mocks the filesystem would test the mock.
 
 from __future__ import annotations
 
-from Detective.regime import TestRegime, apply_migration, plan_migration, resolve_regime
+from Detective.regime import (
+    TestRegime,
+    apply_migration,
+    plan_migration,
+    pytest_config,
+    pytest_honors_bare_tool_pytest,
+    resolve_regime,
+)
 
 
 def _pkg(root, *parts: str) -> None:
@@ -313,3 +320,46 @@ def test_two_conftests_of_YOURS_are_blocked_not_guessed_at(tmp_path):
     plan = plan_migration(resolve_regime(str(tmp_path)))
     assert any("neither is ours" in b for b in plan.blocked)
     assert plan.remove_conftests == ()
+
+
+# ── bare [tool.pytest] is version-routed (#33) ────────────────────
+# Native support for a BARE `[tool.pytest]` (no `ini_options` subtable) landed in pytest 9.0 —
+# measured: 7.4.4 and 8.3.3 IGNORE it and read tox.ini, only 9.0+ honors it. The static mirror must
+# route on the running pytest's version, or on 7/8 it declares the marker into a pyproject that pytest
+# never reads. `_installed_pytest_honors_bare` is monkeypatched to pin each version regime.
+def _bare_pyproject_plus_toxini(root) -> None:
+    (root / "pyproject.toml").write_text('[tool.pytest]\ntestpaths = ["."]\n')
+    (root / "tox.ini").write_text("[pytest]\n")
+
+
+def test_bare_tool_pytest_is_ignored_on_pytest_7_8_so_toxini_wins(tmp_path, monkeypatch):
+    _bare_pyproject_plus_toxini(tmp_path)
+    monkeypatch.setattr("Detective.regime._installed_pytest_honors_bare", lambda: False)
+    path, _dialect, section = pytest_config(str(tmp_path))
+    assert path.endswith("tox.ini") and section == "[pytest]"
+
+
+def test_bare_tool_pytest_is_honored_on_pytest_9_so_pyproject_wins(tmp_path, monkeypatch):
+    _bare_pyproject_plus_toxini(tmp_path)
+    monkeypatch.setattr("Detective.regime._installed_pytest_honors_bare", lambda: True)
+    path, _dialect, section = pytest_config(str(tmp_path))
+    assert path.endswith("pyproject.toml") and section == "[tool.pytest]"
+
+
+def test_canonical_ini_options_is_never_version_gated(tmp_path, monkeypatch):
+    # The canonical [tool.pytest.ini_options] is honored by EVERY supported pytest — even simulating
+    # pytest 7 it must still select pyproject; only the bare form is gated.
+    (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\ntestpaths = ["."]\n')
+    (tmp_path / "tox.ini").write_text("[pytest]\n")
+    monkeypatch.setattr("Detective.regime._installed_pytest_honors_bare", lambda: False)
+    path, _dialect, section = pytest_config(str(tmp_path))
+    assert path.endswith("pyproject.toml") and section == "[tool.pytest.ini_options]"
+
+
+def test_pytest_honors_bare_tool_pytest_version_boundary():
+    assert pytest_honors_bare_tool_pytest("9.0.0") is True
+    assert pytest_honors_bare_tool_pytest("9.1.1") is True
+    assert pytest_honors_bare_tool_pytest("8.3.3") is False
+    assert pytest_honors_bare_tool_pytest("7.4.4") is False
+    assert pytest_honors_bare_tool_pytest(None) is False
+    assert pytest_honors_bare_tool_pytest("weird") is False

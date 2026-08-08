@@ -235,13 +235,18 @@ class _EffectSink:
     block: bool = False
 
 
-class _CaptureWriteBlocked(Exception):
+class _CaptureWriteBlocked(BaseException):
     """A filesystem write attempted during speculative golden capture was prevented (#30).
 
     Raised INSIDE the audit hook, so it unwinds the target mid-write: the effect never lands, and
-    the capture is dropped and reported as a filesystem-writing refusal. Not an ``Exception`` the
-    target's own ``except`` should swallow in practice — it fires from the interpreter's audit
-    machinery, before the target's write call returns."""
+    the capture is reported as a filesystem-writing refusal.
+
+    Subclasses ``BaseException``, NOT ``Exception``, on purpose. A target that wraps its own write in
+    ``try: … except Exception:`` (a fallback, a "best effort" logger) would otherwise CATCH the guard,
+    swallow the unwind, and return normally — and Detective would pin a golden of that fallback branch
+    while reporting zero writes, even though the same function writes the file when run for real. Sitting
+    above ``Exception`` (like ``KeyboardInterrupt``/``SystemExit``) makes the guard unswallowable by
+    ordinary handlers; only Detective's own call sites, which name it explicitly, may catch it."""
 
 
 _OPEN_WATCH: ContextVar[_EffectSink | None] = ContextVar("detective_open_watch", default=None)

@@ -27,6 +27,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
+_RECEIPT_SCHEMA = "detective-rewrite-receipt/1"
+
 
 @dataclass(frozen=True)
 class RewriteReceipt:
@@ -47,24 +49,77 @@ class RewriteReceipt:
     proof_suite: tuple[str, ...]  # proof-basis paths (relative) that discharged the obligations
     proof_status: str  # the verification status when recorded (should be "passed")
     functionally_complete: bool  # was the original mutation-complete when the receipt was taken
-    schema: str = "detective-rewrite-receipt/1"
+    schema: str = _RECEIPT_SCHEMA
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, default=str)
 
     @staticmethod
     def from_json(text: str) -> RewriteReceipt:
+        """Load a receipt AND validate its integrity at the load boundary (#37).
+
+        The old loader silently *coerced* ``schema`` to the current value and never recomputed the
+        source digest, so a foreign or hand-tampered JSON loaded as a trusted receipt. Now the
+        schema is read (not forced) and the self-consistent gates (schema + source-digest) run via
+        the pinned :func:`receipt_refusal`; an integrity failure raises rather than loading a receipt
+        ``verify-rewrite`` would later trust.
+        """
         d = json.loads(text)
-        d.pop("schema", None)
+        schema = d.pop("schema", None)
         d["proof_suite"] = tuple(d.get("proof_suite", ()))
-        return RewriteReceipt(**d, schema="detective-rewrite-receipt/1")
+        rec = RewriteReceipt(**d, schema=schema if isinstance(schema, str) else "")
+        # requested_key == receipt.function: identity is trivially satisfied here (we have no target
+        # yet), so only the self-contained schema/digest gates can fire at load time.
+        reason = receipt_refusal(
+            rec.schema, rec.original_source, rec.source_digest, rec.function, rec.function
+        )
+        if reason is not None:
+            raise ValueError(f"invalid rewrite receipt: {reason}")
+        return rec
+
+
+def receipt_refusal(
+    schema: str,
+    original_source: str,
+    source_digest: str,
+    receipt_function: str,
+    requested_key: str,
+) -> str | None:
+    """Reasons a receipt must be REFUSED for a target BEFORE any verification runs (#37, pure — pinned).
+
+    A receipt is a claim about exactly ONE function. Nothing bound the receipt to the requested
+    target, so a receipt for ``a.py::a`` could be replayed against ``b.py::b`` and reported
+    ``PRESERVED`` for ``a.py::a`` — a preservation certificate about a function that was never
+    examined. Three self-checking gates close that hole, in order of how fundamental the breach is:
+
+    * ``schema`` — the JSON is not a receipt this version understands (a foreign/newer artifact).
+    * ``source_digest`` — the recorded source does not hash to its recorded digest: the receipt is
+      corrupt or was hand-edited, so its ``original_source`` (which the old implementation is RUN
+      from) cannot be trusted.
+    * identity — ``receipt_function`` is not the ``requested_key`` under verification: the receipt
+      describes a different function entirely.
+
+    Returns the human-readable reason to refuse, or ``None`` when the receipt is well-formed AND
+    bound to exactly this target. Every gate is 'refuse', never 'measure' — absence of a match can
+    never become a silent pass.
+    """
+    if schema != _RECEIPT_SCHEMA:
+        return f"unrecognized receipt schema {schema!r} (expected {_RECEIPT_SCHEMA!r})"
+    if hashlib.sha256(original_source.encode("utf-8")).hexdigest() != source_digest:
+        return "receipt source digest does not match its recorded source — corrupt or tampered receipt"
+    if receipt_function != requested_key:
+        return (
+            f"receipt is for {receipt_function!r}, but verification was requested for "
+            f"{requested_key!r} — a receipt binds to exactly one function"
+        )
+    return None
 
 
 @dataclass(frozen=True)
 class RewriteVerification:
     """The typed outcome of verifying a rewrite against a receipt (#37)."""
 
-    verdict: str  # PRESERVED | CHANGED | UNREVIEWED | ABSTAIN | STALE_RECEIPT
+    verdict: str  # PRESERVED | CHANGED | UNREVIEWED | ABSTAIN | STALE_RECEIPT | INVALID_RECEIPT
     function: str
     proof_replayed: str  # the pytest status of replaying the old proof suite on the NEW source
     new_dimensions: tuple[str, ...]  # killable mutants the old proof does not kill on the new source
@@ -112,18 +167,23 @@ def rewrite_verdict(
     return "PRESERVED"
 
 
-def _function_source(file_full: str, function: str) -> tuple[str, Any] | None:
-    """(source_text, node) for ``function`` in the file, or None if not found."""
+def _function_source(file_full: str, function: str) -> tuple[str, Any, str] | None:
+    """(source_text, node, qualname) for ``function`` in the file, or None if not found.
+
+    ``qualname`` is the resolver's own name for the target (``Class.method`` for methods) — the same
+    string ``converge`` stamps into a receipt's ``function`` key, so a caller can reconstruct that
+    key and bind a receipt to exactly this target.
+    """
     from .engine import _resolve
 
     with open(file_full, encoding="utf-8") as fh:
         text = fh.read()
     tree = ast.parse(text, filename=file_full)
     qualname, node = _resolve(tree, function)
-    if node is None:
+    if node is None or qualname is None:
         return None
     seg = ast.get_source_segment(text, node)
-    return (seg or "", node)
+    return (seg or "", node, qualname)
 
 
 def make_receipt(
@@ -143,7 +203,7 @@ def make_receipt(
     fs = _function_source(full, function)
     if fs is None:
         raise LookupError(f"function {function!r} not found in {file}")
-    original_source, node = fs
+    original_source, node, _qualname = fs
 
     conv = converge(file, function, project_root, notify=notify)
     proof: list[str] = []
@@ -207,7 +267,22 @@ def verify_rewrite(
     fs = _function_source(full, function)
     if fs is None:
         raise LookupError(f"function {function!r} not found in {file}")
-    _new_source, new_node = fs
+    _new_source, new_node, qualname = fs
+
+    # BIND the receipt to the requested target BEFORE anything is measured (#37, reopened). The
+    # requested key is built exactly as ``converge`` builds a receipt's ``function`` (relpath::qualname,
+    # see converge.func_key), so a receipt for a DIFFERENT function — or a corrupt/foreign one — is
+    # refused here rather than replayed and reported PRESERVED for a function nobody examined. The
+    # report is stamped with ``requested_key``, never the receipt's own identity, so it can never
+    # mislabel which function was checked.
+    requested_key = f"{os.path.relpath(full, root)}::{qualname}"
+    refusal = receipt_refusal(
+        receipt.schema, receipt.original_source, receipt.source_digest, receipt.function, requested_key
+    )
+    if refusal is not None:
+        say(f"⚠ {refusal}")
+        return RewriteVerification("INVALID_RECEIPT", requested_key, "skipped", (), (), (), note=refusal)
+
     # A receipt whose recorded source equals the current source is not describing a REWRITE — there is
     # nothing to verify, and "PRESERVED" would be a vacuous pass. Say so distinctly.
     if pins.function_digest(new_node) == receipt.function_digest:

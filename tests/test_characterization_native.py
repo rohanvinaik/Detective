@@ -89,6 +89,48 @@ def test_capture_golden_dedups_repeated_sites():
     assert len([c for c in caps if c.inputs == (1, 1)]) == 1
 
 
+# ── the write guard is unswallowable (#30, reopened) ──────────────
+# The path the target writes to, set per-test; the helper closes over it so it can be a no-arg
+# call site (capture_golden runs zero-arg invocations, mirroring _nondet/_boom).
+_WRITE_TARGET: list[str] = []
+
+
+def _writer_that_swallows():
+    """A function that writes AND wraps the write in the common `except Exception:` fallback.
+
+    This is the exact shape that used to defeat the speculative-write guard: when the audit hook
+    raised the (then-``Exception``-derived) guard mid-write, this handler caught it and returned the
+    fallback normally, so Detective pinned a golden of ``'blocked-fallback'`` and reported zero writes.
+    """
+    try:
+        with open(_WRITE_TARGET[0], "w", encoding="utf-8") as fh:
+            fh.write("data")
+        return "wrote"
+    except Exception:  # noqa: BLE001 — deliberately broad: the point is it must NOT catch the guard
+        return "blocked-fallback"
+
+
+def test_write_guard_is_not_swallowed_by_target_except_exception(tmp_path):
+    """A target's own `except Exception` must not be able to swallow the speculative-write guard.
+
+    Regression for the reopened #30: with the guard above ``Exception``, the capture is reported as a
+    filesystem-writing refusal (non-deterministic, writes named, no pinned value) and the write never
+    lands — instead of a bogus deterministic golden of the fallback branch.
+    """
+    target = tmp_path / "must_not_exist.txt"
+    _WRITE_TARGET[:] = [str(target)]
+    caps = capture_golden(_writer_that_swallows, [])
+    assert caps, "the blocked-write capture must be surfaced, not dropped"
+    cap = caps[0]
+    assert cap.deterministic is False
+    assert cap.filesystem_writes  # the prevented write is named
+    # No golden pins the swallowed branch: no value was captured (output is the unset default,
+    # never the fallback's ``'blocked-fallback'`` repr).
+    assert not cap.output and cap.value is None
+    assert cap.output != "'blocked-fallback'"
+    assert not target.exists()  # the write was prevented, not merely observed
+
+
 # ── corroborate_captures ──────────────────────────────────────────
 def _provisional(deterministic=True):
     return GoldenCapture(inputs=(1,), output="1", deterministic=deterministic)

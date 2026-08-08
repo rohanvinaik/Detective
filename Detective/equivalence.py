@@ -611,12 +611,25 @@ def _outcome(fn: Callable[..., Any], args: tuple, timeout_s: float = _CLASSIFY_T
     # identical for original and mutant, so a writing function yields no false value-witness. The
     # consumer's own tests (run elsewhere, no sink set) are unaffected. Lazy import breaks the
     # characterization→equivalence module cycle.
-    from .synthesis.characterization import block_fs_writes
+    from .synthesis.characterization import _CaptureWriteBlocked, block_fs_writes
 
     def _run() -> None:
         try:
             with block_fs_writes():
                 box["v"] = repr(fn(*(unwrap(a) for a in args)))
+        except _CaptureWriteBlocked as exc:
+            # A speculative write was PREVENTED (#30). The guard now sits above `Exception` so the
+            # target's own `except Exception` can never swallow it — but that means OUR handler below
+            # no longer catches it either, and without this clause it would fall through to the #42
+            # abandon-unwind and read as a timeout. Render it as the deterministic observable outcome
+            # it is (identical for original and mutant, so a writing function yields no false witness),
+            # exactly as the generic raised-outcome branch would have.
+            message = str(exc)
+            box["v"] = (
+                f"<raised {type(exc).__name__}>"
+                if (not message or _VOLATILE_IN_MESSAGE.search(message))
+                else f"<raised {type(exc).__name__}: {message}>"
+            )
         except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
             message = str(exc)
             box["v"] = (
@@ -713,7 +726,7 @@ def _search_witness(
     candidate_inputs: list[tuple],
     *,
     deadline: float | None = None,
-) -> tuple[Witness | None, Witness | None]:
+) -> tuple[Witness | None, Witness | None, bool]:
     """``(witness, crash_witness, blocked)`` — the search `find_witness` runs, plus the two facts it
     used to throw away: a crash-only distinguishing input, and whether classification TIMED OUT (#42).
 

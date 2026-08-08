@@ -210,6 +210,29 @@ def _wiring_message(
 _VERIFY_TIMEOUT_S = 120.0
 
 
+def verify_timeout_s(remaining_s: float | None, cap_s: float = _VERIFY_TIMEOUT_S) -> float:
+    """The pytest-verification subprocess timeout, clamped to the aggregate wall (issue #31, pure — pinned).
+
+    The final proof-basis verification is ONE phase under converge's single aggregate deadline, not a
+    fresh 120s grant. A run that finished mutation with milliseconds left on the wall used to spawn a
+    full ``_VERIFY_TIMEOUT_S`` pytest and overrun the deadline by up to two minutes. So the subprocess
+    timeout is the SMALLER of the fixed cap and whatever wall time remains:
+
+    * ``remaining_s`` is None — no wall was declared (the standalone ``certify`` / ``verify-rewrite``
+      callers) — use the full ``cap_s``, preserving pre-deadline behaviour.
+    * ``remaining_s`` > 0 — clamp to ``min(cap_s, remaining_s)``: never more than the cap, and never
+      more than the wall still allows.
+    * ``remaining_s`` <= 0 — the wall is already exhausted; return ``0.0``, the signal to the caller to
+      withhold the certificate rather than spawn past the deadline.
+
+    Never returns negative (a negative timeout to ``subprocess.run`` raises); ``0.0`` is the floor."""
+    if remaining_s is None:
+        return cap_s
+    if remaining_s <= 0:
+        return 0.0
+    return min(cap_s, remaining_s)
+
+
 @dataclass(frozen=True)
 class PytestVerification:
     """The typed outcome of running the proof suite under real pytest — the certificate's
@@ -243,7 +266,11 @@ class PytestVerification:
 
 
 def run_pytest_verification(
-    project_root: str, test_path: str | Sequence[str], *, basis: str = "generated-only"
+    project_root: str,
+    test_path: str | Sequence[str],
+    *,
+    basis: str = "generated-only",
+    deadline_s: float | None = None,
 ) -> PytestVerification:
     """Run the proof suite under real pytest and CLASSIFY the outcome (issue #38).
 
@@ -251,6 +278,12 @@ def run_pytest_verification(
     test failure (rc 1), a collection/import error (rc 2), no tests collected (rc 5), a missing
     runner, and a timeout. Counts are parsed from the summary for the report; the STATUS is the
     return code, not a substring, so "collected and failed" can never read as "could not collect".
+
+    ``deadline_s`` is the aggregate-wall time REMAINING (issue #31): this verification is one phase
+    under converge's single deadline, so its subprocess timeout is clamped to the wall via
+    :func:`verify_timeout_s`, never a fresh 120s that would overrun it. None (the standalone callers)
+    keeps the full cap. An already-exhausted wall (``<= 0``) withholds the certificate WITHOUT spawning
+    — a fresh pytest there would run minutes past the deadline the caller already blew.
     """
     import re
     import subprocess
@@ -261,6 +294,11 @@ def run_pytest_verification(
         return PytestVerification("no_tests", None, 0, 0, 0, 0, (), basis)
     if not _pytest_available():
         return PytestVerification("runner_missing", None, 0, 0, 0, 0, tuple(paths), basis)
+    timeout = verify_timeout_s(deadline_s)
+    if timeout <= 0:
+        # The aggregate wall was exhausted before verification could start; spawning here would
+        # overrun the deadline. Unverified is not a pass — withhold, honestly, as a timeout.
+        return PytestVerification("timed_out", None, 0, 0, 0, 0, tuple(paths), basis)
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", *paths, "-o", "addopts=", "-q", "-p", "no:cacheprovider"],
@@ -268,7 +306,7 @@ def run_pytest_verification(
             capture_output=True,
             text=True,
             check=False,
-            timeout=_VERIFY_TIMEOUT_S,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return PytestVerification("timed_out", None, 0, 0, 0, 0, tuple(paths), basis)

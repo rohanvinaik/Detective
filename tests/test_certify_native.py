@@ -17,7 +17,9 @@ from Detective.certify import (
     _write,
     certify,
     ensure_marker_registered,
+    run_pytest_verification,
     synth_filename,
+    verify_timeout_s,
 )
 
 # ── _wiring_message (mutation-driven — the exact CLI wording IS the product) ─
@@ -200,3 +202,23 @@ def test_certify_unknown_function_raises():
 
     with pytest.raises(LookupError):
         certify("Detective/scope.py", "no_such_function", ".")
+
+
+# ── deadline-aware verification (#35: one wall, never a fresh 120s) ─
+def test_verify_timeout_s_clamps_to_the_remaining_wall():
+    assert verify_timeout_s(None) == 120.0  # no wall → full cap
+    assert verify_timeout_s(0.0) == 0.0  # exhausted → withhold
+    assert verify_timeout_s(-3.0) == 0.0  # never negative
+    assert verify_timeout_s(0.5) == 0.5  # clamp to the little that's left
+    assert verify_timeout_s(500.0) == 120.0  # never more than the cap
+
+
+def test_verification_withholds_without_spawning_when_deadline_exhausted(tmp_path):
+    """An exhausted aggregate wall must NOT spawn a fresh 120s pytest (the #35 overrun). The proof is
+    a real green test file that the exhausted-deadline path never runs: no exit code, nothing collected."""
+    t = tmp_path / "test_x.py"
+    t.write_text("def test_ok():\n    assert True\n")
+    v = run_pytest_verification(str(tmp_path), [str(t)], deadline_s=0.0)
+    assert v.status == "timed_out"  # unverified, honestly withheld
+    assert v.exit_code is None and v.collected == 0  # pytest never ran
+    assert not v.ok

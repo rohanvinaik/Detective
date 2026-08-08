@@ -141,6 +141,40 @@ def _pyproject_pytest_section(source: str) -> str | None:
     return None
 
 
+def pytest_honors_bare_tool_pytest(version: str | None) -> bool:
+    """Does a pytest of this version read a BARE ``[tool.pytest]`` table as config (pure — pinned)?
+
+    Native ``[tool.pytest]`` support (no ``ini_options`` subtable) landed in pytest **9.0**. Measured:
+    7.4.4 and 8.3.3 IGNORE a bare table and fall through to ``tox.ini`` / ``setup.cfg``; only 9.0+
+    reads it (and warns it is ignoring the lower-precedence file). Detective declares ``pytest>=7``,
+    so the static mirror must NOT assume 9's behaviour: on 7/8 a bare ``[tool.pytest]`` is not a config
+    source, and predicting ``pyproject`` there declares the marker into a file that pytest never reads.
+
+    A version string is ``major.minor.…``; only the major gates the behaviour. Unparseable / unknown
+    (``None``, empty, non-numeric major) → ``False``, the conservative read: the bare form is the
+    newer, rarer shape, and where a repo genuinely is on 9 the live ``configfile`` reconcile still
+    corrects the mirror. Getting this wrong in EITHER direction writes the marker into an ignored file,
+    so it is version-routed, never guessed."""
+    if not version:
+        return False
+    try:
+        major = int(version.split(".")[0])
+    except (ValueError, AttributeError):
+        return False
+    return major >= 9
+
+
+def _installed_pytest_honors_bare() -> bool:
+    """Whether the pytest that will run the suite honors a bare ``[tool.pytest]`` — the impure probe
+    behind the pure :func:`pytest_honors_bare_tool_pytest`. Reads the in-process ``pytest.__version__``
+    (the engine runs where the target's deps live, so this is that pytest); absent pytest → False."""
+    try:
+        import pytest
+    except ImportError:
+        return False
+    return pytest_honors_bare_tool_pytest(getattr(pytest, "__version__", None))
+
+
 def pytest_config(root: str) -> tuple[str, str, str] | None:
     """The config file pytest will ACTUALLY read — `(path, dialect, section)` — or None.
 
@@ -176,6 +210,14 @@ def pytest_config(root: str) -> tuple[str, str, str] | None:
             # Recognize BOTH pytest sections pyproject can carry (ini_options and bare tool.pytest),
             # returning the one that actually exists so the reader and the writer both target it.
             resolved_section = _pyproject_pytest_section(source)
+            # A bare `[tool.pytest]` is config ONLY on pytest>=9 (measured); on the 7/8 that Detective
+            # also supports, pytest IGNORES it and reads the NEXT file (tox.ini/setup.cfg). So honor
+            # the bare form only when the running pytest actually does — otherwise fall through, or we
+            # would predict pyproject and declare the marker into a file this pytest never reads. The
+            # canonical `[tool.pytest.ini_options]` is honored by every supported version and is never
+            # gated. (`configfile` reconcile remains the authority when pytest can be asked directly.)
+            if resolved_section == "[tool.pytest]" and not _installed_pytest_honors_bare():
+                resolved_section = None
             if resolved_section is not None:
                 return path, "toml", resolved_section
             continue

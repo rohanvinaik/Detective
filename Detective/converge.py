@@ -1334,8 +1334,14 @@ def _converge_impl(
             )
         )
         if basis_paths:
+            # This verification is one phase under the ONE aggregate wall (#31): pass the REMAINING
+            # budget so its pytest timeout is clamped to it, never a fresh 120s that overruns the
+            # deadline a run finishing mutation with milliseconds left would otherwise blow.
             verification = run_pytest_verification(
-                root, list(basis_paths), basis="target-complete" if covering else "generated-only"
+                root,
+                list(basis_paths),
+                basis="target-complete" if covering else "generated-only",
+                deadline_s=_budget_s(),
             )
         else:
             # Otherwise-complete but NO proof suite on disk at all — an absent basis is a refusal,

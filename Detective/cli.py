@@ -3343,7 +3343,14 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
 
 def _format_rewrite(r) -> str:
     """The rewrite-verification report (issue #37): verdict first, then the evidence behind it."""
-    icon = {"PRESERVED": "✓", "CHANGED": "✗", "UNREVIEWED": "⚠", "ABSTAIN": "⚠", "STALE_RECEIPT": "·"}
+    icon = {
+        "PRESERVED": "✓",
+        "CHANGED": "✗",
+        "UNREVIEWED": "⚠",
+        "ABSTAIN": "⚠",
+        "STALE_RECEIPT": "·",
+        "INVALID_RECEIPT": "✗",
+    }
     lines = [_RULE, f"{r.function} — verify-rewrite: {icon.get(r.verdict, '·')} {r.verdict}", ""]
     lines.append(_row("· proof replay", f"the original suite ran {r.proof_replayed} on the rewritten source"))
     if r.new_dimensions:
@@ -3379,6 +3386,10 @@ def _format_rewrite(r) -> str:
         ),
         "STALE_RECEIPT": (
             "DONE:  nothing was rewritten — the current source is identical to the receipt's original."
+        ),
+        "INVALID_RECEIPT": (
+            "STOP.  this receipt does not apply to the requested target — wrong function, or a\n"
+            "       corrupt/foreign receipt. No preservation claim was made; see the reason below."
         ),
     }
     lines.append(verdict_msg.get(r.verdict, ""))
