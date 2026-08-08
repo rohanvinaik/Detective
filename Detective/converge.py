@@ -81,6 +81,49 @@ class ConvergeIteration:
     written: int
 
 
+def certificate_standing(
+    functionally_complete: bool,
+    line_complete: bool,
+    stale_target: bool,
+    verification_ran: bool,
+    verification_ok: bool,
+) -> str:
+    """What a converge result is entitled to CLAIM — one code, read by every surface (#17/#38).
+
+    (pure — pinned.) Extracted because the same question was being answered in three places and
+    they disagreed. The engine computed ``stale_target`` and a typed ``verification``; the CLI
+    consumed both; ``ConvergeResult.complete`` consulted only the verification; and the MCP
+    renderer consulted NEITHER, going straight to "DONE: every killable mutant is killed".
+    Measured, a result with ``stale_target=True`` and nothing else wrong returned
+    ``complete == True`` — a verdict over a source that moved under the run, presented as a
+    certificate. Each surface re-deriving its own narrower proxy of the same signal is the
+    failure this splits out: there is now one derivation, and consuming it is not optional.
+
+    ``stale`` — the target file changed during the run, so the measurement describes a source
+    that no longer exists. Checked FIRST and reported as its own state rather than folded into
+    ``incomplete``: a stale run's kill-count and line gap are not small, they are MEANINGLESS,
+    and "incomplete" invites the reader to go close a gap computed against moved lines.
+
+    ``unverified`` — the proof basis ran under real pytest and did not come back green
+    (tests_failed / collection_failed / runner_missing / timed_out / no_tests). A mutation score
+    can be perfect while the file Detective wrote does not run in the consumer's own pytest.
+
+    ``incomplete`` — an honest, well-measured gap. This is the only state that means "do more work".
+
+    ``complete`` — every axis discharged. Note what the gate does NOT require: that a
+    verification RAN. A None verification (the run was already incomplete on another axis, so
+    the subprocess was never paid for) falls through, exactly as before, so nothing that never
+    had a verification changes meaning.
+    """
+    if stale_target:
+        return "stale"
+    if verification_ran and not verification_ok:
+        return "unverified"
+    if not (functionally_complete and line_complete):
+        return "incomplete"
+    return "complete"
+
+
 @dataclass(frozen=True)
 class ConvergeResult:
     """Outcome of the convergence loop."""
@@ -228,10 +271,24 @@ class ConvergeResult:
         incomplete on another axis, or the result was built without a proof run) falls back to the
         mutation+line axes, so nothing that never had a verification changes meaning. converge sets
         it for every otherwise-complete run — to ``no_tests`` when there is no proof basis at all —
-        so an absent basis still refuses."""
-        if self.verification is not None and not self.verification.ok:
-            return False
-        return self.functionally_complete and self.line_complete
+        so an absent basis still refuses.
+
+        Also refuses a STALE measurement (#17). That conjunct used to be missing here while the
+        CLI checked it in four places: a run whose target changed under it returned
+        ``complete == True``, because staleness SKIPS the verification (there is nothing worth
+        verifying against a moved source), which left ``verification is None`` and fell straight
+        through to the mutation and line axes. The delegation below is what stops the two from
+        drifting again."""
+        return (
+            certificate_standing(
+                self.functionally_complete,
+                self.line_complete,
+                self.stale_target,
+                self.verification is not None,
+                self.verification is not None and self.verification.ok,
+            )
+            == "complete"
+        )
 
 
 def passes_to_complete(trajectory: tuple[int, ...]) -> int:

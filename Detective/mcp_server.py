@@ -301,6 +301,40 @@ def _render_converge(result: Any, file: str, function: str, full_text: str | Non
     killable = len(rep.killable) if rep else 0
     params = tuple(result.param_names or ())
 
+    # STANDING BEFORE FINDINGS (#17/#38). Every branch below describes a MEASUREMENT — "every
+    # killable mutant is killed", "N survivors remain" — and each is a claim about the source that
+    # was measured. If the target changed under the run, or the proof basis did not come back green
+    # under real pytest, those sentences are about something that no longer exists or does not run.
+    # This surface consulted NEITHER signal and went straight to "DONE: every killable mutant is
+    # killed", which is the measurement/decision gap in its purest form: the engine computed the
+    # fact, the CLI consumed it, and the renderer re-derived a narrower proxy that could not see it.
+    # Read through `certificate_standing` rather than testing the fields here, so this surface
+    # cannot drift from the property and the CLI the way it already had.
+    from .converge import certificate_standing
+
+    standing = certificate_standing(
+        result.functionally_complete,
+        result.line_complete,
+        result.stale_target,
+        result.verification is not None,
+        result.verification is not None and result.verification.ok,
+    )
+    if standing == "stale":
+        out.append("")
+        out.append("STOP. This is NOT a verdict. The target file CHANGED while the run was")
+        out.append("  measuring it, so the kill-count and the line numbers below describe a")
+        out.append("  source that no longer exists. They are not small — they are meaningless.")
+        out.append("  Do not act on them, and do not report them. Re-run on the settled file.")
+        return "\n".join(out)
+    if standing == "unverified":
+        status = getattr(result.verification, "status", "unverified")
+        out.append("")
+        out.append(f"STOP. The proof basis did NOT verify under real pytest ({status}).")
+        out.append("  The mutation score can be perfect while the tests Detective wrote do not")
+        out.append("  run green in your own pytest — a certificate over a suite that does not")
+        out.append("  run is not a certificate. Fix the basis, then re-run.")
+        return "\n".join(out)
+
     if killable or not result.line_complete:
         why = "Synthesis is exhausted. What is left needs a value only you can supply."
         # `rep.inputs_expressible` decides WHICH hand-back. None (nothing exercised the
