@@ -47,6 +47,8 @@ from .synthesis.characterization import (
     corroborate_captures,
     distinction_pin_lines,
     golden_assert_line,
+    machine_probes,
+    machine_specific_probe_hit,
 )
 from .synthesis.oracle_light import (
     ExecutableProperty,
@@ -433,7 +435,7 @@ def _golden_property(
     kw_names: Sequence[str] = (),
     call_expr: str | None = None,
     import_stmt: str | None = None,
-) -> ExecutableProperty:
+) -> ExecutableProperty | None:
     """A golden-capture property: pin the exact return value. Sound by
     construction (asserts the real output) and kills any mutant that changes it.
 
@@ -445,6 +447,11 @@ def _golden_property(
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
     call = _render_call(call_expr or fname, capture.inputs, kw_names)
     assertion = golden_assert_line(capture.output, capture.value)
+    # `_golden_properties` already refuses these captures with a user-facing message, so this
+    # is the structural backstop rather than the primary gate — but it is here so the rule has
+    # ONE owner. A second place deciding "is this pinnable" is how the two producers diverged.
+    if assertion is None:
+        return None
     frozen = getattr(capture, "clock", None)
     if frozen is not None:
         body = f"result = {call}\n{assertion}"
@@ -485,7 +492,7 @@ def _witness_property(
     kw_names: Sequence[str] = (),
     call_expr: str | None = None,
     import_stmt: str | None = None,
-) -> ExecutableProperty:
+) -> ExecutableProperty | None:
     """A golden test at a distinguishing input the equivalence search found. The
     witness proves original(args) != mutant(args), so pinning the original's real
     output there deterministically kills that mutant — an input the single golden
@@ -496,10 +503,19 @@ def _witness_property(
     ``1.0``), the golden ``==`` line cannot kill — ``distinction_pin_lines`` appends the
     ``type()``/``repr`` pins that can, so the witness's kill power survives rendering."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
-    lines = [
-        f"result = {_render_call(call_expr or fname, witness.args, kw_names)}",
-        golden_assert_line(witness.original, witness.original_value),
-    ]
+    # None = the witness's own value cannot be pinned by equality (machine-specific, #30). A
+    # witness is only worth emitting for the assertion it makes, so there is nothing to salvage:
+    # decline it rather than ship a test that passes on this checkout alone. The raises form is
+    # unaffected — it pins an exception, not a value.
+    # Call line FIRST, so the attribute-access order on `witness` is unchanged. Reading
+    # `.original` before `.args` altered which AttributeError a malformed witness raises, and a
+    # generated golden had pinned the old wording — a real behaviour change, in an error path
+    # nobody meant to touch, introduced by reordering two lines.
+    call_line = f"result = {_render_call(call_expr or fname, witness.args, kw_names)}"
+    assert_line = golden_assert_line(witness.original, witness.original_value)
+    if assert_line is None:
+        return None
+    lines = [call_line, assert_line]
     pins = distinction_pin_lines(witness.original_value, witness.mutant)
     lines += pins
     preconditions = ["distinguishing witness (equivalence search)"]
@@ -689,14 +705,32 @@ def _golden_properties(
                 f"golden at ({rendered}) refused — default-path I/O would pin the "
                 f"environment ({paths}); supply inputs or a tmp fixture"
             )
+        elif machine_specific_probe_hit(c.output, machine_probes()):
+            # The captured VALUE carries this checkout's paths, and no I/O had to happen for
+            # that to be true — `Path(x).resolve()`, `os.getcwd()`, `__file__` in a returned
+            # string. Both branches above key on OBSERVED EFFECTS, so this case walked straight
+            # past them: measured, `data_root()` returning `str(Path("data").resolve())` was
+            # certified "✓ COMPLETE" with `assert result == "/private/tmp/ms/data"` — green on
+            # the machine that wrote it, red on every other. The guard for exactly this existed
+            # (`_is_machine_specific`, #30) but was reachable only from `_stable_expr`, which
+            # `golden_assert_line` consults only for NON-LITERAL reprs; a plain string is a
+            # literal, so it took the fast path and never met it.
+            rendered = ", ".join(repr(a) for a in c.inputs)
+            probe = machine_specific_probe_hit(c.output, machine_probes())
+            refusals.append(
+                f"golden at ({rendered}) refused — the captured value carries this machine's "
+                f"path ({probe}); it would pass here and fail everywhere else. Return a value "
+                f"derived from the arguments, or pin a property of the result instead"
+            )
         elif c.deterministic:
             emitted.append(c)
-    return [
+    built = [
         _golden_property(
             func_key, c, project_root, kw_names, call_expr=exb.call_expr, import_stmt=exb.import_stmt
         )
         for c in emitted
-    ], tuple(refusals)
+    ]
+    return [p for p in built if p is not None], tuple(refusals)
 
 
 def regressed_obligations(before: list[str], after: list[str]) -> list[str]:
@@ -1194,6 +1228,10 @@ def _converge_impl(
             prop = _witness_property(
                 func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
             )
+            # The value-witness loop above already declines a None; this one did not, and it is
+            # the site that shipped the machine-specific golden (#30).
+            if prop is None:
+                continue
             if property_identity(prop) not in accumulated and property_holds(
                 prop.setup_code, prop.assertion_code, root
             ):

@@ -465,6 +465,31 @@ def _contains_set(value: Any) -> bool:
     return False
 
 
+def machine_specific_probe_hit(text: str, probes: tuple[str, ...]) -> str:
+    """The first probe substring that makes ``text`` specific to ONE machine, or "" (#30, pure).
+
+    Split from ``_is_machine_specific`` so the decision can be pinned at all: that function reads
+    ``os.getcwd()`` / ``expanduser("~")`` / ``sys.prefix`` / the temp dir at call time, so its
+    answer depends on the environment it runs in and no ``--input`` can state it. Taking the
+    probes as an argument moves the whole rule inside a literal grammar; the accessor below
+    supplies today's environment and holds no decision of its own.
+
+    Returns the OFFENDING PROBE rather than a bool, so a refusal can name what made the value
+    unportable ("contains /Users/<you>") instead of asserting unportability without evidence.
+    "" is the portable answer.
+
+    The length floor is not a nicety. A probe of "/" or "" is a substring of nearly every path,
+    and with one in the list every captured string on earth becomes machine-specific and the
+    golden path refuses everything — a guard that fires always is as useless as one that never
+    fires, and strictly more annoying. Substrings of the REAL environment are what is checked,
+    never a path SHAPE: `/etc/hosts` is identical on every machine and stays pinnable.
+    """
+    for probe in probes:
+        if probe and len(probe) > 3 and probe in text:
+            return probe
+    return ""
+
+
 def _is_machine_specific(text: str) -> bool:
     """True when a captured string carries a value specific to THIS machine/checkout — it contains
     the current working directory, the user home, the interpreter prefix, or the temp dir. A golden
@@ -473,10 +498,17 @@ def _is_machine_specific(text: str) -> bool:
     — the door #23's default-path-I/O guard does not cover. Substrings of the real environment, not
     a path SHAPE: a stable absolute path that is identical on every machine (`/etc/hosts`) is fine
     to pin; only paths that differ per machine are refused, so the guard never false-flags data."""
-    for probe in (os.getcwd(), os.path.expanduser("~"), sys.prefix, tempfile.gettempdir()):
-        if probe and len(probe) > 3 and probe in text:
-            return True
-    return False
+    return bool(machine_specific_probe_hit(text, machine_probes()))
+
+
+def machine_probes() -> tuple[str, ...]:
+    """This machine's identifying path prefixes, as the substrings a capture might carry."""
+    return (
+        os.getcwd(),
+        os.path.expanduser("~"),
+        sys.prefix,
+        tempfile.gettempdir(),
+    )
 
 
 def _stable_expr(value: Any) -> str | None:
@@ -521,7 +553,7 @@ def _stable_expr(value: Any) -> str | None:
     return rendered if round_tripped == value else None
 
 
-def golden_assert_line(output_repr: str, value: Any = None) -> str:
+def golden_assert_line(output_repr: str, value: Any = None) -> str | None:
     """Pin ``result`` to its captured output with idiomatic VALUE equality
     (``result == <literal>``) — the way a developer actually writes a test. It reads
     cleanly and is order-independent for sets. It is TYPE-BLIND where repr is not
@@ -543,6 +575,21 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str:
     needs no constructor source for the elements. ``value`` is the result itself: the repr
     string alone cannot answer "is this a set", which is why it is threaded here.
     """
+    # THE ONE PLACE that decides whether a captured value may be pinned by equality at all.
+    # None means "not pinnable", and every producer must handle it — which is the point of
+    # putting it here rather than in each of them. There are two producers (a capture, and a
+    # distinguishing witness from the equivalence search) and they both funnel through this
+    # function; a guard bolted onto one of them is how a machine-specific golden shipped from
+    # the other while the capture path was correctly refusing it (#30).
+    #
+    # A value carrying THIS checkout's paths is green here and red everywhere else, and no I/O
+    # need have happened for that to be true — `Path(x).resolve()` in a returned string is
+    # enough. `_is_machine_specific` existed for exactly this but was reachable only from
+    # `_stable_expr`, which the branch below consults ONLY for non-literal reprs; a plain
+    # string is a literal, so it took the fast path and never met the guard.
+    if machine_specific_probe_hit(output_repr, machine_probes()):
+        return None
+
     try:
         ast.literal_eval(output_repr)
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
