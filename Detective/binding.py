@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -189,3 +190,220 @@ def strip_receiver_args(node: ast.FunctionDef | ast.AsyncFunctionDef, n: int):
         type_comment=None,
     )
     return ast.copy_location(clone, node)
+
+
+# ── Execution binding ─────────────────────────────────────────────
+# The classification above says HOW a target is called; the machinery below turns that into a
+# CALLABLE the existing synthesis/capture/witness code can invoke exactly like a free function.
+# The whole point of #25: `_load_original` hands back the UNBOUND method, and every synthesis path
+# already strips `self`/`cls` from the parameters (`representative_site`, `_input_grids`,
+# `_kwargs_names`), so the arguments are receiver-free — what is missing is a receiver PREPENDED at
+# call time. A receiver-bound wrapper supplies it, symmetrically for the original and every mutant.
+
+
+def binding_from_node(node: ast.AST, qualname: str) -> TargetBinding:
+    """The :class:`TargetBinding` from a resolved FunctionDef ``node`` + its ``qualname``.
+
+    The call sites already hold ``node`` (from ``_resolve``) and ``qualname``, so classifying from
+    them avoids re-parsing the whole module that :func:`classify_target` would. Only one level of
+    class nesting is modelled (``Owner.method``); a deeper owner yields a plan that cannot resolve
+    and becomes a named ``needs-receiver`` refusal downstream, never a wrong call.
+    """
+    if "." not in qualname:
+        return TargetBinding(BindingKind.FUNCTION, "", qualname, 0)
+    owner, _, attr = qualname.rpartition(".")
+    decs = _decorator_names(node) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else ()
+    args = getattr(node, "args", None)
+    first = args.args[0].arg if (args and args.args) else None
+    kind = classify_binding_kind(decs, in_class=True, first_param=first)
+    recv = 1 if kind in (BindingKind.INSTANCE_METHOD, BindingKind.CLASS_METHOD) else 0
+    return TargetBinding(kind, owner, attr, recv)
+
+
+def _unwrap_descriptor(fn: Any) -> Any:
+    """The underlying function of a ``classmethod``/``staticmethod`` descriptor object, else ``fn``.
+
+    ``_compile_mutant`` execs the mutated ``def`` node WITH its decorator list, so a mutant of a
+    classmethod/staticmethod comes back as the descriptor OBJECT (not callable standalone). The
+    original loaded via ``getattr`` is already unwrapped for a staticmethod but still bound for a
+    classmethod; :func:`underlying_function` handles that side. This unwraps the mutant side so both
+    reach the same raw ``(receiver, *args)`` function and are called identically."""
+    if isinstance(fn, (classmethod, staticmethod)):
+        return fn.__func__
+    return fn
+
+
+def underlying_function(live: Any, binding: TargetBinding) -> Any:
+    """The raw ``(receiver, *args)`` function for BOTH original and mutant to share a call convention.
+
+    A classmethod attribute (``getattr(Owner, "make")``) is a BOUND method — ``cls`` is auto-supplied,
+    so calling it with the receiver-free grid args passes ``cls`` a real argument and the arities
+    disagree with the unbound mutant the compiler produces. ``.__func__`` is the raw ``(cls, *args)``
+    function, symmetric with that mutant. An instance-method attribute is already the unbound function
+    in Py3; a staticmethod/function likewise. Returns ``live`` unchanged when there is nothing to
+    unwrap."""
+    if binding.kind is BindingKind.CLASS_METHOD:
+        return getattr(live, "__func__", live)
+    return _unwrap_descriptor(live)
+
+
+def _receiver_stripped_signature(fn: Any) -> inspect.Signature | None:
+    """``fn``'s signature with its FIRST parameter (the receiver ``self``/``cls``) removed, or None.
+
+    The receiver-bound wrapper below must carry THIS as ``__signature__`` so ``_binds`` — which
+    guards the witness search with ``inspect.signature(fn).bind(*args)`` — still checks the REAL
+    argument arity. A bare ``*args`` wrapper would make ``_binds`` vacuously true and reintroduce the
+    exact fabricated-witness bug (a mis-arity call read as the function's behaviour) that guard
+    exists to prevent. None when the signature is unreadable (a builtin) — then the wrapper carries
+    no ``__signature__`` and ``_binds`` falls back to its permissive "unknown signature → True"."""
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return None
+    params = list(sig.parameters.values())
+    return sig.replace(parameters=params[1:]) if params else sig
+
+
+class ReceiverBound:
+    """A callable that PREPENDS a fresh receiver to every call, so an unbound method reads as a free
+    function to the synthesis/capture/witness code that calls it.
+
+    Soundness (the #25 requirements): ``make_receiver`` is invoked PER CALL, so no mutable receiver is
+    reused across the two determinism checks, and the identical plan runs for original and mutant. The
+    wrapper exposes:
+
+    * ``__signature__`` = the underlying signature minus the receiver param, so ``_binds`` still
+      checks the real arity (see :func:`_receiver_stripped_signature`);
+    * ``__globals__`` = the underlying's, so ``_compile_mutant`` — which seeds a mutant's namespace
+      from ``original.__globals__`` — still resolves the target module's siblings even if a caller
+      passes a wrapped original (the call sites keep the UNBOUND original for compilation, but this
+      keeps the wrapper honest either way).
+    """
+
+    def __init__(self, fn: Callable[..., Any], make_receiver: Callable[[], Any]) -> None:
+        self._fn = fn
+        self._make = make_receiver
+        self.__globals__ = getattr(fn, "__globals__", {})  # type: ignore[attr-defined]
+        self.__name__ = getattr(fn, "__name__", "receiver_bound")
+        self.__qualname__ = getattr(fn, "__qualname__", self.__name__)
+        sig = _receiver_stripped_signature(fn)
+        if sig is not None:
+            self.__signature__ = sig  # consumed by inspect.signature → _binds arity check
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self._fn(self._make(), *args, **kwargs)
+
+
+def wrap_callable(fn: Any, make_receiver: Callable[[], Any] | None) -> Any:
+    """Receiver-bind ``fn`` when the target has a receiver, else return it unchanged.
+
+    ``make_receiver`` is None for a function or static method (no receiver) — the callable is used
+    as-is (after unwrapping a staticmethod descriptor on the mutant side). Otherwise the callable is
+    wrapped so each invocation prepends a fresh receiver. Applied identically to the original and to
+    every compiled mutant, which is what keeps the two arity-symmetric."""
+    fn = _unwrap_descriptor(fn)
+    if make_receiver is None:
+        return fn
+    return ReceiverBound(fn, make_receiver)
+
+
+@dataclass(frozen=True)
+class ExecutionBinding:
+    """Everything a call site needs to EXECUTE and RENDER a target once its binding is resolved.
+
+    ``underlying`` is the raw function to hand ``_compile_mutant`` (for ``__globals__``) and to wrap;
+    ``make_receiver`` (None for function/static) builds the receiver each call; ``call_expr`` /
+    ``import_name`` render the generated test's call and import; ``refusal`` (non-None) is a NAMED
+    reason the target cannot be pinned by synthesis (a property, an unsupported descriptor, or a
+    constructor that needs arguments) — surfaced instead of a silent ``0/N killed``."""
+
+    binding: TargetBinding
+    plan: ReceiverPlan | None
+    underlying: Any
+    make_receiver: Callable[[], Any] | None
+    call_expr: str
+    import_name: str
+    refusal: str | None
+
+
+def resolve_execution(
+    node: ast.AST,
+    qualname: str,
+    live: Any,
+    factory_spec: Callable[[], Any] | None = None,
+    factory_render: str | None = None,
+) -> ExecutionBinding:
+    """Classify ``live`` (what ``_load_original`` returned) and resolve how to call it (#25).
+
+    ``factory_spec``/``factory_render`` come from an explicit ``--receiver-factory``. The evidence
+    order for an instance receiver is in :func:`resolve_receiver_plan` (explicit factory → contained
+    zero-arg ``Owner()`` → ``needs-receiver``). A classmethod's receiver is always its owner class; a
+    static method / function has none. A property or unknown descriptor is refused by name."""
+    binding = binding_from_node(node, qualname)
+    ns = getattr(live, "__globals__", {}) or {}
+    call_expr, import_name = call_expr_and_import(binding, None)
+
+    if binding.kind is BindingKind.FUNCTION:
+        return ExecutionBinding(binding, None, live, None, call_expr, import_name, None)
+    if binding.kind is BindingKind.STATIC_METHOD:
+        return ExecutionBinding(
+            binding, None, underlying_function(live, binding), None, call_expr, import_name, None
+        )
+    if binding.kind is BindingKind.PROPERTY:
+        return ExecutionBinding(
+            binding,
+            None,
+            live,
+            None,
+            call_expr,
+            import_name,
+            f"needs-fixture — {binding.owner}.{binding.attribute} is a property; it has no call "
+            "signature to synthesize (a property is read, not called)",
+        )
+    if binding.kind is BindingKind.UNSUPPORTED:
+        return ExecutionBinding(
+            binding,
+            None,
+            live,
+            None,
+            call_expr,
+            import_name,
+            f"needs-fixture — {qualname} is an unsupported descriptor; its call convention is not "
+            "modelled, so no receiver is guessed",
+        )
+
+    owner_cls = ns.get(binding.owner)
+    if binding.kind is BindingKind.CLASS_METHOD:
+        if owner_cls is None:
+            return ExecutionBinding(
+                binding,
+                None,
+                live,
+                None,
+                call_expr,
+                import_name,
+                f"needs-receiver — could not resolve the owner class {binding.owner!r} of "
+                f"{qualname} in its module",
+            )
+        plan = ReceiverPlan(
+            lambda: owner_cls, f"{binding.owner}.{binding.attribute}", f"class:{binding.owner}"
+        )
+        return ExecutionBinding(
+            binding, plan, underlying_function(live, binding), plan.factory, call_expr, import_name, None
+        )
+
+    # INSTANCE_METHOD — the case that needs a constructed receiver.
+    plan = resolve_receiver_plan(owner_cls, binding.owner, factory_spec, factory_render)
+    if plan is None:
+        hint = f" (supply --receiver-factory pkg.mod:make for {binding.owner})"
+        return ExecutionBinding(
+            binding,
+            None,
+            live,
+            None,
+            call_expr,
+            import_name,
+            f"needs-receiver — {binding.owner}() could not be constructed without arguments{hint}",
+        )
+    inst_call, inst_import = call_expr_and_import(binding, plan)
+    return ExecutionBinding(binding, plan, live, plan.factory, inst_call, inst_import, None)

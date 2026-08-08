@@ -26,6 +26,7 @@ from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
 from ._contain import contained_stdout, remaining_budget_ms
+from .binding import resolve_execution, wrap_callable
 from .certify import (
     PytestVerification,
     PytestWiring,
@@ -398,7 +399,11 @@ def _dataclass_imports(value: object) -> list[str]:
 
 
 def _golden_property(
-    func_key: str, capture, root: str | None = None, kw_names: Sequence[str] = ()
+    func_key: str,
+    capture,
+    root: str | None = None,
+    kw_names: Sequence[str] = (),
+    call_expr: str | None = None,
 ) -> ExecutableProperty:
     """A golden-capture property: pin the exact return value. Sound by
     construction (asserts the real output) and kills any mutant that changes it.
@@ -409,7 +414,7 @@ def _golden_property(
     fixture and no leak. Such a property is never folded into a parametrized row (each carries
     its own freeze), so ``golden_case`` is None for it."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
-    call = _render_call(fname, capture.inputs, kw_names)
+    call = _render_call(call_expr or fname, capture.inputs, kw_names)
     assertion = golden_assert_line(capture.output, capture.value)
     frozen = getattr(capture, "clock", None)
     if frozen is not None:
@@ -450,7 +455,11 @@ def _golden_property(
 
 
 def _witness_property(
-    func_key: str, witness, root: str | None = None, kw_names: Sequence[str] = ()
+    func_key: str,
+    witness,
+    root: str | None = None,
+    kw_names: Sequence[str] = (),
+    call_expr: str | None = None,
 ) -> ExecutableProperty:
     """A golden test at a distinguishing input the equivalence search found. The
     witness proves original(args) != mutant(args), so pinning the original's real
@@ -463,7 +472,7 @@ def _witness_property(
     ``type()``/``repr`` pins that can, so the witness's kill power survives rendering."""
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
     lines = [
-        f"result = {_render_call(fname, witness.args, kw_names)}",
+        f"result = {_render_call(call_expr or fname, witness.args, kw_names)}",
         golden_assert_line(witness.original, witness.original_value),
     ]
     pins = distinction_pin_lines(witness.original_value, witness.mutant)
@@ -484,7 +493,11 @@ def _witness_property(
 
 
 def _raises_witness_property(
-    func_key: str, witness, root: str | None = None, kw_names: Sequence[str] = ()
+    func_key: str,
+    witness,
+    root: str | None = None,
+    kw_names: Sequence[str] = (),
+    call_expr: str | None = None,
 ) -> ExecutableProperty | None:
     """The killing test for a witness whose ORIGINAL raises: an explicit try/except form.
 
@@ -539,7 +552,7 @@ def _raises_witness_property(
     )
     assertion = (
         "try:\n"
-        f"    _result = {_render_call(fname, witness.args, kw_names)}\n"
+        f"    _result = {_render_call(call_expr or fname, witness.args, kw_names)}\n"
         f"{handler}"
         "except BaseException as _exc:\n"
         f'    pytest.fail(f"expected {exc}, got {{type(_exc).__name__}}: {{_exc!r}}")\n'
@@ -591,9 +604,19 @@ def _golden_properties(
     *line* residual (not only a kill residual). Rendered into the same golden call-site
     dict form as discovered sites (positional args as reprs that eval back at capture time).
     """
-    live = _load_original(full_path, qualname)
-    if live is None:
+    live_raw = _load_original(full_path, qualname)
+    if live_raw is None:
         return [], ()
+    # METHOD BINDING (issue #25): `_load_original` returns the UNBOUND method, which the capture
+    # path would call with `self` fed a grid value. `resolve_execution` binds a FRESH receiver per
+    # call so the existing capture code invokes it exactly like a free function; the arguments stay
+    # receiver-free (`representative_site` already skips `self`/`cls`). A property or a constructor
+    # that needs arguments is a NAMED refusal (needs-fixture / needs-receiver), surfaced as the
+    # refusal note — never the silent `0/N killed` this issue is about.
+    exb = resolve_execution(node, qualname, live_raw)
+    if exb.refusal is not None:
+        return [], (exb.refusal,)
+    live = wrap_callable(exb.underlying, exb.make_receiver)
     # CAPTURABILITY gate (issue #39), BEFORE any sampling. A golden pins the return VALUE, so a
     # return that depends on an uncontrolled environment read (the clock without --clock, the
     # calendar date, the PID, the process env, entropy) is not deterministic — it merely repeats
@@ -609,7 +632,7 @@ def _golden_properties(
             + (" (supply --clock <epoch> to freeze it)" if "time.time()" in reason else "")
             for reason in uncovered
         )
-    namespace = getattr(live, "__globals__", {}) or {}
+    namespace = getattr(exb.underlying, "__globals__", {}) or {}
     supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
     captures = corroborate_captures(capture_golden(live, sites, clock=clock), is_pure=True)
@@ -641,7 +664,9 @@ def _golden_properties(
             )
         elif c.deterministic:
             emitted.append(c)
-    return [_golden_property(func_key, c, project_root, kw_names) for c in emitted], tuple(refusals)
+    return [
+        _golden_property(func_key, c, project_root, kw_names, call_expr=exb.call_expr) for c in emitted
+    ], tuple(refusals)
 
 
 def _progressed(previous: int, current: int) -> bool:
@@ -988,6 +1013,15 @@ def _converge_impl(
     # path that emits a frozen, deterministic row. Error-path (raises) witnesses stay allowed: a
     # raise is not an env-coupled value. The golden-capture pass already surfaced the reason.
     _capturable = not environment_reads(node)
+    # METHOD BINDING (#25): render witness rows for a method as `Owner().method(...)` / `Owner.method(...)`.
+    # The witness `.args` are already receiver-free (classify_survivors bound the receiver to FIND them);
+    # only the emitted call needs the receiver-aware expression. Defaults to the function form.
+    _live_for_render = _load_original(full, qualname)
+    _render_call_expr = (
+        resolve_execution(node, qualname, _live_for_render).call_expr
+        if _live_for_render is not None
+        else None
+    )
     if write_dir:
         say("witness pass: searching richer inputs for a distinguishing kill…")
         pre = classify_survivors(
@@ -1013,9 +1047,9 @@ def _converge_impl(
             if not _capturable and not is_raises:
                 continue
             prop = (
-                _raises_witness_property(func_key, w, root, kw_names)
+                _raises_witness_property(func_key, w, root, kw_names, call_expr=_render_call_expr)
                 if is_raises
-                else _witness_property(func_key, w, root, kw_names)
+                else _witness_property(func_key, w, root, kw_names, call_expr=_render_call_expr)
             )
             if prop is None:
                 continue
@@ -1040,7 +1074,7 @@ def _converge_impl(
             # return is env-coupled (#39), for the same straddle reason as the value witnesses.
             if w is None or verdict.suite_detected or not _capturable:
                 continue
-            prop = _witness_property(func_key, w, root, kw_names)
+            prop = _witness_property(func_key, w, root, kw_names, call_expr=_render_call_expr)
             if prop.assertion_code not in accumulated and property_holds(
                 prop.setup_code, prop.assertion_code, root
             ):

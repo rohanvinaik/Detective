@@ -37,6 +37,7 @@ from Wesker.engine import ProfilingResult, generate_mutants, run_function_profil
 from Wesker.filter import filter_categories
 
 from ._contain import remaining_budget_ms
+from .binding import resolve_execution, wrap_callable
 from .call_sites import discover_call_site_inputs, infer_param_types
 from .capture import capture_call_inputs
 from .equivalence import (
@@ -1210,6 +1211,19 @@ def classify_survivors(
         note = "the live original could not be loaded" if unclassified_descs else None
         return SurvivorReport((), unclassified_descs, note=note, manual_equivalent=manual_eq)
 
+    # METHOD BINDING (issue #25): `_load_original` returns the UNBOUND method, so the witness search
+    # would call it with `self`/`cls` fed a grid value — `_search_witness` correctly SKIPS that via
+    # `_binds` (leaving a `0/N killed` residual). `original_call` prepends a FRESH receiver per call
+    # so the search actually exercises the method; `original` (unbound) is kept for `_compile_mutant`,
+    # which seeds each mutant from `original.__globals__`. A property or a constructor that needs
+    # arguments is a NAMED refusal here, not a silent all-survive.
+    exb = resolve_execution(node, qualname or function, original)
+    if exb.refusal is not None:
+        unclassified_descs, manual_eq = _split(survivors)
+        note = exb.refusal if unclassified_descs else None
+        return SurvivorReport((), unclassified_descs, note=note, manual_equivalent=manual_eq)
+    original_call = wrap_callable(exb.underlying, exb.make_receiver)
+
     # Typed + dataclass-synthesized inputs from annotations, so a str/typed/object
     # function is exercised with type-appropriate values (not integers) — otherwise
     # its killable mutants read as false "equivalent".
@@ -1265,7 +1279,7 @@ def classify_survivors(
         works decides the next action: one a user can type is an `--input`, one only their
         tests can build is a request for a test."""
         for args in candidates:
-            if not _outcome(original, args).startswith("<raised"):
+            if not _outcome(original_call, args).startswith("<raised"):
                 return args
         return None
 
@@ -1315,7 +1329,12 @@ def classify_survivors(
                 _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
                 continue
             mutant = by_id.get(rec.get("mutant_id", ""))
+            # Compile the mutant from the UNBOUND original (its `__globals__` seeds the mutant's
+            # namespace), then receiver-bind it with the SAME plan as the original so the two are
+            # arity-symmetric — both called `fn(fresh_receiver, *args)` (issue #25).
             mutant_fn = _compile_mutant(mutant, original) if mutant is not None else None
+            if mutant_fn is not None:
+                mutant_fn = wrap_callable(mutant_fn, exb.make_receiver)
             if mutant_fn is None:
                 # Un-buildable: the manual flag is the only signal we have.
                 (_manual if _flagged(rec) else _unclassified).append(
@@ -1328,7 +1347,7 @@ def classify_survivors(
                 rec.get("mutant_id", ""),
                 rec.get("category", ""),
                 rec.get("diff_summary", ""),
-                original,
+                original_call,
                 mutant_fn,
                 pool,
                 # A crash-survivor record is a reshaped KILL record and carries `killed_by`; a
