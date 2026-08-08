@@ -3189,7 +3189,7 @@ def _target_error(exc: Exception, args) -> str:
         # line, and say plainly that nothing was measured — a partial number here would be
         # worse than none.
         where = f":{exc.lineno}" if exc.lineno else ""
-        shown = exc.filename or _split_target(target)[0]
+        shown = exc.filename or _split_target(target, getattr(args, "project_root", None))[0]
         # Repo-relative, like every other path this CLI prints. `relpath` can raise across
         # drives, and this is the error path — fall back to what the exception carried.
         try:
@@ -3206,8 +3206,8 @@ def _target_error(exc: Exception, args) -> str:
 
         from Wesker.ci import walk_functions
 
-        file = _split_target(target)[0]
         root = os.path.abspath(getattr(args, "project_root", ".") or ".")
+        file = _split_target(target, root)[0]
         full = file if os.path.isabs(file) else os.path.join(root, file)
         with open(full, encoding="utf-8") as fh:
             names = [qn for qn, _ in walk_functions(_ast.parse(fh.read(), filename=full))]
@@ -3311,7 +3311,7 @@ def _run_live(args) -> int:
         try:
             from .regime import resolve_regime
 
-            regime = resolve_regime(root, _split_target(target_arg)[0])
+            regime = resolve_regime(root, _split_target(target_arg, root)[0])
             if regime.conflicts:
                 sys.stdout.write(_format_conflicts(regime, target_arg))
                 return 2
@@ -3330,7 +3330,7 @@ def _run_live(args) -> int:
     target_arg = getattr(args, "target", None)
     if target_arg:
         try:
-            targets = [_split_target(target_arg)[0]]
+            targets = [_split_target(target_arg, root)[0]]
         except Exception:  # noqa: BLE001 — a command whose target isn't file::function
             targets = None
 
@@ -3338,7 +3338,7 @@ def _run_live(args) -> int:
     # `diagnose` gets, is what makes the first (and on a large suite, longest) phase visible.
     # Without it the live path is silent at 100% CPU until the first mutant, which is the whole
     # "looks hung" failure one layer further up than it looked.
-    label = _split_target(target_arg)[1] if target_arg else "baseline"
+    label = _split_target(target_arg, root)[1] if target_arg else "baseline"
 
     # Collect only the test files that could execute the target's lines. The session baseline
     # traces EVERYTHING it collects, before a single mutant runs, so an unscoped collection
@@ -3550,7 +3550,7 @@ def _run(args) -> int:
 
         from .regime import apply_migration, plan_migration, resolve_regime
 
-        target_file = _split_target(args.target)[0] if args.target else None
+        target_file = _split_target(args.target, args.project_root)[0] if args.target else None
         regime = resolve_regime(args.project_root, target_file)
         plan = plan_migration(regime)
         applied: tuple[str, ...] = ()
