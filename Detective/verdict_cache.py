@@ -16,9 +16,11 @@ function/params, not one per edit).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import inspect
 import json
+import os
 from collections.abc import Callable
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -234,14 +236,57 @@ def purge(project_root: str) -> tuple[tuple[str, ...], int]:
     return tuple(removed), reclaimed
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """Replace ``path``'s contents in ONE step, or not at all (#63).
+
+    The cache was written with a plain `write_text`, which truncates and then fills. A crash,
+    a full disk or a killed process between those leaves a HALF-WRITTEN file — and a
+    half-written JSON file does not parse, so the next `load` treats it as empty and the next
+    `put` writes one entry over the remains. Every other cached verdict is gone, silently, from
+    an interruption that never touched them.
+
+    The temp file lives in the SAME directory on purpose: `os.replace` is atomic only within a
+    filesystem, and `/tmp` is routinely a different one. The pid suffix keeps two concurrent
+    processes from writing the same temp path — it does not make the read-modify-write itself
+    safe (that wants the lock #63 also asks for), but it stops them corrupting each other's
+    staging file, which is the failure this function is about.
+    """
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+
+
 def load(project_root: str) -> dict:
-    """Load the raw cache map (``key -> result-dict``); empty on any read failure."""
+    """Load the raw cache map (``key -> result-dict``); empty when there is nothing to load.
+
+    A PARSE failure quarantines the file rather than reporting empty (#63). Reporting empty is
+    what turns corruption into loss: `put` reads, adds one entry and writes the whole map back,
+    so an unparseable file became a one-row file and every other verdict was destroyed by the
+    next ordinary run. Moving it aside means the next write starts clean AND the evidence is
+    still on disk for anyone who wants to know what happened.
+
+    An OSError is NOT treated the same way. A file that cannot be read right now — a permission
+    blip, a lock, a transient mount — may be perfectly good, and renaming it would turn a
+    temporary condition into a permanent one. Unreadable degrades to a cold cache; unparseable
+    is quarantined. The two are different facts and only one of them is about the contents.
+    """
     path = _cache_path(project_root)
     if not path.exists():
         return {}
     try:
         return json.loads(path.read_text())
-    except (OSError, ValueError):
+    except OSError:
+        return {}
+    except ValueError:
+        # One preserved copy, deliberately overwritten if it recurs: an unbounded set of
+        # `.corrupt-N` files is its own disk problem, and the LATEST corruption is the one that
+        # matches whatever the user is currently debugging.
+        with contextlib.suppress(OSError):
+            path.replace(path.with_name(path.name + ".corrupt"))
         return {}
 
 
@@ -335,4 +380,7 @@ def put(project_root: str, key: str, prefix: str, result: ProfilingResult) -> No
     cache[key] = _to_json(result)
     path = _cache_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(cache, indent=2))
+    # Atomic replace, not truncate-then-fill (#63). This is a read-modify-write over the WHOLE
+    # map, so an interrupted write does not lose one row — it loses the file, and with the old
+    # empty-on-parse-failure loader it then lost every row on the next run.
+    _atomic_write(path, json.dumps(cache, indent=2))
