@@ -193,14 +193,18 @@ def audit_suite(
     project_root: str = ".",
     *,
     progress: Callable[[int, int, float], None] | None = None,
+    trace_progress: Callable[[int, int, float], None] | None = None,
 ) -> SuiteAudit:
     """Assess the function's existing suite on both completeness axes.
 
     Runs one profile of the CURRENT suite (kill matrix + baseline line coverage),
     then classifies the survivors so a *killable* gap (a specification hole) is not
     conflated with an *equivalent* survivor (nothing to fix). Never writes.
+
+    ``trace_progress`` reports the BASELINE-TRACE phase, which dominates a large suite's wall clock
+    and, unreported, made audit look hung for minutes before the first byte (issue #53).
     """
-    result = profile(file, function, project_root, progress=progress)
+    result = profile(file, function, project_root, progress=progress, trace_progress=trace_progress)
     # A test belongs to THIS function's suite only if it discharges an obligation for
     # it — kills one of its mutants OR covers one of its lines. The baseline pass runs
     # every discovered test against the original, so tests for OTHER functions appear

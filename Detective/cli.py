@@ -697,6 +697,32 @@ def _interactive_stderr() -> bool:
         return False
 
 
+def eta_seconds(done: int, total: int, elapsed_ms: float, anchor_done: int, anchor_ms: float) -> float | None:
+    """Seconds remaining, computed from the rate SINCE an anchor — or None when too few to be honest.
+
+    The naive ``elapsed / done`` extrapolates the FIXED warm-up (import, harness setup, the cold first
+    mutant) across the whole run, so mutant #1 quoted a 23× overshoot (issue #53). The anchor is the
+    first observed frame with ``done >= 1``; measuring the rate from there excludes that warm-up. Fewer
+    than 2 samples PAST the anchor (i.e. < ~3 mutants seen) returns None so the caller prints
+    ``estimating…`` rather than a wild number — the estimate lands only once it is grounded."""
+    past = done - anchor_done
+    if past < 2 or done >= total:
+        return None
+    per_ms = (elapsed_ms - anchor_ms) / past
+    return max(0.0, (total - done) * per_ms / 1000.0)
+
+
+def rate_label(done: int, elapsed_ms: float) -> str:
+    """A legible throughput label. Below 1/s, ``done/secs`` rounds to a useless ``0/s`` (issue #53) —
+    a 28-mutant run in 422s is ``0/s`` but ``15.1s/mutant``. So flip the unit under 1/s to the one
+    that carries the number; at or above 1/s the per-second rate reads fine."""
+    secs = elapsed_ms / 1000.0
+    if secs <= 0 or done <= 0:
+        return "…"
+    rate = done / secs
+    return f"{rate:.1f}/s" if rate >= 1.0 else f"{secs / done:.1f}s/mutant"
+
+
 def _stream_trace_progress(label: str):
     """Live progress for the TRACED BASELINE pass — the phase that runs BEFORE the first mutant.
 
@@ -712,9 +738,19 @@ def _stream_trace_progress(label: str):
     live = _interactive_stderr()
     lead = "\r  … " if live else "  … "
     pad = "   " if live else ""
-    state = {"last_ms": -1e9}
+    state = {"last_ms": -1e9, "anchor_done": 0, "anchor_ms": 0.0, "opened": False}
 
     def cb(done: int, total: int, elapsed_ms: float) -> None:
+        if not state["opened"]:
+            # Say the wait is coming BEFORE it happens: on a big suite the trace dominates the wall
+            # clock and used to print nothing until it finished, indistinguishable from a hang (#53).
+            state["opened"] = True
+            sys.stderr.write(
+                f"{lead}{label}: tracing {total} tests — first run on this target set, a one-time cost{pad}\n"
+            )
+            sys.stderr.flush()
+        if done >= 1 and state["anchor_done"] == 0:
+            state["anchor_done"], state["anchor_ms"] = done, elapsed_ms  # exclude warm-up from the ETA
         if 0 < done < total:
             # Off-terminal there is no line to redraw, so intermediate frames are noise the
             # final line already summarises. On one, throttle to ~5 updates/sec.
@@ -725,8 +761,9 @@ def _stream_trace_progress(label: str):
         if done >= total:
             sys.stderr.write(f"{lead}{label}: baseline traced · {total} tests · {secs:.1f}s{pad}\n")
         else:
-            eta = (total - done) * (elapsed_ms / done) / 1000.0 if done else 0.0
-            sys.stderr.write(f"{lead}{label}: tracing baseline {done}/{total} tests · ETA {eta:.0f}s{pad}")
+            eta = eta_seconds(done, total, elapsed_ms, state["anchor_done"], state["anchor_ms"])
+            eta_str = f"~{eta:.0f}s" if eta is not None else "estimating…"
+            sys.stderr.write(f"{lead}{label}: tracing baseline {done}/{total} tests · ETA {eta_str}{pad}")
         sys.stderr.flush()
 
     return cb
@@ -753,7 +790,7 @@ def _stream_progress(label: str):
     lead = "\r  … " if live else "  … "
     pad = "   " if live else ""
     prior_ms = _read_per_mutant_ms()
-    state = {"last_ms": -1e9, "started": False}
+    state = {"last_ms": -1e9, "started": False, "anchor_done": 0, "anchor_ms": 0.0}
 
     def cb(done: int, total: int, elapsed_ms: float) -> None:
         if not state["started"]:
@@ -788,17 +825,20 @@ def _stream_progress(label: str):
             # heartbeat instead, throttled hard so CI logs stay bounded.
             elif elapsed_ms - state["last_ms"] < 15_000.0:
                 return
+        if state["anchor_done"] == 0:
+            state["anchor_done"], state["anchor_ms"] = done, elapsed_ms  # exclude warm-up from the ETA
         state["last_ms"] = elapsed_ms
         secs = elapsed_ms / 1000.0
-        rate = done / secs if secs > 0 else 0.0
+        rate_str = rate_label(done, elapsed_ms)  # legible below 1/s (s/mutant), not a rounded 0/s
         if done >= total:
             if total:
                 _update_per_mutant_ms(elapsed_ms / total)  # learn this machine's throughput
-            sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate:.0f}/s · done in {secs:.1f}s\n")
+            sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate_str} · done in {secs:.1f}s\n")
         else:
-            eta = (total - done) * (elapsed_ms / done) / 1000.0 if done else 0.0
+            eta = eta_seconds(done, total, elapsed_ms, state["anchor_done"], state["anchor_ms"])
+            eta_str = f"~{eta:.0f}s" if eta is not None else "estimating…"
             tail = f"{pad}" if live else " (heartbeat)\n"
-            sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate:.0f}/s · ETA {eta:.1f}s{tail}")
+            sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate_str} · ETA {eta_str}{tail}")
         sys.stderr.flush()
 
     return cb
@@ -3582,6 +3622,7 @@ def _run(args) -> int:
             function,
             args.project_root,
             progress=_stream_progress(function),
+            trace_progress=_stream_trace_progress(function),
         )
         # CI ratchet (issues #35, #50): --check makes a SPECIFICATION gap an enforceable process
         # result (exit 1), but a MEASUREMENT limit (an unclassified survivor the search could not
