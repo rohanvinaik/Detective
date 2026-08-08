@@ -3113,9 +3113,33 @@ def main(argv: list[str] | None = None) -> int:
     The footer is best-effort: monitoring must never fail the actual work. It goes to
     STDERR — advisory monitoring, like progress — so STDOUT ends on the result banner and
     stays clean for piping."""
+    # Local, like every other `certify` import here: the CLI defers that module so `--help`
+    # and a bad target never pay for the engine's import graph.
+    from .certify import GeneratedSuiteCollision
+
     args = _build_parser().parse_args(argv)
     try:
         code = _run_live(args)
+    except GeneratedSuiteCollision as exc:
+        # A destination occupied by a file this target does not own (#61). It reached the
+        # terminal as a traceback, which is the one shape a caller cannot distinguish from a
+        # crash — and the refusal is the OPPOSITE of a crash: nothing was written precisely
+        # because the guard worked. Both channels carry it, for the reason #57 gives: a
+        # refusal only the human surface can see leaves every programmatic consumer with an
+        # empty stdout and an exception it has to parse from stderr.
+        if getattr(args, "json", False):
+            print(
+                json.dumps(
+                    {
+                        "verdict": "REFUSED",
+                        "reason": "generated_suite_collision",
+                        "detail": str(exc),
+                    },
+                    indent=2,
+                )
+            )
+            return 1
+        raise SystemExit(f"detective: {exc}") from exc
     except (LookupError, FileNotFoundError, SyntaxError) as exc:
         # A target that does not exist is a USER error, and it was reaching the terminal as a
         # 36-line Python traceback — the one shape a caller cannot tell from a crash. Every other
