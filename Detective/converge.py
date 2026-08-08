@@ -47,8 +47,10 @@ from .synthesis.characterization import (
     corroborate_captures,
     distinction_pin_lines,
     golden_assert_line,
+    golden_capture_disposition,
     machine_probes,
     machine_specific_probe_hit,
+    value_capture_coupling,
 )
 from .synthesis.oracle_light import (
     ExecutableProperty,
@@ -634,6 +636,7 @@ def _golden_properties(
     supplied_inputs: list[tuple] | None = None,
     clock: float | None = None,
     receiver_factory: ReceiverFactory | None = None,
+    coupled: list[str] | None = None,
 ) -> tuple[list[ExecutableProperty], tuple[str, ...]]:
     """Golden-capture properties for a pure function plus the typed refusals
     for captures that touched default-path I/O (issue #23), or ([], ()) if it
@@ -688,7 +691,23 @@ def _golden_properties(
     refusals: list[str] = []
     emitted: list[GoldenCapture] = []
     for c in captures:
-        if c.filesystem_writes:
+        probe = machine_specific_probe_hit(c.output, machine_probes())
+        disposition = golden_capture_disposition(
+            c.filesystem_writes,
+            c.environment_paths,
+            c.environment_reads,
+            probe,
+            c.clock_dependent,
+            c.deterministic,
+        )
+        # Out-channel to the witness pass (#39), mirroring the `truncated` idiom: a reason
+        # established HERE, by running the function, is the only evidence that pass can have —
+        # its own gate is a local AST scan whose docstring already concedes it cannot see a read
+        # one helper down. Without this link the two passes disagree, and the one that emits
+        # last wins.
+        if coupled is not None and value_capture_coupling(disposition) == "function_coupled":
+            coupled.append(disposition)
+        if disposition == "refuse_writes":
             # The function mutates the tree — transitively, past AST-local purity (issue #30). The
             # write was BLOCKED during capture (no litter); a golden of its return would pin nothing
             # portable regardless. Refuse and name the paths, like the #23 default-path-read case.
@@ -698,14 +717,40 @@ def _golden_properties(
                 f"golden at ({rendered}) refused — the function writes the filesystem "
                 f"({paths}) transitively; a tmp fixture or explicit sandbox is needed, not a golden"
             )
-        elif c.environment_paths:
+        elif disposition == "refuse_default_path_read":
             rendered = ", ".join(repr(a) for a in c.inputs)
             paths = ", ".join(c.environment_paths)
             refusals.append(
                 f"golden at ({rendered}) refused — default-path I/O would pin the "
                 f"environment ({paths}); supply inputs or a tmp fixture"
             )
-        elif machine_specific_probe_hit(c.output, machine_probes()):
+        elif disposition == "refuse_environment_read":
+            # The value is a function of this machine's ENVIRONMENT VARIABLES, which the two
+            # capture calls agree on precisely because nothing varied between them. Measured,
+            # `getenv("APP_MODE", default).upper()` under `APP_MODE=staging` certified
+            # "✓ COMPLETE" with `assert mode() == "STAGING"` — and pinned the SAME answer for an
+            # explicit argument, because a set variable makes `getenv`'s default dead. So the
+            # golden hid the parameter's entire role, then failed on any machine without the var.
+            rendered = ", ".join(repr(a) for a in c.inputs)
+            names = ", ".join(f"${n}" for n in c.environment_reads)
+            refusals.append(
+                f"golden at ({rendered}) refused — the value depends on the environment "
+                f"({names}); it would pass here and fail wherever those differ. Take the value as "
+                f"an argument, or pin a property of the result instead"
+            )
+        elif disposition == "refuse_clock_dependent":
+            # The value MOVED when the call was replayed under a different epoch, and no clock
+            # freeze is planned for the emitted test — so the golden pins a moment, not a
+            # behaviour. Measured, `f"{label}:{date.today().isoformat()}"` certified "✓ COMPLETE"
+            # with `assert result == "abc:2026-08-09"`: a suite that starts failing the next
+            # morning, from a clock read one helper below the function under test.
+            rendered = ", ".join(repr(a) for a in c.inputs)
+            refusals.append(
+                f"golden at ({rendered}) refused — the value changes with the clock and no freeze "
+                f"pins it here; it would pass today and fail tomorrow. Take the timestamp as an "
+                f"argument, or pin a property of the result instead"
+            )
+        elif disposition == "refuse_machine_path":
             # The captured VALUE carries this checkout's paths, and no I/O had to happen for
             # that to be true — `Path(x).resolve()`, `os.getcwd()`, `__file__` in a returned
             # string. Both branches above key on OBSERVED EFFECTS, so this case walked straight
@@ -716,13 +761,12 @@ def _golden_properties(
             # `golden_assert_line` consults only for NON-LITERAL reprs; a plain string is a
             # literal, so it took the fast path and never met it.
             rendered = ", ".join(repr(a) for a in c.inputs)
-            probe = machine_specific_probe_hit(c.output, machine_probes())
             refusals.append(
                 f"golden at ({rendered}) refused — the captured value carries this machine's "
                 f"path ({probe}); it would pass here and fail everywhere else. Return a value "
                 f"derived from the arguments, or pin a property of the result instead"
             )
-        elif c.deterministic:
+        elif disposition == "pin":
             emitted.append(c)
     built = [
         _golden_property(
@@ -938,6 +982,11 @@ def _converge_impl(
     # Typed refusals for goldens that would have pinned the environment
     # (issue #23) — accumulated across passes, deduped, carried on the result.
     environment_coupled: list[str] = []
+    # RUNTIME coupling evidence, kept separate from the user-facing notes above: those are prose,
+    # and deciding a gate by matching message text is how the two drift apart. This holds
+    # disposition CODES, accumulated across passes because a later pass may be the one that runs
+    # the site where the read happens.
+    _runtime_coupled: list[str] = []
     root = os.path.abspath(project_root)
     # When write_dir escapes the project tree (an absolute or ../ path), the
     # re-profile's project-tree test discovery cannot see the tests converge writes
@@ -1122,6 +1171,7 @@ def _converge_impl(
                 supplied_inputs=supplied_inputs,
                 clock=clock,
                 receiver_factory=_rf,
+                coupled=_runtime_coupled,
             )
             props += golden_props
             for note in refused:
@@ -1161,7 +1211,13 @@ def _converge_impl(
     # value goldens for ANY env-reading function; the `--clock`-aware golden-capture pass is the only
     # path that emits a frozen, deterministic row. Error-path (raises) witnesses stay allowed: a
     # raise is not an env-coupled value. The golden-capture pass already surfaced the reason.
-    _capturable = not environment_reads(node)
+    # The static scan is the FLOOR, not the answer: it reads this function's own body, and its own
+    # docstring concedes "an environment read one helper down is not seen". `_runtime_coupled`
+    # carries what actually running the function showed — an aliased `getenv`, a `date.today()`
+    # below the target — so the gate consumes the measured signal instead of re-deriving a narrower
+    # proxy of it. Either source alone leaves a door open; measured, both doors were open with only
+    # the scan.
+    _capturable = not environment_reads(node) and not _runtime_coupled
     # METHOD BINDING (#25): render witness rows for a method as `Owner().method(...)` / `Owner.method(...)`
     # (or `make().method(...)` under an explicit --receiver-factory). The witness `.args` are already
     # receiver-free (classify_survivors bound the receiver to FIND them); only the emitted call + import

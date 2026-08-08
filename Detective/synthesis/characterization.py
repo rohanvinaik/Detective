@@ -69,6 +69,17 @@ class GoldenCapture:
     # it did not litter. Consumers refuse such a capture and name the writes. Distinct from
     # ``environment_paths`` (default-path READS, #23): a read pins the environment, a write changes it.
     filesystem_writes: tuple[str, ...] = ()
+    # Environment VARIABLE names the invocation read (issue #23, environment half). Non-empty means
+    # the captured value is a function of this machine's environment, so pinning it by equality
+    # produces a test that is green here and red on CI. Distinct from ``environment_paths``, which
+    # records default-path FILE reads: same refusal, different channel into the same environment.
+    environment_reads: tuple[str, ...] = ()
+    # Whether the captured value MOVED when the same call was replayed under a different frozen
+    # clock, with no freeze planned for the emitted test. Probed rather than read off the source, so
+    # it holds for a clock reached through a helper the static scan never looks at. When ``clock``
+    # below is set the emitted test freezes the clock itself, and movement is pinned rather than
+    # refused — so this is only ever consulted for an unfrozen capture.
+    clock_dependent: bool = False
     # The wall-clock value `time.time()` was FROZEN to for this capture (the `--clock` residual
     # for a time-gated function), or None if the clock ran free. A frozen clock is what makes a
     # `time.time()`-reading function DETERMINISTIC — hence capturable and pinnable — and the
@@ -232,6 +243,11 @@ class _EffectSink:
 
     opened: list[str] = field(default_factory=list)
     writes: list[str] = field(default_factory=list)
+    # Environment VARIABLE names read during the capture. Same refusal shape as ``opened``: a value
+    # derived from ``$APP_MODE`` belongs to the environment, not the function. Recorded by proxying
+    # ``os.environ`` rather than by the audit hook — CPython emits NO audit event for an environment
+    # read, so the hook that powers the two lists above structurally cannot cover this one.
+    env_reads: list[str] = field(default_factory=list)
     block: bool = False
 
 
@@ -308,6 +324,58 @@ def _open_watch_hook(event: str, args: tuple) -> None:
             raise _CaptureWriteBlocked(path or event)
 
 
+# The epoch the perturbation probe re-runs a capture under (2033-05-18). Far from both "now" and
+# from `1_000_000_000.0`, the value `--clock` and the test fixtures use, so a match cannot be
+# coincidence.
+_PERTURBED_EPOCH = 2_000_000_000.0
+
+
+class _RecordingEnviron(type(os.environ)):  # type: ignore[misc]
+    """``os.environ``, recording which variable names were read (#23, environment half).
+
+    Subclasses the REAL ``os._Environ`` rather than wrapping a dict, and that is load-bearing:
+    the real class is what keeps ``putenv``/``unsetenv`` in step with the process environment,
+    so a captured function that sets a variable and then spawns a subprocess still behaves
+    correctly. Measured — a dict proxy silently breaks subprocess inheritance, and nothing in
+    the suite would have caught it.
+
+    EVERY SPELLING IS CAUGHT, including ``from os import getenv``, because ``getenv`` resolves
+    ``os.environ`` at CALL time rather than at import time. That is what makes this alias- and
+    indirection-proof, and it is precisely the property a static scan of the source cannot have.
+
+    Reads reached through iteration (``dict(os.environ)``, ``os.environ.keys()``) are NOT
+    recorded: they name no single variable, and expanding them to "every variable" would refuse
+    over the whole environment. A documented remainder, not a silent one.
+    """
+
+    def __init__(self, real: Any, sink: _EffectSink) -> None:
+        super().__init__(real._data, real.encodekey, real.decodekey, real.encodevalue, real.decodevalue)
+        self._sink = sink
+
+    def _record(self, key: Any) -> None:
+        # `get` delegates to `__getitem__`, so one read arrives twice; and a bytes key (`os.environb`)
+        # must not read as a different variable from its str spelling. Normalising both here is what
+        # lets the refusal name each variable ONCE, in the spelling a human would write.
+        with contextlib.suppress(TypeError, UnicodeDecodeError):
+            name = os.fsdecode(key) if isinstance(key, (str, bytes)) else str(key)
+            if name not in self._sink.env_reads:
+                self._sink.env_reads.append(name)
+
+    def __getitem__(self, key: Any) -> Any:
+        self._record(key)
+        return super().__getitem__(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        self._record(key)
+        return super().get(key, default)
+
+    def __contains__(self, key: Any) -> bool:
+        # A membership test that decides the return value is environment dependence just as much
+        # as a lookup is: `"CI" in os.environ` branching two ways pins whichever way this machine went.
+        self._record(key)
+        return super().__contains__(key)
+
+
 def _install_open_watch() -> None:
     global _watch_installed
     if not _watch_installed:
@@ -358,6 +426,82 @@ def _environment_paths(opened: list[str], args: tuple[Any, ...], kwargs: dict[st
     return tuple(sorted(set(out)))
 
 
+def golden_capture_disposition(
+    filesystem_writes: tuple[str, ...],
+    environment_paths: tuple[str, ...],
+    environment_reads: tuple[str, ...],
+    machine_probe: str,
+    clock_dependent: bool,
+    deterministic: bool,
+) -> str:
+    """Whether a captured value may be pinned by equality, and if not, WHICH way it is unpinnable.
+
+    (#23/#30, pure — pinned.) Split out of the ``if/elif`` chain in ``_golden_properties`` that
+    used to hold it inline. That chain reads capture OBJECTS, so input synthesis could not
+    construct a call and none of it was reachable by ``--input``; taking the six facts directly
+    puts the whole decision inside the literal grammar. The caller keeps the message wording and
+    holds no decision of its own.
+
+    A NAMED CODE PER REASON, not a bool, because the reasons are not interchangeable: a write
+    means "no golden of this return is portable at all", a default-path read means "supply a
+    fixture", an environment read means "this is CI-dependent", a machine path means "this string
+    is about my checkout". Collapsing them into one falsy result is what let three different
+    defects share a single silent drop.
+
+    Order is by how fundamental the objection is, and it decides only which message a
+    multiply-unpinnable capture gets — every branch below refuses either way.
+
+    ``drop_nondeterministic`` is deliberately distinct from the refusals: an unstable value is
+    dropped without a message today, and preserving that as its own code keeps "we said why" and
+    "we said nothing" from reading alike.
+    """
+    if filesystem_writes:
+        return "refuse_writes"
+    if environment_paths:
+        return "refuse_default_path_read"
+    if environment_reads:
+        return "refuse_environment_read"
+    if machine_probe:
+        return "refuse_machine_path"
+    if clock_dependent:
+        return "refuse_clock_dependent"
+    if not deterministic:
+        return "drop_nondeterministic"
+    return "pin"
+
+
+def value_capture_coupling(disposition: str) -> str:
+    """Whether a refusal reason disqualifies the FUNCTION's value goldens, or only this one value.
+
+    (#39, pure — pinned.) The witness pass runs a second, independent search for distinguishing
+    inputs and emits its own goldens, so a reason established during capture has to be told to it
+    or it re-derives nothing and ships the same unpinnable value. Measured: with the capture-side
+    refusals in place and this link absent, `converge` printed "2 golden(s) refused —
+    environment-dependent" and wrote `assert result == "STAGING"` in the same run.
+
+    ``function_coupled`` — the objection is to the function: it reads the environment, moves with
+    the clock, opens a default path, or writes. NO value it returns is portable, at any input the
+    witness search might find, so the whole value-golden pass is declined for it.
+
+    ``value_local`` — the objection is to this particular VALUE, not the function. The machine-path
+    case is the one: `golden_assert_line` already declines such a value wherever it is rendered, so
+    the witness pass is correctly left open rather than shut for a reason already handled per-value.
+
+    ``none`` — no objection, or a non-refusal (an unstable value is dropped, which says nothing
+    about whether some other input is capturable).
+    """
+    if disposition in (
+        "refuse_environment_read",
+        "refuse_clock_dependent",
+        "refuse_default_path_read",
+        "refuse_writes",
+    ):
+        return "function_coupled"
+    if disposition == "refuse_machine_path":
+        return "value_local"
+    return "none"
+
+
 def _try_capture(
     func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any], clock: float | None = None
 ) -> GoldenCapture | None:
@@ -371,10 +515,18 @@ def _try_capture(
     ``clock`` freezes the whole ``time``-module clock family (``time`` / ``monotonic`` /
     ``perf_counter`` and the ``_ns`` forms; see :func:`capabilities.apply_clock`) to a fixed value
     across both calls (restored in ``finally``, so no leak). This is what turns a wall-clock reader
-    deterministic: without it the two calls disagree and the capture is dropped. ``datetime.now`` /
-    ``date.today`` are NOT frozen (builtin-type methods this slice cannot ``setattr`` — the #24
-    remainder). Reaches a function that calls the clock on the module (``import time; time.time()``);
-    a ``from time import time`` local binding keeps its own reference and is a documented miss.
+    deterministic: without it the two calls disagree and the capture is dropped. ``date.today()``
+    DOES follow the freeze — measured, against this docstring's own earlier claim that it did not —
+    because it derives from the frozen ``time.time``; only ``datetime.now()`` stays out of reach
+    (a builtin-type method this slice cannot ``setattr`` — the #24 remainder). Reaches a function
+    that calls the clock on the module (``import time; time.time()``); a ``from time import time``
+    local binding keeps its own reference and is a documented miss.
+
+    TWO CALLS IN ONE ENVIRONMENT CANNOT SEE ENVIRONMENT DEPENDENCE — they agree precisely because
+    nothing varied. So the capture also PERTURBS: ``os.environ`` is proxied to record which
+    variables were read, and an unfrozen capture is replayed under a different epoch to see whether
+    the value moves. Both observe the running function rather than its source, which is what makes
+    them hold for a read reached through an alias or a helper.
 
     ``deterministic`` asks whether the VALUE is stable, and compares reprs to decide. Both
     calls share one process, so this cannot observe hash-seed effects — which is correct,
@@ -393,16 +545,38 @@ def _try_capture(
     # reading `monotonic()`/`perf_counter()` for a TTL/elapsed check is deterministic too — the same
     # plan `render_clock_freeze` emits into the test.
     _clock_saved = apply_clock(clock) if clock is not None else None
+    # Proxy `os.environ` for the duration of the call so a read is observed at whatever depth and
+    # under whatever spelling it happens. Restored in `finally` alongside the clock: leaving the
+    # proxy installed would make every later capture record the previous one's reads.
+    _env_saved = os.environ
+    # noqa B003: the rule warns that this does not CLEAR the process environment — which is
+    # exactly the requirement. The proxy is a recording VIEW over the same `_data`, so the
+    # captured function sees the real environment and `putenv` stays in step.
+    os.environ = _RecordingEnviron(_env_saved, sink)  # type: ignore[assignment] # noqa: B003
     blocked_write = False
+    clock_dependent = False
     try:
         result = func(*call_args, **call_kwargs)
         first = repr(result)
         second = repr(func(*call_args, **call_kwargs))
+        if clock is None:
+            # No freeze is planned for the emitted test, so any clock dependence is unpinnable —
+            # `date.today()` one helper down pinned today's date and the suite began failing the
+            # next morning. Replaying under a distant epoch OBSERVES that: the two calls above
+            # cannot, because both ran at the same moment. When `clock` IS set the emitted test
+            # freezes the clock itself, so movement is pinned rather than refused, and this is skipped.
+            with contextlib.suppress(Exception):
+                _probe_saved = apply_clock(_PERTURBED_EPOCH)
+                try:
+                    clock_dependent = repr(func(*call_args, **call_kwargs)) != first
+                finally:
+                    restore_clock(_probe_saved)
     except _CaptureWriteBlocked:
         blocked_write = True
     except Exception:
         return None
     finally:
+        os.environ = _env_saved  # type: ignore[assignment] # noqa: B003
         if _clock_saved is not None:
             restore_clock(_clock_saved)  # restore — the freeze must never outlive the capture
         _OPEN_WATCH.reset(token)
@@ -423,6 +597,8 @@ def _try_capture(
         value=result,
         deterministic=first == second,
         environment_paths=_environment_paths(sink.opened, call_args, call_kwargs),
+        environment_reads=tuple(dict.fromkeys(sink.env_reads)),
+        clock_dependent=clock_dependent,
         clock=clock,
     )
 
