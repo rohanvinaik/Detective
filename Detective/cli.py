@@ -2203,6 +2203,53 @@ def _format_audit_plan(function: str, static_detail: str, tier1, est_s: float | 
     )
 
 
+def audit_headline_verdict(
+    complete: bool,
+    complete_modulo_equivalent: bool,
+    candidate_equivalent: int,
+    crash_only_equivalent: int,
+) -> str:
+    """Which verdict shape the audit headline may claim (#36, pure — pinned).
+
+    CANDIDATE-EQUIVALENT AND CRASH-ONLY ARE DIFFERENT RESIDUALS and the headline fused them.
+    Measured on a target whose survivors were ALL crash-only, in one session:
+
+        converge: ✓ COMPLETE (operator universe · modulo 3 crash-only value gaps)
+        audit:    complete, modulo 3 unproven-equivalent
+                  · crash-only-equiv   3 survivor(s) — detected by crash; no value pins them
+
+    Zero were unproven-equivalent, and the headline contradicted the itemised body two lines
+    below it. converge's banner had already been taught the distinction; audit's had not, so the
+    same tool said two different things about one measurement depending on which command you ran.
+
+    The counts are NOT two populations: `crash_only_equivalent` is a SUB-COUNT of
+    `candidate_equivalent` (audit.py), so the truly-unproven residual is their difference. That
+    arithmetic is the entire reason this is worth extracting — it is easy to state wrongly, and
+    stating it wrongly is invisible whenever the two happen to be equal.
+
+    Codes, not a rendered string, so the wording stays in the renderer and the DECISION is what
+    gets pinned: ``incomplete``, ``complete``, ``complete_modulo_unproven``,
+    ``complete_modulo_crash_only``, ``complete_modulo_both``.
+
+    ``inconsistent`` names the state where crash-only exceeds its own parent count. That cannot
+    happen while the sub-count invariant holds — which is exactly why it is worth a name rather
+    than an unchecked subtraction: if the invariant ever breaks, the alternative is a headline
+    reading "modulo -2 unproven-equivalent", which no reader can act on.
+    """
+    if not (complete or complete_modulo_equivalent):
+        return "incomplete"
+    unproven = candidate_equivalent - crash_only_equivalent
+    if unproven < 0:
+        return "inconsistent"
+    if unproven and crash_only_equivalent:
+        return "complete_modulo_both"
+    if unproven:
+        return "complete_modulo_unproven"
+    if crash_only_equivalent:
+        return "complete_modulo_crash_only"
+    return "complete"
+
+
 def _format_audit(a, removing: bool = False) -> str:
     """Read-only audit of an existing suite, in the report shape: what is true, then the ONE
     next action, and audit itself never writes.
@@ -2215,9 +2262,25 @@ def _format_audit(a, removing: bool = False) -> str:
     with the ids sitting one field away in the classifier — so the one command the report
     offered could not be pasted, and the reader had to go hunting to do what it asked.
     """
-    if a.complete_modulo_equivalent:
-        verdict = f"complete, modulo {a.candidate_equivalent} unproven-equivalent"
-    elif a.complete:
+    _crash_only = getattr(a, "crash_only_equivalent", 0)
+    _unproven = a.candidate_equivalent - _crash_only
+    _shape = audit_headline_verdict(
+        a.complete, a.complete_modulo_equivalent, a.candidate_equivalent, _crash_only
+    )
+    if _shape == "complete_modulo_both":
+        verdict = (
+            f"complete, modulo {_unproven} unproven-equivalent "
+            f"and {_crash_only} crash-only value gap{'s' if _crash_only != 1 else ''}"
+        )
+    elif _shape == "complete_modulo_unproven":
+        verdict = f"complete, modulo {_unproven} unproven-equivalent"
+    elif _shape == "complete_modulo_crash_only":
+        # NOT "unproven-equivalent": an input DOES distinguish these, by crash. Calling them
+        # unproven sends the reader hunting for an input that already exists.
+        verdict = f"complete, modulo {_crash_only} crash-only value gap{'s' if _crash_only != 1 else ''}"
+    elif _shape == "inconsistent":
+        verdict = "complete, modulo an inconsistent survivor count (please report)"
+    elif _shape == "complete":
         verdict = "complete"
     else:
         # Not "✗": the gaps are itemised below, and a suite that pins every killable behaviour

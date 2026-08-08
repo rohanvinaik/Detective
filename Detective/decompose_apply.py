@@ -696,9 +696,23 @@ def _apply_decomposition_impl(
                 "re-run to prove; extractions will be proposed only"
             )
         elif _cand_equiv:
+            # The GATE is right to count the union — a crash-only survivor is not value-pinned
+            # either, so the proof suite did not pin that behaviour and preservation is not proven
+            # for it. But the MESSAGE must not call them all "unproven" (#36): an input DOES
+            # distinguish a crash-only mutant, and `detective flag` is the wrong advice for one.
+            _crash = len(conv.survivor_report.crash_only) if conv.survivor_report else 0
+            _unpinned = _cand_equiv - _crash
+            _named = " and ".join(
+                bit
+                for bit in (
+                    f"{_unpinned} candidate-equivalent" if _unpinned else "",
+                    f"{_crash} crash-only" if _crash else "",
+                )
+                if bit
+            )
             say(
-                f"{_cand_equiv} candidate-equivalent survivor(s) block automatic application (#41) — "
-                "a green trial would prove only the pinned behaviours, not these unproven ones. "
+                f"{_named} survivor(s) block automatic application (#41) — "
+                "a green trial would prove only the pinned behaviours, not these. "
                 "`detective flag` each that is truly equivalent, or supply a stronger proof; "
                 "extractions will be proposed only"
             )
