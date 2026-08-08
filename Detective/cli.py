@@ -1113,6 +1113,11 @@ def _final_banner(result) -> str:
         # ✗ made a good result look like a broken run. State the residual plainly instead —
         # what is missing is already named in `bits`.
         status = "Incomplete" + (f": {' · '.join(bits)}" if bits else "")
+    # A method target's certificate is scoped to the RECEIVER population explored (issue #25): a
+    # COMPLETE holds UNDER this receiver (a single `Basket()`, its class for a classmethod, or a
+    # `--receiver-factory`), not for every possible instance state. Name it so the claim is honest.
+    if result.complete and result.receiver_identity:
+        status += f" · under receiver {result.receiver_identity}"
     # Next to the arrow, this slot READS as "wrote N tests → here", so it has to BE that.
     # `minimal_test_count` is a different quantity — the two-axis minimal cover over the WHOLE
     # suite, ours and the consumer's together — and printing it beside our own path credits us
@@ -2482,6 +2487,19 @@ def _build_parser() -> argparse.ArgumentParser:
                 "time-gated lines under `env-gated`.",
             )
             p.add_argument(
+                "--receiver-factory",
+                metavar="MODULE:CALLABLE",
+                default=None,
+                help="for a METHOD target whose class cannot be constructed with no arguments "
+                "(``Basket()`` fails), name a zero-argument factory that returns a receiver — e.g. "
+                "``package.factories:make_basket``. The factory builds a FRESH receiver for every "
+                "capture and witness call (so no mutable state leaks between checks), and the emitted "
+                "test imports and calls it. The receiver is a separate proof axis from ``--input`` "
+                "(which parses literals only and cannot carry a constructed object); a ``✓ COMPLETE`` "
+                "on a method holds UNDER the receiver population this explores, not every instance "
+                "state. Without it, such a target is a named ``needs-receiver`` refusal, never 0 kills.",
+            )
+            p.add_argument(
                 "--deadline",
                 type=float,
                 metavar="SECONDS",
@@ -3481,6 +3499,7 @@ def _run(args) -> int:
             max_iterations=args.max_iterations,
             supplied_inputs=supplied,
             clock=args.clock,
+            receiver_factory=getattr(args, "receiver_factory", None),
             fast=args.fast,
             deadline_s=args.deadline,
             progress=_stream_progress(function),

@@ -26,7 +26,7 @@ from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
 from ._contain import contained_stdout, remaining_budget_ms
-from .binding import resolve_execution, wrap_callable
+from .binding import ReceiverFactory, parse_receiver_factory, resolve_execution, wrap_callable
 from .certify import (
     PytestVerification,
     PytestWiring,
@@ -175,6 +175,14 @@ class ConvergeResult:
     # WITHOUT gating completeness on volume — the deadline and survivor logic decide
     # gateability, this only reports what was silenced.
     stdout_bytes: int = 0
+    # Method-target receiver binding (issue #25). ``needs_receiver`` is the NAMED refusal when a
+    # method cannot be synthesized without help — a property (needs-fixture) or a constructor that
+    # needs arguments (needs-receiver: supply --receiver-factory) — surfaced instead of a silent
+    # ``0/N killed``. ``receiver_identity`` scopes an honest certificate to the receiver population
+    # explored (``zero-arg:Basket`` / ``class:Basket`` / ``factory:make()``): a COMPLETE on a method
+    # holds UNDER that receiver, not for every possible instance state.
+    needs_receiver: str | None = None
+    receiver_identity: str | None = None
 
     @property
     def mutation_score(self) -> float:
@@ -342,14 +350,18 @@ def _numeric_inputs(params: list[str]) -> list[dict]:
     return [{"positional_args": [str(i) for i in range(1, len(params) + 1)]}]
 
 
-def _setup_with_imports(mod: str, fname: str, args, root: str | None = None) -> str:
+def _setup_with_imports(
+    mod: str, fname: str, args, root: str | None = None, import_stmt: str | None = None
+) -> str:
     """The target's import line, plus any imports the arguments need to be *constructed*
     in the test: a ``SourceExpr`` carries its own imports (e.g. ``import ast`` for an
     AST-node input), and a synthesized DATACLASS instance renders (via repr) as
     ``ClassName(...)`` — which NameErrors unless ``ClassName`` is imported. Without these
     a golden or witness test is judged unsound under ``property_holds`` and never written,
     even though it is a valid killing test. Deduped, target import first."""
-    lines = [_import_line(mod, fname, root)]
+    # A `--receiver-factory` supplies its OWN import (the factory lives outside the target module),
+    # which replaces the default owner import; otherwise `_import_line` derives it from the target.
+    lines = [import_stmt if import_stmt is not None else _import_line(mod, fname, root)]
     seen: set[str] = set()
     for arg in args:
         imps: list[str] = []
@@ -404,6 +416,7 @@ def _golden_property(
     root: str | None = None,
     kw_names: Sequence[str] = (),
     call_expr: str | None = None,
+    import_stmt: str | None = None,
 ) -> ExecutableProperty:
     """A golden-capture property: pin the exact return value. Sound by
     construction (asserts the real output) and kills any mutant that changes it.
@@ -444,7 +457,7 @@ def _golden_property(
     return ExecutableProperty(
         category="VALUE",
         inputs={},
-        setup_code=_setup_with_imports(mod, fname, capture.inputs, root),
+        setup_code=_setup_with_imports(mod, fname, capture.inputs, root, import_stmt=import_stmt),
         assertion_code=assertion_code,
         preconditions=preconditions,
         confidence=0.9,
@@ -460,6 +473,7 @@ def _witness_property(
     root: str | None = None,
     kw_names: Sequence[str] = (),
     call_expr: str | None = None,
+    import_stmt: str | None = None,
 ) -> ExecutableProperty:
     """A golden test at a distinguishing input the equivalence search found. The
     witness proves original(args) != mutant(args), so pinning the original's real
@@ -483,7 +497,7 @@ def _witness_property(
     return ExecutableProperty(
         category="VALUE",
         inputs={},
-        setup_code=_setup_with_imports(mod, fname, witness.args, root),
+        setup_code=_setup_with_imports(mod, fname, witness.args, root, import_stmt=import_stmt),
         assertion_code="\n".join(lines),
         preconditions=preconditions,
         confidence=0.95,
@@ -498,6 +512,7 @@ def _raises_witness_property(
     root: str | None = None,
     kw_names: Sequence[str] = (),
     call_expr: str | None = None,
+    import_stmt: str | None = None,
 ) -> ExecutableProperty | None:
     """The killing test for a witness whose ORIGINAL raises: an explicit try/except form.
 
@@ -539,7 +554,7 @@ def _raises_witness_property(
         return None
     exc, message = match.group(1), match.group(2)
     mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
-    setup = _setup_with_imports(mod, fname, witness.args, root) + "\nimport pytest"
+    setup = _setup_with_imports(mod, fname, witness.args, root, import_stmt=import_stmt) + "\nimport pytest"
     # `_exc`/`_result` are underscore-prefixed so they cannot collide with a parameter name
     # that `_setup_with_imports` bound into the same scope.
     # Pin the message when the witness carries one. `str(_exc)` is the SAME form `_outcome`
@@ -591,6 +606,7 @@ def _golden_properties(
     project_root: str,
     supplied_inputs: list[tuple] | None = None,
     clock: float | None = None,
+    receiver_factory: ReceiverFactory | None = None,
 ) -> tuple[list[ExecutableProperty], tuple[str, ...]]:
     """Golden-capture properties for a pure function plus the typed refusals
     for captures that touched default-path I/O (issue #23), or ([], ()) if it
@@ -613,7 +629,7 @@ def _golden_properties(
     # receiver-free (`representative_site` already skips `self`/`cls`). A property or a constructor
     # that needs arguments is a NAMED refusal (needs-fixture / needs-receiver), surfaced as the
     # refusal note — never the silent `0/N killed` this issue is about.
-    exb = resolve_execution(node, qualname, live_raw)
+    exb = resolve_execution(node, qualname, live_raw, factory=receiver_factory)
     if exb.refusal is not None:
         return [], (exb.refusal,)
     live = wrap_callable(exb.underlying, exb.make_receiver)
@@ -665,7 +681,10 @@ def _golden_properties(
         elif c.deterministic:
             emitted.append(c)
     return [
-        _golden_property(func_key, c, project_root, kw_names, call_expr=exb.call_expr) for c in emitted
+        _golden_property(
+            func_key, c, project_root, kw_names, call_expr=exb.call_expr, import_stmt=exb.import_stmt
+        )
+        for c in emitted
     ], tuple(refusals)
 
 
@@ -734,6 +753,7 @@ def converge(
     call_site_inputs: list[dict] | None = None,
     supplied_inputs: list[tuple] | None = None,
     clock: float | None = None,
+    receiver_factory: str | None = None,
     fast: bool = False,
     deadline_s: float | None = 300.0,
     progress: Callable[[int, int, float], None] | None = None,
@@ -760,6 +780,7 @@ def converge(
             call_site_inputs=call_site_inputs,
             supplied_inputs=supplied_inputs,
             clock=clock,
+            receiver_factory=receiver_factory,
             fast=fast,
             deadline_s=deadline_s,
             progress=progress,
@@ -778,6 +799,7 @@ def _converge_impl(
     call_site_inputs: list[dict] | None = None,
     supplied_inputs: list[tuple] | None = None,
     clock: float | None = None,
+    receiver_factory: str | None = None,
     fast: bool = False,
     deadline_s: float | None = 300.0,
     progress: Callable[[int, int, float], None] | None = None,
@@ -850,6 +872,19 @@ def _converge_impl(
     # Read once here, not per witness: every rendered call site in this run names its
     # arguments from the same signature (see `_kwargs_names`).
     kw_names = _kwargs_names(node, qualname)
+    # Resolve an explicit --receiver-factory ONCE (issue #25). The parsed callable drives live
+    # receiver construction (capture + witness search) and its import/render go into the emitted
+    # test; a bad spec fails fast here. `_exec_binding` also carries the certificate-scoping identity
+    # (`receiver_identity`) and any named receiver refusal (property / needs-receiver) for the result.
+    _rf = parse_receiver_factory(receiver_factory) if receiver_factory else None
+    _live_for_binding = _load_original(full, qualname)
+    _exec_binding = (
+        resolve_execution(node, qualname, _live_for_binding, factory=_rf)
+        if _live_for_binding is not None
+        else None
+    )
+    _receiver_identity = _exec_binding.plan.identity if (_exec_binding and _exec_binding.plan) else None
+    _receiver_refusal = _exec_binding.refusal if _exec_binding else None
     # Two branches, no third: either test files name this target, or none do. Asked with
     # the SAME predicate discovery scopes by — a banner that decided this independently
     # could contradict the run it is describing. Said while it happens, because otherwise
@@ -972,7 +1007,14 @@ def _converge_impl(
         # directory tree" one synthesized argument away from running.
         if is_pure(node, is_method="." in (qualname or "")) and not world_effects(node):
             golden_props, refused = _golden_properties(
-                func_key, node, full, qualname, root, supplied_inputs=supplied_inputs, clock=clock
+                func_key,
+                node,
+                full,
+                qualname,
+                root,
+                supplied_inputs=supplied_inputs,
+                clock=clock,
+                receiver_factory=_rf,
             )
             props += golden_props
             for note in refused:
@@ -1013,15 +1055,12 @@ def _converge_impl(
     # path that emits a frozen, deterministic row. Error-path (raises) witnesses stay allowed: a
     # raise is not an env-coupled value. The golden-capture pass already surfaced the reason.
     _capturable = not environment_reads(node)
-    # METHOD BINDING (#25): render witness rows for a method as `Owner().method(...)` / `Owner.method(...)`.
-    # The witness `.args` are already receiver-free (classify_survivors bound the receiver to FIND them);
-    # only the emitted call needs the receiver-aware expression. Defaults to the function form.
-    _live_for_render = _load_original(full, qualname)
-    _render_call_expr = (
-        resolve_execution(node, qualname, _live_for_render).call_expr
-        if _live_for_render is not None
-        else None
-    )
+    # METHOD BINDING (#25): render witness rows for a method as `Owner().method(...)` / `Owner.method(...)`
+    # (or `make().method(...)` under an explicit --receiver-factory). The witness `.args` are already
+    # receiver-free (classify_survivors bound the receiver to FIND them); only the emitted call + import
+    # need the receiver-aware form. Reuses `_exec_binding`; defaults to the function form.
+    _render_call_expr = _exec_binding.call_expr if _exec_binding is not None else None
+    _render_import_stmt = _exec_binding.import_stmt if _exec_binding is not None else None
     if write_dir:
         say("witness pass: searching richer inputs for a distinguishing kill…")
         pre = classify_survivors(
@@ -1031,6 +1070,7 @@ def _converge_impl(
             call_site_inputs=supplied_inputs,
             extra_test_dirs=extra_test_dirs,
             deadline_s=_budget_s(),
+            receiver_factory=_rf,
         )
         witnessed = False
         n_witnessed = 0
@@ -1047,9 +1087,13 @@ def _converge_impl(
             if not _capturable and not is_raises:
                 continue
             prop = (
-                _raises_witness_property(func_key, w, root, kw_names, call_expr=_render_call_expr)
+                _raises_witness_property(
+                    func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
+                )
                 if is_raises
-                else _witness_property(func_key, w, root, kw_names, call_expr=_render_call_expr)
+                else _witness_property(
+                    func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
+                )
             )
             if prop is None:
                 continue
@@ -1074,7 +1118,9 @@ def _converge_impl(
             # return is env-coupled (#39), for the same straddle reason as the value witnesses.
             if w is None or verdict.suite_detected or not _capturable:
                 continue
-            prop = _witness_property(func_key, w, root, kw_names, call_expr=_render_call_expr)
+            prop = _witness_property(
+                func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
+            )
             if prop.assertion_code not in accumulated and property_holds(
                 prop.setup_code, prop.assertion_code, root
             ):
@@ -1345,5 +1391,7 @@ def _converge_impl(
         budget_exhausted=budget_cut,
         cut_phase=cut_phase,
         verification=verification,
+        needs_receiver=_receiver_refusal,
+        receiver_identity=_receiver_identity,
         # stdout_bytes is stamped by the ``converge`` containment shell, which owns the sink.
     )

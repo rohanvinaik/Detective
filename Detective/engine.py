@@ -37,7 +37,7 @@ from Wesker.engine import ProfilingResult, generate_mutants, run_function_profil
 from Wesker.filter import filter_categories
 
 from ._contain import remaining_budget_ms
-from .binding import resolve_execution, wrap_callable
+from .binding import ReceiverFactory, resolve_execution, wrap_callable
 from .call_sites import discover_call_site_inputs, infer_param_types
 from .capture import capture_call_inputs
 from .equivalence import (
@@ -1120,6 +1120,7 @@ def classify_survivors(
     call_site_inputs: list[tuple] | None = None,
     extra_test_dirs: tuple[str, ...] = (),
     deadline_s: float | None = None,
+    receiver_factory: ReceiverFactory | None = None,
 ) -> SurvivorReport:
     """Classify each surviving mutant as killable (with a distinguishing witness),
     equivalent-candidate, or unclassified — by running the original against the
@@ -1217,7 +1218,7 @@ def classify_survivors(
     # so the search actually exercises the method; `original` (unbound) is kept for `_compile_mutant`,
     # which seeds each mutant from `original.__globals__`. A property or a constructor that needs
     # arguments is a NAMED refusal here, not a silent all-survive.
-    exb = resolve_execution(node, qualname or function, original)
+    exb = resolve_execution(node, qualname or function, original, factory=receiver_factory)
     if exb.refusal is not None:
         unclassified_descs, manual_eq = _split(survivors)
         note = exb.refusal if unclassified_descs else None

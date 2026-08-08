@@ -324,24 +324,62 @@ class ExecutionBinding:
     call_expr: str
     import_name: str
     refusal: str | None
+    # For an explicit ``--receiver-factory``, the exact import the emitted test needs to reconstruct
+    # the receiver (``from pkg.mod import make``) — the factory lives outside the target's own module,
+    # so the default owner import (``from <target mod> import Owner``) would not resolve ``make()``.
+    # None for every other kind: the default owner import is correct.
+    import_stmt: str | None = None
+
+
+@dataclass(frozen=True)
+class ReceiverFactory:
+    """A resolved ``--receiver-factory``: the callable that builds a receiver, plus how the emitted
+    test reconstructs it (``make()``) and imports it (``from pkg.mod import make``)."""
+
+    factory: Callable[[], Any]
+    render: str
+    import_stmt: str
+
+
+def parse_receiver_factory(spec: str) -> ReceiverFactory:
+    """Resolve a ``module.path:callable`` spec to a :class:`ReceiverFactory` (issue #25).
+
+    The spec names a zero-argument callable that returns a receiver — a factory function or the class
+    itself with defaults. It is imported once, here, so a bad spec fails fast with a clear message
+    rather than deep in synthesis. The receiver is a separate proof axis from ``--input`` (which
+    parses literals only and by design cannot carry a constructed object), which is exactly why the
+    construction is named by an import spec and not typed as an argument."""
+    mod_name, sep, fn_name = spec.partition(":")
+    if not sep or not mod_name or not fn_name:
+        raise ValueError(
+            f"--receiver-factory must be 'module.path:callable' (a zero-arg factory), got {spec!r}"
+        )
+    import importlib
+
+    mod = importlib.import_module(mod_name)
+    fn = getattr(mod, fn_name, None)
+    if not callable(fn):
+        raise ValueError(f"--receiver-factory {spec!r}: {fn_name!r} is not a callable in {mod_name!r}")
+    return ReceiverFactory(fn, f"{fn_name}()", f"from {mod_name} import {fn_name}")
 
 
 def resolve_execution(
     node: ast.AST,
     qualname: str,
     live: Any,
-    factory_spec: Callable[[], Any] | None = None,
-    factory_render: str | None = None,
+    factory: ReceiverFactory | None = None,
 ) -> ExecutionBinding:
     """Classify ``live`` (what ``_load_original`` returned) and resolve how to call it (#25).
 
-    ``factory_spec``/``factory_render`` come from an explicit ``--receiver-factory``. The evidence
-    order for an instance receiver is in :func:`resolve_receiver_plan` (explicit factory → contained
-    zero-arg ``Owner()`` → ``needs-receiver``). A classmethod's receiver is always its owner class; a
-    static method / function has none. A property or unknown descriptor is refused by name."""
+    ``factory`` is a resolved explicit ``--receiver-factory``. The evidence order for an instance
+    receiver is in :func:`resolve_receiver_plan` (explicit factory → contained zero-arg ``Owner()`` →
+    ``needs-receiver``). A classmethod's receiver is always its owner class; a static method /
+    function has none. A property or unknown descriptor is refused by name."""
     binding = binding_from_node(node, qualname)
     ns = getattr(live, "__globals__", {}) or {}
     call_expr, import_name = call_expr_and_import(binding, None)
+    factory_spec = factory.factory if factory is not None else None
+    factory_render = factory.render if factory is not None else None
 
     if binding.kind is BindingKind.FUNCTION:
         return ExecutionBinding(binding, None, live, None, call_expr, import_name, None)
@@ -406,4 +444,12 @@ def resolve_execution(
             f"needs-receiver — {binding.owner}() could not be constructed without arguments{hint}",
         )
     inst_call, inst_import = call_expr_and_import(binding, plan)
-    return ExecutionBinding(binding, plan, live, plan.factory, inst_call, inst_import, None)
+    # When the plan came from an explicit factory, the emitted test calls `make()` and must import
+    # `make` from its own module — not the target owner. A zero-arg `Owner()` plan keeps the default
+    # owner import (import_stmt=None), since `Owner` is already imported from the target's module.
+    import_stmt = (
+        factory.import_stmt if (factory is not None and plan.identity.startswith("factory:")) else None
+    )
+    return ExecutionBinding(
+        binding, plan, live, plan.factory, inst_call, inst_import, None, import_stmt=import_stmt
+    )
