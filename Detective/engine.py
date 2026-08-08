@@ -24,6 +24,8 @@ from types import CodeType
 from typing import TYPE_CHECKING, Any
 
 from Wesker.ci import discover_test_callables, walk_functions
+from Wesker.line_coverage import executable_lines as _executable_lines
+from Wesker.line_coverage import trace_line_coverage as _trace_line_coverage
 
 if TYPE_CHECKING:
     from .parsimony import ParsimonySignals
@@ -555,6 +557,64 @@ def profile(
     if use_cache and not result.budget_exhausted:
         verdict_cache.put(root, ck, verdict_cache.key_prefix(func_key), result)
     return result
+
+
+@dataclasses.dataclass(frozen=True)
+class TraceTier:
+    """Tier 1 (issue #52): what the BASELINE TRACE alone knows — no mutation. `tests_reaching` /
+    `tests_total` is the fan-in (how many discovered tests execute a line of this function); the
+    line counts are the coverage; `mutant_count` is the universe size the mutation tier WOULD run,
+    generated from the AST without executing anything. The cheap-honest answer `audit --plan` reports
+    to decide whether the mutation budget is worth spending — every field is available before the
+    first mutant, and it proves nothing about behaviour on its own."""
+
+    function: str
+    tests_reaching: int
+    tests_total: int
+    executable_lines: int
+    covered_lines: int
+    mutant_count: int
+
+
+def trace_tier(
+    file: str,
+    function: str,
+    project_root: str = ".",
+    *,
+    trace_progress: Callable[[int, int, float], None] | None = None,
+) -> TraceTier:
+    """Compute :class:`TraceTier` — the trace-only tier (issue #52), reusing the exact discovery and
+    trace primitives ``profile`` does but STOPPING before mutation. No kills, no verdict; the fan-in,
+    the line coverage, and the mutant-universe size, which is all the mutation budget decision needs."""
+    root = os.path.abspath(project_root)
+    full = file if os.path.isabs(file) else os.path.join(root, file)
+    _purge_stale_bytecode(full)
+    with open(full, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=full)
+    qualname, node = _resolve(tree, function)
+    if node is None:
+        raise LookupError(f"function {function!r} not found in {file}")
+    rel = os.path.relpath(full, root)
+    func_names = [qn for qn, _ in walk_functions(tree)]
+    tests = discover_test_callables(root, rel, func_names)
+    original = _load_original(full, qualname or function)
+    exec_lines = set(_executable_lines(node))  # type: ignore[arg-type]
+    coverage = (
+        _trace_line_coverage(tests, original, exec_lines, progress=trace_progress)
+        if tests and original is not None and exec_lines
+        else {}
+    )
+    covered = {ln for lines in coverage.values() for ln in lines}
+    pure = _is_pure(node, is_method="." in (qualname or ""))
+    mutant_count = sum(1 for _ in generate_mutants(node, filter_categories(node, pure)))  # type: ignore[arg-type]
+    return TraceTier(
+        function=f"{rel}::{qualname}",
+        tests_reaching=sum(1 for lines in coverage.values() if lines),
+        tests_total=len(tests),
+        executable_lines=len(exec_lines),
+        covered_lines=len(exec_lines & covered),
+        mutant_count=mutant_count,
+    )
 
 
 def _count_decompose_seams(file: str, function: str, project_root: str = ".") -> int:

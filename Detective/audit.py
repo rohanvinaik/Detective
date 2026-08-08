@@ -151,6 +151,17 @@ def audit_gate_exit(spec_gap: bool, measurement_incomplete: bool, strict: bool) 
     return 0
 
 
+def mutation_estimate_seconds(mutant_count: int, per_mutant_ms: float | None) -> float | None:
+    """The tier-2 mutation-cost estimate for ``audit --plan`` (issue #52, pure — pinned): the mutant
+    universe size times this machine's OWN recent per-mutant time (from telemetry), in seconds — or
+    None when there is no prior rate to ground it (a first-ever run, honestly "no estimate" rather than
+    a fabricated number). A MEASURED schedule, never a promise; a negative count is treated as no
+    estimate rather than a nonsensical negative time."""
+    if per_mutant_ms is None or mutant_count < 0:
+        return None
+    return mutant_count * per_mutant_ms / 1000.0
+
+
 def audit_partition_sums(
     total: int, value_killed: int, killable: int, candidate_equivalent: int, manual: int, unclassified: int
 ) -> bool:

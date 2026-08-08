@@ -2166,6 +2166,32 @@ def _first_n(items, n: int) -> str:
     return ", ".join(str(s) for s in shown) + (f" … (+{extra} more)" if extra else "")
 
 
+def _format_audit_plan(function: str, static_detail: str, tier1, est_s: float | None) -> str:
+    """`audit --plan` — the mutation-budget decision WITHOUT paying for it (issue #52): tier 0 static,
+    tier 1 fan-in + coverage, a measured tier-2 estimate, no verdict. A schedule, not a finding."""
+    est = (
+        f"~{est_s:.0f}s to mutate {tier1.mutant_count} mutant(s) (this machine's recent rate)"
+        if est_s is not None
+        else f"{tier1.mutant_count} mutant(s) — no prior rate yet to estimate from (first run here)"
+    )
+    return "\n".join(
+        [
+            _RULE,
+            f"{function} — audit --plan · a schedule, not a finding (no mutation run)",
+            "",
+            _row("· tier 0 static", static_detail or "no static smell — proves nothing (advisory)"),
+            _row(
+                "· tier 1 traced",
+                f"{tier1.tests_reaching} of {tier1.tests_total} test(s) reach it · "
+                f"{tier1.covered_lines}/{tier1.executable_lines} line(s) covered",
+            ),
+            _row("· tier 2 est", est),
+            "",
+            _row("· then", f"detective audit '{function}'   # pay tier 2 for the specification verdict"),
+        ]
+    )
+
+
 def _format_audit(a, removing: bool = False) -> str:
     """Read-only audit of an existing suite, in the report shape: what is true, then the ONE
     next action, and audit itself never writes.
@@ -2653,6 +2679,14 @@ def _build_parser() -> argparse.ArgumentParser:
                 "the measurement was incomplete — an unclassified survivor the equivalence search could "
                 "not evaluate. For a pipeline that genuinely wants 'fail unless fully measured'; opt-in, "
                 "so the documented --check default stays a claim about the code alone.",
+            )
+            p.add_argument(
+                "--plan",
+                action="store_true",
+                help="the 'should I spend the mutation budget on this?' answer, WITHOUT paying for it: "
+                "tier 0 (static read) + tier 1 (fan-in — how many tests reach it — and line coverage) + "
+                "a MEASURED estimate of the tier-2 mutation cost, then exit before mutating. Composes "
+                "with `parsimony --plan` (which picks the functions); this sizes one. Pair with --json.",
             )
         if name == "decompose":
             p.add_argument(
@@ -3723,6 +3757,48 @@ def _run(args) -> int:
 
     if args.command == "audit":
         from .audit import audit_suite
+
+        if getattr(args, "plan", False):
+            # The mutation-budget decision WITHOUT paying for it (issue #52): tier 0 static + tier 1
+            # trace (fan-in, coverage) + a MEASURED tier-2 estimate, then exit before mutating.
+            from .audit import mutation_estimate_seconds
+            from .engine import _resolve, trace_tier
+            from .parsimony_map import read_function
+
+            _root = os.path.abspath(args.project_root)
+            _full = file if os.path.isabs(file) else os.path.join(_root, file)
+            try:
+                with open(_full, encoding="utf-8") as _fh:
+                    _qn, _node = _resolve(ast.parse(_fh.read()), function)
+                _static = read_function(_node, function).detail if _node is not None else ""
+            except (OSError, SyntaxError):
+                _static = ""
+            tier1 = trace_tier(
+                file, function, args.project_root, trace_progress=_stream_trace_progress(function)
+            )
+            est_s = mutation_estimate_seconds(tier1.mutant_count, _read_per_mutant_ms())
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "kind": "audit-plan",
+                            "note": "schedule (advisory) — tiers 0-1 measured, tier 2 estimated, not mutated",
+                            "function": tier1.function,
+                            "tier0_static": _static or None,
+                            "tier1": {
+                                "tests_reaching": tier1.tests_reaching,
+                                "tests_total": tier1.tests_total,
+                                "covered_lines": tier1.covered_lines,
+                                "executable_lines": tier1.executable_lines,
+                            },
+                            "tier2": {"mutant_count": tier1.mutant_count, "estimate_seconds": est_s},
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(_format_audit_plan(function, _static, tier1, est_s))
+            return 0
 
         # Tier 0 first (issue #52): the ~0s static read, streamed the instant the file parses, so
         # audit shows a grounded first line immediately instead of a dead terminal — then the trace
