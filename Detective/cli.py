@@ -1216,6 +1216,17 @@ def _final_banner(result) -> str:
     # (issue #24). Name it, the same honesty as the receiver scope above.
     if result.complete and getattr(result, "capability_identity", None):
         status += f" · under capability set {result.capability_identity}"
+    # A COMPLETE whose LINE axis rested on the observed union is a weaker claim than one that
+    # rested on admissible evidence (issue #59), and for the same reason the two lines above
+    # exist: the certificate holds UNDER something, so it has to say what. The engine reports an
+    # outcome-qualified view only from Wesker's #17 onward; below that a baseline-FAILING test's
+    # coverage still closes the ledger, which is the defect #59 removes. `line_basis` recorded
+    # that on the result and nothing rendered it — so on a released engine the weakening was
+    # invisible, which is precisely the channel split #57 fixed for receipts. Naming it here is
+    # also what keeps the dependency floor honest: a degradation the user can SEE does not need
+    # a floor raise to strand them, per dev/DEPENDENCY_FLOORS.md.
+    if result.complete and getattr(result, "line_basis", "admissible") == "observed":
+        status += " · line axis unqualified (engine reports no admissible coverage)"
     # Next to the arrow, this slot READS as "wrote N tests → here", so it has to BE that.
     # `minimal_test_count` is a different quantity — the two-axis minimal cover over the WHOLE
     # suite, ours and the consumer's together — and printing it beside our own path credits us
