@@ -162,6 +162,25 @@ path = "Detective/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["Detective"]
 
+# The sdist ships a working source tree — package, tests, docs — and NOTHING that
+# describes this machine. `.claude/settings.local.json` (a local Claude Code permission
+# list, absolute /Users/... paths and all) shipped in a locally built 0.11.1 sdist: it is
+# untracked and matched only by the maintainer's GLOBAL gitignore, which hatchling does not
+# consult. An ignore rule is a git-side convenience; this list is the ARTIFACT's contract,
+# and it is what the release actually depends on. Stated here so a leak needs an edit to
+# this file rather than an accident of whose machine ran `build`.
+[tool.hatch.build.targets.sdist]
+exclude = [
+  ".claude/",
+  ".serena/",
+  ".detective/",
+  ".wesker/",
+  ".lintgate/",
+  ".prism/",
+  "*.pyc",
+  "__pycache__/",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
