@@ -322,14 +322,26 @@ def _score(killed: int, total: int) -> str:
     return f"{round(100 * killed / total)}%" if total else "n/a"
 
 
-def _input_template(param_names: tuple[str, ...]) -> str:
+def _input_template(param_names: tuple[str, ...] | None) -> str:
     """A copy-pasteable ``--input`` skeleton shaped to the target's parameters.
 
     The user replaces each ``<name>`` slot with a literal to exercise the residual; the
     CLI parses it (``ast.literal_eval``) and the AST builds the test. This is the Zone-2
     hand-back made concrete — the tool states the exact input shape to supply, so a user
     never has to reverse-engineer it from prose.
+
+    A zero-parameter target gets NO skeleton (#8). Measured, `status()` — which accepts nothing
+    — was handed ``--input "(<value>,)"`` two lines below a report printing ``Signature
+    status()``. There is no literal that reaches a residual in a function with no inputs, so a
+    pasteable recipe is a false hand-back: the reader supplies it, the parse fails or the value
+    goes nowhere, and the residual is unchanged. Abstaining is the honest answer, and the caller
+    renders the bare command.
+
+    ``None`` still yields the generic placeholder: not-supplied is not the same fact as
+    no-parameters, and only the latter licenses the abstention.
     """
+    if parameter_scope(param_names) == "none":
+        return ""
     if not param_names:
         return '--input "(<value>,)"'
     slots = ", ".join(f"<{n}>" for n in param_names)
@@ -497,6 +509,32 @@ def _survivor_lines(verdicts, verbose: bool, param_names: tuple[str, ...] | None
     return out
 
 
+def parameter_scope(param_names: tuple[str, ...] | None) -> str:
+    """Whether a parameter list can classify a name at all (#8, pure — pinned).
+
+    ``None`` AND ``()`` MEAN OPPOSITE THINGS HERE and three call sites fused them with
+    ``param_names or None``. An empty tuple is a FACT — this function takes no parameters — and
+    it is the strongest possible evidence that a comparison over named locals is an internal
+    condition, because there is no parameter it could be. ``or None`` turned that fact into "not
+    supplied", which is the one value that skips both #8 guards and restores the pre-#8
+    rendering. So the case where abstention is most certainly correct was the case that got the
+    confident answer: "supply an input where risk > 4" for a function that accepts no input.
+
+    This is the cannot-determine / determined-false conflation, and truthiness is what hides it:
+    `()` and `None` are both falsy, so the collapse reads as a harmless normalisation.
+
+    ``unknown`` — not supplied; no classification is possible and the historical rendering stands.
+    ``none``    — the function has no parameters; no predicate over parameters can exist, so a
+                  named comparison is necessarily internal.
+    ``known``   — at least one parameter; the operands can be classified against it.
+    """
+    if param_names is None:
+        return "unknown"
+    if not param_names:
+        return "none"
+    return "known"
+
+
 def _boundary_hint(diff_summary: str, param_names: tuple[str, ...] | None = None) -> str | None:
     """For a BOUNDARY mutant — an operator shift on a comparison — name the region a
     distinguishing input must land in: the equality edge for strict↔non-strict shifts, the
@@ -538,7 +576,12 @@ def _boundary_hint(diff_summary: str, param_names: tuple[str, ...] | None = None
                     and m_right == right
                     and (region := _difference_region(op, m_op, left, right))
                 ):
-                    if param_names is not None and not _params_only(left, right, param_names):
+                    _scope = parameter_scope(param_names)
+                    # `none` short-circuits: with no parameters there is nothing for
+                    # `_params_only` to match, and saying so directly keeps the reason legible.
+                    if _scope == "none" or (
+                        _scope == "known" and not _params_only(left, right, param_names or ())
+                    ):
                         return (
                             f"internal condition `{region}` decides this — not a direct input "
                             "constraint; Detective could not derive a verified call from the "
@@ -549,9 +592,7 @@ def _boundary_hint(diff_summary: str, param_names: tuple[str, ...] | None = None
                     # recipe that silently omits `enabled`. Until control-dependence is
                     # derived, a dominated comparison abstains; only one this analysis
                     # PROVES unconditionally evaluated keeps the actionable form.
-                    if param_names is not None and not _always_evaluated(
-                        "\n".join(orig_lines), left, op, right
-                    ):
+                    if _scope == "known" and not _always_evaluated("\n".join(orig_lines), left, op, right):
                         return (
                             f"internal condition `{region}` sits behind enclosing control "
                             "flow — the relation alone is not path-complete; supply a call "
@@ -979,12 +1020,16 @@ def _format_survivor_report(
             f"no distinguishing input in {tried} tried. To KILL: supply an input reaching a "
             "mutated branch below (or `flag` if truly equivalent):"
         )
-        lines += _survivor_lines(unproven, verbose, param_names or None)
+        # NOT `param_names or None` (#8): an empty tuple means 'no parameters', a fact that makes
+        # abstention certain — collapsing it to None restored the unguarded rendering.
+        lines += _survivor_lines(unproven, verbose, param_names)
         lines += _target_lines(signature)
-        lines.append(
-            f"      supply:  {_input_template(param_names)}   "
-            "# fill the slots to reach a branch above, then re-run converge"
-        )
+        # A zero-parameter target has no slots to fill, so "supply:" would head an empty
+        # recipe and instruct the reader to do something impossible (#8).
+        if _tmpl := _input_template(param_names):
+            lines.append(
+                f"      supply:  {_tmpl}   # fill the slots to reach a branch above, then re-run converge"
+            )
     if crash_only:
         cats = ", ".join(sorted({v.category for v in crash_only}))
         n_det, n_undet = crash_only_status(crash_only)
@@ -1012,7 +1057,7 @@ def _format_survivor_report(
             )
         head += " `flag` if truly equivalent:"
         lines.append(head)
-        lines += _survivor_lines(crash_only, verbose, param_names or None)
+        lines += _survivor_lines(crash_only, verbose, param_names)
     if rep.manual_equivalent:
         lines.append(
             f"  ✓ {len(rep.manual_equivalent)} survivor(s) flagged equivalent (oracle — PROVEN, not gaps)"
@@ -1402,10 +1447,10 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
         gap = list(result.missing_lines)
         lines.append(f"  ✗ line gap: {len(result.missing_lines)} executable line(s) no test covers: {gap}")
         lines += _target_lines(result.signature)
-        lines.append(
-            f"      supply:  {_input_template(result.param_names)}   "
-            f"# fill the slots to execute line(s) {gap}, then re-run converge"
-        )
+        if _tmpl := _input_template(result.param_names):
+            lines.append(
+                f"      supply:  {_tmpl}   # fill the slots to execute line(s) {gap}, then re-run converge"
+            )
     elif result.minimal_test_count:
         lines.append("  ✓ line-complete — every executable line is covered by a test")
     if result.manually_unreachable:
@@ -1847,7 +1892,10 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     # pin them, so any input we ask for here is one the caller can supply and still see NO
     # progress — the same forever-loop `find_witness` skips them to avoid.
     for v in (v for v in (rep.equivalent if rep is not None else ()) if not v.crash_only):
-        h = _boundary_hint(v.diff_summary, tuple(proof.param_names) if proof.param_names else None)
+        h = _boundary_hint(
+            v.diff_summary,
+            tuple(proof.param_names) if proof.param_names is not None else None,
+        )
         if not h:
             continue
         if _is_internal_hint(h):
@@ -1974,7 +2022,7 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         # ONE slot, not N identical ones. Every copy is the same unfilled template, so repeating
         # it says nothing the Task line does not, and at seven uncovered lines it produced a
         # command that was 90% the same string. How many to author is a sentence; it is not argv.
-        out = [f"DO THIS:  {cmd} {tmpl}"]
+        out = [f"DO THIS:  {cmd} {tmpl}".rstrip()]
         out.append("")
         out.append(_row("· Signature", sig))
         out.append("")
@@ -1992,7 +2040,7 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
 
     if kind == "boundary":
         # One slot — see the `lines` branch above; the count is in the Task line.
-        out = [f"DO THIS:  {cmd} {tmpl}"]
+        out = [f"DO THIS:  {cmd} {tmpl}".rstrip()]
         out.append("")
         out.append(_row("· Signature", sig))
         out.append("")
@@ -2008,7 +2056,7 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         return out
 
     if kind == "internal":
-        out = [f"DO THIS:  {cmd} {tmpl}"]
+        out = [f"DO THIS:  {cmd} {tmpl}".rstrip()]
         out.append("")
         out.append(_row("· Signature", sig))
         out.append("")
@@ -2026,7 +2074,7 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         return out
 
     return [
-        f"DO THIS:  {cmd} {tmpl}",
+        f"DO THIS:  {cmd} {tmpl}".rstrip(),
         "",
         _row("· Signature", sig),
         "",
