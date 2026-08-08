@@ -1118,6 +1118,11 @@ def _final_banner(result) -> str:
     # `--receiver-factory`), not for every possible instance state. Name it so the claim is honest.
     if result.complete and result.receiver_identity:
         status += f" · under receiver {result.receiver_identity}"
+    # An environment capability (a `--clock` freeze) makes a function whose result depends on external
+    # state pinnable — but its COMPLETE holds only UNDER that capability set, never unconditionally
+    # (issue #24). Name it, the same honesty as the receiver scope above.
+    if result.complete and getattr(result, "capability_identity", None):
+        status += f" · under capability set {result.capability_identity}"
     # Next to the arrow, this slot READS as "wrote N tests → here", so it has to BE that.
     # `minimal_test_count` is a different quantity — the two-axis minimal cover over the WHOLE
     # suite, ours and the consumer's together — and printing it beside our own path credits us

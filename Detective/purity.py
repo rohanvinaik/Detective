@@ -397,7 +397,9 @@ def uncovered_env_reads(env_reads: tuple[str, ...], clock_supplied: bool) -> tup
     and fails tomorrow), ``os.getpid``, ``os.environ``, filesystem reads, entropy. Returned as the
     exact dependency reasons so the refusal names why, not merely that.
     """
-    return tuple(r for r in env_reads if not (clock_supplied and "time.time()" in r))
+    from .capabilities import clock_covers
+
+    return tuple(r for r in env_reads if not (clock_supplied and clock_covers(r)))
 
 
 class _EnvironmentReadVisitor(ast.NodeVisitor):

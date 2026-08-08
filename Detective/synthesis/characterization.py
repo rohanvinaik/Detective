@@ -17,7 +17,6 @@ import contextlib
 import os
 import sys
 import tempfile
-import time
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field, is_dataclass, replace
@@ -25,6 +24,7 @@ from dataclasses import fields as dataclass_fields
 from enum import StrEnum
 from typing import Any
 
+from ..capabilities import apply_clock, restore_clock
 from ..equivalence import unwrap
 
 
@@ -363,12 +363,13 @@ def _try_capture(
     intact — are stored on the capture so the emitted test renders as ``repr`` =
     the constructor source, not an opaque object repr.
 
-    ``clock`` freezes ``time.time`` to a fixed value across both calls (restored in ``finally``,
-    so no leak). This is what turns a wall-clock reader deterministic: without it the two calls
-    disagree and the capture is dropped. Only ``time.time`` is frozen (v1 of the `--clock`
-    residual); ``time.monotonic`` / ``datetime.now`` are follow-ups. Reaches a function that calls
-    ``time.time()`` on the module (``import time; time.time()``); a ``from time import time`` local
-    binding keeps its own reference and is a documented miss.
+    ``clock`` freezes the whole ``time``-module clock family (``time`` / ``monotonic`` /
+    ``perf_counter`` and the ``_ns`` forms; see :func:`capabilities.apply_clock`) to a fixed value
+    across both calls (restored in ``finally``, so no leak). This is what turns a wall-clock reader
+    deterministic: without it the two calls disagree and the capture is dropped. ``datetime.now`` /
+    ``date.today`` are NOT frozen (builtin-type methods this slice cannot ``setattr`` — the #24
+    remainder). Reaches a function that calls the clock on the module (``import time; time.time()``);
+    a ``from time import time`` local binding keeps its own reference and is a documented miss.
 
     ``deterministic`` asks whether the VALUE is stable, and compares reprs to decide. Both
     calls share one process, so this cannot observe hash-seed effects — which is correct,
@@ -383,11 +384,12 @@ def _try_capture(
     # capture of a tree-mutating function (issue #30) cannot litter the consumer's checkout.
     sink = _EffectSink(block=True)
     token = _OPEN_WATCH.set(sink)
-    saved_time = time.time if clock is not None else None
+    # Freeze the whole time-module clock family (#24 increment 1), not only `time.time`, so a function
+    # reading `monotonic()`/`perf_counter()` for a TTL/elapsed check is deterministic too — the same
+    # plan `render_clock_freeze` emits into the test.
+    _clock_saved = apply_clock(clock) if clock is not None else None
     blocked_write = False
     try:
-        if clock is not None:
-            time.time = lambda: clock  # freeze the wall clock -> the function is now deterministic
         result = func(*call_args, **call_kwargs)
         first = repr(result)
         second = repr(func(*call_args, **call_kwargs))
@@ -396,8 +398,8 @@ def _try_capture(
     except Exception:
         return None
     finally:
-        if saved_time is not None:
-            time.time = saved_time  # restore — the freeze must never outlive the capture
+        if _clock_saved is not None:
+            restore_clock(_clock_saved)  # restore — the freeze must never outlive the capture
         _OPEN_WATCH.reset(token)
     if blocked_write:
         # A tree-mutating function is not golden-capturable; the write was prevented (no litter),

@@ -27,6 +27,7 @@ from Wesker.filter import filter_categories
 
 from ._contain import contained_stdout, remaining_budget_ms
 from .binding import ReceiverFactory, parse_receiver_factory, resolve_execution, wrap_callable
+from .capabilities import capability_identity, render_clock_freeze
 from .certify import (
     PytestVerification,
     PytestWiring,
@@ -183,6 +184,11 @@ class ConvergeResult:
     # holds UNDER that receiver, not for every possible instance state.
     needs_receiver: str | None = None
     receiver_identity: str | None = None
+    # Environment capability the certificate is scoped to (issue #24): a ``--clock EPOCH`` makes a
+    # wall-clock-reading function pinnable, but its ``✓ COMPLETE`` holds only UNDER that frozen clock,
+    # never unconditionally. ``clock=<epoch>`` today; the #24 remainder folds a compound capability
+    # set (env / files) into a digest. None when no capability was supplied.
+    capability_identity: str | None = None
 
     @property
     def mutation_score(self) -> float:
@@ -433,16 +439,11 @@ def _golden_property(
     if frozen is not None:
         body = f"result = {call}\n{assertion}"
         indented = "\n".join(f"    {ln}" if ln else "" for ln in body.split("\n"))
-        assertion_code = (
-            "import time as _dtv_clock\n"
-            "_dtv_clock_saved = _dtv_clock.time\n"
-            f"_dtv_clock.time = lambda: {frozen!r}  # --clock: freeze the wall clock so this pins\n"
-            "try:\n"
-            f"{indented}\n"
-            "finally:\n"
-            "    _dtv_clock.time = _dtv_clock_saved"
-        )
-        preconditions = [f"golden capture (deterministic under time.time()=={frozen!r})"]
+        # The whole time-module clock family is frozen + restored in `finally` (#24 increment 1),
+        # the SAME plan `apply_clock` used at capture, so the emitted test pins identically with no
+        # fixture and no leak.
+        assertion_code = render_clock_freeze(frozen, indented)
+        preconditions = [f"golden capture (deterministic under a frozen clock == {frozen!r})"]
         golden_case = None  # a freeze-wrapped test is standalone — not a parametrizable row
     else:
         assertion_code = f"result = {call}\n{assertion}"
@@ -1393,5 +1394,6 @@ def _converge_impl(
         verification=verification,
         needs_receiver=_receiver_refusal,
         receiver_identity=_receiver_identity,
+        capability_identity=capability_identity(clock),
         # stdout_bytes is stamped by the ``converge`` containment shell, which owns the sink.
     )
