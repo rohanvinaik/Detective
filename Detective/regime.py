@@ -30,6 +30,7 @@ never edits a file the user wrote, and it names what it cannot fix rather than g
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 
 from .certify import _PYTEST_SECTION
@@ -116,6 +117,31 @@ _CONFIG_ORDER = (
 )
 
 
+def _pyproject_pytest_section(source: str) -> str | None:
+    """The pyproject section pytest reads for config, or None — recognizing BOTH forms it accepts.
+
+    pytest reads a `[tool.pytest.ini_options]` table AND (measured on pytest 9, no warning) a bare
+    `[tool.pytest]` table that carries config keys — the bare form makes pyproject the configfile and
+    outranks tox.ini. The prior mirror matched only the `[tool.pytest.ini_options]` SUBSTRING, so on a
+    repo whose pyproject uses the bare form it skipped pyproject and declared the marker into a tox.ini
+    pytest ignores (measured on python-humanize: every generated test then failed to COLLECT under its
+    `filterwarnings=error`). Parsed, not substring-matched: `ini_options` is canonical and wins when
+    both are present; an EMPTY `[tool.pytest]` is not a config source (pytest ignores it)."""
+    try:
+        import tomllib
+
+        pytest_tbl = tomllib.loads(source).get("tool", {}).get("pytest")
+    except (ValueError, ImportError, AttributeError):
+        return None
+    if not isinstance(pytest_tbl, dict):
+        return None
+    if isinstance(pytest_tbl.get("ini_options"), dict):
+        return "[tool.pytest.ini_options]"
+    if any(key != "ini_options" for key in pytest_tbl):
+        return "[tool.pytest]"
+    return None
+
+
 def pytest_config(root: str) -> tuple[str, str, str] | None:
     """The config file pytest will ACTUALLY read — `(path, dialect, section)` — or None.
 
@@ -147,12 +173,93 @@ def pytest_config(root: str) -> tuple[str, str, str] | None:
                 source = fh.read()
         except OSError:
             continue
+        if name == "pyproject.toml":
+            # Recognize BOTH pytest sections pyproject can carry (ini_options and bare tool.pytest),
+            # returning the one that actually exists so the reader and the writer both target it.
+            resolved_section = _pyproject_pytest_section(source)
+            if resolved_section is not None:
+                return path, "toml", resolved_section
+            continue
         if section in source:
             return path, dialect, section
     pyproject = os.path.join(root, "pyproject.toml")
     if os.path.isfile(pyproject):
         return pyproject, "toml", "[tool.pytest.ini_options]"
     return None
+
+
+def _resolved_for_file(root: str, rel: str) -> tuple[str, str, str] | None:
+    """`(path, dialect, section)` for a KNOWN config file (its basename fixes the dialect/section) —
+    used to register into the file pytest itself named when it diverges from the static mirror. For
+    pyproject the section is the one actually present (`_pyproject_pytest_section`)."""
+    if not rel:
+        return None
+    path = os.path.join(root, rel)
+    if not os.path.isfile(path):
+        return None
+    name = os.path.basename(rel)
+    if name in ("pytest.ini", "tox.ini"):
+        return path, "ini", "[pytest]"
+    if name == "setup.cfg":
+        return path, "ini", "[tool:pytest]"
+    if name == "pyproject.toml":
+        try:
+            with open(path, encoding="utf-8") as fh:
+                section = _pyproject_pytest_section(fh.read()) or "[tool.pytest.ini_options]"
+        except OSError:
+            return None
+        return path, "toml", section
+    return None
+
+
+def pytest_configfile_live(root: str) -> str | None:
+    """The config file pytest ITSELF resolves (repo-relative) — by ASKING it, not re-deriving its
+    precedence. `--collect-only` prints `configfile:` in its session header before any test runs.
+
+    This is the B in "por qué no los dos": the static :func:`pytest_config` mirror predicts pytest's
+    choice from the files on disk; this reads pytest's OWN choice. Agreement is the standard case;
+    divergence is a signal (a non-standard or version-specific config) that :func:`reconcile_config_file`
+    resolves in pytest's favour and flags. None when pytest cannot answer — not installed, a collection
+    error before the header, or a timeout — and then the mirror stands alone. Best-effort and bounded;
+    called ONLY at ``--migrate``, never on the per-converge path (it costs a subprocess)."""
+    import re
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "--collect-only", "-p", "no:cacheprovider"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    for line in (proc.stdout + "\n" + proc.stderr).splitlines():
+        match = re.match(r"configfile:\s*(\S+)", line.strip())
+        if match:
+            return match.group(1)  # pytest prints it relative to rootdir
+    return None
+
+
+def reconcile_config_file(static_rel: str, live_rel: str | None) -> tuple[str, str]:
+    """Reconcile the static precedence MIRROR with the config file pytest ITSELF reports — returning
+    `(chosen_rel, divergence_note)`. Both are computed on purpose (por qué no los dos); divergence is
+    the signal (pure — Detective-pinned).
+
+    * pytest could not answer (`live_rel` falsy) → trust the mirror; make no divergence claim.
+    * they AGREE → the standard case; the mirror is confirmed, empty note.
+    * they DIVERGE → pytest's own `configfile` is the AUTHORITY on what actually RUNS, so choose it,
+      and return a cautionary note: a config the static rules mispredict is non-standard and warrants
+      a human's eye, not a silent guess into a file pytest ignores."""
+    if not live_rel:
+        return static_rel, ""
+    if static_rel == live_rel:
+        return live_rel, ""
+    return live_rel, (
+        f"config resolution diverged — the precedence mirror picked {static_rel or '<none>'}, "
+        f"but pytest reads {live_rel}; registering into pytest's (this repo's config is non-standard)"
+    )
 
 
 def _pytest_table(root: str) -> dict:
@@ -171,7 +278,14 @@ def _pytest_table(root: str) -> dict:
             import tomllib
 
             with open(path, "rb") as fh:
-                table = tomllib.load(fh).get("tool", {}).get("pytest", {}).get("ini_options", {})
+                pytest_tbl = tomllib.load(fh).get("tool", {}).get("pytest", {})
+            # Read the sub-table pytest reads: `ini_options`, or the bare `[tool.pytest]` keys
+            # themselves (minus a nested `ini_options`) — matching whichever `pytest_config` resolved.
+            table = (
+                pytest_tbl.get("ini_options", {})
+                if section == "[tool.pytest.ini_options]"
+                else {key: value for key, value in pytest_tbl.items() if key != "ini_options"}
+            )
         except (OSError, ValueError, ImportError, AttributeError):
             return {}
         return table if isinstance(table, dict) else {}
@@ -392,11 +506,16 @@ def plan_migration(regime: TestRegime) -> Migration:
     )
 
 
-def apply_migration(migration: Migration) -> tuple[str, ...]:
+def apply_migration(
+    migration: Migration, config_override: tuple[str, str, str] | None = None
+) -> tuple[str, ...]:
     """Do it. Returns what actually changed, in the order it happened.
 
     Config first, conftest last: if writing the config fails, the conftest still works and the
     repo is exactly as it was. The reverse order would leave a tree with neither.
+
+    ``config_override`` is the reconciled ``(path, dialect, section)`` when pytest's own config file
+    diverges from the static mirror — the marker is registered THERE (see :func:`reconcile_config_file`).
     """
     from .certify import ensure_marker_registered
 
@@ -409,7 +528,7 @@ def apply_migration(migration: Migration) -> tuple[str, ...]:
             done.append("created pyproject.toml with [tool.pytest.ini_options]")
     if migration.declare_pythonpath and _declare_pythonpath(migration.root):
         done.append('declared pythonpath = ["."] — the root is importable under any pytest run')
-    if migration.declare_marker and (what := ensure_marker_registered(migration.root)):
+    if migration.declare_marker and (what := ensure_marker_registered(migration.root, config_override)):
         done.append(what)
     for rel in migration.remove_conftests:
         path = os.path.join(migration.root, rel)

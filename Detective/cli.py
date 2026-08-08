@@ -3230,8 +3230,20 @@ def _run(args) -> int:
         target_file = _split_target(args.target)[0] if args.target else None
         regime = resolve_regime(args.project_root, target_file)
         plan = plan_migration(regime)
-        applied = apply_migration(plan) if args.migrate else ()
+        applied: tuple[str, ...] = ()
         if args.migrate:
+            # por qué no los dos: cross-check the static precedence mirror (regime.config_file)
+            # against the config file pytest ITSELF reports. Agreement is the standard case;
+            # divergence means a non-standard/version-specific config — register into pytest's own
+            # file and WARN, rather than silently declaring into one pytest ignores.
+            from .regime import _resolved_for_file, pytest_configfile_live, reconcile_config_file
+
+            _root = os.path.abspath(args.project_root)
+            _chosen, _divergence = reconcile_config_file(regime.config_file, pytest_configfile_live(_root))
+            _override = _resolved_for_file(_root, _chosen) if _divergence else None
+            applied = apply_migration(plan, _override)
+            if _divergence:
+                print(f"  ⚠ {_divergence}", file=sys.stderr)
             # Re-read: the report must describe the tree as it IS now, not as it was before we
             # wrote to it. Reporting the pre-migration regime after migrating is how a tool
             # tells you it fixed something and shows you the evidence that it did not.
