@@ -2256,6 +2256,7 @@ def audit_headline_verdict(
     complete_modulo_equivalent: bool,
     candidate_equivalent: int,
     crash_only_equivalent: int,
+    total_mutants: int = 1,
 ) -> str:
     """Which verdict shape the audit headline may claim (#36, pure — pinned).
 
@@ -2286,6 +2287,16 @@ def audit_headline_verdict(
     """
     if not (complete or complete_modulo_equivalent):
         return "incomplete"
+    # AN EMPTY UNIVERSE CERTIFIES NOTHING (W#13). With no mutants, `mutant_complete` is
+    # vacuously true and `kill_pct` is an explicit `else 100.0`, so a function with no mutable
+    # behaviour read `0/0 value-pinned · 100.0% killed · complete` — the strongest headline the
+    # tool emits, over a measurement that never happened. converge is honest about the same
+    # target ("0 behaviours · 0 pinned", certificate withheld); audit was not.
+    #
+    # Ranked BELOW `incomplete` on purpose: a zero-mutant function can still have an uncovered
+    # line, and that is a real gap on a different axis which must keep its own name.
+    if total_mutants <= 0:
+        return "nothing_measured"
     unproven = candidate_equivalent - crash_only_equivalent
     if unproven < 0:
         return "inconsistent"
@@ -2313,7 +2324,11 @@ def _format_audit(a, removing: bool = False) -> str:
     _crash_only = getattr(a, "crash_only_equivalent", 0)
     _unproven = a.candidate_equivalent - _crash_only
     _shape = audit_headline_verdict(
-        a.complete, a.complete_modulo_equivalent, a.candidate_equivalent, _crash_only
+        a.complete,
+        a.complete_modulo_equivalent,
+        a.candidate_equivalent,
+        _crash_only,
+        a.total_mutants,
     )
     if _shape == "complete_modulo_both":
         verdict = (
@@ -2326,6 +2341,8 @@ def _format_audit(a, removing: bool = False) -> str:
         # NOT "unproven-equivalent": an input DOES distinguish these, by crash. Calling them
         # unproven sends the reader hunting for an input that already exists.
         verdict = f"complete, modulo {_crash_only} crash-only value gap{'s' if _crash_only != 1 else ''}"
+    elif _shape == "nothing_measured":
+        verdict = "nothing measured — no mutants in this function's universe; no certificate"
     elif _shape == "inconsistent":
         verdict = "complete, modulo an inconsistent survivor count (please report)"
     elif _shape == "complete":
@@ -2338,10 +2355,15 @@ def _format_audit(a, removing: bool = False) -> str:
     # value-pinned count (the completeness the classification partitions) AND the detection rate
     # (`kill_pct`, which counts crash kills too). Blurring them into one "% killed" is the very thing
     # the README says the tool does not do.
+    # A RATE OVER AN EMPTY UNIVERSE IS NOT A RATE. `kill_pct` is an explicit `else 100.0` when
+    # `total_mutants` is 0, so a function with no mutable behaviour printed "100.0% killed" — a
+    # number that reads as the best possible outcome and is a division artifact. Omit it rather
+    # than render it: the verdict beside it already says nothing was measured.
+    _rate = "" if a.total_mutants <= 0 else f"· {a.kill_pct}% killed (value+crash) "
     lines = [
         _RULE,
         f"{a.function} — audit · {a.test_count} test(s) · {a.value_killed}/{a.total_mutants} value-pinned "
-        f"· {a.kill_pct}% killed (value+crash) · {verdict}",
+        f"{_rate}· {verdict}",
         "",
     ]
     # FAN-IN, led with (issue #54): how many tests REACH this function vs how many PIN it. A wide

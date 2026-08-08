@@ -14,12 +14,22 @@ from Detective.cli import audit_headline_verdict
 @pytest.mark.parametrize(
     "args, expected",
     [
-        ((True, True, 1, 2), "inconsistent"),
         ((True, True, 3, 0), "complete_modulo_unproven"),
+        ((True, True, 3, 0, 27), "complete_modulo_unproven"),
+        ((False, True, 3, 3, 27), "complete_modulo_crash_only"),
+        ((True, False, 0, 0, 0), "nothing_measured"),
+        ((False, True, 3, 3), "complete_modulo_crash_only"),
+        ((False, True, 3, 0), "complete_modulo_unproven"),
+        ((False, True, 5, 2), "complete_modulo_both"),
+        ((True, False, 0, 0), "complete"),
+        ((False, False, 0, 0), "incomplete"),
+        ((False, False, 5, 2), "incomplete"),
+        ((False, True, 1, 3), "inconsistent"),
+        ((True, True, 1, 2, 3), "inconsistent"),
     ],
 )
 def test_audit_headline_verdict_golden(args, expected):
-    """VALUE golden captures — pure + deterministic (2 inputs)."""
+    """VALUE golden captures — pure + deterministic (12 inputs)."""
     assert audit_headline_verdict(*args) == expected
 
 
@@ -27,42 +37,10 @@ def test_audit_headline_verdict_golden(args, expected):
 def test_audit_headline_verdict_value_0():
     """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
     result = audit_headline_verdict(
-        complete=True, complete_modulo_equivalent=True, candidate_equivalent=0, crash_only_equivalent=0
+        complete=True,
+        complete_modulo_equivalent=False,
+        candidate_equivalent=0,
+        crash_only_equivalent=0,
+        total_mutants=-1,
     )
-    assert result == "complete"
-
-
-@pytest.mark.detective
-def test_audit_headline_verdict_value_1():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = audit_headline_verdict(
-        complete=False, complete_modulo_equivalent=True, candidate_equivalent=1, crash_only_equivalent=2
-    )
-    assert result == "inconsistent"
-
-
-@pytest.mark.detective
-def test_audit_headline_verdict_value_2():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = audit_headline_verdict(
-        complete=True, complete_modulo_equivalent=True, candidate_equivalent=2, crash_only_equivalent=2
-    )
-    assert result == "complete_modulo_crash_only"
-
-
-@pytest.mark.detective
-def test_audit_headline_verdict_value_3():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = audit_headline_verdict(
-        complete=False, complete_modulo_equivalent=False, candidate_equivalent=-1, crash_only_equivalent=-1
-    )
-    assert result == "incomplete"
-
-
-@pytest.mark.detective
-def test_audit_headline_verdict_value_4():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = audit_headline_verdict(
-        complete=False, complete_modulo_equivalent=True, candidate_equivalent=3, crash_only_equivalent=-1
-    )
-    assert result == "complete_modulo_both"
+    assert result == "nothing_measured"

@@ -78,3 +78,40 @@ def test_each_shape_stays_distinguishable():
         audit_headline_verdict(False, True, 1, 3),
     }
     assert len(shapes) == 6
+
+
+# --------------------------------------------------------------------------------------
+# An empty universe certifies nothing (Wesker #13, cut-result invariant)
+# --------------------------------------------------------------------------------------
+
+
+def test_zero_mutants_is_not_a_certificate():
+    """MEASURED: `noop()` — no mutable behaviour, one test covering it — printed
+
+        src/z.py::noop — audit · 1 test(s) · 0/0 value-pinned · 100.0% killed · complete
+
+    the strongest headline the tool emits, over a measurement that never happened.
+    `mutant_complete` is vacuously true on an empty universe and `kill_pct` is an explicit
+    `else 100.0`. converge was honest about the same target ("0 behaviours · 0 pinned",
+    certificate withheld); audit was not.
+    """
+    assert audit_headline_verdict(True, False, 0, 0, 0) == "nothing_measured"
+
+
+def test_a_line_gap_still_outranks_an_empty_universe():
+    """A zero-mutant function can still have an uncovered line — a real gap on a DIFFERENT
+    axis, which must keep its own name rather than be absorbed into "nothing measured"."""
+    assert audit_headline_verdict(False, False, 0, 0, 0) == "incomplete"
+
+
+def test_a_real_universe_is_unaffected():
+    """The guard must key on the universe being EMPTY, not on any count being zero — a
+    function with 27 mutants and no residuals is plainly complete."""
+    assert audit_headline_verdict(True, False, 0, 0, 27) == "complete"
+    assert audit_headline_verdict(False, True, 3, 3, 27) == "complete_modulo_crash_only"
+
+
+def test_the_default_keeps_existing_callers_honest():
+    """The parameter defaults to a NON-empty universe: a caller that does not thread the
+    count must not silently acquire the refusal, because it has not established the fact."""
+    assert audit_headline_verdict(True, False, 0, 0) == "complete"
