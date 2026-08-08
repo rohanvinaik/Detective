@@ -2093,9 +2093,14 @@ def _format_audit(a, removing: bool = False) -> str:
         # Not "✗": the gaps are itemised below, and a suite that pins every killable behaviour
         # but leaves a line uncovered is not a failed run.
         verdict = "incomplete"
+    # Name BOTH lenses so the headline reconciles with the classification below (issue #55): the
+    # value-pinned count (the completeness the classification partitions) AND the detection rate
+    # (`kill_pct`, which counts crash kills too). Blurring them into one "% killed" is the very thing
+    # the README says the tool does not do.
     lines = [
         _RULE,
-        f"{a.function} — audit · {a.test_count} test(s) · {a.kill_pct}% of mutants killed · {verdict}",
+        f"{a.function} — audit · {a.test_count} test(s) · {a.value_killed}/{a.total_mutants} value-pinned "
+        f"· {a.kill_pct}% killed (value+crash) · {verdict}",
         "",
     ]
     if a.failing_tests:

@@ -47,8 +47,17 @@ class SuiteAudit:
 
     function: str
     test_count: int
+    # `kill_pct` is a DETECTION rate: total_killed / universe, where total_killed counts BOTH value
+    # kills (a test pins the value) AND crash kills (a test crashes on the mutant). It is NOT the
+    # value-completeness — a crash-killed mutant is "killed" here but is a value-survivor in the
+    # classification below, which is why the two views legitimately differ (issue #55). `value_killed`
+    # (a defaulted field below) is the value-pinned count, so the value partition is derivable.
     kill_pct: float
-    mutant_complete: bool  # kills every KILLABLE mutant (equivalents may survive)
+    # `mutant_complete` = every KILLABLE mutant killed AND no survivor left UNCLASSIFIED, i.e.
+    # `not killable and not unclassified`. False when unclassified > 0 even with no killable gap,
+    # because an unclassified survivor MAY be killable (honest uncertainty); the measurement is not
+    # complete. (Whether that should gate CI is #50 — it does not, by default.)
+    mutant_complete: bool
     line_complete: bool  # covers every executable line
     redundant_tests: tuple[str, ...]  # pointless for BOTH axes -> deletion PROPOSALS
     failing_tests: tuple[str, ...]  # assert-fail on current code -> WARN, never delete
@@ -72,6 +81,14 @@ class SuiteAudit:
     # out only so a renderer stops saying "no input distinguishes them" about a class where
     # that is false — which is what sent readers hunting for an input that cannot exist.
     crash_only_equivalent: int = 0
+    # Mutants a test pins by VALUE (assertion kills). Exposed so the whole universe partitions,
+    # derivably and provably: `total_mutants = value_killed + len(killable_gaps) + candidate_equivalent
+    # + manual_equivalent + unclassified` (asserted in `audit_suite` via `audit_partition_sums`).
+    # `crash_only_equivalent` is a SUB-COUNT of `candidate_equivalent`, not a separate term — a JSON
+    # consumer must not add the two. `kill_pct` counts value AND crash kills, so it is `>= value_killed
+    # / total` and reconciles with this partition only once the crash overlap is named (issue #55).
+    value_killed: int = 0
+    total_mutants: int = 0
 
     @property
     def complete(self) -> bool:
@@ -132,6 +149,22 @@ def audit_gate_exit(spec_gap: bool, measurement_incomplete: bool, strict: bool) 
     if measurement_incomplete and strict:
         return 2
     return 0
+
+
+def audit_partition_sums(
+    total: int, value_killed: int, killable: int, candidate_equivalent: int, manual: int, unclassified: int
+) -> bool:
+    """Whether every mutant lands in EXACTLY one terminal value-bucket (issue #55, pure — pinned).
+
+    The universe partitions by VALUE specification, mutually exclusive and exhaustive:
+    ``total == value_killed + killable + candidate_equivalent + manual + unclassified``. Each mutant is
+    value-pinned, a killable-unkilled gap, value-equivalent (candidate), manually-flagged equivalent, or
+    unclassifiable. When this is False the headline % cannot be reconstructed from the classification
+    beneath it — a Detective ACCOUNTING bug, not a fact about the suite — so :func:`audit_suite` raises
+    rather than print a number that does not reconcile. ``crash_only_equivalent`` is a sub-count of
+    ``candidate_equivalent`` and never a term here; ``kill_pct`` counts crash kills too and is a
+    different (detection) lens that does not enter this partition."""
+    return total == value_killed + killable + candidate_equivalent + manual + unclassified
 
 
 def _gap_desc(verdict: Any, expressible: bool) -> str:
@@ -222,6 +255,7 @@ def audit_suite(
     candidate_equivalent_ids: tuple[str, ...] = ()
     crash_only_equivalent = 0
     unclassified = 0
+    classified = False
     try:
         report = classify_survivors(file, function, project_root)
         # Whether a killable gap may name the input to kill it with — see `_gap_desc`.
@@ -233,6 +267,7 @@ def audit_suite(
         crash_only_equivalent = sum(1 for v in report.equivalent if v.crash_only)
         unclassified = len(report.unclassified)
         mutant_complete = not report.killable and not report.unclassified
+        classified = True
     except Exception:  # noqa: BLE001 — classification is advisory, never fails the audit
         killable_gaps = tuple(
             f"{r.get('category', '?')} [{r.get('mutant_id', '?')}]" for r in result.value_survivor_records
@@ -240,6 +275,19 @@ def audit_suite(
         mutant_complete = result.value_survived == 0
 
     total = result.total_mutants
+    # REFUSE rather than report a headline that cannot be reconstructed from the classification (#55).
+    # The value partition must be exact; a mismatch is a Detective accounting bug, surfaced loudly here
+    # instead of shipped as a wrong percentage. Only when classification actually ran (the advisory
+    # fallback above does not produce the terminal buckets).
+    if classified and not audit_partition_sums(
+        total, result.value_killed, len(killable_gaps), candidate_equivalent, manual_equivalent, unclassified
+    ):
+        raise AssertionError(
+            f"audit partition does not sum for {result.function_key}: total={total} "
+            f"value_killed={result.value_killed} killable={len(killable_gaps)} "
+            f"candidate_equivalent={candidate_equivalent} manual={manual_equivalent} "
+            f"unclassified={unclassified}"
+        )
     return SuiteAudit(
         function=result.function_key,
         test_count=len(test_names),
@@ -274,6 +322,8 @@ def audit_suite(
         candidate_equivalent_ids=candidate_equivalent_ids,
         crash_only_equivalent=crash_only_equivalent,
         unclassified=unclassified,
+        value_killed=result.value_killed,
+        total_mutants=total,
     )
 
 
