@@ -2143,6 +2143,20 @@ def _format_audit(a, removing: bool = False) -> str:
         f"· {a.kill_pct}% killed (value+crash) · {verdict}",
         "",
     ]
+    # FAN-IN, led with (issue #54): how many tests REACH this function vs how many PIN it. A wide
+    # gap (79 reach · 5 pin) is the most decision-useful line the run produces — high fan-in + thin
+    # contract is exactly where a rewrite is dangerous and converging pays off most. It also reframes
+    # the "redundant" count below: most of those tests are not junk, they traverse this function en
+    # route to their own — the number says "write tests here", not "delete tests".
+    if a.minimal_test_count and a.test_count > a.minimal_test_count:
+        ratio = a.test_count / a.minimal_test_count
+        flag = " — high fan-in, thin contract: converge here" if ratio >= 3 else ""
+        lines.append(
+            _row(
+                "· fan-in",
+                f"{a.test_count} reach this function · {a.minimal_test_count} pin it ({ratio:.0f}:1){flag}",
+            )
+        )
     if a.failing_tests:
         # First, always: a failing test means the suite disagrees with the code RIGHT NOW.
         # Nothing else in this report matters until that is resolved, and it is never ours
@@ -2236,7 +2250,8 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             "",
             _row("· Why", f"{len(a.redundant_tests)} test(s) kill no mutant AND cover no line"),
             _row("", "OF THIS FUNCTION that another test does not already. --remove"),
-            _row("", "re-checks every sibling in the file and retains what still pins one."),
+            _row("", "re-checks every sibling in the file, keeps any a candidate still contributes"),
+            _row("", "to, and edits only this function's own test file — never a cross-file test."),
         ]
     if a.candidate_equivalent and a.candidate_equivalent_ids:
         first = a.candidate_equivalent_ids[0]
@@ -3673,12 +3688,26 @@ def _run(args) -> int:
                 file, function, args.project_root, list(report.redundant_tests)
             )
             for name, sibling in sorted(retained.items()):
-                print(f"  retained {name} — still pins {sibling}")
+                # Honest about WHAT the sibling check verified (issue #54): it confirms the test still
+                # contributes a kill/line to `sibling` — NOT that `sibling` is itself specified. If
+                # `sibling` is far from complete, "still contributes" is a weaker guarantee than "pins".
+                print(
+                    f"  retained {name} — still contributes kills/lines to {sibling} "
+                    f"({sibling}'s own completeness unknown)"
+                )
             result = apply_removals(file, args.project_root, list(safe))
             if result.removed:
                 print(f"  removed {len(result.removed)}: {', '.join(result.removed)}")
             if result.not_found:
-                print(f"  could not locate: {', '.join(result.not_found)}")
+                # An explicit scope RULE, not a shrug (issue #54): --remove edits only tests Detective
+                # can attribute to this function's own file. A candidate elsewhere (a test of another
+                # function that traverses this one) is out of scope — never a deletion candidate,
+                # regardless of file layout, so it was protected by policy, not by accident.
+                print(
+                    f"  skipped {len(result.not_found)} — outside this function's editable test scope "
+                    "(--remove edits only its own test file, never a cross-file test): "
+                    f"{', '.join(result.not_found)}"
+                )
             if result.parametrized:
                 print(
                     f"  parametrized case(s) — rows of a live test, not removable as "
@@ -3701,11 +3730,13 @@ def _run(args) -> int:
                     ", ".join(
                         p
                         for p in (
-                            f"{len(retained)} still pin a sibling" if retained else "",
+                            f"{len(retained)} still contribute to a sibling" if retained else "",
                             f"{len(result.parametrized)} are parametrized rows (report-only)"
                             if result.parametrized
                             else "",
-                            f"{len(result.not_found)} could not be located" if result.not_found else "",
+                            f"{len(result.not_found)} outside this function's editable test scope"
+                            if result.not_found
+                            else "",
                         )
                         if p
                     )
