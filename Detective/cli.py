@@ -234,6 +234,31 @@ def _format_parsimony_map(score, top: int = 10) -> str:
     return "\n".join(lines)
 
 
+def _format_parsimony_plan(score, top: int = 10) -> str:
+    """The `parsimony --plan` WORK QUEUE (issue #51): flagged functions grouped by module — one
+    baseline trace per group — worst-first, each line a paste-able target. It SCHEDULES work; it
+    ranks no quality and proves nothing, and the header says so."""
+    from .parsimony_map import parsimony_plan
+
+    plan = parsimony_plan(score)
+    lines = [
+        _RULE,
+        f"{score.name} — parsimony --plan · {score.functions} functions · {score.flagged} flagged "
+        f"· {len(plan)} trace group(s) · a schedule, not a finding (advisory)",
+        "",
+    ]
+    if not plan:
+        lines.append(_row("", "nothing scored heavy — no work queued."))
+        return "\n".join(lines)
+    for module, reads in plan[:top]:
+        lines.append(f"  ▸ {module}  —  one baseline trace · {len(reads)} flagged, worst-first")
+        for r in reads:
+            lines.append(_row("", f"{r.qualname}   {r.smells}⚠  {r.detail}"))
+    if len(plan) > top:
+        lines.append(_row("", f"… {len(plan) - top} more group(s) — raise --top"))
+    return "\n".join(lines)
+
+
 def _trace_cut_rows(scope) -> list[str]:
     """The cut-trace warning, or nothing.
 
@@ -2711,6 +2736,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parsimony_p.add_argument("path", help="a .py file or a directory to scan")
     parsimony_p.add_argument("--project-root", default=".", help="project root the path is relative to")
     parsimony_p.add_argument("--top", type=int, default=10, help="worst offenders to show (default 10)")
+    parsimony_p.add_argument(
+        "--plan",
+        action="store_true",
+        help="emit an ordered WORK QUEUE instead of the map: the flagged functions grouped by module "
+        "(one baseline trace per group) and ordered worst-first, so a driver spends a finite mutation "
+        "budget where it pays off first. Schedules work; ranks no quality, proves nothing, writes "
+        "nothing. Pair with --json for an agent/MCP-consumable queue; --top bounds the groups shown.",
+    )
     parsimony_p.add_argument("--json", action="store_true", help="emit JSON")
 
     # Arbitrary-rewrite old-vs-new preservation gate (issue #37). `decompose` proves its OWN
@@ -3351,9 +3384,40 @@ def _run(args) -> int:
         return 0
 
     if args.command == "parsimony":
-        from .parsimony_map import score_path
+        from .parsimony_map import parsimony_plan, score_path
 
         score = score_path(args.path, args.project_root)
+        if getattr(args, "plan", False):
+            # A work QUEUE, not the map (issue #51): flagged functions grouped by module (one trace
+            # per group), worst-first, so a driver spends a finite budget where it pays off first.
+            if args.json:
+                groups = parsimony_plan(score)
+                print(
+                    json.dumps(
+                        {
+                            "kind": "parsimony-plan",
+                            "note": "schedule (advisory) — ranks no quality, proves nothing, writes nothing",
+                            "functions": score.functions,
+                            "flagged": score.flagged,
+                            "trace_groups": len(groups),
+                            "groups": [
+                                {
+                                    "module": module,
+                                    "one_baseline_trace": True,
+                                    "targets": [
+                                        {"target": r.qualname, "smells": r.smells, "detail": r.detail}
+                                        for r in reads
+                                    ],
+                                }
+                                for module, reads in groups[: args.top]
+                            ],
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(_format_parsimony_plan(score, top=args.top))
+            return 0
         if args.json:
             print(json.dumps(asdict(score), indent=2, default=str))
         else:

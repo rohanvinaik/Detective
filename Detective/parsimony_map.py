@@ -136,6 +136,29 @@ def _python_files(target: str) -> list[str]:
     return sorted(found)
 
 
+def _group_rank(max_smells: int, flagged_count: int) -> tuple[int, int]:
+    """Sort key for a trace group in the work plan (issue #51, pure — pinned): worst FIRST, by the
+    single most-flagged function's lens agreement, then by how many functions are flagged. Negated so
+    a plain ascending sort puts the heaviest module at the top. Ranking WHERE the budget goes first —
+    it asserts nothing about any function's quality, the claim the project's refusal actually forbids."""
+    return (-max_smells, -flagged_count)
+
+
+def parsimony_plan(score: ScopeScore) -> tuple[tuple[str, tuple[FunctionRead, ...]], ...]:
+    """A trace-grouped, worst-first WORK QUEUE from a scored path (issue #51). SCHEDULES work; ranks no
+    quality. Each group is a MODULE — its functions share one baseline trace, the larger of the two
+    savings — ordered worst-group-first (:func:`_group_rank`); within a group, functions worst-first
+    (most lens agreement). Only flagged functions appear; an empty plan means nothing scored heavy.
+    Emits nothing, proves nothing, runs no mutant — it inherits parsimony's advisory labelling."""
+    groups: list[tuple[str, tuple[FunctionRead, ...]]] = []
+    for module in score.children:
+        flagged = tuple(sorted((r for r in module.reads if r.flagged), key=lambda r: (-r.smells, r.qualname)))
+        if flagged:
+            groups.append((module.name, flagged))
+    groups.sort(key=lambda g: (*_group_rank(max(r.smells for r in g[1]), len(g[1])), g[0]))
+    return tuple(groups)
+
+
 def score_path(path: str, project_root: str = ".") -> ScopeScore:
     """Walk ``path`` (a file or directory) and build the repo → module → class → function map.
     Names are project-root-relative so the report reads the way the repo is laid out."""
