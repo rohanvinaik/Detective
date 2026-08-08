@@ -33,7 +33,6 @@ import os
 import sys
 from dataclasses import dataclass
 
-from .certify import _PYTEST_SECTION
 from .engine import ShadowedTarget, _resolve_origin, _suite_path, shadowed_target
 from .reachability import _SKIP_DIRS, _pytest_norecursedirs
 from .synthesis.oracle_light import importable_module
@@ -526,9 +525,14 @@ def apply_migration(
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write("[tool.pytest.ini_options]\n")
             done.append("created pyproject.toml with [tool.pytest.ini_options]")
-    if migration.declare_pythonpath and _declare_pythonpath(migration.root):
+    # Resolve the ONE section pytest reads AFTER any create, and route EVERY declaration (marker AND
+    # pythonpath) into it. pytest 9's native `[tool.pytest]` cannot coexist with `[tool.pytest.ini_options]`
+    # — a hardcoded ini_options here appended a SECOND, conflicting section on a bare-`[tool.pytest]`
+    # repo and broke collection. `config_override` is pytest's own file when it diverged from the mirror.
+    resolved = config_override if config_override is not None else pytest_config(migration.root)
+    if migration.declare_pythonpath and _declare_pythonpath(migration.root, resolved):
         done.append('declared pythonpath = ["."] — the root is importable under any pytest run')
-    if migration.declare_marker and (what := ensure_marker_registered(migration.root, config_override)):
+    if migration.declare_marker and (what := ensure_marker_registered(migration.root, resolved)):
         done.append(what)
     for rel in migration.remove_conftests:
         path = os.path.join(migration.root, rel)
@@ -540,9 +544,17 @@ def apply_migration(
     return tuple(done)
 
 
-def _declare_pythonpath(root: str) -> bool:
-    """Add ``pythonpath = ["."]`` to the pytest table. True if the file changed."""
-    path = os.path.join(root, "pyproject.toml")
+def _declare_pythonpath(root: str, resolved: tuple[str, str, str] | None) -> bool:
+    """Add ``pythonpath = ["."]`` to the pytest table pytest ACTUALLY reads. True if the file changed.
+
+    Writes into the RESOLVED section (never a hardcoded `[tool.pytest.ini_options]`): on a pyproject
+    using pytest 9's native `[tool.pytest]`, the hardcoded section created a SECOND pytest table, which
+    pytest forbids alongside the native one, and every test then failed to collect. Only ever writes to
+    a `pyproject.toml` that is the config file pytest uses — a `pythonpath` in a pyproject that a
+    `pytest.ini`/`tox.ini` outranks would be silently dead, so it is not written there."""
+    if resolved is None or os.path.basename(resolved[0]) != "pyproject.toml":
+        return False
+    path, _dialect, section = resolved
     try:
         with open(path, encoding="utf-8") as fh:
             source = fh.read()
@@ -550,10 +562,10 @@ def _declare_pythonpath(root: str) -> bool:
         return False
     if "pythonpath" in source:
         return False  # the repo already declares one — not ours to rewrite
-    if _PYTEST_SECTION in source:
-        updated = source.replace(_PYTEST_SECTION, f'{_PYTEST_SECTION}\npythonpath = ["."]', 1)
+    if section in source:
+        updated = source.replace(section, f'{section}\npythonpath = ["."]', 1)
     else:
-        updated = f'{source.rstrip()}\n\n{_PYTEST_SECTION}\npythonpath = ["."]\n'
+        updated = f'{source.rstrip()}\n\n{section}\npythonpath = ["."]\n'
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(updated)
