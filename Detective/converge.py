@@ -694,6 +694,35 @@ def _golden_properties(
     ], tuple(refusals)
 
 
+def regressed_obligations(before: list[str], after: list[str]) -> list[str]:
+    """Obligations killed BEFORE and no longer killed after, sorted (#62, pure — pinned).
+
+    The cold-start guard compared kill COUNTS: a run whose total dropped had destroyed
+    evidence, so the suite already on disk was kept. Equal counts passed. They should not:
+
+        before: {mutant_A, mutant_B}   count = 2
+        after:  {mutant_B, mutant_C}   count = 2
+
+    `mutant_A` regressed and the guard saw nothing, because a scalar cannot express which
+    behaviours are pinned — only how many. Shipping that suite trades one obligation for
+    another and reports convergence.
+
+    The invariant is CONTAINMENT, not magnitude: for an unchanged target, policy, capability
+    set and pytest manifest, ``old admissible obligations ⊆ new``. That is strictly stronger
+    than the count rule and subsumes it — containment forbids a drop in size — so this replaces
+    the comparison rather than joining it.
+
+    Returns the LOST ids, not a bool. A guard that can only say "worse" sends the reader to
+    diff two suites by hand; naming what stopped being pinned is the difference between a
+    refusal and a usable one. Sorted, so two identical runs cannot report differently.
+
+    ``mutant_id`` is the id to pass: `_content_mutant_id` hashes the mutated AST dump, so it is
+    invocation-stable and survives regeneration — which is what makes set comparison meaningful
+    across the two profiles at all. An ordinal or a description would compare positions.
+    """
+    return sorted(set(before) - set(after))
+
+
 def _progressed(previous: int, current: int) -> bool:
     """True when the survivor count strictly decreased."""
     return current < previous
@@ -978,6 +1007,9 @@ def _converge_impl(
             with open(prior_suite_path, encoding="utf-8") as fh:
                 prior_suite_source = fh.read()
     baseline_killed: int | None = None
+    # The same baseline as an obligation SET (#62). The count is retained only for the message
+    # and for the fallback when the engine supplies no per-mutant records.
+    baseline_killed_ids: list[str] = []
 
     for _pass in range(max_iterations):
         # Stop STARTING new work once the wall is gone (issue #31): a fresh pass would only
@@ -1002,6 +1034,7 @@ def _converge_impl(
         if baseline_killed is None:
             # Measured BEFORE this run writes anything: what the suite already on disk kills.
             baseline_killed = result.total_killed
+            baseline_killed_ids = [mid for r in (result.killed_records or []) if (mid := r.get("mutant_id"))]
         # Value-survivors: what the suite hasn't pinned the RETURN VALUE of — true
         # survivors plus crash/timeout kills. Converging drives THIS to zero, so a
         # crash-dominated "100%" no longer reads as done.
@@ -1242,18 +1275,37 @@ def _converge_impl(
             if final_result.budget_exhausted and not budget_cut:
                 budget_cut, cut_phase = True, "minimization"
     # The check the accumulator cannot make on a cold start: is the suite we are about to ship
-    # WORSE than the one we replaced? Kill count is the comparison because it is the number
-    # this command exists to move; a run that lowers it has destroyed evidence, not converged.
-    regressed = (
-        bool(prior_suite_source)
-        and baseline_killed is not None
-        and final_result.total_killed < baseline_killed
+    # WORSE than the one we replaced? Compared as an obligation SET, not a count (#62). A count
+    # cannot express WHICH behaviours are pinned, so {A,B} -> {B,C} held the total at 2 while A
+    # regressed, and the guard saw nothing — a run that trades one obligation for another and
+    # reports convergence. Containment is strictly stronger and subsumes the old rule, since
+    # `old ⊆ new` forbids a drop in size; the count survives only for the message and for the
+    # fallback below.
+    final_killed_ids = [mid for r in (final_result.killed_records or []) if (mid := r.get("mutant_id"))]
+    lost = regressed_obligations(baseline_killed_ids, final_killed_ids) if baseline_killed_ids else []
+    regressed = bool(prior_suite_source) and (
+        bool(lost)
+        # No per-mutant records to compare — an engine that does not supply them has not said
+        # the suite is equivalent, only that it cannot say. Falling back to the prior count rule
+        # preserves the previous behaviour rather than silently dropping the guard entirely.
+        or (
+            not baseline_killed_ids
+            and baseline_killed is not None
+            and final_result.total_killed < baseline_killed
+        )
     )
     if regressed:
-        say(
-            f"kept the suite already on disk — this run's would kill {final_result.total_killed} "
-            f"where it kills {baseline_killed}"
-        )
+        if lost:
+            named = ", ".join(lost[:3]) + (f" (+{len(lost) - 3} more)" if len(lost) > 3 else "")
+            say(
+                f"kept the suite already on disk — this run's would stop pinning "
+                f"{len(lost)} behaviour(s) it currently pins: {named}"
+            )
+        else:
+            say(
+                f"kept the suite already on disk — this run's would kill {final_result.total_killed} "
+                f"where it kills {baseline_killed}"
+            )
         with contextlib.suppress(OSError):
             with open(prior_suite_path, "w", encoding="utf-8") as fh:
                 fh.write(prior_suite_source)
