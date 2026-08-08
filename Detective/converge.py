@@ -48,7 +48,12 @@ from .synthesis.characterization import (
     distinction_pin_lines,
     golden_assert_line,
 )
-from .synthesis.oracle_light import ExecutableProperty, _import_line, generate_executable_property
+from .synthesis.oracle_light import (
+    ExecutableProperty,
+    _import_line,
+    generate_executable_property,
+    property_identity,
+)
 from .synthesis.writer import (
     foreign_generated_test_names,
     golden_row_properties,
@@ -984,8 +989,13 @@ def _converge_impl(
     from . import pins
 
     fn_digest = pins.function_digest(node)
+    # Keyed by SEMANTIC identity, not assertion text (#61). Two properties whose assertion
+    # reads the same but whose setup, inputs, preconditions or intended mutant differ are
+    # different obligations; keying on the text dropped the second as a duplicate and silently
+    # unpinned a real behaviour. Nor an ordinal: generated test names and pytest parameter ids
+    # shift on every insertion, so anything positional makes two runs incomparable.
     accumulated: dict[str, ExecutableProperty] = {
-        p.assertion_code: p for p in pins.load(root, func_key, fn_digest, verify=property_holds)
+        property_identity(p): p for p in pins.load(root, func_key, fn_digest, verify=property_holds)
     }
     if accumulated:
         say(f"recalled {len(accumulated)} pinned test(s) from a previous run")
@@ -1087,9 +1097,9 @@ def _converge_impl(
         sound = [
             p for p in props if not p.needs_oracle and property_holds(p.setup_code, p.assertion_code, root)
         ]
-        new_sound = [p for p in sound if p.assertion_code not in accumulated]
+        new_sound = [p for p in sound if property_identity(p) not in accumulated]
         for p in new_sound:
-            accumulated[p.assertion_code] = p
+            accumulated[property_identity(p)] = p
         source = render_module(func_key, list(accumulated.values()))
         if source and write_dir:
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
@@ -1160,10 +1170,10 @@ def _converge_impl(
             )
             if prop is None:
                 continue
-            if prop.assertion_code not in accumulated and property_holds(
+            if property_identity(prop) not in accumulated and property_holds(
                 prop.setup_code, prop.assertion_code, root
             ):
-                accumulated[prop.assertion_code] = prop
+                accumulated[property_identity(prop)] = prop
                 witnessed = True
                 n_witnessed += 1
         # Crash-only survivors the CURRENT suite does not reach: no value-witness exists
@@ -1184,10 +1194,10 @@ def _converge_impl(
             prop = _witness_property(
                 func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
             )
-            if prop.assertion_code not in accumulated and property_holds(
+            if property_identity(prop) not in accumulated and property_holds(
                 prop.setup_code, prop.assertion_code, root
             ):
-                accumulated[prop.assertion_code] = prop
+                accumulated[property_identity(prop)] = prop
                 witnessed = True
                 n_crash_detect += 1
         if n_crash_detect:

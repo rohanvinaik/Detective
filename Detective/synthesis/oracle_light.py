@@ -13,6 +13,7 @@ pair detection are deferred as follow-on features.
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 import re
 from dataclasses import dataclass, field
@@ -39,6 +40,83 @@ class ExecutableProperty:
     # ``(args_tuple_repr, expected_repr)`` pair, so the renderer can fold 2+ of them into
     # one ``@pytest.mark.parametrize`` test. None → render as an individual test.
     golden_case: tuple[str, str] | None = None
+
+
+def property_id(
+    function_key: str,
+    category: str,
+    setup_code: str,
+    assertion_code: str,
+    inputs: str,
+    preconditions: str,
+    mutant_id: str,
+) -> str:
+    """A property's SEMANTIC identity — what it asserts, under what setup, about which
+    obligation (#61, pure — pinned).
+
+    Accumulation across convergence passes was keyed on ``assertion_code`` alone. Two
+    properties whose assertion text matches but whose SETUP, receiver, inputs, preconditions or
+    intended mutant differ are different obligations, and the second was dropped as a duplicate
+    — a real behaviour silently unpinned because its assertion happened to read the same. The
+    issue names exactly this: "accumulation keyed chiefly by assertion text can conflate
+    properties whose setup, capability, receiver, or intended mutant differs."
+
+    It is also not an ORDINAL. Generated test names (`test_f_value_0`, `_value_1`, …) and
+    pytest's parameter ids shift the moment a property is inserted or removed, so anything
+    keyed on position renames the survivors of an edit and makes two runs incomparable. A
+    content hash survives regeneration, which is what lets a property be recognised as the same
+    obligation across passes at all.
+
+    WHAT IS DELIBERATELY EXCLUDED: ``confidence``, ``source_lenses`` and ``needs_oracle``.
+    Those are PROVENANCE — how well we believe it and where it came from — not what it
+    asserts. Two properties differing only in confidence are one property discovered twice, and
+    folding provenance into identity would accumulate both and pin the same behaviour with two
+    tests that can never disagree.
+
+    Fields are joined on ``\\x00``, which cannot occur in Python source or a repr, so no
+    combination of values can forge the boundary between two of them and collide with a
+    different combination.
+
+    ``inputs`` and ``preconditions`` arrive as canonical strings rather than structures: the
+    caller owns the repr, which keeps this decision inside a literal grammar and therefore
+    pinnable, and keeps a container's own formatting from silently changing every id.
+    """
+    return hashlib.sha256(
+        "\x00".join(
+            (
+                function_key,
+                category,
+                setup_code,
+                assertion_code,
+                inputs,
+                preconditions,
+                mutant_id,
+            )
+        ).encode("utf-8"),
+        usedforsecurity=False,
+    ).hexdigest()[:16]
+
+
+def property_identity(prop: ExecutableProperty) -> str:
+    """:func:`property_id` for a built property — the adapter, holding no decision of its own.
+
+    Thin on purpose. The identity RULE lives in `property_id`, typed over strings so it sits
+    inside a literal grammar and can be pinned; this only canonicalises the two structured
+    fields into that grammar.
+
+    `repr` for `inputs` and `preconditions` because it is total (no field can fail to render)
+    and order-preserving, which matters: `f(1, 2)` and `f(2, 1)` are different obligations and
+    a set-like normalisation would fuse them.
+    """
+    return property_id(
+        function_key=prop.function_key or "",
+        category=str(prop.category or ""),
+        setup_code=prop.setup_code or "",
+        assertion_code=prop.assertion_code or "",
+        inputs=repr(prop.inputs),
+        preconditions=repr(prop.preconditions),
+        mutant_id=prop.mutant_id or "",
+    )
 
 
 def generate_executable_property(
