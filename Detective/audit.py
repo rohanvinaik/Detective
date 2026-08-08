@@ -92,18 +92,46 @@ class SuiteAudit:
         return max(0, self.test_count - self.minimal_test_count)
 
 
-def audit_check_failed(killable_gaps: int, missing_lines: int, failing_tests: int, unclassified: int) -> bool:
-    """Whether ``detective audit --check`` should FAIL the CI ratchet (issue #35).
+def audit_check_failed(killable_gaps: int, missing_lines: int, failing_tests: int) -> bool:
+    """Whether ``detective audit --check`` should FAIL the CI ratchet on a SPECIFICATION gap (#35, #50).
 
-    True when the suite has a real, actionable gap: a KILLABLE mutant it does not kill (a
-    specification hole), a reachable line no test covers, a currently-FAILING test, or an
-    UNCLASSIFIED survivor (which may be killable — honest uncertainty counts against the ratchet).
-    Candidate-equivalent and crash-only survivors are DELIBERATELY excluded: they are unproven-
-    equivalent, resolved by ``flag`` or a killing input, never a spec hole a green-field edit
-    introduced — folding them in would fail CI on residuals that were always there. The policy is
-    explicit here, not an accident of which counts the caller happened to sum.
+    True ONLY for a real, actionable claim about the USER's code or suite: a KILLABLE mutant it does
+    not kill (a spec hole), a reachable line no test covers, or a currently-FAILING test. This is the
+    default gate; it must fail only when the code got WORSE, never when Detective's own measurement got
+    shorter. An UNCLASSIFIED survivor is a MEASUREMENT limit — the equivalence search could not run on
+    it, which is the tool's uncertainty, not the developer's regression — so it is EXCLUDED here (issue
+    #50, the over-gating direction; #35 fixed the under-gating one) and handled by
+    :func:`audit_measurement_incomplete`, fatal only under ``--check-strict``. Candidate-equivalent and
+    crash-only survivors are likewise excluded: unproven-equivalent, resolved by ``flag`` or a killing
+    input, never a spec hole a green-field edit introduced. A ratchet that reddens on tool-internal
+    conditions gets deleted from the pipeline, taking the real gate with it.
     """
-    return bool(killable_gaps) or bool(missing_lines) or bool(failing_tests) or unclassified > 0
+    return bool(killable_gaps) or bool(missing_lines) or bool(failing_tests)
+
+
+def audit_measurement_incomplete(unclassified: int) -> bool:
+    """Whether the audit's MEASUREMENT was incomplete — honest tool-side uncertainty, not a code gap.
+
+    An UNCLASSIFIED survivor (issue #50) is one the equivalence search could not evaluate — it may be
+    killable OR equivalent; Detective simply could not decide. That is the same class as a budget CUT:
+    a limit on the measurement, not a finding about the suite. It is surfaced ALWAYS (visible), but is
+    fatal only under ``--check-strict`` — so the default ``--check`` stays a claim about the code alone,
+    and a green suite that has not changed can never be reddened because a search got shorter."""
+    return unclassified > 0
+
+
+def audit_gate_exit(spec_gap: bool, measurement_incomplete: bool, strict: bool) -> int:
+    """The ``detective audit --check`` exit code from the two partitioned signals (issue #50, pinned).
+
+    A SPECIFICATION gap always fails the ratchet with ``1`` — the code got worse. A MEASUREMENT-incomplete
+    run fails only under ``--check-strict``, and with a DISTINCT ``2`` so CI can branch a shorter search
+    from a real regression without parsing text. Otherwise ``0``. Spec gaps OUTRANK measurement limits: a
+    run with both is a ``1`` (the actionable one — fix the code), never masked as a mere measurement note."""
+    if spec_gap:
+        return 1
+    if measurement_incomplete and strict:
+        return 2
+    return 0
 
 
 def _gap_desc(verdict: Any, expressible: bool) -> str:

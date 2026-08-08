@@ -2524,11 +2524,22 @@ def _build_parser() -> argparse.ArgumentParser:
             p.add_argument(
                 "--check",
                 action="store_true",
-                help="CI mode: exit non-zero when the suite has a real gap — a killable mutant it "
-                "does not kill, a reachable uncovered line, a failing test, or an unclassified "
-                "survivor. Candidate-equivalent / crash-only survivors do NOT fail (unproven-"
-                "equivalent, resolved by `flag`). Combine with --json for a machine-readable "
-                "artifact that carries the same exit status. This is the surface a CI ratchet gates on.",
+                help="CI mode: exit 1 when the suite has a real SPECIFICATION gap — a killable mutant "
+                "it does not kill, a reachable uncovered line, or a failing test. An UNCLASSIFIED "
+                "survivor is a MEASUREMENT limit (the search could not evaluate it), NOT a code gap, so "
+                "it does NOT fail the gate (issue #50) — it is surfaced instead; use --check-strict to "
+                "gate on it. Candidate-equivalent / crash-only survivors do NOT fail either (unproven-"
+                "equivalent, resolved by `flag`). Combine with --json for a machine-readable artifact "
+                "carrying the same exit status. This is the surface a CI ratchet gates on: it fails "
+                "only when the CODE got worse, never when the measurement got shorter.",
+            )
+            p.add_argument(
+                "--check-strict",
+                action="store_true",
+                help="Like --check, but ALSO exit non-zero (code 2, distinct from a spec gap's 1) when "
+                "the measurement was incomplete — an unclassified survivor the equivalence search could "
+                "not evaluate. For a pipeline that genuinely wants 'fail unless fully measured'; opt-in, "
+                "so the documented --check default stays a claim about the code alone.",
             )
         if name == "decompose":
             p.add_argument(
@@ -3567,24 +3578,43 @@ def _run(args) -> int:
             args.project_root,
             progress=_stream_progress(function),
         )
+        # CI ratchet (issues #35, #50): --check makes a SPECIFICATION gap an enforceable process
+        # result (exit 1), but a MEASUREMENT limit (an unclassified survivor the search could not
+        # evaluate) is surfaced, never fatal by default — only --check-strict gates on it (exit 2).
+        # The gate is embedded in --json so a pipeline branches on the field, not the exit code alone.
+        check = getattr(args, "check", False) or getattr(args, "check_strict", False)
+        strict = getattr(args, "check_strict", False)
+        payload = asdict(report)
+        if check:
+            from .audit import audit_check_failed, audit_gate_exit, audit_measurement_incomplete
+
+            spec_gap = audit_check_failed(
+                len(report.killable_gaps), len(report.missing_lines), len(report.failing_tests)
+            )
+            meas_incomplete = audit_measurement_incomplete(report.unclassified)
+            gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
+            payload["gate"] = {
+                "spec_gap": spec_gap,
+                "measurement_incomplete": meas_incomplete,
+                "unmeasured": {"unclassified": report.unclassified},
+                "strict": strict,
+                "exit": gate_exit,
+            }
         print(
-            json.dumps(asdict(report), indent=2, default=str)
+            json.dumps(payload, indent=2, default=str)
             if args.json
             else _format_audit(report, removing=bool(args.remove and report.redundant_tests))
         )
-        # CI ratchet (issue #35): audit found the gaps; --check makes that finding an enforceable
-        # process result. The SAME exit status backs human and --json output, so a pipeline gates
-        # on it identically. Distinct from --remove (interactive pruning); a checker does not delete.
-        if getattr(args, "check", False):
-            from .audit import audit_check_failed
-
-            failed = audit_check_failed(
-                len(report.killable_gaps),
-                len(report.missing_lines),
-                len(report.failing_tests),
-                report.unclassified,
-            )
-            return 1 if failed else 0
+        if check:
+            if meas_incomplete and not spec_gap:
+                # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search
+                # is a measurement limit, not a finding — the default gate stays a claim about the code.
+                print(
+                    f"  ⚠ measurement incomplete — {report.unclassified} survivor(s) the equivalence "
+                    "search could not classify; NOT a specification gap. Use --check-strict to gate on it.",
+                    file=sys.stderr,
+                )
+            return gate_exit
         if args.remove and report.redundant_tests:
             from .audit import module_safe_removals
             from .suite_edit import apply_removals

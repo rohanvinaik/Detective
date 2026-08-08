@@ -13,27 +13,28 @@ from Detective.audit import audit_check_failed
 @pytest.mark.detective
 def test_audit_check_failed_value_0():
     """VALUE survivor — golden capture (pure + deterministic) (confidence 0.9)."""
-    result = audit_check_failed(killable_gaps=1, missing_lines=2, failing_tests=3, unclassified=4)
+    result = audit_check_failed(killable_gaps=1, missing_lines=2, failing_tests=3)
     assert result is True
 
 
 @pytest.mark.detective
 def test_audit_check_failed_value_1():
     """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = audit_check_failed(killable_gaps=0, missing_lines=0, failing_tests=0, unclassified=0)
-    assert result is False
+    result = audit_check_failed(killable_gaps=-1, missing_lines=0, failing_tests=1)
+    assert result is True
 
 
 @pytest.mark.detective
 def test_audit_check_failed_value_2():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = audit_check_failed(killable_gaps=-1, missing_lines=-1, failing_tests=-1, unclassified=-1)
+    """VALUE survivor — distinguishing witness (equivalence search); outcomes ==-equal; distinction pinned by type/repr (confidence 0.95)."""
+    result = audit_check_failed(killable_gaps=0, missing_lines=1, failing_tests=2)
     assert result is True
+    assert type(result) is bool
 
 
 @pytest.mark.detective
 def test_audit_check_failed_value_3():
     """VALUE survivor — distinguishing witness (equivalence search); outcomes ==-equal; distinction pinned by type/repr (confidence 0.95)."""
-    result = audit_check_failed(killable_gaps=0, missing_lines=1, failing_tests=2, unclassified=3)
-    assert result is True
+    result = audit_check_failed(killable_gaps=0, missing_lines=0, failing_tests=0)
+    assert result is False
     assert type(result) is bool
