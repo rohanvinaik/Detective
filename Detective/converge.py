@@ -97,6 +97,11 @@ class ConvergeResult:
     # Second completeness axis + minimality (from Wesker's baseline line-coverage pass).
     line_complete: bool = True  # every executable target line covered by some test
     missing_lines: tuple[int, ...] = ()  # executable lines no test covers (the gap)
+    # WHICH evidence the line axis rested on (#59): "admissible" when the engine supplied an
+    # outcome-qualified view, "observed" when it could not and the weaker union was used. A
+    # certificate that cannot say which one it stood on implies the stronger, and the difference
+    # is precisely whether a baseline-FAILING test was allowed to close the ledger.
+    line_basis: str = "observed"
     manually_unreachable: int = 0  # lines closed by a manual unreachability flag (issue #9)
     contradicted_line_flags: tuple[str, ...] = ()  # flags overridden by observed execution
     # (line, guard) for each uncovered line that sits inside a branch: the condition that must hold to
@@ -697,6 +702,30 @@ def _progressed(previous: int, current: int) -> bool:
 def _converged(at_ceiling: bool, hit_max_iterations: bool) -> bool:
     """Converged when the ceiling is reached, or the loop stabilized before the cap."""
     return at_ceiling or not hit_max_iterations
+
+
+def line_proof_basis(has_admissible: bool, engine_reports_it: bool) -> str:
+    """Which evidence the line axis may stand on (#59, pure — pinned).
+
+    Three states, and collapsing any two of them is the defect:
+
+    * ``admissible``    — the engine supplied an outcome-qualified view and it has entries.
+      Only baseline-green, contained, non-truncated observations closed the ledger.
+    * ``observed``      — the engine does not report the view at all (an older Wesker). The
+      weaker union was used, and the certificate must SAY so: silently reverting reproduces the
+      original defect while printing the same verdict, which is the unnamed-capability
+      assumption Detective #60 forbids.
+    * ``none_admissible`` — the engine reports the view and it is EMPTY. Distinct from
+      ``observed`` on purpose: this is not a missing capability, it is a measurement saying no
+      test's evidence qualifies. Treating it as "absent, fall back" would hand the ledger back
+      to exactly the failing tests #59 exists to exclude — the emptiness IS the answer.
+
+    The two booleans are separate because "the engine cannot tell me" and "the engine told me
+    nothing qualifies" are different facts that a single truthy check conflates.
+    """
+    if not engine_reports_it:
+        return "observed"
+    return "admissible" if has_admissible else "none_admissible"
 
 
 def _line_guards(func_node: ast.AST, lineno: int) -> list[str]:
@@ -1301,11 +1330,36 @@ def _converge_impl(
     # pass on the final suite: which executable lines remain uncovered, the smallest
     # test set that preserves both kills and line coverage, and the tests redundant
     # for BOTH (deletion proposals — never auto-removed).
-    missing = missing_lines(final_result.executable_lines, final_result.line_coverage)
+    # THE PROOF AXIS READS ADMISSIBLE COVERAGE (#59). "A trace observed this line" and "this
+    # line is pinned under the certificate regime" are different facts, and completeness was
+    # judged from the first. A test that FAILS on the unmutated program is already barred from
+    # kill attribution — it cannot distinguish a mutant from correct code — and its coverage
+    # still closed the line ledger, so `✓ COMPLETE` could rest on evidence from a test that
+    # proves nothing. Wesker #17 exposes the filtered view; this consumes it.
+    #
+    # The fallback is NAMED, not silent. `admissible_line_coverage` does not exist on older
+    # Wesker, and quietly reverting to the observed union would reproduce exactly the defect
+    # while reporting the same verdict — the unnamed-capability assumption Detective #60 exists
+    # to forbid. `line_basis` travels with the result so a certificate states which evidence it
+    # actually rested on rather than implying the stronger one.
+    _sentinel = object()
+    _admissible = getattr(final_result, "admissible_line_coverage", _sentinel)
+    line_basis = line_proof_basis(
+        has_admissible=bool(_admissible) and _admissible is not _sentinel,
+        engine_reports_it=_admissible is not _sentinel,
+    )
+    # `none_admissible` keeps the EMPTY admissible map, deliberately. The engine measured and
+    # nothing qualified, so the gap is every executable line — falling back to the observed
+    # union there would hand the ledger straight back to the failing tests this excludes.
+    proof_coverage = final_result.line_coverage if line_basis == "observed" else (_admissible or {})
+    missing = missing_lines(final_result.executable_lines, proof_coverage)
     # Issue #9: the line-unreachability oracle closes a flagged statement's residual on the
     # LINE ledger only — reported as "modulo", never silently as covered. A flag contradicted
     # by observed execution is surfaced as overridden; mutation-completeness never reads it.
-    covered_lines = {ln for lines in final_result.line_coverage.values() for ln in lines}
+    # The same basis the gap was computed from. A flag "contradicted by observed execution"
+    # must be contradicted by execution that COUNTS: reading the observed union here would let
+    # a baseline-failing test override a human's unreachability judgement (#59).
+    covered_lines = {ln for lines in proof_coverage.values() for ln in lines}
     missing, manually_unreachable, contradicted_flags = classify_missing_lines(
         root, func_key, node, missing, covered_lines
     )
@@ -1380,6 +1434,7 @@ def _converge_impl(
         functionally_complete=functionally_complete,
         line_complete=not missing,
         missing_lines=tuple(missing),
+        line_basis=line_basis,
         manually_unreachable=len(manually_unreachable),
         contradicted_line_flags=tuple(f"{f.source} (line {f.line})" for f in contradicted_flags),
         missing_line_guards=missing_guards,
