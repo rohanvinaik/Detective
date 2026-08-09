@@ -286,7 +286,7 @@ learning the new behavior. Re-converging the rewrite alone only characterizes wh
     detective audit src/pricing.py::compute_invoice --check --json > audit.json
 ```
 
-`--check` makes the step **fail** when the suite has a real gap — a killable mutant it no longer kills, a reachable uncovered line, a failing test, or an unclassified survivor. A newly introduced, unspecified branch turns the step red; candidate-equivalent survivors do not (they are unproven-equivalent, resolved with `flag`). Without `--check`, `audit` only records an artifact and always exits 0.
+`--check` makes the step **fail (exit 1)** when the suite has a real *specification* gap — a killable mutant it no longer kills, a reachable uncovered line, or a failing test. A newly introduced, unspecified branch turns the step red; candidate-equivalent survivors do not (they are unproven-equivalent, resolved with `flag`). An **unclassified** survivor is a *measurement* limit, not a specification gap — the search could not run on it — so `--check` **exits 0 with a warning**, while `--check-strict` **exits 2** to fail the step on it too. Without `--check`, `audit` only records an artifact and always exits 0.
 
 ---
 

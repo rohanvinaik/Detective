@@ -61,7 +61,7 @@ def _parse(text: str) -> tuple[str, list[dict], list[dict]]:
         start = re.search(rf"^{section}:\s*$", text, re.M)
         if not start:
             return []
-        body = text[start.end():]
+        body = text[start.end() :]
         nxt = re.search(r"^[a-z_]+:\s*$", body, re.M)
         if nxt:
             body = body[: nxt.start()]
@@ -106,8 +106,13 @@ def main(argv: list[str]) -> int:
         recorded = p.get("sha256", "")
         base = REPO_ROOT if which == "local" else ext_root
         if base is None or (which == "external" and not ext_ok):
-            results.append({"id": pid, "status": "UNRESOLVED",
-                            "detail": f"external_root {external_root!r} not a directory"})
+            results.append(
+                {
+                    "id": pid,
+                    "status": "UNRESOLVED",
+                    "detail": f"external_root {external_root!r} not a directory",
+                }
+            )
             continue
         target = base / rel
         if not target.is_file():
@@ -115,8 +120,15 @@ def main(argv: list[str]) -> int:
             continue
         actual = _sha256(target)
         if actual != recorded:
-            results.append({"id": pid, "status": "DRIFT", "detail": str(target),
-                            "recorded": recorded[:16], "actual": actual[:16]})
+            results.append(
+                {
+                    "id": pid,
+                    "status": "DRIFT",
+                    "detail": str(target),
+                    "recorded": recorded[:16],
+                    "actual": actual[:16],
+                }
+            )
         else:
             results.append({"id": pid, "status": "OK", "detail": str(target)})
 
@@ -124,9 +136,16 @@ def main(argv: list[str]) -> int:
     bad = [r for r in results if r["status"] != "OK"]
 
     if as_json:
-        print(json.dumps({"priors": results,
-                          "load_bearing_unverified": [c.get("key") for c in unverified],
-                          "ok": not bad}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "priors": results,
+                    "load_bearing_unverified": [c.get("key") for c in unverified],
+                    "ok": not bad,
+                },
+                indent=2,
+            )
+        )
         return 1 if bad else 0
 
     width = max(len(r["id"]) for r in results)
@@ -140,8 +159,10 @@ def main(argv: list[str]) -> int:
     print(f"\n{len(results) - len(bad)}/{len(results)} priors verified")
 
     if unverified:
-        print(f"\nWARNING — {len(unverified)} LOAD-BEARING external citation(s) still "
-              f"recalled-not-verified. Do not quote publicly until checked:")
+        print(
+            f"\nWARNING — {len(unverified)} LOAD-BEARING external citation(s) still "
+            f"recalled-not-verified. Do not quote publicly until checked:"
+        )
         for c in unverified:
             print(f"  · {c.get('key')}: {c.get('cite', '')}")
         print("  (These do not fail the check. They gate publication.)")

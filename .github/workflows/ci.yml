@@ -32,7 +32,9 @@ jobs:
 
       - name: Format check
         working-directory: Detective
-        run: uv run ruff format --check Detective/ tests/
+        # Whole-tree, not just Detective/ tests/ (#34): docs/theory/*.py drifted unformatted for a
+        # release because the gate did not reach docs/. The declared format contract is the repo.
+        run: uv run ruff format --check .
 
       - name: Test with coverage
         working-directory: Detective
