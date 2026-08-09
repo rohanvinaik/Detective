@@ -708,7 +708,10 @@ def _apply_decomposition_impl(
             # either, so the proof suite did not pin that behaviour and preservation is not proven
             # for it. But the MESSAGE must not call them all "unproven" (#36): an input DOES
             # distinguish a crash-only mutant, and `detective flag` is the wrong advice for one.
-            _crash = len(conv.survivor_report.crash_only) if conv.survivor_report else 0
+            # `conv is not None` is implied by `_cand_equiv` being non-zero — but only via an
+            # invariant established forty lines up, which a reader has to reconstruct and a later
+            # edit can silently break. State it here (ty: unresolved-attribute).
+            _crash = len(conv.survivor_report.crash_only) if conv and conv.survivor_report else 0
             _unpinned = _cand_equiv - _crash
             _named = " and ".join(
                 bit
