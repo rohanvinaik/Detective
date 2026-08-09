@@ -142,7 +142,16 @@ def _resolve_dataclass(type_name: str, module_path: str) -> Any:
 
 
 def _dataclass_construction(cls: type) -> tuple[str, tuple[str, ...]]:
-    """Emit ``Cls(field=value, ...)`` filling only the required (no-default) fields."""
+    """Emit ``Cls(field=value, ...)`` filling only the required (no-default) fields.
+
+    The dataclass-ness is RE-CHECKED here rather than inherited from the caller. `_resolve_dataclass`
+    does establish it, but that guarantee lives in a different function and nothing but convention
+    keeps a second caller from arriving without it — at which point `dc_fields` raises from inside
+    the stdlib, naming neither this function nor the type it was handed. Stating the precondition
+    where it is relied on costs one branch and makes the contract local.
+    """
+    if not is_dataclass(cls):
+        raise TypeError(f"_dataclass_construction requires a dataclass type, got {cls!r}")
     args = [
         f"{f.name}={_heuristic_value(f.name, _type_str(f.type))}"
         for f in dc_fields(cls)

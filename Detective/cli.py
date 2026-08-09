@@ -14,7 +14,7 @@ import json
 import os
 import sys
 import textwrap
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 # Imported, never restated: the engine owns this number, and a second copy would drift silently.
@@ -817,6 +817,29 @@ def _print_tier0_static(file: str, function: str, project_root: str) -> None:
         return
 
 
+@dataclass
+class _ProgressState:
+    """Mutable frame state for the two streaming progress reporters.
+
+    Both reporters kept this as a dict literal, and the dicts were heterogeneous — `int`, `float`
+    and `bool` under one inferred value type — so `anchor_done` typed as `int | float` and every
+    read of it was an untyped bag lookup. `ty` caught it where the bag met a signature
+    (`eta_seconds(..., anchor_done: int, ...)`); nothing else could, because a dict lookup answers
+    every question you ask it.
+
+    Shared rather than duplicated because THE TWO REPORTERS ARE NOT THE SAME FUNCTION and looked
+    like it — one spelled the opener flag `opened`, the other `started`, for the identical concept.
+    That is the lookalike-closure shape this repo has already paid for once: two definitions that
+    read as one, diverging silently. One declared shape makes the sameness checkable instead of
+    apparent.
+    """
+
+    last_ms: float = -1e9
+    anchor_done: int = 0
+    anchor_ms: float = 0.0
+    opened: bool = False
+
+
 def _stream_trace_progress(label: str):
     """Live progress for the TRACED BASELINE pass — the phase that runs BEFORE the first mutant.
 
@@ -832,30 +855,30 @@ def _stream_trace_progress(label: str):
     live = _interactive_stderr()
     lead = "\r  … " if live else "  … "
     pad = "   " if live else ""
-    state = {"last_ms": -1e9, "anchor_done": 0, "anchor_ms": 0.0, "opened": False}
+    state = _ProgressState()
 
     def cb(done: int, total: int, elapsed_ms: float) -> None:
-        if not state["opened"]:
+        if not state.opened:
             # Say the wait is coming BEFORE it happens: on a big suite the trace dominates the wall
             # clock and used to print nothing until it finished, indistinguishable from a hang (#53).
-            state["opened"] = True
+            state.opened = True
             sys.stderr.write(
                 f"{lead}{label}: tracing {total} tests — first run on this target set, a one-time cost{pad}\n"
             )
             sys.stderr.flush()
-        if done >= 1 and state["anchor_done"] == 0:
-            state["anchor_done"], state["anchor_ms"] = done, elapsed_ms  # exclude warm-up from the ETA
+        if done >= 1 and state.anchor_done == 0:
+            state.anchor_done, state.anchor_ms = done, elapsed_ms  # exclude warm-up from the ETA
         if 0 < done < total:
             # Off-terminal there is no line to redraw, so intermediate frames are noise the
             # final line already summarises. On one, throttle to ~5 updates/sec.
-            if not live or elapsed_ms - state["last_ms"] < 200.0:
+            if not live or elapsed_ms - state.last_ms < 200.0:
                 return
-        state["last_ms"] = elapsed_ms
+        state.last_ms = elapsed_ms
         secs = elapsed_ms / 1000.0
         if done >= total:
             sys.stderr.write(f"{lead}{label}: baseline traced · {total} tests · {secs:.1f}s{pad}\n")
         else:
-            eta = eta_seconds(done, total, elapsed_ms, state["anchor_done"], state["anchor_ms"])
+            eta = eta_seconds(done, total, elapsed_ms, state.anchor_done, state.anchor_ms)
             eta_str = f"~{eta:.0f}s" if eta is not None else "estimating…"
             sys.stderr.write(f"{lead}{label}: tracing baseline {done}/{total} tests · ETA {eta_str}{pad}")
         sys.stderr.flush()
@@ -884,11 +907,11 @@ def _stream_progress(label: str):
     lead = "\r  … " if live else "  … "
     pad = "   " if live else ""
     prior_ms = _read_per_mutant_ms()
-    state = {"last_ms": -1e9, "started": False, "anchor_done": 0, "anchor_ms": 0.0}
+    state = _ProgressState()
 
     def cb(done: int, total: int, elapsed_ms: float) -> None:
-        if not state["started"]:
-            state["started"] = True
+        if not state.opened:
+            state.opened = True
             # The opener exists to say "something is happening" before the first mutant
             # lands. Off-terminal nothing is waiting on it and the completion line carries
             # the same numbers, so it is a duplicate rather than reassurance.
@@ -910,18 +933,18 @@ def _stream_progress(label: str):
             return
         if 0 < done < total:
             if live:
-                if elapsed_ms - state["last_ms"] < 200.0:
+                if elapsed_ms - state.last_ms < 200.0:
                     return  # throttle to ~5 updates/sec on a terminal
             # Off-terminal there is no line to redraw, so this used to be
             # first + last ONLY — a 20-minute mutant loop on a heavy-import
             # target wrote NOTHING to a tee'd log, and "running" vs "hung"
             # was decidable only by ps (issue #19). Emit a newline-terminated
             # heartbeat instead, throttled hard so CI logs stay bounded.
-            elif elapsed_ms - state["last_ms"] < 15_000.0:
+            elif elapsed_ms - state.last_ms < 15_000.0:
                 return
-        if state["anchor_done"] == 0:
-            state["anchor_done"], state["anchor_ms"] = done, elapsed_ms  # exclude warm-up from the ETA
-        state["last_ms"] = elapsed_ms
+        if state.anchor_done == 0:
+            state.anchor_done, state.anchor_ms = done, elapsed_ms  # exclude warm-up from the ETA
+        state.last_ms = elapsed_ms
         secs = elapsed_ms / 1000.0
         rate_str = rate_label(done, elapsed_ms)  # legible below 1/s (s/mutant), not a rounded 0/s
         if done >= total:
@@ -929,7 +952,7 @@ def _stream_progress(label: str):
                 _update_per_mutant_ms(elapsed_ms / total)  # learn this machine's throughput
             sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate_str} · done in {secs:.1f}s\n")
         else:
-            eta = eta_seconds(done, total, elapsed_ms, state["anchor_done"], state["anchor_ms"])
+            eta = eta_seconds(done, total, elapsed_ms, state.anchor_done, state.anchor_ms)
             eta_str = f"~{eta:.0f}s" if eta is not None else "estimating…"
             tail = f"{pad}" if live else " (heartbeat)\n"
             sys.stderr.write(f"{lead}{label}: {done}/{total} mutants · {rate_str} · ETA {eta_str}{tail}")

@@ -908,10 +908,10 @@ def _converged(at_ceiling: bool, hit_max_iterations: bool) -> bool:
     return at_ceiling or not hit_max_iterations
 
 
-def line_proof_basis(has_admissible: bool, engine_reports_it: bool) -> str:
+def line_proof_basis(has_admissible: bool, engine_reports_it: bool, is_mapping: bool) -> str:
     """Which evidence the line axis may stand on (#59, pure — pinned).
 
-    Three states, and collapsing any two of them is the defect:
+    Four states, and collapsing any two of them is the defect:
 
     * ``admissible``    — the engine supplied an outcome-qualified view and it has entries.
       Only baseline-green, contained, non-truncated observations closed the ledger.
@@ -924,11 +924,24 @@ def line_proof_basis(has_admissible: bool, engine_reports_it: bool) -> str:
       test's evidence qualifies. Treating it as "absent, fall back" would hand the ledger back
       to exactly the failing tests #59 exists to exclude — the emptiness IS the answer.
 
-    The two booleans are separate because "the engine cannot tell me" and "the engine told me
-    nothing qualifies" are different facts that a single truthy check conflates.
+    * ``malformed``     — the engine reports the view and it is NOT A LINE LEDGER. A third
+      party supplies this attribute, so "present" and "usable" are different facts, and the
+      one that reached `missing_lines` was never checked. Distinct from ``none_admissible``
+      for the same reason that one is distinct from ``observed``: an empty view is a
+      MEASUREMENT saying nothing qualified, whereas a non-mapping view is a broken engine
+      contract. Both close the ledger with nothing — refusing conservatively is the only safe
+      action either way — but a user who sees "nothing qualified" goes looking at their tests,
+      and a user who sees "malformed" goes looking at their Wesker. Naming the action and
+      calling that the reason is how a toolchain fault gets filed as a test problem.
+
+    The three booleans are separate because "the engine cannot tell me", "the engine told me
+    nothing qualifies", and "the engine told me something I cannot read" are different facts
+    that a single truthy check conflates.
     """
     if not engine_reports_it:
         return "observed"
+    if not is_mapping:
+        return "malformed"
     return "admissible" if has_admissible else "none_admissible"
 
 
@@ -1611,14 +1624,23 @@ def _converge_impl(
     # actually rested on rather than implying the stronger one.
     _sentinel = object()
     _admissible = getattr(final_result, "admissible_line_coverage", _sentinel)
+    # THE SENTINEL'S ENTIRE JOB IS ONE BIT — "did the engine report this at all" — consumed on
+    # the next line and never again. Past that it is not a ledger and must not be used as one.
+    # `_admissible or {}` returned the SENTINEL OBJECT whenever the attribute was absent, because
+    # a bare `object()` is truthy; the only thing that kept it out of `missing_lines` was an
+    # invariant established three lines below (absent ⇒ basis "observed" ⇒ the other branch).
+    # That is safe and unreadable — the kind of correctness no reader reconstructs and no test
+    # covers. Binding the ledger to a REAL dict here states the invariant where it is used.
+    _reported: dict[str, list[int]] = _admissible if isinstance(_admissible, dict) else {}
     line_basis = line_proof_basis(
-        has_admissible=bool(_admissible) and _admissible is not _sentinel,
+        has_admissible=bool(_reported),
         engine_reports_it=_admissible is not _sentinel,
+        is_mapping=isinstance(_admissible, dict),
     )
     # `none_admissible` keeps the EMPTY admissible map, deliberately. The engine measured and
     # nothing qualified, so the gap is every executable line — falling back to the observed
     # union there would hand the ledger straight back to the failing tests this excludes.
-    proof_coverage = final_result.line_coverage if line_basis == "observed" else (_admissible or {})
+    proof_coverage = final_result.line_coverage if line_basis == "observed" else _reported
     missing = missing_lines(final_result.executable_lines, proof_coverage)
     # Issue #9: the line-unreachability oracle closes a flagged statement's residual on the
     # LINE ledger only — reported as "modulo", never silently as covered. A flag contradicted
