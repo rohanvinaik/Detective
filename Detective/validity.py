@@ -1,0 +1,169 @@
+"""One authoritative answer to "may this measurement support a certificate?" (issue #60).
+
+Detective and Wesker expose several partially overlapping signals — ``budget_exhausted``,
+survivor counts, line completeness, ``is_gateable``, coverage depth, containment, collection
+identity. Detective RECONSTRUCTED usability from whichever subset a given call site happened to
+read, so an upstream refusal could be weakened at the integration seam: a result with
+``is_gateable=False`` and ``budget_exhausted=False`` was, at several boundaries, indistinguishable
+from a clean one.
+
+This module is the seam. Wesker's result is normalized ONCE into a versioned object, and
+downstream code consumes that object rather than re-deriving a narrower proxy from raw fields.
+
+TWO RULES CARRY THE DESIGN.
+
+Gateability is ABSORBING. Downstream code may diagnose a refusal, never reconstruct it as a
+pass. There is deliberately no code path here that turns ``gateable=False`` back into True.
+
+Absence is not falsehood. An engine that does not publish a field has not said the measurement
+is invalid; it has said nothing. Refusing on that basis would break every user on a released
+engine, and assuming support is the unnamed-capability assumption #60 exists to forbid — so the
+compatibility decision is explicit, recorded in ``capability_flags``, and conservative in the
+direction that preserves prior behaviour.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+
+# Bumped when the MEANING of a field changes, so a stored receipt cannot be read under a
+# different contract than the one that produced it. Additive fields do not require a bump;
+# a changed reason vocabulary does.
+MEASUREMENT_VALIDITY_SCHEMA = 1
+
+# Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
+# tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
+# requirement that "identical cut reasons" is stated in.
+CUT_REASONS: tuple[str, ...] = (
+    "budget_exhausted",
+    "uncontained_worker",
+    "coverage_truncated",
+    "sampled_universe",
+    "ambiguous_module_identity",
+    "engine_refused_unspecified",
+)
+
+
+def measurement_cut_reasons(
+    reported_gateable: bool,
+    gateable: bool,
+    budget_exhausted: bool,
+    coverage_depth: str,
+    containment: str,
+    identity_ambiguous: bool,
+) -> tuple[str, ...]:
+    """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
+
+    Plural on purpose. A run can be cut for more than one reason at once, and reporting only the
+    first makes the second invisible to whoever fixes the first — they re-run, hit the next
+    refusal, and have no way to know it was always there.
+
+    ``engine_refused_unspecified`` is the load-bearing state. When the engine reports
+    ``is_gateable=False`` and none of the signals we DO understand explains it, the honest answer
+    is to say that rather than return an empty tuple. An empty reason list beside a refusal reads
+    as "no problems found", which is exactly how a refusal gets talked past — and it is the shape
+    this whole issue is about. It also means a future Wesker that refuses for a reason this
+    version has never heard of degrades to a named unknown instead of a silent pass.
+
+    Order is the declaration order of ``CUT_REASONS``, not discovery order, so two runs cut the
+    same way produce byte-identical output on every surface.
+    """
+    reasons: list[str] = []
+    if budget_exhausted:
+        reasons.append("budget_exhausted")
+    if containment == "uncontained":
+        reasons.append("uncontained_worker")
+    if coverage_depth == "cut":
+        reasons.append("coverage_truncated")
+    elif coverage_depth == "sampled":
+        reasons.append("sampled_universe")
+    if identity_ambiguous:
+        reasons.append("ambiguous_module_identity")
+    if reported_gateable and not gateable and not reasons:
+        reasons.append("engine_refused_unspecified")
+    return tuple(reasons)
+
+
+@dataclasses.dataclass(frozen=True)
+class MeasurementValidity:
+    """The normalized, versioned verdict on one measurement's usability.
+
+    Frozen: a validity that can be edited after the fact is not a verdict, and the absorbing
+    rule is only meaningful if nothing downstream can relax it.
+    """
+
+    schema_version: int = MEASUREMENT_VALIDITY_SCHEMA
+    gateable: bool = True
+    engine_reports_gateable: bool = False
+    cut_reasons: tuple[str, ...] = ()
+    containment_status: str = "unreported"
+    coverage_depth: str = "unreported"
+    execution_mode: str = "in_process"
+    engine_version: str = ""
+    capability_flags: tuple[str, ...] = ()
+    policy_id: str = ""
+
+    @property
+    def admits_certificate(self) -> bool:
+        """Whether a certificate may rest on this. Absorbing: any reason at all refuses."""
+        return self.gateable and not self.cut_reasons
+
+
+_ABSENT = object()
+
+
+def normalize_validity(result: object, engine_version: str = "") -> MeasurementValidity:
+    """Adapt a Wesker profiling result into ONE Detective validity object.
+
+    THE ADAPTER IS THE CAPABILITY MATRIX. Each field is read with an explicit absent-sentinel so
+    "the engine did not report this" is distinguishable from "the engine reported a falsy value"
+    — the distinction that a plain ``getattr(x, name, False)`` destroys, and that #60 requires be
+    an explicit compatibility decision rather than an assumption.
+
+    Every field the engine could not supply is named in ``capability_flags``, so a certificate
+    can state which parts of its validity were OBSERVED and which were merely not contradicted.
+    """
+    gateable_raw = getattr(result, "is_gateable", _ABSENT)
+    reports_gateable = gateable_raw is not _ABSENT
+    gateable = bool(gateable_raw) if reports_gateable else True
+
+    depth_raw = getattr(result, "coverage_depth", _ABSENT)
+    depth = str(depth_raw) if depth_raw is not _ABSENT else "unreported"
+
+    conflicts_raw = getattr(result, "collection_conflicts", _ABSENT)
+    identity_ambiguous = bool(conflicts_raw) if conflicts_raw is not _ABSENT else False
+
+    contained_raw = getattr(result, "all_contained", _ABSENT)
+    if contained_raw is _ABSENT:
+        containment = "unreported"
+    else:
+        containment = "contained" if contained_raw else "uncontained"
+
+    missing: list[str] = []
+    if not reports_gateable:
+        missing.append("is_gateable")
+    if depth_raw is _ABSENT:
+        missing.append("coverage_depth")
+    if conflicts_raw is _ABSENT:
+        missing.append("collection_conflicts")
+    if contained_raw is _ABSENT:
+        missing.append("all_contained")
+
+    reasons = measurement_cut_reasons(
+        reported_gateable=reports_gateable,
+        gateable=gateable,
+        budget_exhausted=bool(getattr(result, "budget_exhausted", False)),
+        coverage_depth=depth,
+        containment=containment,
+        identity_ambiguous=identity_ambiguous,
+    )
+    return MeasurementValidity(
+        gateable=gateable,
+        engine_reports_gateable=reports_gateable,
+        cut_reasons=reasons,
+        containment_status=containment,
+        coverage_depth=depth,
+        engine_version=engine_version,
+        capability_flags=tuple(f"absent:{name}" for name in missing),
+        policy_id=str(getattr(result, "policy_id", "") or ""),
+    )

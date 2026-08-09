@@ -27,6 +27,8 @@ from Wesker.ci import discover_test_callables, walk_functions
 from Wesker.line_coverage import executable_lines as _executable_lines
 from Wesker.line_coverage import trace_line_coverage as _trace_line_coverage
 
+from Detective.validity import normalize_validity
+
 if TYPE_CHECKING:
     from .parsimony import ParsimonySignals
 from Wesker.engine import (  # imported, never restated — one owner for each of these numbers
@@ -561,12 +563,17 @@ def profile(
     # such result was cached here and later served as a verdict, its invalidity discarded at the
     # one point downstream code could no longer recover it. Wesker #19 made that state MORE
     # reachable by clearing gateability from the baseline trace.
-    _absent = object()
-    _gateable = getattr(result, "is_gateable", _absent)
+    # Normalized ONCE, at the adapter boundary, rather than re-read field by field here (#60).
+    # This site used to do its own `getattr(result, "is_gateable", sentinel)` dance, which is the
+    # same reconstruction performed in a second place — and a second place is where the two
+    # answers drift. `admits_certificate` is absorbing and strictly stronger than the old
+    # conjunction: a result the engine calls gateable but whose coverage depth is `cut` is now
+    # refused here too, which is the "truncated depth cannot satisfy completeness" requirement.
+    _validity = normalize_validity(result)
     if use_cache and verdict_cache.proof_cache_admits(
-        gateable=_gateable is not _absent and bool(_gateable),
+        gateable=_validity.admits_certificate,
         budget_exhausted=result.budget_exhausted,
-        engine_reports_gateable=_gateable is not _absent,
+        engine_reports_gateable=_validity.engine_reports_gateable,
     ):
         verdict_cache.put(root, ck, verdict_cache.key_prefix(func_key), result)
     return result
