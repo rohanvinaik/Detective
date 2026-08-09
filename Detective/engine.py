@@ -1207,6 +1207,7 @@ def classify_survivors(
     extra_test_dirs: tuple[str, ...] = (),
     deadline_s: float | None = None,
     receiver_factory: ReceiverFactory | None = None,
+    profile_result: ProfilingResult | None = None,
 ) -> SurvivorReport:
     """Classify each surviving mutant as killable (with a distinguishing witness),
     equivalent-candidate, or unclassified — by running the original against the
@@ -1277,13 +1278,20 @@ def classify_survivors(
             tuple(r.get("diff_summary", "") for r in recs if _flagged(r)),
         )
 
-    # Count survivors against the SAME test set the caller's headline profile used —
-    # including any out-of-tree write-dir (extra_test_dirs). Without this, an out-of-tree
-    # written test that already kills a mutant is invisible here, so the survivor report
-    # would classify a mutant the headline count reports as killed (a real inconsistency).
-    result = profile(
-        file, function, project_root, budget_ms=_cls_budget_ms(), extra_test_dirs=extra_test_dirs
-    )
+    # Count survivors against the SAME test set the caller's headline profile used (#65). audit_suite
+    # computes ONE profile for its `total`/`value_killed` counts and passes it here as
+    # `profile_result`; classifying its survivors from THAT object binds the counts and the survivor
+    # buckets to one measurement. Re-profiling with "the same args" — the old approach — could still
+    # discover a different test set under a cold-collection race, so the two measurements disagreed by
+    # a mutant and the audit partition assertion crashed the tool with a raw traceback. Reuse only
+    # when the passed result is for THIS target and no out-of-tree dirs are in play (a pre-computed
+    # result cannot reflect an extra_test_dirs the caller adds here); otherwise re-profile as before.
+    if profile_result is not None and profile_result.function_key == func_key and not extra_test_dirs:
+        result = profile_result
+    else:
+        result = profile(
+            file, function, project_root, budget_ms=_cls_budget_ms(), extra_test_dirs=extra_test_dirs
+        )
     # Value-survivors: true survivors PLUS crash/timeout kills — the mutants whose RETURN
     # VALUE no test pins. Classifying THESE is how a crash-killed mutant gets a real
     # value-distinguishing witness (or is judged equivalent), instead of being silently

@@ -41,6 +41,15 @@ from .minimize import (
 from .synthesis.writer import foreign_generated_test_names
 
 
+class AuditAccountingError(Exception):
+    """The audit's value partition did not reconcile with its classification (#55/#65).
+
+    A genuine internal accounting inconsistency, not a fact about the user's suite. Raised as a typed
+    exception so the CLI can render a clean 'please report' refusal rather than leaking a raw
+    traceback — and named distinctly from a bare ``AssertionError`` so a caller can catch exactly
+    this. With the single-profile reuse (#65) it should be unreachable; it remains a last resort."""
+
+
 @dataclass(frozen=True)
 class SuiteAudit:
     """Read-only assessment of an existing suite for one function."""
@@ -272,7 +281,10 @@ def audit_suite(
     unclassified = 0
     classified = False
     try:
-        report = classify_survivors(file, function, project_root)
+        # Reuse THIS profile (#65): classify the survivors of the exact measurement whose counts the
+        # partition below checks, so the two can never come from two divergent profiles and crash the
+        # assertion. `classify_survivors` re-profiles only when no compatible result is handed to it.
+        report = classify_survivors(file, function, project_root, profile_result=result)
         # Whether a killable gap may name the input to kill it with — see `_gap_desc`.
         expressible = bool(report.inputs_expressible)
         killable_gaps = tuple(_gap_desc(v, expressible) for v in report.killable)
@@ -297,7 +309,11 @@ def audit_suite(
     if classified and not audit_partition_sums(
         total, result.value_killed, len(killable_gaps), candidate_equivalent, manual_equivalent, unclassified
     ):
-        raise AssertionError(
+        # With the single-profile reuse above this cannot arise from two divergent measurements — it
+        # is now a genuine defensive last resort for an internal accounting inconsistency. Typed (not a
+        # bare AssertionError) so the CLI renders a clean "please report" refusal instead of leaking a
+        # raw Python traceback to a user (#65).
+        raise AuditAccountingError(
             f"audit partition does not sum for {result.function_key}: total={total} "
             f"value_killed={result.value_killed} killable={len(killable_gaps)} "
             f"candidate_equivalent={candidate_equivalent} manual={manual_equivalent} "

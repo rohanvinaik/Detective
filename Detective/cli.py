@@ -3436,6 +3436,7 @@ def main(argv: list[str] | None = None) -> int:
     stays clean for piping."""
     # Local, like every other `certify` import here: the CLI defers that module so `--help`
     # and a bad target never pay for the engine's import graph.
+    from .audit import AuditAccountingError
     from .certify import GeneratedSuiteCollision
 
     args = _build_parser().parse_args(argv)
@@ -3461,6 +3462,20 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         raise SystemExit(f"detective: {exc}") from exc
+    except AuditAccountingError as exc:
+        # An internal accounting inconsistency (#65) — the audit's value partition did not reconcile
+        # with its classification. NOT a fact about the user's suite, and with the single-profile
+        # reuse it should be unreachable; if it ever fires it is a Detective bug to report. Render a
+        # clean typed refusal on both channels rather than leaking a raw traceback (the #65 UX).
+        if getattr(args, "json", False):
+            print(
+                json.dumps(
+                    {"verdict": "REFUSED", "reason": "audit_accounting_inconsistency", "detail": str(exc)},
+                    indent=2,
+                )
+            )
+            return 1
+        raise SystemExit(f"detective: internal accounting inconsistency — please report this: {exc}") from exc
     except (LookupError, FileNotFoundError, SyntaxError) as exc:
         # A target that does not exist is a USER error, and it was reaching the terminal as a
         # 36-line Python traceback — the one shape a caller cannot tell from a crash. Every other
