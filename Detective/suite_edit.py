@@ -76,6 +76,63 @@ class RemovalReport:
     parametrized: tuple[str, ...] = ()
 
 
+def removal_kind(identifier: str) -> str:
+    """What an audit-reported test identifier NAMES, so removal can act on it (#54, pure — pinned).
+
+    Test identity is a pytest nodeid (Wesker #16), and Wesker emits an explicitly namespaced
+    ``legacy:<origin>::<base>[<case>]`` when collection produced no nodeid. So this receives five
+    spellings — bare, qualified, parametrized, and the two legacy forms — and used to match only
+    the bare one. Every other spelling fell through to ``not_found``, which the CLI renders as
+    "outside this function's editable test scope": a POLICY sentence, over a string-format miss.
+
+    Measured: ``apply_removals`` given ``tests/…::test_grade_boundary_0`` removed nothing;
+    given ``test_grade_boundary_0`` removed it. The audit passes the former, so `--remove`
+    could not remove anything it proposed, and said so in the language of a safety guarantee.
+
+    ``parametrized_case`` — one ROW of a live test. The function is alive (its other rows earn
+    their keep), so it must never be deleted to get at the row; the user prunes the row.
+    ``qualified`` — carries the file, so removal can target the exact definition.
+    ``bare`` — a name only; resolvable, but ambiguous if two files define it.
+    ``empty`` — nothing to act on.
+    """
+    if not identifier:
+        return "empty"
+    if "[" in identifier:
+        return "parametrized_case"
+    if "::" in identifier:
+        return "qualified"
+    return "bare"
+
+
+def removal_function_name(identifier: str) -> str:
+    """The bare function name an audit-reported identifier denotes (#54, pure — pinned).
+
+    Strips the ``legacy:`` namespace, any ``path::`` qualifier, and any ``[case]`` row suffix.
+    This is what must be matched against a discovered callable's ``__name__``.
+    """
+    rest = identifier[len("legacy:") :] if identifier.startswith("legacy:") else identifier
+    if "::" in rest:
+        rest = rest.rsplit("::", 1)[1]
+    return rest.split("[", 1)[0]
+
+
+def removal_file_hint(identifier: str) -> str:
+    """The FILE an identifier names, or "" when it does not name one (#54, pure — pinned).
+
+    Used to delete the RIGHT definition when two files define the same test name — matching on
+    the bare name alone would pick whichever the discovery happened to yield first, and deleting
+    the wrong test is the one mistake this module must never make.
+
+    ``?`` is Wesker's explicit unknown-origin placeholder in the legacy form; it names no file,
+    so it must not be treated as one.
+    """
+    rest = identifier[len("legacy:") :] if identifier.startswith("legacy:") else identifier
+    if "::" not in rest:
+        return ""
+    head = rest.rsplit("::", 1)[0]
+    return "" if head == "?" else head
+
+
 def _locate(project_root: str, file: str, names: set[str]) -> dict[str, set[str]]:
     """Map each test file path to the requested test names it defines, via Wesker's
     discovery — the same callables that were profiled, so a name resolves to the
@@ -87,13 +144,29 @@ def _locate(project_root: str, file: str, names: set[str]) -> dict[str, set[str]
         tree = ast.parse(fh.read(), filename=full)
     func_names = [qn for qn, _ in walk_functions(tree)]
     callables = discover_test_callables(root, rel, func_names)
+    # Match on the RESOLVED function name, not the raw identifier (#54). `names` arrives as
+    # pytest nodeids, so comparing them to a callable's `__name__` never matched and every
+    # request became `not_found`. A file hint, where the identifier carries one, additionally
+    # pins WHICH definition — two files defining one test name must not resolve to whichever
+    # discovery yielded first.
+    wanted_names = {removal_function_name(n) for n in names}
+    hints: dict[str, set[str]] = {}
+    for n in names:
+        hints.setdefault(removal_function_name(n), set()).add(removal_file_hint(n))
     by_file: dict[str, set[str]] = {}
     for call in callables:
         name = getattr(call, "__name__", "")
-        if name not in names:
+        if name not in wanted_names:
             continue
         path = callable_origin(call)
         if not path:
+            continue
+        # An identifier that named a file only matches the definition IN that file. An empty
+        # hint means the identifier named none, so any in-root definition of the name qualifies.
+        _hints = {h for h in hints.get(name, set()) if h}
+        if _hints and not any(
+            os.path.abspath(path) == os.path.abspath(os.path.join(root, h)) for h in _hints
+        ):
             continue
         # Only files under the project root are candidates for editing. A path
         # outside it means origin resolution fell through to a wrapper's own
@@ -117,7 +190,7 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     # function. The function is alive (its other rows earn their keep, or it
     # would have been proposed by its bare name), so it must not be deleted to
     # get at the row. Set aside and report; the user prunes the row.
-    cases = {n for n in wanted if "[" in n}
+    cases = {n for n in wanted if removal_kind(n) == "parametrized_case"}
     wanted -= cases
     by_file = _locate(project_root, file, wanted)
     removed: list[str] = []
@@ -141,5 +214,10 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     # old `wanted - located` accounting made that case silently vanish from the
     # report — neither removed nor not_found — which is how a total no-op once
     # printed as a clean "removed nothing" with no reason attached.
-    not_found = tuple(sorted(wanted - set(removed)))
-    return RemovalReport(tuple(sorted(removed)), not_found, tuple(sorted(changed)), tuple(sorted(cases)))
+    # Report in the spelling the CALLER used. `removed` accumulates resolved function names, but
+    # the user was shown nodeids and a report that answers in a different vocabulary reads as a
+    # different set of tests.
+    _removed_names = set(removed)
+    removed_ids = [n for n in wanted if removal_function_name(n) in _removed_names]
+    not_found = tuple(sorted(wanted - set(removed_ids)))
+    return RemovalReport(tuple(sorted(removed_ids)), not_found, tuple(sorted(changed)), tuple(sorted(cases)))
