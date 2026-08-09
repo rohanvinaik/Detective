@@ -65,6 +65,7 @@ from .synthesis.writer import (
     individual_test_names,
     render_module,
 )
+from .validity import normalize_validity
 from .verdict_cache import wesker_policy_id
 
 # Fast mode tests this many greedily-selected mutants per category per pass. Greedy
@@ -234,6 +235,12 @@ class ConvergeResult:
     # counts may be exact — they are simply about an ambiguous copy of the code. Named so the
     # refusal does not misattribute itself to a timeout the user then goes looking for.
     collection_conflicts: tuple[str, ...] = ()
+    # EVERY typed reason this measurement cannot support a certificate (#60), from the single
+    # normalizer at the adapter boundary — not re-derived per surface. Plural because a run can
+    # be cut for several reasons at once, and reporting only the first makes the second invisible
+    # to whoever fixes the first. Travels on the result so `--json` and the banner render the
+    # SAME vocabulary; `dataclasses.asdict` carries it to the JSON surface for free.
+    cut_reasons: tuple[str, ...] = ()
     # Reads of clock / filesystem / process-env / entropy the target performs (issue: the
     # impure-line trap). These gate reachability by STATE A CALLER'S ARGUMENT CANNOT SET, so a
     # line behind one cannot be reached by any `--input` value — the residual is a fixture or a
@@ -1622,6 +1629,10 @@ def _converge_impl(
     # while reporting the same verdict — the unnamed-capability assumption Detective #60 exists
     # to forbid. `line_basis` travels with the result so a certificate states which evidence it
     # actually rested on rather than implying the stronger one.
+    # ONE normalization of the engine's validity for this whole result (#60), built here so the
+    # fields below and every surface downstream read the same answer instead of each re-deriving
+    # a narrower one from raw attributes.
+    _validity = normalize_validity(final_result)
     _sentinel = object()
     _admissible = getattr(final_result, "admissible_line_coverage", _sentinel)
     # THE SENTINEL'S ENTIRE JOB IS ONE BIT — "did the engine report this at all" — consumed on
@@ -1740,9 +1751,15 @@ def _converge_impl(
         # Consumed from the profile, never re-derived (#60). `getattr` with a True default is the
         # release-skew guard the issue names: an older Wesker without the field must not be read
         # as ungateable, which would refuse every certificate rather than none.
-        measurement_gateable=bool(getattr(final_result, "is_gateable", True)),
+        # `_validity` is the SINGLE normalization of the engine's answer (#60). These three used
+        # to be three independent `getattr` reconstructions at this one site — the shape the
+        # issue exists to remove, since a second derivation is where two answers drift.
+        # `_validity.gateable` is provably identical to the old `getattr(..., True)`: the
+        # normalizer defaults gateable to True precisely when the engine does not report it.
+        measurement_gateable=_validity.gateable,
         coverage_depth=str(getattr(final_result, "coverage_depth", "") or ""),
         collection_conflicts=tuple(getattr(final_result, "collection_conflicts", ()) or ()),
+        cut_reasons=_validity.cut_reasons,
         environment_coupled=tuple(environment_coupled),
         environment_gated=environment_reads(node),
         budget_exhausted=budget_cut,

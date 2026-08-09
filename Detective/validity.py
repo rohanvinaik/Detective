@@ -84,6 +84,33 @@ def measurement_cut_reasons(
     return tuple(reasons)
 
 
+def cut_reason_sentence(reason: str) -> str:
+    """One sentence per typed reason (#60, pure — pinned).
+
+    ONE OWNER, because #60 requires CLI, --json, MCP and receipts to preserve IDENTICAL cut
+    reasons. Two renderers of the same vocabulary is how "the CLI said the worker was
+    uncontained and the receipt said the budget ran out" happens, and a reader reconciling two
+    accounts of one refusal has no way to tell which is the measurement.
+
+    Each sentence names what the reader should DO something about, not the internal state: a
+    truncated universe sends them to `--deadline`, an ambiguous module identity sends them to
+    their import layout, and those are not interchangeable.
+
+    An unknown reason returns a NAMED unknown rather than "" — a blank beside a refusal reads as
+    "no reason", which is the failure this vocabulary exists to prevent, and a future engine's
+    reason must degrade to visible-but-unrecognised.
+    """
+    return {
+        "budget_exhausted": "the aggregate deadline was exhausted, so the universe was never fully measured",
+        "uncontained_worker": "a timed-out worker could not be stopped, so later phases"
+        " shared a process with it",
+        "coverage_truncated": "the profile was cut before the universe was measured",
+        "sampled_universe": "the universe was sampled, not enumerated",
+        "ambiguous_module_identity": "the live collection resolved one module name to more than one file",
+        "engine_refused_unspecified": "the engine refused to gate this measurement without naming a reason",
+    }.get(reason, f"an unrecognised engine refusal ({reason})")
+
+
 @dataclasses.dataclass(frozen=True)
 class MeasurementValidity:
     """The normalized, versioned verdict on one measurement's usability.

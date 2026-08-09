@@ -23,6 +23,8 @@ from Wesker.engine import (
     DEFAULT_TRACE_SESSION_BUDGET_S as _DEFAULT_TRACE_SESSION_BUDGET_S,
 )
 
+from Detective.validity import cut_reason_sentence
+
 from . import __version__
 from .equivalence import crash_only_status, is_expressible
 
@@ -1240,6 +1242,15 @@ def _final_banner(result) -> str:
         # Name the ACTUAL reason. A shadowed collection (#58) finished cleanly and may have exact
         # counts — attributing it to a timeout sends the reader to raise a budget that was never
         # the problem.
+        # CONSUME the normalized reasons (#60) rather than re-deriving them from raw fields.
+        # Every reason is named, not just the first: a run cut for two causes that reports one
+        # sends the reader to fix it, re-run, and meet the second with no way to know it was
+        # always there. `cut_reason_sentence` is the single owner of the wording, so --json,
+        # MCP and receipts render the identical vocabulary.
+        _reasons = tuple(getattr(result, "cut_reasons", ()) or ())
+        if _reasons:
+            _why = "; ".join(cut_reason_sentence(r) for r in _reasons)
+            return f"FINAL {result.function}: ⚠ UNGATEABLE — {_why}; counts are a floor, not a verdict"
         _conflicts = tuple(getattr(result, "collection_conflicts", ()) or ())
         if _conflicts:
             return (
