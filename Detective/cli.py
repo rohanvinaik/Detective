@@ -3605,12 +3605,39 @@ def _run_live(args) -> int:
             code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
     if code is None:
         sys.stderr.write(_format_session_warning(diagnostic))
+        reason = str(diagnostic.get("reason", "") or "")
+        # REFUSE the legacy fallback on a collection ERROR (#66). `empty_collection` — the project
+        # genuinely has no test for this target — legitimately falls through to a from-scratch
+        # measurement; converge exists for exactly that. But `collection_errors` means tests EXIST
+        # and could not be collected: a conftest/config that failed to LOAD, typically a missing
+        # dependency named in the warning above. Measuring against the zero tests that survived that
+        # failure and printing "0 pinned · converge from scratch" is the misdirection this issue
+        # closes — the fix is to repair the environment, not to author a suite. So nothing is
+        # measured and the command exits non-zero, and a `--json` caller gets a typed refusal.
+        if reason == "collection_errors":
+            if getattr(args, "json", False):
+                print(
+                    json.dumps(
+                        {
+                            "verdict": "REFUSED",
+                            "reason": "collection_errors",
+                            "detail": "suite could not be collected — nothing measured; fix and re-run",
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                sys.stderr.write(
+                    "  REFUSED: the suite could not be collected, so nothing was measured — "
+                    "fix the error above and re-run.\n"
+                )
+            return 2
         # CARRY THE REASON PAST THE FALLBACK. This warning used to be the only trace that the
         # suite never ran: `diagnostic` is a local, `_run` takes only `args`, and the renderer
         # far below therefore re-derived a narrower proxy and told the reader to pass `--input`
         # into a suite that collects nothing. `args` is the thread that already reaches every
         # command, so the measured cause travels with it instead of dying at this line.
-        args.session_reason = str(diagnostic.get("reason", "") or "")
+        args.session_reason = reason
         return _run(args)
     sys.stderr.write(_format_uncollected(diagnostic, paths, root))
     return code
@@ -3694,10 +3721,23 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
         tail = ""
         if len(errors) > 3:
             tail = f"           ... and {len(errors) - 3} more.\n"
-        hint = (
-            '         Common fix: set `[tool.pytest.ini_options] testpaths = ["tests"]`\n'
-            "         in pyproject.toml to exclude generated / mutants / shadow trees.\n"
-        )
+        # A conftest/config that failed to IMPORT (a missing dependency) is fixed by INSTALLING the
+        # project, not by pruning testpaths — pointing there sends the user chasing the wrong thing
+        # for hours (#66). Detect the import signature and give the accurate remedy.
+        blob = " ".join(f"{n} {d}" for n, d in errors).lower()
+        if any(
+            s in blob for s in ("modulenotfound", "importerror", "no module named", "conftest/config load")
+        ):
+            hint = (
+                "         This is an IMPORT failure loading a conftest/config, not a discovery\n"
+                "         problem: install the project's dependencies (e.g. `pip install -e .`) or\n"
+                "         the named module, then re-run. Adjusting `testpaths` will not fix it.\n"
+            )
+        else:
+            hint = (
+                '         Common fix: set `[tool.pytest.ini_options] testpaths = ["tests"]`\n'
+                "         in pyproject.toml to exclude generated / mutants / shadow trees.\n"
+            )
         return header + "".join(lines) + tail + hint
     if reason == "empty_collection":
         return (
