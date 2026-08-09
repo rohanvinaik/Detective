@@ -229,6 +229,11 @@ class ConvergeResult:
     # Wesker's coverage depth for the same measurement: "exhaustive" / "profiled" / "sampled" /
     # "cut". Carried for the report; the GATE reads `measurement_gateable`, never this string.
     coverage_depth: str = ""
+    # Module names the live collection resolved to MORE THAN ONE FILE (#58). A distinct reason
+    # for ungateability from a cut or an uncontained worker: the run finished cleanly and the
+    # counts may be exact — they are simply about an ambiguous copy of the code. Named so the
+    # refusal does not misattribute itself to a timeout the user then goes looking for.
+    collection_conflicts: tuple[str, ...] = ()
     # Reads of clock / filesystem / process-env / entropy the target performs (issue: the
     # impure-line trap). These gate reachability by STATE A CALLER'S ARGUMENT CANNOT SET, so a
     # line behind one cannot be reached by any `--input` value — the residual is a fixture or a
@@ -1713,6 +1718,7 @@ def _converge_impl(
         # as ungateable, which would refuse every certificate rather than none.
         measurement_gateable=bool(getattr(final_result, "is_gateable", True)),
         coverage_depth=str(getattr(final_result, "coverage_depth", "") or ""),
+        collection_conflicts=tuple(getattr(final_result, "collection_conflicts", ()) or ()),
         environment_coupled=tuple(environment_coupled),
         environment_gated=environment_reads(node),
         budget_exhausted=budget_cut,

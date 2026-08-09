@@ -1214,6 +1214,16 @@ def _final_banner(result) -> str:
     # suite against this code. Named here rather than folded into "Incomplete", because
     # "11/11 killed · Incomplete" with no reason reads as a gap to close and is not one.
     if not getattr(result, "measurement_gateable", True):
+        # Name the ACTUAL reason. A shadowed collection (#58) finished cleanly and may have exact
+        # counts — attributing it to a timeout sends the reader to raise a budget that was never
+        # the problem.
+        _conflicts = tuple(getattr(result, "collection_conflicts", ()) or ())
+        if _conflicts:
+            return (
+                f"FINAL {result.function}: ⚠ UNGATEABLE — the live collection resolved "
+                f"{', '.join(_conflicts)} to more than one file; the measurement is about an "
+                "ambiguous copy of the code, so its counts specify nothing"
+            )
         _depth = getattr(result, "coverage_depth", "") or "cut"
         return (
             f"FINAL {result.function}: ⚠ UNGATEABLE — the profile is {_depth} (a timed-out worker "
