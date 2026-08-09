@@ -1556,7 +1556,7 @@ def _write_converge_report(root: str, qualname: str, text: str, prefix: str = "c
     return os.path.relpath(path, root)
 
 
-def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
+def _format_converge_terse(result, report_path: str, root: str = ".", session_reason: str = "") -> str:
     """The converge report: what got written, what is left, the ONE next action — then the
     greppable ``FINAL`` banner, which stays LAST.
 
@@ -1700,13 +1700,91 @@ def _format_converge_terse(result, report_path: str, root: str = ".") -> str:
     if report_path:
         lines.append(_row("· full report", report_path))
     lines.append("")
-    lines += _converge_action(result, rep, root, report_path)
+    lines += _converge_action(result, rep, root, report_path, session_reason)
     lines.append("")
     lines.append(_final_banner(result))
     return "\n".join(lines)
 
 
-def _converge_action(result, rep, root: str = ".", report_path: str = "") -> list[str]:
+def converge_next_action(session_reason: str, has_killable: bool, has_line_gap: bool) -> str:
+    """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
+
+    The defect this exists to stop, reproduced in a directory with no pytest config:
+
+        WARNING: pytest collected no tests — the live suite has nothing to run.
+        ...
+        DO THIS:  detective converge 'spine.py::spine' --input "(3,)" --input "(2,)" --input "(4,)"
+
+    Running that advice literally produced byte-identical output — still ``0/11 killed``. The
+    warning at the top had already NAMED the cause; the action block re-derived a narrower proxy
+    (uncovered lines exist ⇒ ask for inputs) and sent the reader into a loop that cannot close.
+    Adding a pytest config took the same target to ``✓ COMPLETE · 11/11``, and ``detective regime``
+    already prints the correct remedy — so every part of the answer existed and none of it
+    reached the decision.
+
+    The signal was MEASURED and the decision did not CONSUME it: `_run_live` fills a
+    `diagnostic` dict, writes the warning, and then falls back to `_run(args)` with the dict
+    left behind as a local. Nothing downstream could see it, and `synthesized_only` is True in
+    BOTH the healthy case (a real suite, no test reaches this function) and the broken one
+    (no suite at all), so the renderer had no way to tell them apart.
+
+    Four states, ordered by what outranks what:
+
+    ``settled`` — NOTHING OUTSTANDING, and this outranks every reason. `session_reason`
+      describes the collection at the START of the run, and converge can finish a run that
+      began with no collectable suite: it synthesizes tests, writes them, and re-profiles.
+      Measured — a config-less run that opened with ``empty_collection`` closed at
+      ``✓ COMPLETE · 11/11 killed``, and ranking the reason first printed "pytest collected
+      NO tests, fix your regime" directly above a green certificate. A remedy for a problem
+      the run already solved is the same defect as ignoring one it did not.
+    ``install_pytest`` — pytest is not importable. Nothing runs; no input is relevant.
+    ``fix_collection`` — pytest ran and collected nothing, errored, or crashed, AND a residual
+      is still open. THE ORDER IS THE POINT: this outranks a line gap, because with no suite
+      the gap is not closable by any argument the reader can supply. Ranking the gap first is
+      the originally observed bug.
+    ``close_the_gap`` — the suite runs and a real residual remains. Witnesses and `--input` are
+      the documented interface, and here they actually work.
+
+    `session_reason` is empty whenever the live suite DID run, so the healthy path is the
+    default and an older Wesker that reports no reason degrades to exactly the previous
+    behaviour rather than to a spurious refusal.
+    """
+    if not (has_killable or has_line_gap):
+        return "settled"
+    if session_reason == "pytest_missing":
+        return "install_pytest"
+    if session_reason:
+        return "fix_collection"
+    return "close_the_gap"
+
+
+def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> list[str]:
+    """The action block for a suite that could not run. Names the remedy, not the symptom."""
+    if kind == "install_pytest":
+        return [
+            "DO THIS:  install pytest in the interpreter that runs the suite, then re-run.",
+            "",
+            _row("· Why not --input", "no input can help: nothing can execute a test here."),
+        ]
+    where = f" --project-root '{root}'" if root and root != "." else ""
+    named = {
+        "empty_collection": "pytest collected NO tests, so nothing can run the pins.",
+        "collection_errors": "pytest failed to collect, so the suite never started.",
+        "pytest_crashed": "pytest raised during collection, so the suite never started.",
+    }.get(session_reason, "the live suite did not run.")
+    return [
+        f"DO THIS:  detective regime --migrate '{fn}'{where}",
+        "",
+        _row("· Why not --input", named),
+        _row("", "An --input closes a GAP; it cannot supply a suite. Following the"),
+        _row("", "input ask here re-runs to the identical result."),
+        _row("· Then", f"detective converge '{fn}'{where}   # the gap ask lands once tests collect"),
+    ]
+
+
+def _converge_action(
+    result, rep, root: str = ".", report_path: str = "", session_reason: str = ""
+) -> list[str]:
     """Converge's ONE next action — the DERIVED input, same as decompose's residual and from
     the same machinery (`_derived_input`). A witness is a call the engine RAN; a boundary hint
     is a relation it PROVED; only with neither is the reader asked for the value, which is the
@@ -1715,9 +1793,17 @@ def _converge_action(result, rep, root: str = ".", report_path: str = "") -> lis
     `flag` comes LAST and only when nothing else is outstanding. It is the one claim a human
     makes against the engine, and offering it while a real gap is open invites someone to flag
     their way to a green board.
+
+    `session_reason` defaults to empty — "the live suite ran" — so every existing caller and any
+    older Wesker that reports no reason keeps exactly the previous behaviour.
     """
     fn = result.function
     blocked = rep is not None and (rep.killable or rep.unclassified)
+    # A dead suite OUTRANKS the gap. See `converge_next_action`: the gap ask was reached by
+    # re-deriving "uncovered lines exist" while the measured cause sat unread one layer up.
+    kind = converge_next_action(session_reason, bool(blocked), bool(result.missing_lines))
+    if kind in ("install_pytest", "fix_collection"):
+        return _dead_suite_action(kind, fn, root, session_reason)
     if blocked or result.missing_lines:
         action = _derived_input(None, result, rep, fn, verb=f"detective converge '{fn}'", report=report_path)
         # An environment-gated line gap earns the honest decline FIRST: some uncovered lines sit
@@ -3447,6 +3533,12 @@ def _run_live(args) -> int:
             code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
     if code is None:
         sys.stderr.write(_format_session_warning(diagnostic))
+        # CARRY THE REASON PAST THE FALLBACK. This warning used to be the only trace that the
+        # suite never ran: `diagnostic` is a local, `_run` takes only `args`, and the renderer
+        # far below therefore re-derived a narrower proxy and told the reader to pass `--input`
+        # into a suite that collects nothing. `args` is the thread that already reaches every
+        # command, so the measured cause travels with it instead of dying at this line.
+        args.session_reason = str(diagnostic.get("reason", "") or "")
         return _run(args)
     sys.stderr.write(_format_uncollected(diagnostic, paths, root))
     return code
@@ -4007,7 +4099,14 @@ def _run(args) -> int:
         if args.full:
             print(_format_converge(result, show_tests=True, verbose=args.verbose))
         else:
-            print(_format_converge_terse(result, report_path, args.project_root))
+            print(
+                _format_converge_terse(
+                    result,
+                    report_path,
+                    args.project_root,
+                    getattr(args, "session_reason", ""),
+                )
+            )
         # 3, not 1: "the measurement is invalid, re-run" is a different failure
         # from "the run errored", and CI that gates on converge needs to tell
         # them apart (issue #17). A deadline CUT (issue #31) is the same class of
