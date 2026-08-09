@@ -2019,8 +2019,28 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     # the mutant while satisfying no `--input` string ever. Those become "test" —
     # name the object, ask for a test — instead of a paste-this that always errors.
     typeable = [v for v in witnesses if all(is_expressible(a) for a in v.witness.args)]
-    if typeable:
-        return "witness", [f"({_witness_args(v.witness)})" for v in typeable[:_MAX_BATCH]], len(typeable)
+    # ...AND only if an `--input`-derived test can actually CLOSE it. A witness whose two OUTCOMES
+    # differ only by exception type/message (or share a repr) cannot be pinned by `==` on a return
+    # value, so re-running `--input` recalls the same pin and the number never moves — the exact
+    # forever-loop the equivalent branch below already skips crash-only survivors to avoid, and the
+    # action invariant of #44: an input is offered only for a population an input can resolve. Those
+    # witnesses route to `hand_pin` (write the exception/exact-value assertion by hand) instead of a
+    # command that loops. Value witnesses are unaffected — `_outcome_needs_hand_pin` is False for two
+    # plainly different return values, where `==` is exactly what separates them.
+    input_closes = [v for v in typeable if not _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)]
+    if input_closes:
+        return (
+            "witness",
+            [f"({_witness_args(v.witness)})" for v in input_closes[:_MAX_BATCH]],
+            len(input_closes),
+        )
+    hand_pin = [v for v in typeable if _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)]
+    if hand_pin:
+        items = [
+            f"({_witness_args(v.witness)}) — real {v.witness.original[:28]} vs mutant {v.witness.mutant[:28]}"
+            for v in hand_pin[:_MAX_BATCH]
+        ]
+        return "hand_pin", items, len(hand_pin)
     if witnesses:
         descs: list[str] = []
         for v in witnesses:
@@ -2128,22 +2148,48 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
             out.append(_row("", f"({len(distinct)} distinct — they cover {len(items)} mutant(s))"))
         # The reason is data the engine already holds — show ONE observed pair inside the
         # same two budgeted lines, so a dead-end reads as a diagnosis, not a loop.
-        pair = next((v.witness for v in rep.killable if v.witness), None) if rep is not None else None
+        # A representative VALUE pair. Witnesses whose outcome needs hand-pinning are routed to the
+        # `hand_pin` kind below, so the pair shown here is always one an `--input` actually closes —
+        # the old code fished the FIRST killable witness, which could be an exception pair, and then
+        # printed "pin by hand" under a `--input` headline that contradicted it.
+        pair = (
+            next(
+                (
+                    v.witness
+                    for v in rep.killable
+                    if v.witness and not _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)
+                ),
+                None,
+            )
+            if rep is not None
+            else None
+        )
         if pair is not None:
             seen = f"{pair.original[:20]} vs {pair.mutant[:20]}"
             out.append(_row("", f"SUGGESTED — not written: unsound ({seen} observed)."))
-            # The hand-pin remedy ONLY where it is the remedy. It used to print unconditionally,
-            # so a pair like `34.41 vs 33.24` — which `==` separates perfectly well — was told
-            # "if == cannot tell those apart, pin type/repr by hand", advice that does not apply
-            # to the thing on the line above it. It applies when the outcomes are not VALUES
-            # (one side raised, so no return-value assertion reaches them) or when the two reprs
-            # are the same string (nothing for `==` to grip).
-            if _outcome_needs_hand_pin(pair.original, pair.mutant):
-                out.append(_row("", "No == on a return value separates those — pin the"))
-                out.append(_row("", "exception type/message by hand."))
         else:
             out.append(_row("", "SUGGESTED — not written for you, because the engine"))
             out.append(_row("", "could not verify the tests sound."))
+        if total > len(items):
+            out.append(_row("", f"({total - len(items)} more in {where})"))
+        return out
+
+    if kind == "hand_pin":
+        # #44 action invariant, the crash-only sibling of the witness branch: an `--input` can NOT
+        # close these — the two outcomes differ only by exception type/message (or share a repr), so
+        # no `==` on a return value separates them. Re-running `--input` recalls the same pin and the
+        # number never moves. The next action that TERMINATES is to hand-write the assertion, so the
+        # headline is that — never a `--input` command that loops.
+        out = ["DO THIS:  hand-write a test pinning the exact outcome below (no --input closes these)"]
+        out.append("")
+        out.append(_row("· Why", f"Detective RAN each: the {len(items)} call(s) differ from your"))
+        out.append(_row("", "function only by exception type/message (or identical"))
+        out.append(_row("", "reprs) — no == on a return value separates them, so an"))
+        out.append(_row("", "--input cannot close them and re-running it loops."))
+        out.append(_row("· Pin by hand", f"1. {items[0]}"))
+        for i, d in enumerate(items[1:], start=2):
+            out.append(_row("", f"{i}. {d}"))
+        out.append(_row("", "e.g. assert the exception via pytest.raises(<Type>)."))
         if total > len(items):
             out.append(_row("", f"({total - len(items)} more in {where})"))
         return out

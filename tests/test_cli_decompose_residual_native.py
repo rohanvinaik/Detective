@@ -480,9 +480,16 @@ def test_two_plain_values_do_not_get_told_that_equality_cannot_separate_them():
     assert "pin the" not in out and "type/message by hand" not in out
 
 
-def test_a_raised_outcome_still_gets_the_hand_pin_remedy():
-    """Where it IS apt: no return-value assertion reaches an outcome that raised, so the
-    reader genuinely has to pin the exception by hand."""
+def test_a_raised_outcome_gets_a_terminating_hand_pin_action_not_an_input_loop():
+    """A witness whose outcome RAISED (or whose two reprs are identical) cannot be closed by
+    `--input` — no `==` on a return value reaches it. The next action must therefore be to
+    HAND-WRITE the assertion, never a `--input` command that recalls the same pin and loops.
+
+    This is the exact srsly::json_loads regression: converge suggested `--input "('HI',)"` for a
+    JSONDecodeError-vs-ValueError residual, the input could not close it, and re-running printed the
+    same suggestion forever. #44's action invariant: an input is offered only for a population an
+    input can resolve. The old code appended a 'pin by hand' caveat UNDER the looping `--input`
+    headline; the fix routes the whole action to a hand-pin that terminates."""
     from Detective.cli import _outcome_needs_hand_pin
 
     assert _outcome_needs_hand_pin("<raised ValueError: nope>", "None") is True
@@ -503,4 +510,40 @@ def test_a_raised_outcome_still_gets_the_hand_pin_remedy():
         )
     )
     out = _out(survivor_report=rep)
-    assert "type/message by hand" in out
+    # The action TERMINATES: hand-write the assertion...
+    assert "hand-write a test pinning the exact outcome" in out
+    assert "pytest.raises" in out
+    # ...and it NEVER hands the reader a runnable `--input "<tuple>"` command that would loop
+    # (the prose may still NAME --input to explain why it cannot close this; that is not a command).
+    assert '--input "' not in out
+
+
+def test_derive_inputs_routes_an_exception_witness_to_hand_pin_not_a_looping_input():
+    """The classifier decision, single-sourced (#44): a typeable witness whose OUTCOME needs
+    hand-pinning is `hand_pin`, not `witness` — so no surface offers an `--input` for it. A value
+    witness with the identical input is still `witness`, because `==` is exactly what separates
+    two plainly different return values."""
+    from Detective.cli import _derive_inputs
+
+    exc = MutantVerdict(
+        "K0",
+        "EXCEPTION",
+        "- raise A\n+ raise B",
+        killable=True,
+        witness=Witness((1,), "<raised ValueError: nope>", "None"),
+        searched=5,
+    )
+    kind, items, total = _derive_inputs(_proof(), _rep(verdicts=(exc,)))
+    assert kind == "hand_pin" and total == 1
+    assert items[0].startswith("(1,)")  # the call, with its two outcomes, to pin by hand
+
+    val = MutantVerdict(
+        "K1",
+        "VALUE",
+        "- x\n+ x+1",
+        killable=True,
+        witness=Witness((1,), "34.41", "33.24"),
+        searched=5,
+    )
+    kind_v, items_v, _ = _derive_inputs(_proof(), _rep(verdicts=(val,)))
+    assert kind_v == "witness" and items_v == ["(1,)"]

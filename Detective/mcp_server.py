@@ -112,6 +112,25 @@ def _ask_for_input(
             out.append(f"  ({total - len(items)} more are in the full report — full=True.)")
         return out
 
+    if kind == "hand_pin":
+        # The crash-only sibling of `witness` (#44): an input can NOT close these — the two outcomes
+        # differ only by exception type/message (or share a repr), so passing them as `inputs=[...]`
+        # recalls the same pin and the number never moves. The action that TERMINATES is a
+        # hand-written assertion, so this surface must NOT hand back an `inputs=[...]` call that loops.
+        out = [
+            "",
+            f"DO THIS: write a test pinning the exact outcome of the {total} call(s), then re-run {tool}.",
+            "",
+            f"  {why}",
+            "  Detective RAN each and watched a mutant differ — but the difference is an exception",
+            "  type/message (or identical reprs), which no == on a return value separates. Passing",
+            "  these as inputs cannot close them; assert the exact outcome by hand (pytest.raises).",
+        ]
+        out += [f"    {i}. {d}" for i, d in enumerate(items, start=1)]
+        if total > len(items):
+            out.append(f"    ({total - len(items)} more in the full report — full=True.)")
+        return out
+
     if kind == "test":
         out = [
             "",
