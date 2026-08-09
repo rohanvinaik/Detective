@@ -2998,7 +2998,7 @@ def _build_parser() -> argparse.ArgumentParser:
                 help="CI mode: exit 1 when the suite has a real SPECIFICATION gap — a killable mutant "
                 "it does not kill, a reachable uncovered line, or a failing test. An UNCLASSIFIED "
                 "survivor is a MEASUREMENT limit (the search could not evaluate it), NOT a code gap, so "
-                "it does NOT fail the gate (issue #50) — it is surfaced instead; use --check-strict to "
+                "it does NOT fail the gate — it is surfaced instead; use --check-strict to "
                 "gate on it. Candidate-equivalent / crash-only survivors do NOT fail either (unproven-"
                 "equivalent, resolved by `flag`). Combine with --json for a machine-readable artifact "
                 "carrying the same exit status. This is the surface a CI ratchet gates on: it fails "
@@ -3144,7 +3144,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # transform; these two commands bracket an EXTERNAL/model rewrite: snapshot before, verify after.
     receipt_p = sub.add_parser(
         "receipt",
-        help="snapshot a function's specification BEFORE an arbitrary rewrite, for verify-rewrite (#37)",
+        help="snapshot a function's specification BEFORE an arbitrary rewrite, for verify-rewrite",
         description=(
             "Record a baseline receipt of a function: its source (so the OLD implementation can be run), "
             "its mutation-complete proof suite, its policy and operator universe. Take this BEFORE you "
@@ -3163,7 +3163,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     verify_p = sub.add_parser(
         "verify-rewrite",
-        help="prove an arbitrary/model rewrite preserved behaviour, against a receipt (#37)",
+        help="prove an arbitrary/model rewrite preserved behaviour, against a receipt",
         description=(
             "Check a rewritten function against the receipt taken before the rewrite. Replays the "
             "original proof suite on the new source, profiles the new source for behaviours the old "

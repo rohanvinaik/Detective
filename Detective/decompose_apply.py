@@ -738,7 +738,7 @@ def _apply_decomposition_impl(
                 if bit
             )
             say(
-                f"{_named} survivor(s) block automatic application (#41) — "
+                f"{_named} survivor(s) block automatic application — "
                 "a green trial would prove only the pinned behaviours, not these. "
                 "`detective flag` each that is truly equivalent, or supply a stronger proof; "
                 "extractions will be proposed only"
@@ -828,7 +828,7 @@ def _apply_decomposition_impl(
                 )
                 verdict = (
                     f"witnessed only — green, but interface obligation(s) [{_unsup}] are "
-                    "unsupported; proposed, not applied (#16)"
+                    "unsupported; proposed, not applied"
                 )
             else:
                 verdict = "PROVEN — behavior preserved"
