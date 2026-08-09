@@ -313,7 +313,7 @@ def get(project_root: str, key: str) -> ProfilingResult | None:
         hit = _from_json(entry)
     except (TypeError, ValueError, KeyError):
         return None
-    hit.served_from_cache = True  # type: ignore[attr-defined]
+    hit.served_from_cache = True  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     return hit  # a schema drift is a miss, never a crash
 
 

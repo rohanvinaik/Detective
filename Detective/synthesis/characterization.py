@@ -330,7 +330,7 @@ def _open_watch_hook(event: str, args: tuple) -> None:
 _PERTURBED_EPOCH = 2_000_000_000.0
 
 
-class _RecordingEnviron(type(os.environ)):  # type: ignore[misc]
+class _RecordingEnviron(type(os.environ)):  # type: ignore[misc]  # ty: ignore[unsupported-base]
     """``os.environ``, recording which variable names were read (#23, environment half).
 
     Subclasses the REAL ``os._Environ`` rather than wrapping a dict, and that is load-bearing:

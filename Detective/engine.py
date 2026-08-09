@@ -398,7 +398,7 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
             if disk_sha is not None:
                 # Stamped on the module object so a later import can tell WHICH source it
                 # holds; a dynamic attribute, absent from ModuleType's stub.
-                imported.__detective_source_sha256__ = disk_sha  # type: ignore[attr-defined]
+                imported.__detective_source_sha256__ = disk_sha  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
             obj = _attr_path(imported, qualname)
             if obj is not None:
                 return obj
@@ -415,7 +415,7 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
         sys.modules[name] = mod  # register before exec (dataclass/pickle resolution)
         spec.loader.exec_module(mod)
         if disk_sha is not None:
-            mod.__detective_source_sha256__ = disk_sha  # type: ignore[attr-defined]
+            mod.__detective_source_sha256__ = disk_sha  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     except Exception:
         return None
     return _attr_path(mod, qualname)
