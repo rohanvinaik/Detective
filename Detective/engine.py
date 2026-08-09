@@ -937,7 +937,7 @@ def _ordering_edge_values(node: ast.AST) -> dict[str, list]:
     return found
 
 
-def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
+def _input_grids(node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict) -> list[list]:
     """Per-parameter candidate value lists: the literals the function tests the parameter
     against (its own declared domain) first, then a built-in grid for scalars; for an
     AST-typed param a GRID of real nodes; for a sequence param a set of LENGTH VARIANTS
@@ -949,7 +949,7 @@ def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
     domain = _compared_literals(node)
     edges = _ordering_edge_values(node)
     grids: list[list] = []
-    for arg in node.args.args:  # type: ignore[attr-defined]
+    for arg in node.args.args:
         if arg.arg in ("self", "cls"):
             continue
         name = _type_of(arg.annotation)
@@ -983,11 +983,17 @@ def _input_grids(node: ast.AST, namespace: dict) -> list[list]:
     return grids
 
 
-def _seq_length_variants(ann: ast.AST, namespace: dict) -> list | None:
+def _seq_length_variants(ann: ast.AST | None, namespace: dict) -> list | None:
     """For a ``list``/``Sequence`` annotation, candidate values at lengths 0, 1, and 2 —
     the length-2 case pairing two field-variant elements so branches that depend on both
     sequence LENGTH (empty/single/2+) and on the ELEMENTS' bool/Optional fields are all
-    exercised. None when the annotation is not a recognized sequence."""
+    exercised. None when the annotation is not a recognized sequence.
+
+    ``ann`` is Optional because an UNANNOTATED parameter has ``arg.annotation is None``, and
+    that is one of the "not a recognized sequence" cases this already answers — the isinstance
+    below rejects it on the first line. The signature said otherwise until the callers were
+    narrowed to real function nodes and the mismatch stopped being hidden behind a blanket
+    ``type: ignore``."""
     if not (isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name)):
         return None
     if ann.value.id not in ("list", "List", "Sequence", "Iterable"):
@@ -1001,7 +1007,7 @@ def _seq_length_variants(ann: ast.AST, namespace: dict) -> list | None:
     return [[], [v0], [v0, v1]]
 
 
-def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
+def representative_site(node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict) -> list[dict]:
     """Golden call sites: a base site (numeric/unannotated params get 1, 2, 3… for
     order-distinction, other scalars a sample value, container/dataclass params a
     synthesized value), PLUS a variant site for each param whose domain has genuinely
@@ -1023,7 +1029,7 @@ def representative_site(node: ast.AST, namespace: dict) -> list[dict]:
     base: list = []
     variant_sites: list[tuple[int, Any]] = []  # (arg index, alternative value for it)
     n = 1
-    for arg in node.args.args:  # type: ignore[attr-defined]
+    for arg in node.args.args:
         if arg.arg in ("self", "cls"):
             continue
         name = _type_of(arg.annotation)
