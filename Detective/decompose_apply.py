@@ -25,6 +25,12 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from ._contain import budget_is_exhausted, contained_stdout, remaining_budget_ms
+from .decompose import (
+    InterfaceContract,
+    contract_apply_disposition,
+    interface_obligations,
+    trial_verdict,
+)
 from .verdict_cache import wesker_policy_id
 
 if TYPE_CHECKING:
@@ -280,6 +286,10 @@ class Extraction:
     params: tuple[str, ...]
     returns: tuple[str, ...]
     new_source: str
+    # The explicit interface obligations this extraction must preserve (#16). Default-empty so
+    # the older ``extract_block`` path (and any hand-built Extraction) stays constructible; the
+    # live ``extract_candidate`` path always fills it from the block's def-use + effect analysis.
+    contract: InterfaceContract = InterfaceContract(())
 
 
 def extract_block(source: str, function: str, index: int) -> Extraction | None:
@@ -465,7 +475,13 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
     func_start = min([func.lineno, *(d.lineno for d in func.decorator_list)]) - 1
     rewritten = lines[: start - 1] + [call] + lines[end:]
     new_source = "".join(rewritten[:func_start]) + helper + "".join(rewritten[func_start:])
-    return Extraction(helper_name, candidate.inputs, candidate.outputs, new_source)
+    # The interface obligations this extraction must preserve (#16): value flow (structural),
+    # plus any in-place mutation of an input or ordered side effect the block carries (witnessed).
+    # The top-level statements in the candidate's own span ARE the moved block. Its serialization
+    # rides on the returned Extraction, so a PROVEN claim can be audited obligation by obligation.
+    block_stmts = [s for s in func.body if candidate.start_line <= s.lineno <= candidate.end_line]
+    contract = interface_obligations(block_stmts, candidate.inputs, candidate.outputs)
+    return Extraction(helper_name, candidate.inputs, candidate.outputs, new_source, contract)
 
 
 @dataclass(frozen=True)
@@ -791,17 +807,33 @@ def _apply_decomposition_impl(
             # pre-trial file (same-second, same-size writes fool the .pyc check).
             _purge_stale_bytecode(full)
             proven = baseline_green and _suite_green()
-            # Three outcomes, never two: with no proof suite nothing was REJECTED, it was
-            # never tried. Collapsing "could not prove" into "behavior changed" accuses a
-            # rewrite the tool never actually tested.
-            if proven:
-                verdict = "PROVEN — behavior preserved"
-            elif proof_suite is None:
+            # A green trial is necessary but not sufficient (#16): it proves the suite pinned every
+            # dimension it PINS, but an interface obligation nothing can establish (`unsupported`)
+            # must not ride a green rerun into an auto-apply. `trial_verdict` is the ONE decision the
+            # loop consumes — proven / witnessed / rejected / unproven — so the message and the
+            # apply gate can never re-derive it differently. For the current model no real candidate
+            # carries an unsupported obligation, so the disposition only ever WITHHOLDS and a clean
+            # run applies exactly as before; #15's calibration is what can start producing `witnessed`.
+            _code = trial_verdict(
+                proven, proof_suite is not None, contract_apply_disposition(extraction.contract)
+            )
+            apply_ok = _code == "proven"
+            if _code == "unproven":
                 verdict = "unproven — no suite to prove against; proposed, not applied"
-            else:
+            elif _code == "rejected":
                 verdict = "rejected — the suite says behavior changed"
+            elif _code == "witnessed":
+                _unsup = ", ".join(
+                    sorted({o.kind for o in extraction.contract.obligations if o.evidence == "unsupported"})
+                )
+                verdict = (
+                    f"witnessed only — green, but interface obligation(s) [{_unsup}] are "
+                    "unsupported; proposed, not applied (#16)"
+                )
+            else:
+                verdict = "PROVEN — behavior preserved"
             say(f"{verdict}: {extraction.helper_name}")
-            if proven and write:
+            if apply_ok and write:
                 applied.append(extraction)
                 progressed = True
                 break  # keep it; re-read and re-plan against the rewritten file
@@ -810,7 +842,7 @@ def _apply_decomposition_impl(
             # Never leave the USER's next import running trial bytecode: the revert
             # restores the pre-trial content, so retire the trial's cache with it.
             _purge_stale_bytecode(full)
-            proposed.append(Decomposition(extraction, validated=proven))
+            proposed.append(Decomposition(extraction, validated=apply_ok))
         if not (write and progressed):
             break
     return DecompositionApply(

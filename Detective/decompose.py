@@ -58,6 +58,160 @@ class DecompositionPlan:
     rationale: str
 
 
+# ── Interface obligations for the extraction transform (issue #16) ──────────
+#
+# The value-flow interface (inputs/outputs) is only PART of what an extraction must
+# preserve across the new call boundary. A block can also mutate one of its inputs in
+# place (the caller holds the same object, so the mutation must still land), run a
+# statement purely for its side effect (whose ORDER among its neighbours matters), or
+# carry a nested closure whose cell cannot be relocated. The finder already REFUSES the
+# unrelocatable ones by returning None — but anonymously, so a PROVEN claim could never
+# NAME which obligations it discharged or on what basis. This models the whole set.
+#
+# The point is honesty about γ. A green trial against a mutation-complete suite is
+# evidence a dimension was EXERCISED (`witnessed`), which is weaker than the value flow
+# the transform preserves BY CONSTRUCTION (`structural`) and weaker still than a fault a
+# killed mutant provably rejects (`mutation_pinned`). A dimension nothing can even witness
+# is `unsupported`, and an `unsupported` obligation forces proposal-only instead of riding
+# a green rerun — the silent γ=0 hole this issue closes. Issue #15 is the adversarial
+# benchmark that CALIBRATES these statuses by fault injection.
+
+# Strongest evidence first; a contract's strength is the weakest status it carries.
+OBLIGATION_EVIDENCE = ("structural", "mutation_pinned", "witnessed", "unsupported")
+
+
+@dataclass(frozen=True)
+class InterfaceObligation:
+    """One thing an extraction must preserve across the call boundary, and the basis on
+    which it is (or is not) established. ``kind`` is the dimension, ``subject`` the name or
+    span it concerns, ``evidence`` one of :data:`OBLIGATION_EVIDENCE`."""
+
+    kind: str  # value_in | value_out | alias_mutation | effect_order | closure_cell
+    subject: str
+    evidence: str
+
+
+@dataclass(frozen=True)
+class InterfaceContract:
+    """The full set of interface obligations for one extraction — the explicit γ the
+    transform must preserve, serialized onto the result so a PROVEN claim can be audited
+    obligation by obligation instead of resting on a single green bit."""
+
+    obligations: tuple[InterfaceObligation, ...]
+
+
+def _mutates_in_place(block: Sequence[ast.stmt], name: str) -> bool:
+    """True if any statement in ``block`` mutates ``name``'s object in place — a method call
+    ``name.m(...)`` (run for effect or nested), or a ``name[k] = …`` / ``name.attr = …`` /
+    augmented store into one of those. Such a mutation survives the extraction ONLY because
+    the SAME object is passed in; naming it as an obligation is what lets a later check ask
+    whether the suite actually pins it (issue #16, pure)."""
+    for stmt in block:
+        for node in ast.walk(stmt):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == name
+            ):
+                return True
+            targets: list[ast.expr] = []
+            if isinstance(node, ast.Assign):
+                targets = list(node.targets)
+            elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+                targets = [node.target]
+            for tgt in targets:
+                base: ast.expr = tgt
+                while isinstance(base, (ast.Subscript, ast.Attribute)):
+                    base = base.value
+                if isinstance(base, ast.Name) and base.id == name and not isinstance(tgt, ast.Name):
+                    return True
+    return False
+
+
+def _has_ordered_effect(block: Sequence[ast.stmt]) -> bool:
+    """True if ``block`` runs a call purely for its side effect — an expression statement whose
+    value is discarded (``log(x)``, ``buf.write(...)``). Its position relative to the surrounding
+    statements is a behaviour the extraction must preserve (issue #16, pure)."""
+    return any(isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call) for stmt in block)
+
+
+def interface_obligations(
+    block: Sequence[ast.stmt], inputs: Sequence[str], outputs: Sequence[str]
+) -> InterfaceContract:
+    """Every obligation the extraction of ``block`` must preserve, with its evidence basis
+    (issue #16, pure — pinned).
+
+    Value flow is ``structural``: the def-use interface the finder computed IS the proof that
+    each input arrives and each output leaves, and the transform preserves it by construction.
+    An input mutated in place (``alias_mutation``) and a discarded side effect (``effect_order``)
+    are ``witnessed``: the transform is BELIEVED to preserve them and a green trial exercises
+    them, but nothing here PROVES it — which is exactly what issue #15's fault injection tests,
+    and a dimension it shows the suite fails to reject must be downgraded to ``unsupported``.
+
+    No ``closure_cell`` obligation appears because the finder refuses a cell-crossing block
+    before it becomes a candidate (``_has_cell_crossing_closure``); that abstention is already
+    certified upstream. Obligations are sorted for a byte-stable contract."""
+    obs: list[InterfaceObligation] = []
+    for n in inputs:
+        obs.append(InterfaceObligation("value_in", n, "structural"))
+        if _mutates_in_place(block, n):
+            obs.append(InterfaceObligation("alias_mutation", n, "witnessed"))
+    for n in outputs:
+        obs.append(InterfaceObligation("value_out", n, "structural"))
+    if _has_ordered_effect(block):
+        obs.append(InterfaceObligation("effect_order", "<block>", "witnessed"))
+    obs.sort(key=lambda o: (o.kind, o.subject))
+    return InterfaceContract(tuple(obs))
+
+
+def apply_disposition(evidences: list[str]) -> str:
+    """Whether a contract's obligation evidence PERMITS automatic application (issue #16,
+    pure — pinned).
+
+    Total over the evidence statuses of a contract's obligations — a ``list[str]`` on purpose,
+    so the decision is pin-able by ``--input`` (the enclosing :func:`contract_apply_disposition`
+    takes the dataclass and cannot be). A named code, never a bool: ``apply`` when every obligation
+    rests on a basis that survives the transform (``structural`` / ``mutation_pinned`` /
+    ``witnessed``), and ``refuse_unsupported`` when ANY obligation is ``unsupported`` — a dimension
+    nothing can establish, which must be PROPOSED for human review rather than auto-applied on a
+    green rerun. This is the single hook through which issue #15's calibration tightens the gate:
+    downgrade a kind to ``unsupported`` in the transform model and every extraction carrying it
+    becomes proposal-only, with no other code change. An empty contract (no obligations at all)
+    is vacuously ``apply``."""
+    return "refuse_unsupported" if "unsupported" in evidences else "apply"
+
+
+def contract_apply_disposition(contract: InterfaceContract) -> str:
+    """Named apply/refuse code for a whole contract (issue #16) — the dataclass accessor over the
+    pinned :func:`apply_disposition`. Holds no decision of its own: it projects the obligations to
+    their evidence statuses and defers, so the object handling and the decision never drift."""
+    return apply_disposition([o.evidence for o in contract.obligations])
+
+
+def trial_verdict(proven: bool, has_proof_suite: bool, apply_disposition_code: str) -> str:
+    """What a single decompose trial is entitled to CLAIM — one code the apply loop consumes
+    instead of re-deriving (issue #16, pure — pinned).
+
+    Four outcomes, never two — collapsing any into "behavior changed" accuses a rewrite the tool
+    never actually rejected:
+
+    * ``unproven`` — no proof suite existed, so the rewrite was never tested. Not a rejection.
+    * ``rejected`` — the suite ran and went red: behaviour changed.
+    * ``witnessed`` — green, but the interface contract's disposition is not ``apply`` (it carries
+      an ``unsupported`` obligation). The suite pinned what it pins, yet a dimension nothing can
+      establish must not ride a green rerun into an auto-apply. Proposal-only, NOT a rejection.
+    * ``proven`` — green AND every obligation admissible: safe to auto-apply.
+
+    ``witnessed`` is ranked below ``proven`` and above ``rejected`` on purpose: it is a real,
+    green, useful extraction the human should see — just not one the tool may apply unattended."""
+    if not proven:
+        return "unproven" if not has_proof_suite else "rejected"
+    if apply_disposition_code != "apply":
+        return "witnessed"
+    return "proven"
+
+
 # ── Statement-level def-use analysis ────────────────────────────────────
 
 
