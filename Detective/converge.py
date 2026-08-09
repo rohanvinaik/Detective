@@ -65,7 +65,7 @@ from .synthesis.writer import (
     individual_test_names,
     render_module,
 )
-from .validity import normalize_validity
+from .validity import MeasurementValidity, normalize_validity
 from .verdict_cache import wesker_policy_id
 
 # Fast mode tests this many greedily-selected mutants per category per pass. Greedy
@@ -89,7 +89,7 @@ def certificate_standing(
     stale_target: bool,
     verification_ran: bool,
     verification_ok: bool,
-    measurement_gateable: bool = True,
+    admits_certificate: bool = True,
 ) -> str:
     """What a converge result is entitled to CLAIM — one code, read by every surface (#17/#38).
 
@@ -135,9 +135,15 @@ def certificate_standing(
     # valid cannot support EITHER claim — "incomplete" would send the reader to close a gap the
     # numbers never established.
     #
-    # Defaults True: a caller that has not established gateability must not silently acquire the
+    # ABSORBING (#60): the consumed value is `admits_certificate` (gateable AND no cut reason), not
+    # the raw `gateable` this used to read. They differ exactly when the engine reports gateable
+    # while a cut / uncontained-worker / ambiguous-module-identity reason is present — and reading
+    # the narrower boolean let such a run stand COMPLETE. The caller (`ConvergeResult.complete`)
+    # now passes `self.admits_certificate`, sourced from the single normalized `MeasurementValidity`.
+    #
+    # Defaults True: a caller that has not established validity must not silently acquire the
     # refusal, exactly as with `verification_ran`.
-    if not measurement_gateable:
+    if not admits_certificate:
         return "ungateable"
     if verification_ran and not verification_ok:
         return "unverified"
@@ -241,6 +247,13 @@ class ConvergeResult:
     # to whoever fixes the first. Travels on the result so `--json` and the banner render the
     # SAME vocabulary; `dataclasses.asdict` carries it to the JSON surface for free.
     cut_reasons: tuple[str, ...] = ()
+    # The single normalized MeasurementValidity (#60) — one absorbing answer to "may this
+    # measurement support a certificate?". The flattened `measurement_gateable` / `cut_reasons` /
+    # `coverage_depth` / `collection_conflicts` above are its projection for rendering; the DECISION
+    # (`complete`) consumes `admits_certificate`, never the raw `gateable`. None only on a result
+    # built WITHOUT a live measurement (older callers, direct test construction), where the
+    # `admits_certificate` property falls back to the absorbing rule over the flattened fields.
+    validity: MeasurementValidity | None = None
     # Reads of clock / filesystem / process-env / entropy the target performs (issue: the
     # impure-line trap). These gate reachability by STATE A CALLER'S ARGUMENT CANNOT SET, so a
     # line behind one cannot be reached by any `--input` value — the residual is a fixture or a
@@ -301,6 +314,19 @@ class ConvergeResult:
         return self.verification is not None and self.verification.ok
 
     @property
+    def admits_certificate(self) -> bool:
+        """The ONE absorbing answer this result's certificate decision rests on (#60): gateable AND
+        no cut reason. Sourced from the normalized ``validity`` when present; otherwise reconstructed
+        from the flattened projection so a directly-built result (tests, older callers) still obeys
+        the absorbing rule. ``complete`` consumes THIS, never the raw ``measurement_gateable`` — the
+        two differ exactly when the engine reports gateable while a cut / uncontained / ambiguous-
+        identity reason is present, which is the seam #60 exists to close: an upstream refusal must
+        not evaporate because the standing logic read the narrower boolean."""
+        if self.validity is not None:
+            return self.validity.admits_certificate
+        return self.measurement_gateable and not self.cut_reasons
+
+    @property
     def complete(self) -> bool:
         """The full acceptance bar: mutant-complete AND line-complete AND not proof-basis-red (#38).
 
@@ -327,7 +353,7 @@ class ConvergeResult:
                 self.stale_target,
                 self.verification is not None,
                 self.verification is not None and self.verification.ok,
-                self.measurement_gateable,
+                self.admits_certificate,
             )
             == "complete"
         )
@@ -1756,6 +1782,11 @@ def _converge_impl(
         # issue exists to remove, since a second derivation is where two answers drift.
         # `_validity.gateable` is provably identical to the old `getattr(..., True)`: the
         # normalizer defaults gateable to True precisely when the engine does not report it.
+        # The FULL normalized object (#60) — the decision (`complete`) reads `admits_certificate`
+        # off it, so an engine-reported `gateable=True` carrying a cut/containment/identity reason
+        # can no longer stand COMPLETE. The three flattened fields below remain its projection for
+        # rendering (`--json`, the banner), never the gate.
+        validity=_validity,
         measurement_gateable=_validity.gateable,
         coverage_depth=str(getattr(final_result, "coverage_depth", "") or ""),
         collection_conflicts=tuple(getattr(final_result, "collection_conflicts", ()) or ()),
