@@ -38,7 +38,7 @@ from Wesker.engine import (
 from Wesker.engine import ProfilingResult, generate_mutants, run_function_profiling
 from Wesker.filter import filter_categories
 
-from ._contain import remaining_budget_ms
+from ._contain import budget_is_exhausted, remaining_budget_ms
 from .binding import ReceiverFactory, resolve_execution, wrap_callable
 from .call_sites import discover_call_site_inputs, infer_param_types
 from .capture import capture_call_inputs
@@ -1236,8 +1236,8 @@ def classify_survivors(
         return remaining_budget_ms(_cls_deadline_ms, (time.monotonic() - _cls_t0) * 1000.0)
 
     def _cls_exhausted() -> bool:
-        _b = _cls_budget_ms()
-        return _b is not None and _b <= 0.0
+        # The pattern the other three sites drifted from; now all four read one owner.
+        return budget_is_exhausted(_cls_budget_ms())
 
     with open(full, encoding="utf-8") as fh:
         tree = ast.parse(fh.read(), filename=full)

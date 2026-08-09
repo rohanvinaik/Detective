@@ -24,7 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from ._contain import contained_stdout, remaining_budget_ms
+from ._contain import budget_is_exhausted, contained_stdout, remaining_budget_ms
 from .verdict_cache import wesker_policy_id
 
 if TYPE_CHECKING:
@@ -742,7 +742,7 @@ def _apply_decomposition_impl(
         # The trial loop draws from the same wall (issue #31): each extraction re-runs the
         # proof suite (pytest), so an unbounded loop over many candidates could outlive the
         # deadline the proof converge respected. Stop starting new trials once it is gone.
-        if _deadline_ms is not None and _budget_ms() <= 0.0:
+        if budget_is_exhausted(_budget_ms()):
             budget_cut, cut_phase = True, cut_phase or "decompose trial"
             say("⚠ aggregate deadline exhausted — stopping decompose trials")
             break

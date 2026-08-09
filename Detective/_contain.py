@@ -79,3 +79,20 @@ def remaining_budget_ms(deadline_ms: float | None, elapsed_ms: float) -> float |
     if deadline_ms is None:
         return None
     return max(0.0, deadline_ms - elapsed_ms)
+
+
+def budget_is_exhausted(remaining_ms: float | None) -> bool:
+    """Has the aggregate wall run out? ``None`` means no wall was declared (#31, pure — pinned).
+
+    Four sites asked this and three spellings answered it. `classify_survivors._cls_exhausted`
+    already bound the value and narrowed it — `_b = _cls_budget_ms(); _b is not None and _b <= 0`
+    — while converge and decompose_apply guarded on a DIFFERENT name instead:
+    `_deadline_ms is not None and _budget_ms() <= 0.0`. That is correct only because
+    `remaining_budget_ms` returns None exactly when the deadline is None, an invariant living in
+    another variable that no reader reconstructs at the use site and no checker can see.
+
+    UNBOUNDED IS NOT EXHAUSTED, and that is the whole reason this takes the remaining value
+    rather than a bool. `None` means no deadline was declared, so the answer is False forever;
+    treating it as falsy-therefore-done would cut every unbounded run at the first check.
+    """
+    return remaining_ms is not None and remaining_ms <= 0.0

@@ -25,7 +25,7 @@ from Wesker.ci import relevant_test_files, walk_functions
 from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
-from ._contain import contained_stdout, remaining_budget_ms
+from ._contain import budget_is_exhausted, contained_stdout, remaining_budget_ms
 from .binding import ReceiverFactory, parse_receiver_factory, resolve_execution, wrap_callable
 from .capabilities import capability_identity, render_clock_freeze
 from .certify import (
@@ -1200,7 +1200,9 @@ def _converge_impl(
         # Stop STARTING new work once the wall is gone (issue #31): a fresh pass would only
         # re-enter profiling with a zero budget and produce another cut. Break here so the
         # finalize/classify below run on what we have, cut-stamped.
-        if _deadline_ms is not None and _budget_ms() <= 0.0:
+        # One owner for "is the wall gone" (#31). This used to guard on `_deadline_ms` while
+        # reading `_budget_ms()`, which is correct only via an invariant held in another name.
+        if budget_is_exhausted(_budget_ms()):
             budget_cut, cut_phase = True, cut_phase or "mutant profiling"
             say("⚠ aggregate deadline exhausted — cutting the profiling loop")
             break
@@ -1586,7 +1588,7 @@ def _converge_impl(
     # without any profile flagging it — its survivors come back unclassified, which already
     # blocks COMPLETE, but stamp the run CUT so the verdict SAYS the budget ran out rather
     # than reading as an ordinary "incomplete: N unclassified".
-    if _deadline_ms is not None and _budget_ms() <= 0.0 and not budget_cut:
+    if budget_is_exhausted(_budget_ms()) and not budget_cut:
         budget_cut, cut_phase = True, cut_phase or "classification"
     if budget_cut:
         functionally_complete = False
