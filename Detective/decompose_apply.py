@@ -53,7 +53,15 @@ def _wanted_test_names(kill_matrix: dict[str, list[str]]) -> set[str]:
     returns every test in the project, which would let an unrelated passing test stand in
     for the proof.
     """
-    return {t.split("[", 1)[0] for tests in kill_matrix.values() for t in tests}
+    from .suite_edit import nodeid_function_name
+
+    # Resolve, don't just strip the row suffix (#13/#54). These names are compared against the
+    # `def`s a test module DEFINES, which are bare; the matrix keys tests by pytest nodeid
+    # (Wesker #16) or Wesker's `legacy:` fallback, so `path::t[case] -> path::t` still matched
+    # nothing and this returned no covering files at all. It went unnoticed because the proof
+    # basis normally also carries `written_path`; it surfaces the moment the generated file is
+    # legitimately absent — which is exactly when the pre-existing suite IS the whole proof.
+    return {nodeid_function_name(t) for tests in kill_matrix.values() for t in tests}
 
 
 def _test_names_in_source(source: str) -> set[str]:

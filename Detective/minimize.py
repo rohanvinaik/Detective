@@ -112,7 +112,15 @@ def strip_foreign_evidence(
     """
 
     def is_foreign(test: str) -> bool:
-        return test.split("[", 1)[0] in foreign
+        # Resolve the identifier before comparing (#13/#54). `foreign` holds BARE function names
+        # read out of a sibling's AST, while the evidence axes are keyed by pytest nodeid
+        # (Wesker #16) or Wesker's `legacy:<origin>::<base>` fallback. Comparing the two
+        # vocabularies directly made this ALWAYS False — so #7's guard never stripped anything,
+        # and was inert for as long as the minimization it protects was also inert. Fixing only
+        # the minimization would have switched a latent regression on.
+        from .suite_edit import nodeid_function_name
+
+        return nodeid_function_name(test) in foreign
 
     kept_matrix = {mutant: [t for t in tests if not is_foreign(t)] for mutant, tests in kill_matrix.items()}
     kept_lines = {t: lines for t, lines in line_coverage.items() if not is_foreign(t)}

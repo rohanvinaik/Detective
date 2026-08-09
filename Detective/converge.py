@@ -41,6 +41,7 @@ from .equivalence import SourceExpr, SurvivorReport
 from .line_flags import classify_missing_lines
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
 from .purity import environment_reads, is_pure, uncovered_env_reads, world_effects
+from .suite_edit import nodeid_function_name
 from .synthesis.characterization import (
     GoldenCapture,
     capture_golden,
@@ -1392,7 +1393,22 @@ def _converge_impl(
             final_result.line_coverage,
             foreign_generated_test_names(root, func_key),
         )
-        drop = {names[n].assertion_code for n in redundant_2axis(own_matrix, own_lines) if n in names}
+        # Resolve each redundant identifier to its function name before the lookup (#13). The
+        # profile keys tests by pytest nodeid (Wesker #16) or Wesker's `legacy:` fallback;
+        # `individual_test_names` keys by the BARE rendered name. `n in names` therefore never
+        # matched and `drop` was ALWAYS empty — the minimization below existed, announced itself
+        # in a `say(...)`, and had not run since the identity moved. Measured: converge shipped 23
+        # tests where 8 carry the whole certificate, and its own audit flagged 16 one command later.
+        _redundant = redundant_2axis(own_matrix, own_lines)
+        # KEYED BY property_identity, because that is what `accumulated` is keyed by. It used to
+        # collect `assertion_code`, which the filter below then looked up among identity keys —
+        # two different key spaces, so the drop silently shrank to whatever coincided. Measured:
+        # 16 redundant tests resolved and `names` held all 16, yet `drop` came out with 4 entries.
+        # `assertion_code` was the identity until #61 moved accumulation to semantic identity;
+        # this is the half of that change that did not follow.
+        drop = {
+            property_identity(names[_fn]) for n in _redundant if (_fn := nodeid_function_name(n)) in names
+        }
         # Issue #13: parametrized golden ROWS are droppable too. A golden that merely
         # duplicates a stable hand-written test adds zero marginal obligation, and the
         # profile says so — by the row's rendered name (`test_x_golden[args2-…]`). Map
@@ -1400,13 +1416,15 @@ def _converge_impl(
         # #5's no-AST-surgery posture is untouched because this re-renders Detective's
         # OWN file, it never edits a user's parametrize.
         golden_base, golden_rows = golden_row_properties(func_key, list(accumulated.values()))
-        for n in redundant_2axis(own_matrix, own_lines):
-            base, _, case = n.partition("[")
+        for n in _redundant:
+            # Same resolution for the parametrized rows: `n` is a nodeid, so the raw `partition`
+            # left `base` as the whole `path::test_x` and it never equalled the bare `golden_base`.
+            base, _, case = nodeid_function_name(n), "", n.partition("[")[2]
             if base != golden_base or not case:
                 continue
             row = re.match(r"args(\d+)", case)
             if row and int(row.group(1)) < len(golden_rows):
-                drop.add(golden_rows[int(row.group(1))].assertion_code)
+                drop.add(property_identity(golden_rows[int(row.group(1))]))
         if drop:
             accumulated = {k: v for k, v in accumulated.items() if k not in drop}
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)

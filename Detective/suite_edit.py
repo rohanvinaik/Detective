@@ -76,7 +76,7 @@ class RemovalReport:
     parametrized: tuple[str, ...] = ()
 
 
-def removal_kind(identifier: str) -> str:
+def nodeid_kind(identifier: str) -> str:
     """What an audit-reported test identifier NAMES, so removal can act on it (#54, pure — pinned).
 
     Test identity is a pytest nodeid (Wesker #16), and Wesker emits an explicitly namespaced
@@ -104,7 +104,7 @@ def removal_kind(identifier: str) -> str:
     return "bare"
 
 
-def removal_function_name(identifier: str) -> str:
+def nodeid_function_name(identifier: str) -> str:
     """The bare function name an audit-reported identifier denotes (#54, pure — pinned).
 
     Strips the ``legacy:`` namespace, any ``path::`` qualifier, and any ``[case]`` row suffix.
@@ -116,7 +116,7 @@ def removal_function_name(identifier: str) -> str:
     return rest.split("[", 1)[0]
 
 
-def removal_file_hint(identifier: str) -> str:
+def nodeid_file_hint(identifier: str) -> str:
     """The FILE an identifier names, or "" when it does not name one (#54, pure — pinned).
 
     Used to delete the RIGHT definition when two files define the same test name — matching on
@@ -149,10 +149,10 @@ def _locate(project_root: str, file: str, names: set[str]) -> dict[str, set[str]
     # request became `not_found`. A file hint, where the identifier carries one, additionally
     # pins WHICH definition — two files defining one test name must not resolve to whichever
     # discovery yielded first.
-    wanted_names = {removal_function_name(n) for n in names}
+    wanted_names = {nodeid_function_name(n) for n in names}
     hints: dict[str, set[str]] = {}
     for n in names:
-        hints.setdefault(removal_function_name(n), set()).add(removal_file_hint(n))
+        hints.setdefault(nodeid_function_name(n), set()).add(nodeid_file_hint(n))
     by_file: dict[str, set[str]] = {}
     for call in callables:
         name = getattr(call, "__name__", "")
@@ -190,7 +190,7 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     # function. The function is alive (its other rows earn their keep, or it
     # would have been proposed by its bare name), so it must not be deleted to
     # get at the row. Set aside and report; the user prunes the row.
-    cases = {n for n in wanted if removal_kind(n) == "parametrized_case"}
+    cases = {n for n in wanted if nodeid_kind(n) == "parametrized_case"}
     wanted -= cases
     by_file = _locate(project_root, file, wanted)
     removed: list[str] = []
@@ -218,6 +218,6 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     # the user was shown nodeids and a report that answers in a different vocabulary reads as a
     # different set of tests.
     _removed_names = set(removed)
-    removed_ids = [n for n in wanted if removal_function_name(n) in _removed_names]
+    removed_ids = [n for n in wanted if nodeid_function_name(n) in _removed_names]
     not_found = tuple(sorted(wanted - set(removed_ids)))
     return RemovalReport(tuple(sorted(removed_ids)), not_found, tuple(sorted(changed)), tuple(sorted(cases)))

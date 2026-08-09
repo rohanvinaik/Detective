@@ -37,9 +37,9 @@ import pytest
 
 from Detective.suite_edit import (
     apply_removals,
-    removal_file_hint,
-    removal_function_name,
-    removal_kind,
+    nodeid_file_hint,
+    nodeid_function_name,
+    nodeid_kind,
 )
 
 NODEID = "tests/detective/test_g_synth.py::test_boundary_0"
@@ -54,28 +54,28 @@ LEGACY = "legacy:tests/detective/test_g_synth.py::test_boundary_0"
 def test_every_spelling_resolves_to_the_same_function():
     """Five spellings, one function. Matching only the last of them was the defect."""
     for ident in (NODEID, LEGACY, "test_boundary_0", f"{NODEID}[case]", f"{LEGACY}[case]"):
-        assert removal_function_name(ident) == "test_boundary_0", ident
+        assert nodeid_function_name(ident) == "test_boundary_0", ident
 
 
 def test_a_parametrized_row_is_not_a_function():
     """The function is alive — its other rows earn their keep — so it must never be deleted
     to get at one row."""
-    assert removal_kind(f"{NODEID}[args6-F]") == "parametrized_case"
-    assert removal_kind(NODEID) == "qualified"
-    assert removal_kind("test_boundary_0") == "bare"
-    assert removal_kind("") == "empty"
+    assert nodeid_kind(f"{NODEID}[args6-F]") == "parametrized_case"
+    assert nodeid_kind(NODEID) == "qualified"
+    assert nodeid_kind("test_boundary_0") == "bare"
+    assert nodeid_kind("") == "empty"
 
 
 def test_a_qualified_identifier_names_its_file():
-    assert removal_file_hint(NODEID) == "tests/detective/test_g_synth.py"
-    assert removal_file_hint(LEGACY) == "tests/detective/test_g_synth.py"
+    assert nodeid_file_hint(NODEID) == "tests/detective/test_g_synth.py"
+    assert nodeid_file_hint(LEGACY) == "tests/detective/test_g_synth.py"
 
 
 def test_an_unqualified_identifier_names_no_file():
     """`?` is Wesker's explicit unknown-origin placeholder — it names no file, and treating it
     as one would look for a directory called '?'."""
-    assert removal_file_hint("test_boundary_0") == ""
-    assert removal_file_hint("legacy:?::test_boundary_0") == ""
+    assert nodeid_file_hint("test_boundary_0") == ""
+    assert nodeid_file_hint("legacy:?::test_boundary_0") == ""
 
 
 # --------------------------------------------------------------------------------------
@@ -171,3 +171,41 @@ def test_the_report_answers_in_the_spelling_it_was_asked_in(project):
     tests than the one they approved."""
     report = _run(project, ["tests/__STEM__.py::test_boundary_0"])
     assert report.removed == (_nodeid(project),)
+
+
+# --------------------------------------------------------------------------------------
+# One grammar, four consumers (Detective #13, #7, #54)
+# --------------------------------------------------------------------------------------
+
+
+def test_every_consumer_of_the_grammar_resolves_identically():
+    """Four places compare a profile identifier against a bare `def` name, and all four had
+    their own ad-hoc normalisation — or none:
+
+      converge minimization   `n in names`              (raw nodeid vs rendered name)
+      strip_foreign_evidence  `test.split("[")[0]`      (#7's guard — always False)
+      _wanted_test_names      `t.split("[", 1)[0]`      (proof basis — no covering files)
+      apply_removals          `call.__name__`           (#54 — --remove was a no-op)
+
+    Two of them masked each other: the minimization never fired, so #7's inert guard never
+    mattered, and the empty proof basis never showed because a generated file was always
+    present. Fixing one at a time switches the others on. This asserts they share one
+    derivation rather than four.
+    """
+    from Detective.decompose_apply import _wanted_test_names
+    from Detective.minimize import strip_foreign_evidence
+
+    ident = "tests/detective/test_x_synth.py::test_foo[args0-A]"
+    assert nodeid_function_name(ident) == "test_foo"
+    assert _wanted_test_names({"MUT_1": [ident]}) == {"test_foo"}
+    matrix, lines = strip_foreign_evidence({"MUT_1": [ident]}, {ident: [1, 2]}, {"test_foo"})
+    assert matrix == {"MUT_1": []}, "a foreign nodeid must be stripped, not silently kept"
+    assert lines == {}
+
+
+def test_a_row_suffix_alone_is_not_resolution():
+    """The old normalisation stripped `[case]` and stopped, leaving `path::t` — which matches
+    no `def` anywhere. Stripping the suffix is necessary and nowhere near sufficient."""
+    ident = "tests/t.py::test_foo[case]"
+    assert ident.split("[", 1)[0] != "test_foo"
+    assert nodeid_function_name(ident) == "test_foo"
