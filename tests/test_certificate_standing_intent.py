@@ -167,3 +167,46 @@ def test_every_surface_reads_the_same_derivation():
         assert result.complete is (standing == "complete"), overrides
         refused = "STOP" in _render_converge(result, "m.py", "f", None)
         assert refused is (standing in ("stale", "unverified")), overrides
+
+
+# --------------------------------------------------------------------------------------
+# Wesker's validity verdict, consumed rather than reconstructed (Detective #60, Wesker #19)
+# --------------------------------------------------------------------------------------
+
+
+def test_an_ungateable_measurement_is_not_a_certificate():
+    """MEASURED, with a test blocked in `time.sleep` where an async exception cannot land, so
+    `abandon()` cannot contain the traced worker:
+
+        Wesker:    is_gateable=False  coverage_depth='cut'  trace_truncated=[...]
+        Detective: ✓ COMPLETE · 11/11 killed   budget_exhausted=False  cut_phase=''
+
+    Detective keyed cut-ness off `budget_exhausted`, its own narrower proxy. The two are
+    INDEPENDENT — Wesker refuses for containment reasons that have nothing to do with budget —
+    so an upstream refusal evaporated at the integration seam.
+    """
+    assert certificate_standing(True, True, False, False, False, False) == "ungateable"
+
+
+def test_ungateable_outranks_both_unverified_and_incomplete():
+    """A measurement that is not VALID cannot support either claim. Reporting "incomplete"
+    would send the reader to close a gap the numbers never established."""
+    assert certificate_standing(False, False, False, False, False, False) == "ungateable"
+    assert certificate_standing(True, True, False, True, False, False) == "ungateable"
+
+
+def test_staleness_still_outranks_ungateability():
+    """If the source moved, WHICH source the measurement was invalid about is the wrong
+    question to put in front of the reader first."""
+    assert certificate_standing(True, True, True, False, False, False) == "stale"
+
+
+def test_a_gateable_measurement_is_unaffected():
+    assert certificate_standing(True, True, False, False, False, True) == "complete"
+
+
+def test_the_default_does_not_refuse_on_an_unasked_question():
+    """Release skew is real: an older Wesker has no `is_gateable`. Defaulting to True means a
+    caller that has not ESTABLISHED gateability refuses nothing — the alternative refuses
+    every certificate, which is a worse failure than the one being fixed."""
+    assert certificate_standing(True, True, False, False, False) == "complete"

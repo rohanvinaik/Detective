@@ -88,6 +88,7 @@ def certificate_standing(
     stale_target: bool,
     verification_ran: bool,
     verification_ok: bool,
+    measurement_gateable: bool = True,
 ) -> str:
     """What a converge result is entitled to CLAIM — one code, read by every surface (#17/#38).
 
@@ -118,6 +119,25 @@ def certificate_standing(
     """
     if stale_target:
         return "stale"
+    # WESKER'S OWN VALIDITY VERDICT, consumed rather than re-derived (#60). Wesker returns
+    # `is_gateable=False` for a cut or UNCONTAINED measurement — including a baseline trace worker
+    # that could not be stopped (#19) — and that is independent of `budget_exhausted`, which is
+    # the proxy Detective keyed on. Measured, with a test blocked in `time.sleep` where an async
+    # exception cannot land:
+    #
+    #     Wesker:    is_gateable=False  coverage_depth='cut'  trace_truncated=[...]
+    #     Detective: ✓ COMPLETE · 11/11 killed   budget_exhausted=False  cut_phase=''
+    #
+    # An upstream refusal weakened at the integration seam is the purest form of the
+    # measurement/decision gap: the engine computed the fact and the consumer asked a narrower
+    # question. Ranked above `unverified` and `incomplete` because a measurement that is not
+    # valid cannot support EITHER claim — "incomplete" would send the reader to close a gap the
+    # numbers never established.
+    #
+    # Defaults True: a caller that has not established gateability must not silently acquire the
+    # refusal, exactly as with `verification_ran`.
+    if not measurement_gateable:
+        return "ungateable"
     if verification_ran and not verification_ok:
         return "unverified"
     if not (functionally_complete and line_complete):
@@ -201,6 +221,14 @@ class ConvergeResult:
     # synth suite), so test-file staleness needs the write ledger to separate
     # our edits from the user's and is deliberately not claimed here.
     stale_target: bool = False
+    # Wesker's OWN validity verdict for the measurement this result rests on (#60), carried
+    # verbatim rather than reconstructed. False means the profile was cut or ran against an
+    # uncontained worker, which `budget_exhausted` does not capture — the two are independent,
+    # and keying on the latter let an upstream refusal evaporate at the seam.
+    measurement_gateable: bool = True
+    # Wesker's coverage depth for the same measurement: "exhaustive" / "profiled" / "sampled" /
+    # "cut". Carried for the report; the GATE reads `measurement_gateable`, never this string.
+    coverage_depth: str = ""
     # Reads of clock / filesystem / process-env / entropy the target performs (issue: the
     # impure-line trap). These gate reachability by STATE A CALLER'S ARGUMENT CANNOT SET, so a
     # line behind one cannot be reached by any `--input` value — the residual is a fixture or a
@@ -287,6 +315,7 @@ class ConvergeResult:
                 self.stale_target,
                 self.verification is not None,
                 self.verification is not None and self.verification.ok,
+                self.measurement_gateable,
             )
             == "complete"
         )
@@ -1679,6 +1708,11 @@ def _converge_impl(
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(),
         stale_target=stale,
+        # Consumed from the profile, never re-derived (#60). `getattr` with a True default is the
+        # release-skew guard the issue names: an older Wesker without the field must not be read
+        # as ungateable, which would refuse every certificate rather than none.
+        measurement_gateable=bool(getattr(final_result, "is_gateable", True)),
+        coverage_depth=str(getattr(final_result, "coverage_depth", "") or ""),
         environment_coupled=tuple(environment_coupled),
         environment_gated=environment_reads(node),
         budget_exhausted=budget_cut,

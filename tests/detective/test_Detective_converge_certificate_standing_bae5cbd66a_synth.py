@@ -12,32 +12,6 @@ from Detective.converge import certificate_standing
 
 @pytest.mark.detective
 def test_certificate_standing_value_0():
-    """VALUE survivor — golden capture (pure + deterministic) (confidence 0.9)."""
-    result = certificate_standing(
-        functionally_complete=True,
-        line_complete=True,
-        stale_target=True,
-        verification_ran=True,
-        verification_ok=True,
-    )
-    assert result == "stale"
-
-
-@pytest.mark.detective
-def test_certificate_standing_value_1():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
-    result = certificate_standing(
-        functionally_complete=False,
-        line_complete=False,
-        stale_target=False,
-        verification_ran=True,
-        verification_ok=False,
-    )
-    assert result == "unverified"
-
-
-@pytest.mark.detective
-def test_certificate_standing_value_2():
     """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
     result = certificate_standing(
         functionally_complete=False,
@@ -45,5 +19,6 @@ def test_certificate_standing_value_2():
         stale_target=False,
         verification_ran=False,
         verification_ok=False,
+        measurement_gateable=False,
     )
-    assert result == "incomplete"
+    assert result == "ungateable"

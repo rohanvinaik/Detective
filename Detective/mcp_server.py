@@ -318,7 +318,15 @@ def _render_converge(result: Any, file: str, function: str, full_text: str | Non
         result.stale_target,
         result.verification is not None,
         result.verification is not None and result.verification.ok,
+        getattr(result, "measurement_gateable", True),
     )
+    if standing == "ungateable":
+        out.append("")
+        out.append("STOP. This is NOT a verdict. Wesker declared the measurement UNGATEABLE —")
+        out.append("  the profile was cut, or a timed-out worker could not be contained and may")
+        out.append("  still be running. The counts below are a FLOOR, not a result. Re-run on a")
+        out.append("  settled machine, or with a larger budget, before reporting anything.")
+        return "\n".join(out)
     if standing == "stale":
         out.append("")
         out.append("STOP. This is NOT a verdict. The target file CHANGED while the run was")

@@ -1208,6 +1208,18 @@ def _final_banner(result) -> str:
             f"FINAL {result.function}: ⚠ CUT — aggregate deadline exhausted during {phase}; "
             "measurement partial, re-run with a larger --deadline"
         )
+    # A measurement Wesker itself declared UNGATEABLE (#60/#19) is a non-verdict for the same
+    # reason: a cut or uncontained profile — a traced worker still running because an async
+    # exception could not land in `time.sleep`/a C call — measured something other than this
+    # suite against this code. Named here rather than folded into "Incomplete", because
+    # "11/11 killed · Incomplete" with no reason reads as a gap to close and is not one.
+    if not getattr(result, "measurement_gateable", True):
+        _depth = getattr(result, "coverage_depth", "") or "cut"
+        return (
+            f"FINAL {result.function}: ⚠ UNGATEABLE — the profile is {_depth} (a timed-out worker "
+            "could not be contained, or the universe was not fully measured); counts are a floor, "
+            "not a verdict"
+        )
     # A proof basis that RAN and did not pass (issue #38) is not a certificate either — the
     # mutation score can be perfect while the written suite is red or uncollectable under real
     # pytest. Named before COMPLETE, like STALE/CUT, because it too disowns the verdict.
