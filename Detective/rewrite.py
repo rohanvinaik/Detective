@@ -49,6 +49,11 @@ class RewriteReceipt:
     proof_suite: tuple[str, ...]  # proof-basis paths (relative) that discharged the obligations
     proof_status: str  # the verification status when recorded (should be "passed")
     functionally_complete: bool  # was the original mutation-complete when the receipt was taken
+    # (relpath, sha256) of each proof file's CONTENT at receipt time (#37). Freezes the basis so
+    # verify-rewrite can refuse when a proof file changed since the receipt — otherwise a
+    # post-receipt edit that suppresses a new dimension could help produce a false PRESERVED.
+    # Defaulted () for pre-#37 receipts, which read as `unfrozen` (a weaker claim, never PRESERVED).
+    proof_digests: tuple[tuple[str, str], ...] = ()
     schema: str = _RECEIPT_SCHEMA
 
     def to_json(self) -> str:
@@ -67,6 +72,9 @@ class RewriteReceipt:
         d = json.loads(text)
         schema = d.pop("schema", None)
         d["proof_suite"] = tuple(d.get("proof_suite", ()))
+        # JSON stores tuples as lists; restore (path, digest) PAIRS. Absent on a pre-#37 receipt →
+        # () → `unfrozen` downstream, never silently trusted as a frozen basis.
+        d["proof_digests"] = tuple(tuple(x) for x in d.get("proof_digests", ()))
         rec = RewriteReceipt(**d, schema=schema if isinstance(schema, str) else "")
         # requested_key == receipt.function: identity is trivially satisfied here (we have no target
         # yet), so only the self-contained schema/digest gates can fire at load time.
@@ -216,6 +224,35 @@ def rewrite_verdict(
     return "PRESERVED"
 
 
+def basis_freshness(frozen: dict[str, str], current: dict[str, str]) -> str:
+    """Whether the proof basis a receipt froze still describes the files on disk (#37, pure — pinned).
+
+    The receipt's obligations were discharged by a specific proof SUITE. Storing only its file
+    PATHS let ``verify-rewrite`` replay whatever those paths contain NOW — so a test added or edited
+    AFTER the receipt could suppress a newly introduced dimension and help produce a false
+    ``PRESERVED``. Freezing each proof file's content digest lets a consumer refuse when the basis
+    has moved out from under the claim.
+
+    Three states, because "the receipt did not freeze the basis", "it froze it and the basis moved",
+    and "it froze it and the basis is intact" are different facts a verdict must keep apart:
+
+    * ``unfrozen`` — the receipt carries no digests (a pre-#37 receipt). The basis cannot be
+      confirmed unchanged, so a caller must not let it reach PRESERVED — but this is a MISSING
+      capability, not a detected change, and is named so rather than conflated with a real move.
+    * ``moved`` — a frozen file's current digest differs, or the file is gone. The obligations no
+      longer describe what would be replayed; preservation is unprovable against a basis that
+      changed.
+    * ``fresh`` — every frozen file is present with its recorded digest. The basis a caller is
+      about to replay is exactly the one the receipt's obligations were measured against.
+    """
+    if not frozen:
+        return "unfrozen"
+    for path, digest in frozen.items():
+        if current.get(path) != digest:
+            return "moved"
+    return "fresh"
+
+
 def _function_source(file_full: str, function: str) -> tuple[str, Any, str] | None:
     """(source_text, node, qualname) for ``function`` in the file, or None if not found.
 
@@ -260,6 +297,17 @@ def make_receipt(
         proof.append(os.path.relpath(conv.written_path, root))
     proof.extend(_covering_test_files(root, _kill_matrix(file, function, project_root)))
     proof_paths = tuple(dict.fromkeys(proof))
+
+    def _content_digest(rel: str) -> str:
+        try:
+            with open(os.path.join(root, rel), "rb") as fh:
+                return hashlib.sha256(fh.read()).hexdigest()
+        except OSError:
+            return ""  # unreadable now -> a digest nothing matches -> `moved` if it reappears
+
+    # Freeze the basis (#37): each proof file's content digest, so verify-rewrite can refuse a
+    # basis that changed since the receipt rather than replay whatever the paths hold later.
+    proof_digests = tuple((p, _content_digest(p)) for p in proof_paths)
     ver = conv.verification
     return RewriteReceipt(
         function=conv.function,
@@ -273,6 +321,7 @@ def make_receipt(
             ver.status if ver is not None else ("passed" if conv.functionally_complete else "unverified")
         ),
         functionally_complete=conv.functionally_complete,
+        proof_digests=proof_digests,
     )
 
 
@@ -345,6 +394,31 @@ def verify_rewrite(
             note="the current source is identical to the receipt's original — nothing was rewritten",
         )
 
+    # FREEZE GATE (#37): the receipt's obligations were measured against a specific proof suite.
+    # If a proof file changed since — a test added or edited that could SUPPRESS a newly introduced
+    # dimension — then replaying "the proof suite" replays something else, and preservation is
+    # unprovable against a basis that moved. `unfrozen` (a pre-#37 receipt with no digests) is not a
+    # detected move but cannot be trusted either, so it is barred from PRESERVED below.
+    current_digests: dict[str, str] = {}
+    for rel in receipt.proof_suite:
+        try:
+            with open(os.path.join(root, rel), "rb") as _fh:
+                current_digests[rel] = hashlib.sha256(_fh.read()).hexdigest()
+        except OSError:
+            current_digests[rel] = ""  # gone -> matches no frozen digest -> `moved`
+    freshness = basis_freshness(dict(receipt.proof_digests), current_digests)
+    if freshness == "moved":
+        say("⚠ the proof basis changed since the receipt — preservation cannot be established")
+        return RewriteVerification(
+            "BASIS_MOVED",
+            requested_key,
+            "skipped",
+            (),
+            (),
+            (),
+            note="a proof file's content differs from the digest the receipt froze",
+        )
+
     # 1. REPLAY the original obligations on the new source.
     say("replaying the original proof suite against the rewritten source…")
     abspaths = [p if os.path.isabs(p) else os.path.join(root, p) for p in receipt.proof_suite]
@@ -391,7 +465,14 @@ def verify_rewrite(
     # SOUNDNESS GATES (issue #37, reopened): PRESERVED is impossible unless the baseline itself was a
     # complete, green-verified proof (else replaying its obligations proves nothing), and unless the
     # classification actually ran (a None report is 'we did not look'). Both feed the pure verdict.
-    receipt_valid = receipt.functionally_complete and receipt.proof_status == "passed"
+    # A `fresh` frozen basis is now part of a valid baseline (#37): an `unfrozen` receipt cannot
+    # ground PRESERVED (its basis may have moved unseen), so it abstains via this gate. A `moved`
+    # basis already returned BASIS_MOVED above.
+    receipt_valid = (
+        receipt.functionally_complete and receipt.proof_status == "passed" and freshness == "fresh"
+    )
+    if freshness == "unfrozen":
+        say("⚠ this older receipt did not freeze its proof basis — cannot establish preservation")
     classification_ran = report is not None
     if not receipt_valid:
         say("⚠ the receipt is not a complete, verified baseline — preservation cannot be established")
