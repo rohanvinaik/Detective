@@ -301,8 +301,20 @@ def run_pytest_verification(
         # overrun the deadline. Unverified is not a pass — withhold, honestly, as a timeout.
         return PytestVerification("timed_out", None, 0, 0, 0, 0, tuple(paths), basis)
     try:
+        # Run under the project's OWN regime — do NOT clear its addopts (#58). The addopts ARE the
+        # regime a certificate claims: `--strict-markers`, `-W error`, a required `-p plugin`, all
+        # decide whether the suite can even collect and run. `-o addopts=` was added only to stop
+        # the target's `-q` from doubling with ours into `-qq` (which suppresses the "N passed"
+        # summary this parse reads), but it also stripped every pass/fail-affecting option — so a
+        # suite that FAILS its own regime read as `passed`, an unsound false certificate
+        # (reproduced: `addopts = --strict-markers` + an unregistered marker returns rc 2 natively,
+        # yet verification said `passed`). The real fix for the doubling is to add no `-q` of our
+        # own, not to erase the regime: the STATUS comes from pytest's return code (see
+        # `pytest_status`), and the count only distinguishes passed-from-empty at rc 0, where the
+        # summary survives at the target's own verbosity. A target that sets `-qq` itself falls to
+        # `no_tests` — a withheld certificate, the safe direction, never a false pass.
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", *paths, "-o", "addopts=", "-q", "-p", "no:cacheprovider"],
+            [sys.executable, "-m", "pytest", *paths, "-p", "no:cacheprovider"],
             cwd=project_root,
             capture_output=True,
             text=True,
