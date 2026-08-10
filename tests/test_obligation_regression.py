@@ -61,3 +61,55 @@ def test_duplicate_ids_do_not_manufacture_a_regression():
     """Records are per kill EVENT, so one obligation can appear more than once. Comparing
     multisets would report a phantom loss when a mutant was simply killed by fewer tests."""
     assert regressed_obligations(["A", "A", "B"], ["A", "B"]) == []
+
+
+# ── #62: the OTHER obligation classes — contract, line, arc — compared apart ──────
+
+
+def test_a_value_pin_downgraded_to_a_crash_kill_is_caught():
+    """THE contract-class defect. A mutant still KILLED but now only by CRASH has lost its value pin;
+    its id stays in the killed set both runs, so the kill comparison sees nothing — only comparing
+    the declared-CONTRACT set (assertion/exception kills) apart catches the regression."""
+    from Detective.converge import _contract_obligation_ids
+
+    before = [
+        {"mutant_id": "A", "killed_by": "assertion"},
+        {"mutant_id": "B", "killed_by": "crash"},
+    ]
+    after = [
+        {"mutant_id": "A", "killed_by": "crash"},  # A's value pin lost, but A is still killed
+        {"mutant_id": "B", "killed_by": "crash"},
+    ]
+    # The killed SET is identical — {A, B} both runs — so the kill comparison is blind:
+    assert regressed_obligations(["A", "B"], ["A", "B"]) == []
+    # The contract set is not: A was contract-killed, now only crash-killed.
+    assert _contract_obligation_ids(before) == ["A"]
+    assert _contract_obligation_ids(after) == []
+    assert regressed_obligations(_contract_obligation_ids(before), _contract_obligation_ids(after)) == ["A"]
+
+
+def test_a_missing_killed_by_contributes_no_contract_obligation():
+    """An engine (or record) that does not report `killed_by` has not said the kill was by contract,
+    so it owns no contract obligation — never invented, never a phantom regression."""
+    from Detective.converge import _contract_obligation_ids
+
+    assert _contract_obligation_ids([{"mutant_id": "A"}, {"mutant_id": "B", "killed_by": None}]) == []
+    assert _contract_obligation_ids(None) == []
+
+
+def test_line_and_arc_obligation_ids_are_stable_and_named():
+    """Line and arc losses are named by stable id (sorted), so a dropped proof line or branch edge is
+    reported, not counted. Arcs absent (no capture) is a sound no-op, never a manufactured loss."""
+    from Detective.converge import _arc_obligation_ids, _line_obligation_ids
+
+    assert _line_obligation_ids({"m.py": [3, 1, 2]}) == [
+        "line:m.py:1",
+        "line:m.py:2",
+        "line:m.py:3",
+    ]
+    assert _arc_obligation_ids({(2, 3), (1, 2)}) == ["arc:1-2", "arc:2-3"]
+    assert _arc_obligation_ids(()) == [] and _arc_obligation_ids(None) == []
+    # A dropped admissible line is caught; an added one is not a regression.
+    assert regressed_obligations(
+        _line_obligation_ids({"m.py": [1, 2]}), _line_obligation_ids({"m.py": [2]})
+    ) == ["line:m.py:1"]

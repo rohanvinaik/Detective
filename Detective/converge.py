@@ -932,6 +932,46 @@ def regressed_obligations(before: list[str], after: list[str]) -> list[str]:
     return sorted(set(before) - set(after))
 
 
+def _contract_obligation_ids(killed_records: list[dict] | None) -> list[str]:
+    """Mutant ids killed by a DECLARED CONTRACT — an assertion or an explicit exception (#62).
+
+    A SUBSET of the killed set, and the reason the whole-killed-set comparison is not enough: a
+    mutant still 'killed' but now only by CRASH/timeout has lost its VALUE pin, and the killed set —
+    which still contains its id either way — cannot see that. Comparing the contract set apart names
+    exactly that regression. Wesker's `killed_by` is the source (assertion/exception = contract,
+    crash/timeout = detection-only); a record without it contributes nothing.
+    """
+    return [
+        mid
+        for r in (killed_records or [])
+        if r.get("killed_by") in ("assertion", "exception") and (mid := r.get("mutant_id"))
+    ]
+
+
+def _line_obligation_ids(proof_coverage: dict[str, list[int]]) -> list[str]:
+    """Stable ids for each ADMISSIBLY-covered line (#62), so a lost proof line is named, not counted.
+
+    Built from `admissible_proof_coverage` — the SAME baseline-green view the line ledger and audit
+    rest on (#59) — so the preservation check and the certificate cannot disagree about which lines
+    are proof. `file:line`, sorted, so two runs compare by identity and report stably.
+    """
+    return [f"line:{f}:{ln}" for f in sorted(proof_coverage) for ln in sorted(proof_coverage[f])]
+
+
+def _arc_obligation_ids(arc_union: object) -> list[str]:
+    """Stable ids for each ADMISSIBLY-covered branch edge (#62), or empty when arcs were not captured.
+
+    Wesker exposes `admissible_arc_union` only when the trace ran with arc capture; absent or empty,
+    this is `[]` and the arc comparison is a sound no-op (nothing was pinned, nothing can regress).
+    """
+    if not isinstance(arc_union, (set, frozenset, list, tuple)):
+        return []
+    try:
+        return [f"arc:{a}-{b}" for (a, b) in sorted(arc_union)]
+    except (TypeError, ValueError):
+        return []
+
+
 def _progressed(previous: int, current: int) -> bool:
     """True when the survivor count strictly decreased."""
     return current < previous
@@ -1274,6 +1314,12 @@ def _converge_impl(
     # The same baseline as an obligation SET (#62). The count is retained only for the message
     # and for the fallback when the engine supplies no per-mutant records.
     baseline_killed_ids: list[str] = []
+    # And the SAME baseline as line / arc / declared-CONTRACT obligation sets (#62), so a run that
+    # keeps the killed set intact but drops a proof line, a branch edge, or downgrades a value pin to
+    # a crash-only kill is still caught. Each is compared by stable id, never by count.
+    baseline_line_ids: list[str] = []
+    baseline_arc_ids: list[str] = []
+    baseline_contract_ids: list[str] = []
 
     for _pass in range(max_iterations):
         # Stop STARTING new work once the wall is gone (issue #31): a fresh pass would only
@@ -1301,6 +1347,12 @@ def _converge_impl(
             # Measured BEFORE this run writes anything: what the suite already on disk kills.
             baseline_killed = result.total_killed
             baseline_killed_ids = [mid for r in (result.killed_records or []) if (mid := r.get("mutant_id"))]
+            # The other obligation classes of the prior suite (#62), from the SAME profile, so the
+            # preservation check sees a lost proof line / branch edge / value pin, not only a lost kill.
+            _base_cov, _ = admissible_proof_coverage(result)
+            baseline_line_ids = _line_obligation_ids(_base_cov)
+            baseline_arc_ids = _arc_obligation_ids(getattr(result, "admissible_arc_union", ()))
+            baseline_contract_ids = _contract_obligation_ids(result.killed_records)
         # Value-survivors: what the suite hasn't pinned the RETURN VALUE of — true
         # survivors plus crash/timeout kills. Converging drives THIS to zero, so a
         # crash-dominated "100%" no longer reads as done.
@@ -1576,9 +1628,27 @@ def _converge_impl(
     # `old ⊆ new` forbids a drop in size; the count survives only for the message and for the
     # fallback below.
     final_killed_ids = [mid for r in (final_result.killed_records or []) if (mid := r.get("mutant_id"))]
+    _final_cov, _ = admissible_proof_coverage(final_result)
+    final_line_ids = _line_obligation_ids(_final_cov)
+    final_arc_ids = _arc_obligation_ids(getattr(final_result, "admissible_arc_union", ()))
+    final_contract_ids = _contract_obligation_ids(final_result.killed_records)
     lost = regressed_obligations(baseline_killed_ids, final_killed_ids) if baseline_killed_ids else []
+    # Every obligation CLASS compared apart, by stable id (#62). The killed set alone misses a value
+    # pin downgraded to a crash-only kill (the mutant stays killed), a lost proof line, and a lost
+    # branch edge — each of which is a real regression the theory invariant `old ⊆ new` forbids.
+    lost_lines = regressed_obligations(baseline_line_ids, final_line_ids)
+    lost_arcs = regressed_obligations(baseline_arc_ids, final_arc_ids)
+    lost_contracts = regressed_obligations(baseline_contract_ids, final_contract_ids)
+    # Named by class so the message says WHAT stopped being pinned; a `contract:` loss keeps the
+    # mutant in the killed set, which is exactly why it is invisible to the kill comparison alone.
+    named_lost = (
+        [f"kill:{m}" for m in lost]
+        + [f"contract:{m}" for m in lost_contracts]
+        + list(lost_lines)
+        + list(lost_arcs)
+    )
     regressed = bool(prior_suite_source) and (
-        bool(lost)
+        bool(named_lost)
         # No per-mutant records to compare — an engine that does not supply them has not said
         # the suite is equivalent, only that it cannot say. Falling back to the prior count rule
         # preserves the previous behaviour rather than silently dropping the guard entirely.
@@ -1589,11 +1659,13 @@ def _converge_impl(
         )
     )
     if regressed:
-        if lost:
-            named = ", ".join(lost[:3]) + (f" (+{len(lost) - 3} more)" if len(lost) > 3 else "")
+        if named_lost:
+            named = ", ".join(named_lost[:3]) + (
+                f" (+{len(named_lost) - 3} more)" if len(named_lost) > 3 else ""
+            )
             say(
                 f"kept the suite already on disk — this run's would stop pinning "
-                f"{len(lost)} behaviour(s) it currently pins: {named}"
+                f"{len(named_lost)} obligation(s) it currently pins: {named}"
             )
         else:
             say(
