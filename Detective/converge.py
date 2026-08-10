@@ -20,6 +20,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
+from typing import Any
 
 from Wesker.ci import relevant_test_files, walk_functions
 from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
@@ -978,6 +979,38 @@ def line_proof_basis(has_admissible: bool, engine_reports_it: bool, is_mapping: 
     return "admissible" if has_admissible else "none_admissible"
 
 
+def admissible_proof_coverage(result: Any) -> tuple[dict[str, list[int]], str]:
+    """The line coverage a certificate's line ledger MAY rest on, and its named basis (#59).
+
+    Only baseline-green, contained, non-truncated observations may discharge a line obligation;
+    a baseline-FAILING test's trace proves nothing. Wesker #17 exposes that filtered view as
+    ``admissible_line_coverage``. This is the ONE place the choice between it and the raw observed
+    union is made, so converge and audit cannot drift — and that drift WAS the #59 bug: audit
+    judged line completeness from the observed union and reached line-complete on a failing test's
+    coverage, while converge already rested on the admissible view.
+
+    Returns ``(proof_coverage, line_basis)`` where ``line_basis`` is the :func:`line_proof_basis`
+    code. The raw union is used ONLY for ``observed`` — an engine too old to report the view.
+    ``none_admissible`` and ``malformed`` KEEP the reported (empty / non-ledger) map on purpose:
+    an empty admissible view is a measurement saying nothing qualified, and a non-mapping one is a
+    broken engine contract — falling back to the observed union in either case would hand the
+    ledger straight back to the failing tests this exists to exclude.
+
+    The sentinel's whole job is one bit — did the engine report the attribute at all — consumed
+    by :func:`line_proof_basis` and never used as a ledger.
+    """
+    sentinel: Any = object()
+    admissible = getattr(result, "admissible_line_coverage", sentinel)
+    reported: dict[str, list[int]] = admissible if isinstance(admissible, dict) else {}
+    basis = line_proof_basis(
+        has_admissible=bool(reported),
+        engine_reports_it=admissible is not sentinel,
+        is_mapping=isinstance(admissible, dict),
+    )
+    proof_coverage = result.line_coverage if basis == "observed" else reported
+    return proof_coverage, basis
+
+
 def _line_guards(func_node: ast.AST, lineno: int) -> list[str]:
     """The branch conditions that must ALL hold to REACH ``lineno`` — the enclosing if/elif/while/for
     tests, outermost first, so an uncovered line names its OWN requirement instead of borrowing a
@@ -1659,25 +1692,10 @@ def _converge_impl(
     # fields below and every surface downstream read the same answer instead of each re-deriving
     # a narrower one from raw attributes.
     _validity = normalize_validity(final_result)
-    _sentinel = object()
-    _admissible = getattr(final_result, "admissible_line_coverage", _sentinel)
-    # THE SENTINEL'S ENTIRE JOB IS ONE BIT — "did the engine report this at all" — consumed on
-    # the next line and never again. Past that it is not a ledger and must not be used as one.
-    # `_admissible or {}` returned the SENTINEL OBJECT whenever the attribute was absent, because
-    # a bare `object()` is truthy; the only thing that kept it out of `missing_lines` was an
-    # invariant established three lines below (absent ⇒ basis "observed" ⇒ the other branch).
-    # That is safe and unreadable — the kind of correctness no reader reconstructs and no test
-    # covers. Binding the ledger to a REAL dict here states the invariant where it is used.
-    _reported: dict[str, list[int]] = _admissible if isinstance(_admissible, dict) else {}
-    line_basis = line_proof_basis(
-        has_admissible=bool(_reported),
-        engine_reports_it=_admissible is not _sentinel,
-        is_mapping=isinstance(_admissible, dict),
-    )
-    # `none_admissible` keeps the EMPTY admissible map, deliberately. The engine measured and
-    # nothing qualified, so the gap is every executable line — falling back to the observed
-    # union there would hand the ledger straight back to the failing tests this excludes.
-    proof_coverage = final_result.line_coverage if line_basis == "observed" else _reported
+    # The line ledger rests on the ADMISSIBLE view (baseline-green evidence only), never the raw
+    # observed union — the one place that choice is made, shared with audit so the two cannot drift
+    # (#59). `line_basis` travels with the result so a certificate names which evidence it rested on.
+    proof_coverage, line_basis = admissible_proof_coverage(final_result)
     missing = missing_lines(final_result.executable_lines, proof_coverage)
     # Issue #9: the line-unreachability oracle closes a flagged statement's residual on the
     # LINE ledger only — reported as "modulo", never silently as covered. A flag contradicted

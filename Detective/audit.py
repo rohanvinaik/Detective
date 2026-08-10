@@ -98,6 +98,12 @@ class SuiteAudit:
     # / total` and reconciles with this partition only once the crash overlap is named (issue #55).
     value_killed: int = 0
     total_mutants: int = 0
+    # Which evidence the line ledger rested on (#59), the same four-state basis converge reports:
+    # `admissible` (baseline-green view), `observed` (an engine too old to filter — named, not
+    # silently reverted, per #60), `none_admissible` (the engine filtered and nothing qualified),
+    # `malformed` (a broken engine view). `line_complete` on an `observed` basis is the weaker
+    # claim, and a certificate must say so rather than imply the admissible one.
+    line_basis: str = "observed"
 
     @property
     def complete(self) -> bool:
@@ -246,7 +252,14 @@ def audit_suite(
         foreign_generated_test_names(os.path.abspath(project_root), result.function_key),
     )
     redundant = redundant_2axis(own_matrix, own_lines)
-    missing = missing_lines(result.executable_lines, result.line_coverage)
+    # The line ledger rests on the ADMISSIBLE view, never the raw observed union (#59): audit
+    # judged line completeness from `result.line_coverage`, so a baseline-FAILING test's coverage
+    # closed the ledger and audit read line-complete on evidence that proves nothing. The shared
+    # helper is the SAME one converge uses, so the two verdicts cannot diverge.
+    from .converge import admissible_proof_coverage
+
+    proof_coverage, line_basis = admissible_proof_coverage(result)
+    missing = missing_lines(result.executable_lines, proof_coverage)
     minimal = minimal_cover_2axis(own_matrix, own_lines)
     # Issue #9: the line-unreachability oracle. A missing line whose statement a user
     # flagged unreachable closes on the LINE ledger only — reported as "modulo", never
@@ -264,7 +277,10 @@ def audit_suite(
         except (OSError, SyntaxError):
             node = None
         if node is not None:
-            covered = {ln for lines in result.line_coverage.values() for ln in lines}
+            # The admissible view, for the SAME reason as the gap above: a flag "contradicted by
+            # observed execution" must be contradicted by execution that COUNTS, or a
+            # baseline-failing test could override a human's unreachability judgement (#59).
+            covered = {ln for lines in proof_coverage.values() for ln in lines}
             missing, manually_unreachable, contradicted = classify_missing_lines(
                 root_abs, result.function_key, node, missing, covered
             )
@@ -325,6 +341,7 @@ def audit_suite(
         kill_pct=round(100 * result.total_killed / total, 1) if total else 100.0,
         mutant_complete=mutant_complete,
         line_complete=not missing,
+        line_basis=line_basis,
         redundant_tests=tuple(sorted(redundant)),
         # Scoped by `suite` for the SAME reason test_names is, and it must stay that way:
         # `result.failing_tests` is the baseline's REPO-WIDE list (the baseline runs every
