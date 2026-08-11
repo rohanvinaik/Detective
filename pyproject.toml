@@ -153,6 +153,16 @@ Repository = "https://github.com/rohanvinaik/Detective"
 # ruff pinned so CI's `ruff format --check` gate cannot drift on a newer release.
 dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.14.10"]
 
+# CI / uv-dev ONLY — resolve Wesker from the GitHub main branch, not PyPI. Detective and Wesker are
+# a co-developed pair whose changes land together; the PUBLISHED PyPI Wesker lags main, so a `uv sync`
+# against `Wesker>=0.11.2` installs a Wesker that predates the features Detective's integration tests
+# exercise, and CI goes red on green code. A `tool.uv.sources` entry is uv-only dev metadata: it does
+# NOT enter the built wheel (the published `dependencies` above stays `Wesker>=0.11.2`), so a
+# `pip install detective-spec` consumer is unaffected. Local dev is also unaffected — it resolves the
+# pair through PYTHONPATH, which precedes any installed package on sys.path.
+[tool.uv.sources]
+Wesker = { git = "https://github.com/rohanvinaik/Wesker.git", branch = "main" }
+
 # Only the package ships. The dev/ generator tree (which imports LintGate as a
 # dev-time conformance oracle) is deliberately excluded from the wheel so no
 # LintGate reference ever enters the runtime import graph.

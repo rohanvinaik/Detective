@@ -6,9 +6,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# Wesker resolves from PyPI (`Wesker>=0.4.0`), so CI no longer checks it out beside
-# Detective — the sibling checkout existed only for the editable `../Wesker` path source,
-# which the PyPI publish removed. CI now installs exactly what a user installs.
+# Wesker resolves via `uv` (no sibling checkout needed): `[tool.uv.sources]` in pyproject.toml
+# points it at the GitHub main branch, because Detective and Wesker are co-developed and land
+# together — the published PyPI Wesker lags main, so installing `Wesker>=0.11.2` from PyPI would
+# pull a Wesker predating the features these integration tests exercise, and CI would go red on
+# green code. The published wheel's dependency stays `Wesker>=0.11.2` (uv sources do not enter the
+# wheel); the user-installs-from-PyPI experience is verified at RELEASE, not on every main push.
 jobs:
   test:
     runs-on: ubuntu-latest

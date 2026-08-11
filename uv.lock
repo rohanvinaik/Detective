@@ -338,7 +338,7 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0,<2" },
     { name = "pytest", specifier = ">=7" },
     { name = "ruff", specifier = ">=0.6" },
-    { name = "wesker", specifier = ">=0.11.2" },
+    { name = "wesker", git = "https://github.com/rohanvinaik/Wesker.git?branch=main" },
 ]
 provides-extras = ["mcp"]
 
@@ -996,8 +996,4 @@ wheels = [
 [[package]]
 name = "wesker"
 version = "0.11.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d5/a9/3c2d20a1a69d7561ddbc9ee2476fa9e75acfeabdb8fa432e5df654aaf402/wesker-0.11.2.tar.gz", hash = "sha256:22ee44da03c49a310d08011e8366f658dae31473921d1fa140bf62d2a1ead2d3", size = 360827, upload-time = "2026-08-05T17:42:34.864Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/c4/b60ceb06337f74fa7debd60ba48c9071b650e8d9347e960316a72810d481/wesker-0.11.2-py3-none-any.whl", hash = "sha256:ad2e007f2be84c10cf1e322a198d3e65aa2f8deb96ef8556243d85dafee90a19", size = 162003, upload-time = "2026-08-05T17:42:24.008Z" },
-]
+source = { git = "https://github.com/rohanvinaik/Wesker.git?branch=main#d755f05ad9be248f145f0bc06f177bd0d4213f2f" }
