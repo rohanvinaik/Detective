@@ -54,6 +54,13 @@ class RewriteReceipt:
     # post-receipt edit that suppresses a new dimension could help produce a false PRESERVED.
     # Defaulted () for pre-#37 receipts, which read as `unfrozen` (a weaker claim, never PRESERVED).
     proof_digests: tuple[tuple[str, str], ...] = ()
+    # The runner's OWN node-ID proof basis (#58): each test the FINAL verification collected as
+    # (node_id, content digest) — the complete proof suite (generated + hand-written) at pytest's own
+    # granularity, from the `Wesker.verification_manifest` plugin in the verification subprocess.
+    # Freezes the basis by TEST IDENTITY across ALL obligation classes, so a rewrite that suppresses a
+    # line/arc-only owner (invisible to the kill-matrix-derived `proof_digests`) is caught. Empty when
+    # the run had no green verification to collect under; verify-rewrite then rests on `proof_digests`.
+    node_basis: tuple[tuple[str, str], ...] = ()
     schema: str = _RECEIPT_SCHEMA
 
     def to_json(self) -> str:
@@ -253,6 +260,22 @@ def basis_freshness(frozen: dict[str, str], current: dict[str, str]) -> str:
     return "fresh"
 
 
+def _node_file_digest(root: str, node_id: str) -> str:
+    """The current content digest of the file a pytest node id addresses, matching how Wesker's
+    manifest froze it (#58): realpath + a 16-char sha256 of content, "" when unreadable.
+
+    The node-ID basis stores each item's ORIGIN digest (the proof FILE's content), so a node whose
+    file no longer reads that way has MOVED — the ``""`` for an unreadable/gone file matches no frozen
+    digest, which :func:`basis_freshness` reads as ``moved``, exactly as the file-level gate does.
+    """
+    rel = node_id.rsplit("::", 1)[0]
+    try:
+        with open(os.path.realpath(os.path.join(root, rel)), "rb") as fh:
+            return hashlib.sha256(fh.read(), usedforsecurity=False).hexdigest()[:16]
+    except OSError:
+        return ""
+
+
 def _function_source(file_full: str, function: str) -> tuple[str, Any, str] | None:
     """(source_text, node, qualname) for ``function`` in the file, or None if not found.
 
@@ -322,6 +345,10 @@ def make_receipt(
         ),
         functionally_complete=conv.functionally_complete,
         proof_digests=proof_digests,
+        # The runner's node-ID basis, from the FINAL verification's real collection (#58) — the
+        # complete proof suite under the consumer's regime. Empty when no verification ran (an
+        # incomplete run, or an older Wesker without the plugin), where `proof_digests` stands alone.
+        node_basis=ver.node_basis if ver is not None else (),
     )
 
 
@@ -418,6 +445,26 @@ def verify_rewrite(
             (),
             note="a proof file's content differs from the digest the receipt froze",
         )
+
+    # NODE-LEVEL FREEZE GATE (#58): the file gate above covers only `proof_suite` — the kill-matrix-
+    # covering files. The receipt ALSO froze the runner's COMPLETE node-ID basis (every obligation
+    # class's owner, from the verification's real collection), which names files the kill matrix omits
+    # — a line/arc-only owner among them. Re-digest each frozen node's file exactly as Wesker captured
+    # it and refuse a MOVED basis, so a rewrite that edits such an owner invisible to the file gate is
+    # still caught by identity. Empty `node_basis` (a pre-#58 receipt) skips this — the file gate stands.
+    if receipt.node_basis:
+        node_current = {nid: _node_file_digest(root, nid) for nid, _d in receipt.node_basis}
+        if basis_freshness(dict(receipt.node_basis), node_current) == "moved":
+            say("⚠ the node-ID proof basis changed since the receipt — preservation cannot be established")
+            return RewriteVerification(
+                "BASIS_MOVED",
+                requested_key,
+                "skipped",
+                (),
+                (),
+                (),
+                note="a frozen proof test's file differs from the node-ID basis the receipt froze",
+            )
 
     # 1. REPLAY the original obligations on the new source.
     say("replaying the original proof suite against the rewritten source…")

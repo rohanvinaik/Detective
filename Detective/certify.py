@@ -255,6 +255,13 @@ class PytestVerification:
     errors: int
     paths: tuple[str, ...]
     basis: str
+    # The runner's OWN node-ID basis (#58): each test the FINAL verification collected as
+    # (node_id, content digest), captured by the `Wesker.verification_manifest` plugin IN the
+    # verification subprocess — the complete proof suite (generated + hand-written) addressed as
+    # pytest addresses it, under the consumer's own regime. Empty when the plugin could not emit
+    # (older Wesker, a run that never collected). The receipt freezes THIS rather than a kill-
+    # matrix-derived file set, so a rewrite that drops a line/arc-only owner is caught by identity.
+    node_basis: tuple[tuple[str, str], ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -300,6 +307,30 @@ def run_pytest_verification(
         # The aggregate wall was exhausted before verification could start; spawning here would
         # overrun the deadline. Unverified is not a pass — withhold, honestly, as a timeout.
         return PytestVerification("timed_out", None, 0, 0, 0, 0, tuple(paths), basis)
+    import json
+    import os
+    import tempfile
+
+    # #58: capture the runner's node-ID basis from THIS verification's real collection (the complete
+    # proof suite under the consumer's own regime) via a subprocess plugin — the in-process manifest
+    # ContextVar cannot cross a process boundary. Defensive: a missing/older Wesker writes nothing.
+    _mfd, _manifest_path = tempfile.mkstemp(suffix=".json", prefix="wesker_manifest_")
+    os.close(_mfd)
+    _env = {**os.environ, "WESKER_MANIFEST_OUT": _manifest_path}
+
+    def _read_node_basis() -> tuple[tuple[str, str], ...]:
+        try:
+            with open(_manifest_path, encoding="utf-8") as _fh:
+                data = json.load(_fh)
+            return tuple((str(n), str(d)) for n, d in data.get("node_basis", ()) if n)
+        except (OSError, ValueError, TypeError):
+            return ()
+        finally:
+            try:
+                os.remove(_manifest_path)
+            except OSError:
+                pass
+
     try:
         # Run under the project's OWN regime — do NOT clear its addopts (#58). The addopts ARE the
         # regime a certificate claims: `--strict-markers`, `-W error`, a required `-p plugin`, all
@@ -314,14 +345,25 @@ def run_pytest_verification(
         # summary survives at the target's own verbosity. A target that sets `-qq` itself falls to
         # `no_tests` — a withheld certificate, the safe direction, never a false pass.
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", *paths, "-p", "no:cacheprovider"],
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                *paths,
+                "-p",
+                "Wesker.verification_manifest",  # #58: emit this collection's node-ID basis to JSON
+                "-p",
+                "no:cacheprovider",
+            ],
             cwd=project_root,
             capture_output=True,
             text=True,
             check=False,
             timeout=timeout,
+            env=_env,
         )
     except subprocess.TimeoutExpired:
+        _read_node_basis()  # cleanup only; a timed-out run has no admissible basis
         return PytestVerification("timed_out", None, 0, 0, 0, 0, tuple(paths), basis)
     out = proc.stdout + "\n" + proc.stderr
 
@@ -332,7 +374,15 @@ def run_pytest_verification(
     passed, failed, errors = _n("passed"), _n("failed"), (_n("errors") or _n("error"))
     status = pytest_status(proc.returncode, passed)
     return PytestVerification(
-        status, proc.returncode, passed + failed + errors, passed, failed, errors, tuple(paths), basis
+        status,
+        proc.returncode,
+        passed + failed + errors,
+        passed,
+        failed,
+        errors,
+        tuple(paths),
+        basis,
+        node_basis=_read_node_basis(),
     )
 
 
