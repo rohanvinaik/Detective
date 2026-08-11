@@ -66,11 +66,14 @@ def load_flags(project_root: str) -> dict[str, EquivalenceFlag]:
 
 def save_flags(project_root: str, flags: dict[str, EquivalenceFlag]) -> None:
     """Persist the flag store, creating ``.detective/`` if needed."""
+    from .atomic_store import atomic_write_text
+
     path = _store_path(project_root)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     payload = {key: asdict(flag) for key, flag in flags.items()}
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2)
+    # Atomic replace (#63): an equivalence declaration is irreducible human input; a mid-write crash
+    # must not clobber the store into an empty file the next load silently accepts and overwrites.
+    atomic_write_text(path, json.dumps(payload, indent=2))
 
 
 def add_flag(project_root: str, func_key: str, diff: str, note: str = "") -> EquivalenceFlag:

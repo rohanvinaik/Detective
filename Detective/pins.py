@@ -136,7 +136,10 @@ def save(project_root: str, func_key: str, digest: str, props: list[ExecutablePr
         {f: (list(p.golden_case) if f == "golden_case" and p.golden_case else getattr(p, f)) for f in _FIELDS}
         for p in props
     ]
+    from .atomic_store import atomic_write_text
+
     path = _store_path(project_root)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(raw, fh, indent=2, sort_keys=True)
+    # Atomic replace (#63): a crash mid-write must not truncate a durable oracle into an empty file
+    # the next load then overwrites. The pin store is human-adjacent proof state, not a cache.
+    atomic_write_text(path, json.dumps(raw, indent=2, sort_keys=True))

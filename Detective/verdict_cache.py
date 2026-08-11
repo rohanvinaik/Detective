@@ -20,7 +20,6 @@ import contextlib
 import hashlib
 import inspect
 import json
-import os
 from collections.abc import Callable
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -251,13 +250,11 @@ def _atomic_write(path: Path, text: str) -> None:
     safe (that wants the lock #63 also asks for), but it stops them corrupting each other's
     staging file, which is the failure this function is about.
     """
-    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
-    try:
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        with contextlib.suppress(OSError):
-            tmp.unlink()
+    from .atomic_store import atomic_write_text
+
+    # The one shared atomic writer (#63) — same-dir temp + os.replace, so the cache and the durable
+    # user oracles all get the SAME truncate/clobber-on-interruption guarantee, not the cache alone.
+    atomic_write_text(path, text)
 
 
 def load(project_root: str) -> dict:

@@ -143,10 +143,13 @@ def load_line_flags(project_root: str) -> dict[str, LineFlag]:
 
 
 def save_line_flags(project_root: str, flags: dict[str, LineFlag]) -> None:
+    from .atomic_store import atomic_write_text
+
     path = _store_path(project_root)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump({key: asdict(flag) for key, flag in flags.items()}, fh, indent=2)
+    # Atomic replace (#63): a line-unreachability flag is an irreducible human judgement — a mid-write
+    # crash must leave the prior store intact, never a half-written file the next load reads as empty.
+    atomic_write_text(path, json.dumps({key: asdict(flag) for key, flag in flags.items()}, indent=2))
 
 
 def add_line_flag(
