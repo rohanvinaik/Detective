@@ -183,6 +183,12 @@ class ConvergeResult:
     # certificate that cannot say which one it stood on implies the stronger, and the difference
     # is precisely whether a baseline-FAILING test was allowed to close the ledger.
     line_basis: str = "observed"
+    # The admissible line-coverage OWNERS (test ids) that must enter the certificate's proof basis
+    # (#59): a line-only test — covers an admissible target line, kills no mutant — that the kill
+    # matrix alone omits, so a green line obligation would otherwise rest on a test never rerun.
+    # Gated to the ``admissible`` basis by :func:`admissible_line_owners`, so an ``observed`` union's
+    # baseline-failing owners never enter. Empty on any non-admissible basis or an older engine.
+    line_owner_ids: tuple[str, ...] = ()
     manually_unreachable: int = 0  # lines closed by a manual unreachability flag (issue #9)
     contradicted_line_flags: tuple[str, ...] = ()  # flags overridden by observed execution
     # (line, guard) for each uncovered line that sits inside a branch: the condition that must hold to
@@ -1136,6 +1142,31 @@ def admissible_proof_coverage(result: Any) -> tuple[dict[str, list[int]], str]:
     return proof_coverage, basis
 
 
+def admissible_line_owners(owner_ids: list[str], line_basis: str) -> tuple[str, ...]:
+    """The line-coverage owners that MAY enter a certificate's proof basis (#59, pure — pinned).
+
+    A line-only test — one that covers an admissible target line but kills no mutant — must be
+    rerun by the final verification and named in the receipt, or a green line obligation rests on
+    a test the certificate never actually reruns. The kill-matrix owners alone omit it, which is
+    the open half of #59.
+
+    But a line owner is admitted ONLY when the line axis stood on the ``admissible`` basis. The
+    three other :func:`line_proof_basis` codes each contribute nothing, and for different reasons
+    that a single truthy check would conflate:
+
+    * ``observed``       — the owner map is the RAW union, keyed by every test including the
+      baseline-FAILING ones #59 exists to exclude; admitting its owners reintroduces the defect.
+    * ``none_admissible`` — the engine reported the view and it is empty: nothing qualified.
+    * ``malformed``      — the view is not a line ledger: a broken engine contract, not evidence.
+
+    So exactly one of the four codes yields owners. Returns them deduplicated and ordered, so the
+    proof basis is deterministic regardless of the map's iteration order.
+    """
+    if line_basis != "admissible":
+        return ()
+    return tuple(sorted(dict.fromkeys(owner_ids)))
+
+
 def _line_guards(func_node: ast.AST, lineno: int) -> list[str]:
     """The branch conditions that must ALL hold to REACH ``lineno`` — the enclosing if/elif/while/for
     tests, outermost first, so an uncovered line names its OWN requirement instead of borrowing a
@@ -1859,6 +1890,11 @@ def _converge_impl(
     # observed union — the one place that choice is made, shared with audit so the two cannot drift
     # (#59). `line_basis` travels with the result so a certificate names which evidence it rested on.
     proof_coverage, line_basis = admissible_proof_coverage(final_result)
+    # The admissible line owners that must join the proof basis (#59) — gated to the ``admissible``
+    # basis, so an ``observed`` union's baseline-failing owners are never admitted. Used BOTH to
+    # widen this run's verification collection (below) and carried on the result for make_receipt /
+    # decompose, which re-derive the kill matrix but cannot re-derive this without the ledger.
+    line_owner_ids = admissible_line_owners(list(proof_coverage), line_basis)
     missing = missing_lines(final_result.executable_lines, proof_coverage)
     # Issue #9: the line-unreachability oracle closes a flagged statement's residual on the
     # LINE ledger only — reported as "modulo", never silently as covered. A flag contradicted
@@ -1887,7 +1923,7 @@ def _converge_impl(
     if functionally_complete and not missing and not budget_cut and not stale:
         from .decompose_apply import _covering_test_files
 
-        covering = _covering_test_files(root, final_result.kill_matrix)
+        covering = _covering_test_files(root, final_result.kill_matrix, line_owner_ids)
         basis_paths = tuple(
             dict.fromkeys(
                 ([written_path] if written_path else [])
@@ -1942,6 +1978,7 @@ def _converge_impl(
         line_complete=not missing,
         missing_lines=tuple(missing),
         line_basis=line_basis,
+        line_owner_ids=line_owner_ids,
         manually_unreachable=len(manually_unreachable),
         contradicted_line_flags=tuple(f"{f.source} (line {f.line})" for f in contradicted_flags),
         missing_line_guards=missing_guards,

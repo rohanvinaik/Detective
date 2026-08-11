@@ -80,17 +80,26 @@ def _test_names_in_source(source: str) -> set[str]:
     return {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
 
 
-def _covering_test_files(root: str, kill_matrix: dict[str, list[str]]) -> tuple[str, ...]:
+def _covering_test_files(
+    root: str, kill_matrix: dict[str, list[str]], line_owner_ids: tuple[str, ...] = ()
+) -> tuple[str, ...]:
     """The PRE-EXISTING test files that provably specify this target — the proof suite
     when converge wrote nothing because the hand-written suite was already complete.
 
     The walk is deliberately thin; the decisions live in the two pure helpers above.
     Names resolve to files by reading the source, never ``inspect.getfile``: Wesker binds
     parametrized cases through a wrapper, so a callable's file is its wrapper's file.
+
+    ``line_owner_ids`` are the admissible LINE-coverage owners (#59) — tests that cover a target
+    line but kill no mutant, so ``_wanted_test_names`` (kill matrix only) omits them and their file
+    never enters the proof basis. The caller supplies the ALREADY-GATED owners (``admissible`` basis
+    only); resolving them to ``def`` names the same way keeps a line-only owner's file in the suite.
     """
     import os
 
-    wanted = _wanted_test_names(kill_matrix)
+    from .suite_edit import nodeid_function_name
+
+    wanted = _wanted_test_names(kill_matrix) | {nodeid_function_name(t) for t in line_owner_ids}
     if not wanted:
         return ()
 
@@ -702,7 +711,10 @@ def _apply_decomposition_impl(
         if conv.written_path:
             proof_suite = conv.written_path
         else:
-            proof_suite = _covering_test_files(root, _kill_matrix(file, function, project_root)) or None
+            proof_suite = (
+                _covering_test_files(root, _kill_matrix(file, function, project_root), conv.line_owner_ids)
+                or None
+            )
 
     def _suite_green() -> bool:
         if proof_suite is None:

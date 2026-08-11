@@ -318,7 +318,7 @@ def make_receipt(
     proof: list[str] = []
     if conv.written_path:
         proof.append(os.path.relpath(conv.written_path, root))
-    proof.extend(_covering_test_files(root, _kill_matrix(file, function, project_root)))
+    proof.extend(_covering_test_files(root, _kill_matrix(file, function, project_root), conv.line_owner_ids))
     proof_paths = tuple(dict.fromkeys(proof))
 
     def _content_digest(rel: str) -> str:
