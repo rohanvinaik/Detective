@@ -972,6 +972,91 @@ def _arc_obligation_ids(arc_union: object) -> list[str]:
         return []
 
 
+def owned_obligation_disposition(discharger_is_foreign: list[bool]) -> str:
+    """Whether an obligation may enter a SELF-CONTAINED receipt (#62, pure — pinned).
+
+    Policy 1 (self-contained receipts), the decided fork: a FOREIGN generated test — a sibling
+    target's Detective-generated file — MAY accelerate this run but may NEVER be the SOLE owner
+    discharging this target's obligation. That file is rewritten wholesale on the sibling's next
+    converge, so an obligation resting only on it would silently regress when the sibling changes,
+    and the certificate would depend on a mutable artifact this target does not own.
+
+    ``discharger_is_foreign`` is one bool per test that discharges the obligation (True = a foreign
+    generated test; False = a user test or THIS target's own generated test). Three answers, kept
+    apart because they route differently and mean different things:
+
+    * ``owned``        — at least one NON-foreign discharger. Self-contained; it enters the receipt.
+    * ``foreign_only`` — has dischargers, and EVERY one is foreign. Excluded from the receipt; the
+      fallback is the principled self-contained path (converge re-derives it with its own test).
+    * ``unwitnessed``  — no discharger at all. Nothing pins it; never invented into the receipt.
+
+    ``foreign_only`` and ``unwitnessed`` must not collapse into one falsy check: the first is a
+    dependency this policy deliberately REFUSES to own, the second is a plain absence of evidence —
+    different facts, and a reader (or a telemetry line naming the fallback) needs them apart.
+    """
+    if not discharger_is_foreign:
+        return "unwitnessed"
+    if all(discharger_is_foreign):
+        return "foreign_only"
+    return "owned"
+
+
+def _self_owned_obligation_ids(
+    result: Any, foreign: set[str]
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """The obligation-id sets a SELF-CONTAINED receipt may rest on (#62, policy 1 — the accessor).
+
+    :func:`owned_obligation_disposition` is the decision; this resolves each obligation's
+    dischargers against ``foreign`` (the bare test names of sibling targets' generated files, from
+    :func:`foreign_generated_test_names`) and drops only the ``foreign_only`` ones — an obligation
+    whose ONLY evidence is a foreign generated test, which that sibling rewrites wholesale on its
+    next converge. KEPT: ``owned`` (a user test or this target's own) AND ``unwitnessed`` (a kill
+    with no recorded killer is this target's kill, not a foreign dependency — never dropped for
+    missing attribution). This is the ONE call site of the ``foreign_only`` vs ``unwitnessed``
+    distinction: collapsing them would either drop an owned kill or keep a foreign-owned one.
+
+    Killed / line / arc obligations carry per-test evidence (``kill_matrix``,
+    ``admissible_proof_coverage`` keyed by test id, ``trace_evidence`` arcs) and are stripped
+    exactly. CONTRACT is approximated by the mutant's ownership: Wesker reports the AGGREGATE
+    ``killed_by``, not a per-test kill reason, so a value-pin owned SOLELY by a foreign assertion
+    yet ALSO crash-killed by an owned test is (narrowly) kept — the residue named on #62, closable
+    only by a per-test kill reason upstream. Returns ``(killed_ids, line_ids, arc_ids, contract_ids)``.
+    """
+    from .suite_edit import nodeid_function_name
+
+    def _is_foreign(test_id: str) -> bool:
+        return nodeid_function_name(test_id) in foreign
+
+    kill_matrix = result.kill_matrix or {}
+
+    def _mutant_kept(mid: str) -> bool:
+        tests = kill_matrix.get(mid)
+        if tests is None:  # killed but no recorded killer — unattributed, not a foreign dependency
+            return True
+        return owned_obligation_disposition([_is_foreign(t) for t in tests]) != "foreign_only"
+
+    killed_ids = [
+        mid for r in (result.killed_records or []) if (mid := r.get("mutant_id")) and _mutant_kept(mid)
+    ]
+    owned_records = [
+        r for r in (result.killed_records or []) if (m := r.get("mutant_id")) and _mutant_kept(m)
+    ]
+    contract_ids = _contract_obligation_ids(owned_records)
+
+    cov, _ = admissible_proof_coverage(result)
+    own_cov = {tid: lines for tid, lines in cov.items() if not _is_foreign(tid)}
+    line_ids = _line_obligation_ids(own_cov)
+
+    own_arcs = {
+        arc
+        for ev in (result.trace_evidence or [])
+        if getattr(ev, "admissible", False) and not _is_foreign(ev.test_id)
+        for arc in ev.arcs
+    }
+    arc_ids = _arc_obligation_ids(own_arcs)
+    return killed_ids, line_ids, arc_ids, contract_ids
+
+
 def _progressed(previous: int, current: int) -> bool:
     """True when the survivor count strictly decreased."""
     return current < previous
@@ -1320,6 +1405,11 @@ def _converge_impl(
     baseline_line_ids: list[str] = []
     baseline_arc_ids: list[str] = []
     baseline_contract_ids: list[str] = []
+    # #62 mechanism-2 (policy 1 — self-contained receipts): a sibling target's generated test may
+    # ACCELERATE this run but must never be the SOLE owner of an obligation the certificate rests on,
+    # because that file is rewritten wholesale on the sibling's next converge. Read the foreign names
+    # once (a tree walk) and strip them from every obligation set below — baseline AND final.
+    _foreign_names = foreign_generated_test_names(root, func_key)
 
     for _pass in range(max_iterations):
         # Stop STARTING new work once the wall is gone (issue #31): a fresh pass would only
@@ -1346,13 +1436,14 @@ def _converge_impl(
         if baseline_killed is None:
             # Measured BEFORE this run writes anything: what the suite already on disk kills.
             baseline_killed = result.total_killed
-            baseline_killed_ids = [mid for r in (result.killed_records or []) if (mid := r.get("mutant_id"))]
-            # The other obligation classes of the prior suite (#62), from the SAME profile, so the
-            # preservation check sees a lost proof line / branch edge / value pin, not only a lost kill.
-            _base_cov, _ = admissible_proof_coverage(result)
-            baseline_line_ids = _line_obligation_ids(_base_cov)
-            baseline_arc_ids = _arc_obligation_ids(getattr(result, "admissible_arc_union", ()))
-            baseline_contract_ids = _contract_obligation_ids(result.killed_records)
+            # All four obligation classes of the prior suite (#62), from the SAME profile, so the
+            # preservation check sees a lost proof line / branch edge / value pin, not only a lost
+            # kill — and foreign-stripped (#62 mechanism-2): a prior obligation owned SOLELY by a
+            # sibling's generated test is not one this target's certificate may claim, so it never
+            # enters the baseline the guard restores toward.
+            baseline_killed_ids, baseline_line_ids, baseline_arc_ids, baseline_contract_ids = (
+                _self_owned_obligation_ids(result, _foreign_names)
+            )
         # Value-survivors: what the suite hasn't pinned the RETURN VALUE of — true
         # survivors plus crash/timeout kills. Converging drives THIS to zero, so a
         # crash-dominated "100%" no longer reads as done.
@@ -1627,11 +1718,11 @@ def _converge_impl(
     # reports convergence. Containment is strictly stronger and subsumes the old rule, since
     # `old ⊆ new` forbids a drop in size; the count survives only for the message and for the
     # fallback below.
-    final_killed_ids = [mid for r in (final_result.killed_records or []) if (mid := r.get("mutant_id"))]
-    _final_cov, _ = admissible_proof_coverage(final_result)
-    final_line_ids = _line_obligation_ids(_final_cov)
-    final_arc_ids = _arc_obligation_ids(getattr(final_result, "admissible_arc_union", ()))
-    final_contract_ids = _contract_obligation_ids(final_result.killed_records)
+    # Foreign-stripped (#62 mechanism-2): the shipped suite's obligations, minus any owned SOLELY by
+    # a sibling's generated test — those may have accelerated the run but cannot own the certificate.
+    final_killed_ids, final_line_ids, final_arc_ids, final_contract_ids = _self_owned_obligation_ids(
+        final_result, _foreign_names
+    )
     lost = regressed_obligations(baseline_killed_ids, final_killed_ids) if baseline_killed_ids else []
     # Every obligation CLASS compared apart, by stable id (#62). The killed set alone misses a value
     # pin downgraded to a crash-only kill (the mutant stays killed), a lost proof line, and a lost
