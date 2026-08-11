@@ -522,6 +522,17 @@ def profile(
     except ImportError:  # older Wesker without the accessor — the arguments are all there is
         _measured_under = None
 
+    # The pytest REGIME this verdict is measured under (#63): plugins / import-mode / rootdir / ini.
+    # Read non-forcingly from the session holder (like the budgets above), so a warm verdict measured
+    # under one regime is not served under another. Empty outside a session or on an older Wesker —
+    # `cache_key` then leaves the key byte-identical, never invalidating on unknown-regime.
+    try:
+        from Wesker.engine import session_regime_digest as _session_regime
+
+        _regime = _session_regime()
+    except ImportError:  # older Wesker without the accessor — regime unknown, key unchanged
+        _regime = ""
+
     ck = verdict_cache.cache_key(
         func_key,
         ast.dump(node),
@@ -529,6 +540,7 @@ def profile(
         max_per_category,
         pass_index,
         _measured_under if _measured_under is not None else (trace_budget_s, trace_session_budget_s),
+        _regime,
     )
     if use_cache:
         hit = verdict_cache.get(root, ck)

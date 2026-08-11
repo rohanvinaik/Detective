@@ -126,6 +126,22 @@ def wesker_policy_id() -> str | None:
     return mutation_policy().policy_id
 
 
+def regime_keyed(base_key: str, regime_digest: str) -> str:
+    """Fold the pytest execution-regime digest into a verdict cache key (#63, pure — pinned).
+
+    A verdict is measured under a pytest regime — plugin set, import mode, rootdir, ini file. Two
+    runs of identical code, tests, and budgets under DIFFERENT regimes are different results, and a
+    key blind to the regime serves one to the other. Appending the digest keys them apart.
+
+    An EMPTY digest leaves the key BYTE-IDENTICAL. That is the release-skew / no-session guard #60
+    forbids breaking: outside a live session, or against an older Wesker that cannot report the
+    regime, the regime is UNKNOWN — and an unknown regime must not silently rewrite every key and
+    drop the whole warm cache. "Absent" is not "a different regime"; it is "no new information", so
+    the two cases must not collapse into one truthy check.
+    """
+    return f"{base_key}:{regime_digest}" if regime_digest else base_key
+
+
 def cache_key(
     func_key: str,
     func_source: str,
@@ -133,6 +149,7 @@ def cache_key(
     max_per_category: int,
     pass_index: int,
     trace_budgets: tuple[float | None, float | None] = (None, None),
+    regime_digest: str = "",
 ) -> str:
     """The content-addressed key: engine + identity + fn-hash + tests-hash + sampling + budgets.
 
@@ -149,10 +166,12 @@ def cache_key(
     moves. A verdict must be keyed on everything that could have produced it.
     """
     budgets = ",".join("∞" if b is None else f"{b:g}" for b in trace_budgets)
-    return (
+    base = (
         f"{func_key}:{engine_fingerprint()}:{_sha(func_source)}:{tests_fingerprint(tests)}"
         f":{max_per_category}:{pass_index}:{budgets}"
     )
+    # Bind the pytest regime the verdict was measured under (#63) — empty leaves the key unchanged.
+    return regime_keyed(base, regime_digest)
 
 
 def key_prefix(func_key: str) -> str:
