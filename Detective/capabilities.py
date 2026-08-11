@@ -162,21 +162,42 @@ def render_env(spec: tuple[tuple[str, str | None], ...], body_indented: str) -> 
     )
 
 
-def apply_clock(clock: float) -> list[tuple[str, object]]:
+def apply_clock(clock: float, namespace: dict[str, object] | None = None) -> list[tuple]:
     """Freeze the ``time``-module clocks live to ``clock``; return the saved originals to restore.
 
     The caller MUST restore in a ``finally`` (see :func:`restore_clock`) — a freeze that outlived the
-    capture would leak a frozen clock into the consumer's own tests running in the same process."""
-    saved = [(attr, getattr(time, attr)) for attr, _ in clock_freezes(clock)]
-    for attr, value in clock_freezes(clock):
+    capture would leak a frozen clock into the consumer's own tests running in the same process.
+
+    ``namespace`` is the TARGET module's globals (#48-E). ``from time import time`` binds the clock
+    FUNCTION directly into that namespace, so patching the ``time`` module attribute below never
+    reaches it — the free clock is read anyway, and the perturbed-epoch probe that exists to catch it
+    misses it too, so a free clock reads as deterministic. Every namespace binding that IS one of the
+    original clock functions is therefore frozen BY IDENTITY as well. ``import time as t`` needs
+    nothing here: ``t`` is the module object, so the module-attribute patch already covers ``t.time()``.
+    """
+    freezes = clock_freezes(clock)
+    originals = {attr: getattr(time, attr) for attr, _ in freezes}
+    saved: list[tuple] = [("module", attr, originals[attr]) for attr, _ in freezes]
+    for attr, value in freezes:
         setattr(time, attr, (lambda v=value: v))
+    if namespace is not None:
+        by_id = {id(originals[attr]): value for attr, value in freezes}
+        for name, obj in list(namespace.items()):
+            frozen = by_id.get(id(obj))
+            if frozen is not None:
+                saved.append(("ns", namespace, name, obj))
+                namespace[name] = lambda v=frozen: v
     return saved
 
 
-def restore_clock(saved: list[tuple[str, object]]) -> None:
-    """Restore the ``time``-module clocks saved by :func:`apply_clock` — the freeze never leaks."""
-    for attr, original in saved:
-        setattr(time, attr, original)
+def restore_clock(saved: list[tuple]) -> None:
+    """Restore the clocks saved by :func:`apply_clock` — module attributes AND any target-namespace
+    from-import bindings (#48-E) — so the freeze never leaks."""
+    for entry in saved:
+        if entry[0] == "module":
+            setattr(time, entry[1], entry[2])
+        else:  # ("ns", namespace, name, original)
+            entry[1][entry[2]] = entry[3]
 
 
 def render_clock_freeze(clock: float, body_indented: str) -> str:

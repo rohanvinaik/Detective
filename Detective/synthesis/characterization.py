@@ -121,6 +121,7 @@ def capture_golden(
     call_site_inputs: list[dict],
     clock: float | None = None,
     env: tuple[tuple[str, str | None], ...] = (),
+    namespace: dict[str, object] | None = None,
 ) -> list[GoldenCapture]:
     """Capture golden values for ``func`` from zero-arg and literal call sites.
 
@@ -141,7 +142,7 @@ def capture_golden(
         if key in seen:
             continue
         seen.add(key)
-        capture = _try_capture(func, args, kwargs, clock=clock, env=env)
+        capture = _try_capture(func, args, kwargs, clock=clock, env=env, namespace=namespace)
         if capture is not None:
             captures.append(capture)
 
@@ -516,6 +517,7 @@ def _try_capture(
     kwargs: dict[str, Any],
     clock: float | None = None,
     env: tuple[tuple[str, str | None], ...] = (),
+    namespace: dict[str, object] | None = None,
 ) -> GoldenCapture | None:
     """Call ``func`` twice; capture repr + determinism, or None if it raises.
 
@@ -556,7 +558,7 @@ def _try_capture(
     # Freeze the whole time-module clock family (#24 increment 1), not only `time.time`, so a function
     # reading `monotonic()`/`perf_counter()` for a TTL/elapsed check is deterministic too — the same
     # plan `render_clock_freeze` emits into the test.
-    _clock_saved = apply_clock(clock) if clock is not None else None
+    _clock_saved = apply_clock(clock, namespace) if clock is not None else None
     # Apply the declared environment (#48) BEFORE the recording proxy wraps os.environ, so the
     # captured function reads the DECLARED values and those reads are still recorded; restored in
     # `finally` after the proxy is off, so a declared var never leaks into a later capture.
@@ -582,7 +584,7 @@ def _try_capture(
             # cannot, because both ran at the same moment. When `clock` IS set the emitted test
             # freezes the clock itself, so movement is pinned rather than refused, and this is skipped.
             with contextlib.suppress(Exception):
-                _probe_saved = apply_clock(_PERTURBED_EPOCH)
+                _probe_saved = apply_clock(_PERTURBED_EPOCH, namespace)
                 try:
                     clock_dependent = repr(func(*call_args, **call_kwargs)) != first
                 finally:

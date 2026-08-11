@@ -825,7 +825,9 @@ def _golden_properties(
     namespace = getattr(exb.underlying, "__globals__", {}) or {}
     supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
-    captures = corroborate_captures(capture_golden(live, sites, clock=clock, env=env), is_pure=True)
+    captures = corroborate_captures(
+        capture_golden(live, sites, clock=clock, env=env, namespace=namespace), is_pure=True
+    )
     kw_names = _kwargs_names(node, qualname)
     # A capture that opened a default-path file pinned the ENVIRONMENT, not
     # the function (issue #23): green until the data file legitimately
