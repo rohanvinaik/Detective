@@ -28,7 +28,7 @@ from Wesker.filter import filter_categories
 
 from ._contain import budget_is_exhausted, contained_stdout, remaining_budget_ms
 from .binding import ReceiverFactory, parse_receiver_factory, resolve_execution, wrap_callable
-from .capabilities import capability_identity, render_clock_freeze
+from .capabilities import capability_identity, render_clock_freeze, render_env
 from .certify import (
     PytestVerification,
     PytestWiring,
@@ -587,15 +587,26 @@ def _golden_property(
     if assertion is None:
         return None
     frozen = getattr(capture, "clock", None)
-    if frozen is not None:
-        body = f"result = {call}\n{assertion}"
-        indented = "\n".join(f"    {ln}" if ln else "" for ln in body.split("\n"))
-        # The whole time-module clock family is frozen + restored in `finally` (#24 increment 1),
-        # the SAME plan `apply_clock` used at capture, so the emitted test pins identically with no
-        # fixture and no leak.
-        assertion_code = render_clock_freeze(frozen, indented)
-        preconditions = [f"golden capture (deterministic under a frozen clock == {frozen!r})"]
-        golden_case = None  # a freeze-wrapped test is standalone — not a parametrizable row
+    env = tuple(getattr(capture, "env", ()) or ())
+    if frozen is not None or env:
+        # Wrap the assertion so the SAME capabilities the value was captured under are re-applied
+        # and restored in the emitted test (#24/#48): the time-module clock family via
+        # `render_clock_freeze`, the declared environment via `render_env`, composed (env outermost)
+        # when both are declared. Each is self-contained stdlib-only, the SAME plan `apply_clock` /
+        # `apply_env` used at capture, so the pin holds with no fixture and no leak.
+        def _indent(code: str) -> str:
+            return "\n".join(f"    {ln}" if ln else "" for ln in code.split("\n"))
+
+        assertion_code = f"result = {call}\n{assertion}"
+        caps: list[str] = []
+        if frozen is not None:
+            assertion_code = render_clock_freeze(frozen, _indent(assertion_code))
+            caps.append(f"a frozen clock == {frozen!r}")
+        if env:
+            assertion_code = render_env(env, _indent(assertion_code))
+            caps.append(f"a declared environment {env!r}")
+        preconditions = [f"golden capture (deterministic under {' and '.join(caps)})"]
+        golden_case = None  # a capability-wrapped test is standalone — not a parametrizable row
     else:
         assertion_code = f"result = {call}\n{assertion}"
         preconditions = ["golden capture (pure + deterministic)"]
@@ -767,6 +778,7 @@ def _golden_properties(
     project_root: str,
     supplied_inputs: list[tuple] | None = None,
     clock: float | None = None,
+    env: tuple[tuple[str, str | None], ...] = (),
     receiver_factory: ReceiverFactory | None = None,
     coupled: list[str] | None = None,
 ) -> tuple[list[ExecutableProperty], tuple[str, ...]]:
@@ -803,7 +815,7 @@ def _golden_properties(
     # exact reason instead of guessing "now". --clock is the one capability that covers time.time();
     # everything else waits for its fixture (#24). Declining leaves the value survivor un-pinned, so
     # the function reads Incomplete — the honest verdict the README promises, not a false COMPLETE.
-    uncovered = uncovered_env_reads(environment_reads(node), clock is not None)
+    uncovered = uncovered_env_reads(environment_reads(node), clock is not None, bool(env))
     if uncovered:
         return [], tuple(
             f"golden refused — {reason}; not capturable without an explicit fixture/capability"
@@ -813,7 +825,7 @@ def _golden_properties(
     namespace = getattr(exb.underlying, "__globals__", {}) or {}
     supplied_sites = [{"positional_args": [repr(v) for v in args]} for args in (supplied_inputs or [])]
     sites = supplied_sites + _discovered_sites(qualname, project_root) + representative_site(node, namespace)
-    captures = corroborate_captures(capture_golden(live, sites, clock=clock), is_pure=True)
+    captures = corroborate_captures(capture_golden(live, sites, clock=clock, env=env), is_pure=True)
     kw_names = _kwargs_names(node, qualname)
     # A capture that opened a default-path file pinned the ENVIRONMENT, not
     # the function (issue #23): green until the data file legitimately
@@ -1222,6 +1234,7 @@ def converge(
     call_site_inputs: list[dict] | None = None,
     supplied_inputs: list[tuple] | None = None,
     clock: float | None = None,
+    env: tuple[tuple[str, str | None], ...] = (),
     receiver_factory: str | None = None,
     fast: bool = False,
     deadline_s: float | None = 300.0,
@@ -1249,6 +1262,7 @@ def converge(
             call_site_inputs=call_site_inputs,
             supplied_inputs=supplied_inputs,
             clock=clock,
+            env=env,
             receiver_factory=receiver_factory,
             fast=fast,
             deadline_s=deadline_s,
@@ -1268,6 +1282,7 @@ def _converge_impl(
     call_site_inputs: list[dict] | None = None,
     supplied_inputs: list[tuple] | None = None,
     clock: float | None = None,
+    env: tuple[tuple[str, str | None], ...] = (),
     receiver_factory: str | None = None,
     fast: bool = False,
     deadline_s: float | None = 300.0,
@@ -1517,6 +1532,7 @@ def _converge_impl(
                 root,
                 supplied_inputs=supplied_inputs,
                 clock=clock,
+                env=env,
                 receiver_factory=_rf,
                 coupled=_runtime_coupled,
             )
@@ -2016,6 +2032,6 @@ def _converge_impl(
         verification=verification,
         needs_receiver=_receiver_refusal,
         receiver_identity=_receiver_identity,
-        capability_identity=capability_identity(clock),
+        capability_identity=capability_identity(clock, env),
         # stdout_bytes is stamped by the ``converge`` containment shell, which owns the sink.
     )

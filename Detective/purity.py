@@ -379,7 +379,9 @@ def environment_reads(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str
     return tuple(dict.fromkeys(visitor.reasons))  # deduped, order preserved
 
 
-def uncovered_env_reads(env_reads: tuple[str, ...], clock_supplied: bool) -> tuple[str, ...]:
+def uncovered_env_reads(
+    env_reads: tuple[str, ...], clock_supplied: bool, env_supplied: bool = False
+) -> tuple[str, ...]:
     """Which of ``env_reads`` have NO explicit capability controlling them — the reads that make a
     golden capture INADMISSIBLE and must be declined rather than guessed (issue #39).
 
@@ -397,9 +399,15 @@ def uncovered_env_reads(env_reads: tuple[str, ...], clock_supplied: bool) -> tup
     and fails tomorrow), ``os.getpid``, ``os.environ``, filesystem reads, entropy. Returned as the
     exact dependency reasons so the refusal names why, not merely that.
     """
-    from .capabilities import clock_covers
+    from .capabilities import clock_covers, env_covers
 
-    return tuple(r for r in env_reads if not (clock_supplied and clock_covers(r)))
+    # A read is covered by whichever capability controls it: --clock for the time-module clocks,
+    # --env for the process environment (#48). Per-variable admissibility (was THIS var declared) is
+    # decided later at capture; this class-level gate only stops declining an env read out of hand
+    # when an env capability was supplied at all.
+    return tuple(
+        r for r in env_reads if not ((clock_supplied and clock_covers(r)) or (env_supplied and env_covers(r)))
+    )
 
 
 class _EnvironmentReadVisitor(ast.NodeVisitor):

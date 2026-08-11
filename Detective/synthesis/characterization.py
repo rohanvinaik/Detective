@@ -24,7 +24,7 @@ from dataclasses import fields as dataclass_fields
 from enum import StrEnum
 from typing import Any
 
-from ..capabilities import apply_clock, restore_clock
+from ..capabilities import apply_clock, apply_env, restore_clock, restore_env
 from ..equivalence import unwrap
 
 
@@ -85,6 +85,11 @@ class GoldenCapture:
     # `time.time()`-reading function DETERMINISTIC — hence capturable and pinnable — and the
     # emitted test restores `time.time` in a `finally` so the freeze never leaks to another test.
     clock: float | None = None
+    # The declared ENVIRONMENT this capture was taken under (#48): ``(name, value)`` pairs, ``value``
+    # None meaning declared-absent. Set by ``--env``, applied live during capture so a branch behind
+    # an ``os.environ[NAME]`` read is reachable, and rendered into the emitted test (``render_env``) so
+    # it re-applies and restores the same environment. A certificate is scoped to this exact set.
+    env: tuple[tuple[str, str | None], ...] = ()
 
 
 def eval_call_site(site: dict) -> tuple[tuple[Any, ...], dict[str, Any]] | None:
@@ -112,7 +117,10 @@ def eval_call_site(site: dict) -> tuple[tuple[Any, ...], dict[str, Any]] | None:
 
 
 def capture_golden(
-    func: Callable[..., Any], call_site_inputs: list[dict], clock: float | None = None
+    func: Callable[..., Any],
+    call_site_inputs: list[dict],
+    clock: float | None = None,
+    env: tuple[tuple[str, str | None], ...] = (),
 ) -> list[GoldenCapture]:
     """Capture golden values for ``func`` from zero-arg and literal call sites.
 
@@ -133,7 +141,7 @@ def capture_golden(
         if key in seen:
             continue
         seen.add(key)
-        capture = _try_capture(func, args, kwargs, clock=clock)
+        capture = _try_capture(func, args, kwargs, clock=clock, env=env)
         if capture is not None:
             captures.append(capture)
 
@@ -503,7 +511,11 @@ def value_capture_coupling(disposition: str) -> str:
 
 
 def _try_capture(
-    func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any], clock: float | None = None
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    clock: float | None = None,
+    env: tuple[tuple[str, str | None], ...] = (),
 ) -> GoldenCapture | None:
     """Call ``func`` twice; capture repr + determinism, or None if it raises.
 
@@ -545,6 +557,10 @@ def _try_capture(
     # reading `monotonic()`/`perf_counter()` for a TTL/elapsed check is deterministic too — the same
     # plan `render_clock_freeze` emits into the test.
     _clock_saved = apply_clock(clock) if clock is not None else None
+    # Apply the declared environment (#48) BEFORE the recording proxy wraps os.environ, so the
+    # captured function reads the DECLARED values and those reads are still recorded; restored in
+    # `finally` after the proxy is off, so a declared var never leaks into a later capture.
+    _env_applied = apply_env(env) if env else None
     # Proxy `os.environ` for the duration of the call so a read is observed at whatever depth and
     # under whatever spelling it happens. Restored in `finally` alongside the clock: leaving the
     # proxy installed would make every later capture record the previous one's reads.
@@ -579,6 +595,8 @@ def _try_capture(
         os.environ = _env_saved  # type: ignore[assignment] # noqa: B003
         if _clock_saved is not None:
             restore_clock(_clock_saved)  # restore — the freeze must never outlive the capture
+        if _env_applied is not None:
+            restore_env(_env_applied)  # restore the real env exactly, now the proxy is off
         _OPEN_WATCH.reset(token)
     if blocked_write:
         # A tree-mutating function is not golden-capturable; the write was prevented (no litter),
@@ -589,6 +607,7 @@ def _try_capture(
             deterministic=False,
             filesystem_writes=tuple(dict.fromkeys(sink.writes)),
             clock=clock,
+            env=env,
         )
     return GoldenCapture(
         inputs=args,
@@ -597,9 +616,16 @@ def _try_capture(
         value=result,
         deterministic=first == second,
         environment_paths=_environment_paths(sink.opened, call_args, call_kwargs),
-        environment_reads=tuple(dict.fromkeys(sink.env_reads)),
+        # A DECLARED env var (via ``--env``, #48) is COVERED: the emitted test re-applies it, so its
+        # read is not the CI-dependence #23 refuses over — drop it from the reads the disposition
+        # gates on. An UNDECLARED read stays, and is still refused, which is the sound abstain: a
+        # certificate must not silently depend on a var the capability set does not name.
+        environment_reads=tuple(
+            n for n in dict.fromkeys(sink.env_reads) if n not in {name for name, _ in env}
+        ),
         clock_dependent=clock_dependent,
         clock=clock,
+        env=env,
     )
 
 

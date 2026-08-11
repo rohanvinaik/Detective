@@ -2963,6 +2963,18 @@ def _build_parser() -> argparse.ArgumentParser:
                 "time-gated lines under `env-gated`.",
             )
             p.add_argument(
+                "--env",
+                action="append",
+                metavar="NAME=value",
+                default=None,
+                help="declare an environment variable while pinning — NAME=value sets it, NAME- "
+                "declares it ABSENT — for a function whose result reads os.environ / os.getenv, which "
+                "is otherwise CI-dependent and refused. Repeatable. The emitted test re-applies and "
+                "restores the same environment (stdlib only), so the pin holds with no fixture. A "
+                "variable the function reads but you do not declare stays refused (an undeclared "
+                "dependency must not ride a certificate).",
+            )
+            p.add_argument(
                 "--receiver-factory",
                 metavar="MODULE:CALLABLE",
                 default=None,
@@ -4174,6 +4186,13 @@ def _run(args) -> int:
             if getattr(args, "input", None)
             else None
         )
+        from .capabilities import parse_env
+
+        try:
+            _env = parse_env(getattr(args, "env", None) or [])
+        except ValueError as exc:
+            print(f"detective: {exc}", file=sys.stderr)
+            return 2
         result = converge(
             file,
             function,
@@ -4182,6 +4201,7 @@ def _run(args) -> int:
             max_iterations=args.max_iterations,
             supplied_inputs=supplied,
             clock=args.clock,
+            env=_env,
             receiver_factory=getattr(args, "receiver_factory", None),
             fast=args.fast,
             deadline_s=args.deadline,
