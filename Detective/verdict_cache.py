@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from Wesker.engine import CategoryResult, MutationCategory, ProfilingResult
+from Wesker.trace_evidence import TraceEvidence
 
 _CACHE_REL = (".detective", "verdict_cache.json")
 
@@ -187,6 +188,25 @@ def _to_json(result: ProfilingResult) -> dict:
     return d
 
 
+def _retyped_trace_row(cd: dict) -> dict:
+    """One JSON trace row -> ``TraceEvidence`` constructor kwargs, tuple fields restored (#6b, pure — pinned).
+
+    ``asdict`` + ``json`` flatten each ``TraceEvidence`` to a dict and its ``lines`` / ``arcs``
+    tuples to lists. ``ProfilingResult.admissible_arc_union`` builds a SET from ``arcs``, so a
+    list-of-lists is unhashable and a WARM read raises where the COLD one did not — the round-trip
+    must restore the tuple TYPES, not merely the values. Unknown keys are dropped and missing ones
+    left to the dataclass default, so a shape change degrades to a partial row rather than a wrong
+    one (the same contract as :func:`_from_json`).
+    """
+    fieldset = {f.name for f in fields(TraceEvidence)}
+    row = {k: v for k, v in cd.items() if k in fieldset}
+    if "lines" in row:
+        row["lines"] = tuple(row["lines"])
+    if "arcs" in row:
+        row["arcs"] = tuple(tuple(a) for a in row["arcs"])
+    return row
+
+
 def _from_json(d: dict) -> ProfilingResult:
     """Inverse of :func:`_to_json`. Rebuilds the nested CategoryResult + enum so the
     reconstructed result is indistinguishable from a fresh profile (derived ``value_*``
@@ -213,6 +233,17 @@ def _from_json(d: dict) -> ProfilingResult:
         )
         for cd in d.get("per_category", [])
     ]
+    # `trace_evidence` is the one OTHER nested dataclass `asdict` flattened (#6b); rebuild it, or a
+    # warm result carries dicts and every `admissible_*_union` property raises. Only when present, so
+    # an older row without it keeps the ProfilingResult default rather than becoming an empty tuple.
+    if "trace_evidence" in d:
+        d["trace_evidence"] = tuple(TraceEvidence(**_retyped_trace_row(cd)) for cd in d["trace_evidence"])
+    # `json` also degraded these tuple-typed fields to lists; restore the declared type so a warm
+    # value compares and hashes exactly like the cold one it replays (a verdict cache's whole point).
+    if "collection_conflicts" in d:
+        d["collection_conflicts"] = tuple(d["collection_conflicts"])
+    if "proof_basis" in d:
+        d["proof_basis"] = tuple(tuple(pair) for pair in d["proof_basis"])
     return ProfilingResult(**d)
 
 
