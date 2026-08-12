@@ -1811,10 +1811,10 @@ def _format_converge_terse(
 
 
 def converge_next_action(
+    standing: str,
     session_reason: str,
     has_killable: bool,
     has_line_gap: bool,
-    measurement_admissible: bool = True,
 ) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
@@ -1837,20 +1837,25 @@ def converge_next_action(
     BOTH the healthy case (a real suite, no test reaches this function) and the broken one
     (no suite at all), so the renderer had no way to tell them apart.
 
-    Four states, ordered by what outranks what:
+    The certificate STANDING is consumed FIRST (`stale` / `ungateable` / `unverified`), so this
+    renderer cannot drift from `ConvergeResult.complete` and the MCP surface the way it once did —
+    a run whose target moved, or whose written suite did not verify, printed DONE because this path
+    re-derived a narrower proxy that could not see either. The states, ordered by what outranks what:
 
-    ``settled`` — NOTHING OUTSTANDING, and this outranks every reason. `session_reason`
-      describes the collection at the START of the run, and converge can finish a run that
-      began with no collectable suite: it synthesizes tests, writes them, and re-profiles.
-      Measured — a config-less run that opened with ``empty_collection`` closed at
-      ``✓ COMPLETE · 11/11 killed``, and ranking the reason first printed "pytest collected
-      NO tests, fix your regime" directly above a green certificate. A remedy for a problem
-      the run already solved is the same defect as ignoring one it did not.
+    ``rerun_stale`` — the target changed while converge measured it. The counts describe a source
+      that no longer exists, so they are meaningless, not small; no `--input` closes a moved gap.
+    ``repair_measurement`` — the measurement is ungateable (cut / uncontained worker). Not a verdict.
+    ``fix_verification`` — the generated suite did not run green under real pytest. A perfect score
+      over a suite that does not run is not a certificate.
+    ``settled`` — NOTHING OUTSTANDING, and this outranks every reason. `session_reason` describes
+      the collection at the START of the run, and converge can finish a run that began with no
+      collectable suite: it synthesizes tests, writes them, and re-profiles. Ranking the reason
+      first would print "fix your regime" directly above a green certificate.
     ``install_pytest`` — pytest is not importable. Nothing runs; no input is relevant.
-    ``fix_collection`` — pytest ran and collected nothing, errored, or crashed, AND a residual
-      is still open. THE ORDER IS THE POINT: this outranks a line gap, because with no suite
-      the gap is not closable by any argument the reader can supply. Ranking the gap first is
-      the originally observed bug.
+    ``fix_collection`` — pytest ran and collected nothing, errored, or crashed, AND a residual is
+      still open. THE ORDER IS THE POINT: this outranks a line gap, because with no suite the gap
+      is not closable by any argument the reader can supply. Ranking the gap first is the
+      originally observed bug.
     ``close_the_gap`` — the suite runs and a real residual remains. Witnesses and `--input` are
       the documented interface, and here they actually work.
 
@@ -1858,8 +1863,14 @@ def converge_next_action(
     default and an older Wesker that reports no reason degrades to exactly the previous
     behaviour rather than to a spurious refusal.
     """
-    if not measurement_admissible:
+    # `standing` is `certificate_standing`'s resolved code — one value, consumed not re-derived —
+    # so these checks are order-independent and read the SAME bar as `complete` and the MCP surface.
+    if standing == "stale":
+        return "rerun_stale"
+    if standing == "ungateable":
         return "repair_measurement"
+    if standing == "unverified":
+        return "fix_verification"
     if not (has_killable or has_line_gap):
         return "settled"
     if session_reason == "pytest_missing":
@@ -1922,11 +1933,25 @@ def _converge_action(
     )
     # A dead suite OUTRANKS the gap. See `converge_next_action`: the gap ask was reached by
     # re-deriving "uncovered lines exist" while the measured cause sat unread one layer up.
+    # Read the certificate STANDING through `certificate_standing` — the same call `complete` and
+    # the MCP renderer make — so this surface cannot keep printing DONE over a stale target or a
+    # written suite that did not verify. getattr defaults keep a duck-typed / older result answering.
+    from .converge import certificate_standing
+
+    _ver = getattr(result, "verification", None)
+    standing = certificate_standing(
+        bool(result.functionally_complete),
+        bool(getattr(result, "line_complete", not result.missing_lines)),
+        bool(getattr(result, "stale_target", False)),
+        _ver is not None,
+        _ver is not None and bool(getattr(_ver, "ok", False)),
+        bool(getattr(result, "admits_certificate", True)),
+    )
     kind = converge_next_action(
+        standing,
         session_reason,
         bool(blocked),
         bool(result.missing_lines),
-        bool(getattr(result, "admits_certificate", True)),
     )
     if kind == "repair_measurement":
         flags = " ".join(_shell_input_flag(raw) for raw in attempted_inputs)
@@ -1946,6 +1971,23 @@ def _converge_action(
             "",
             _row("· Why first", why),
             _row("", "An invalid measurement cannot justify an input/test action."),
+        ]
+    if kind == "rerun_stale":
+        return [
+            "STOP:  the target changed while converge measured it — this is NOT a verdict.",
+            "",
+            _row("· Why first", "The kill-count and line numbers below describe a source that no"),
+            _row("", "longer exists — meaningless, not small. Re-run on the settled file:"),
+            _row("· Re-run", f"detective converge '{fn}'"),
+        ]
+    if kind == "fix_verification":
+        _status = getattr(getattr(result, "verification", None), "status", "unverified")
+        return [
+            f"STOP:  the written suite did not verify under real pytest ({_status}) — NOT a certificate.",
+            "",
+            _row("· Why first", "A perfect mutation score over a suite that does not run green is"),
+            _row("", "not a certificate. Fix the proof basis, then re-run:"),
+            _row("· Re-run", f"detective converge '{fn}'"),
         ]
     if kind in ("install_pytest", "fix_collection"):
         return _dead_suite_action(kind, fn, root, session_reason)
