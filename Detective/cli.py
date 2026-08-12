@@ -3701,6 +3701,51 @@ def _format_uncollected(diagnostic: dict[str, Any], paths: list[str] | None, roo
     )
 
 
+# Config-option / import signatures that name the pytest PLUGIN a `--strict-config` repo needs. Such
+# a repo carries the plugin's ini option (`asyncio_default_fixture_loop_scope`) or marker, and pytest
+# refuses the WHOLE config when the plugin is absent — so NOTHING collects and "install the
+# dependencies" is too vague to act on. Conservative: only unambiguous signatures. Found dogfooding
+# structlog (needs pytest-asyncio for its config to load at all).
+_PLUGIN_SIGNATURES: tuple[tuple[str, str], ...] = (
+    ("asyncio", "pytest-asyncio"),
+    ("django_settings", "pytest-django"),
+    ("django settings", "pytest-django"),
+    ("trio", "pytest-trio"),
+    ("tornado", "pytest-tornado"),
+    ("twisted", "pytest-twisted"),
+    ("codspeed", "pytest-codspeed"),
+    ("benchmark", "pytest-benchmark"),
+    ("playwright", "pytest-playwright"),
+)
+
+
+def plugin_hint(blob: str) -> str:
+    """The specific package a pytest config/collection error says is missing (#, pure — pinned).
+
+    ``no module named 'X'`` names X directly (the general case); otherwise a known config-option or
+    marker signature names its plugin (`asyncio_*` -> ``pytest-asyncio``). ``""`` when nothing is
+    recognised, so the caller keeps the generic "install the project's dependencies" guidance rather
+    than guess. A ``--strict-config`` repo refuses its WHOLE config when a plugin it declares an ini
+    option for is absent, so this is what turns "install something" into "install THIS".
+    """
+    low = blob.lower()
+    marker = "no module named "
+    if marker in low:
+        rest = low.split(marker, 1)[1].lstrip(" '\"")
+        mod = ""
+        for ch in rest:
+            if ch.isalnum() or ch in "._-":
+                mod += ch
+            else:
+                break
+        if mod:
+            return mod.split(".")[0].replace("_", "-")
+    for needle, plugin in _PLUGIN_SIGNATURES:
+        if needle in low:
+            return plugin
+    return ""
+
+
 def _format_session_warning(diagnostic: dict[str, Any]) -> str:
     """Render the "no live pytest session" fallback warning with the actual reason.
 
@@ -3745,6 +3790,13 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
                 "         problem: install the project's dependencies (e.g. `pip install -e .`) or\n"
                 "         the named module, then re-run. Adjusting `testpaths` will not fix it.\n"
             )
+            # Turn "install something" into "install THIS": a --strict-config repo refuses its whole
+            # config when a plugin it declares an ini option for is absent, so name the plugin.
+            if pkg := plugin_hint(blob):
+                hint += (
+                    f"         Likely missing: `{pkg}` — `pip install {pkg}` (or the project's\n"
+                    "         test extra, e.g. `pip install -e '.[test]'`), then re-run.\n"
+                )
         else:
             hint = (
                 '         Common fix: set `[tool.pytest.ini_options] testpaths = ["tests"]`\n'
