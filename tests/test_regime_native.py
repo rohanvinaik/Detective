@@ -362,4 +362,31 @@ def test_pytest_honors_bare_tool_pytest_version_boundary():
     assert pytest_honors_bare_tool_pytest("8.3.3") is False
     assert pytest_honors_bare_tool_pytest("7.4.4") is False
     assert pytest_honors_bare_tool_pytest(None) is False
+
+
+# ── testpaths / pythonpath: a TOML string is not its own characters ────────────────
+def test_testpaths_as_a_toml_string_is_one_entry_not_its_characters(tmp_path):
+    """`testpaths = "tests"` (a bare TOML string — valid, and what pytest accepts) must resolve to
+    ONE path, not the five characters `t,e,s,t,s`. Found dogfooding structlog: the char-split fed
+    discovery file names `t`/`e`/`s`, so its whole suite was invisible."""
+    _cfg(tmp_path, '[tool.pytest.ini_options]\ntestpaths = "tests"\n')
+    assert resolve_regime(str(tmp_path)).testpaths == ("tests",)
+
+
+def test_a_multi_word_string_testpaths_is_whitespace_split_like_pytest(tmp_path):
+    """A string testpaths with several paths is whitespace-split, matching pytest and the ini side."""
+    _cfg(tmp_path, '[tool.pytest.ini_options]\ntestpaths = "tests integration"\n')
+    assert resolve_regime(str(tmp_path)).testpaths == ("tests", "integration")
+
+
+def test_testpaths_as_a_toml_list_is_preserved(tmp_path):
+    """The list form (`testpaths = ["a", "b"]`) is unchanged — the fix must not regress it."""
+    _cfg(tmp_path, '[tool.pytest.ini_options]\ntestpaths = ["a", "b"]\n')
+    assert resolve_regime(str(tmp_path)).testpaths == ("a", "b")
+
+
+def test_a_string_pythonpath_is_also_split_not_charwise(tmp_path):
+    """`pythonpath` carries the identical bug — a bare string must not become its characters."""
+    _cfg(tmp_path, '[tool.pytest.ini_options]\npythonpath = "src"\n')
+    assert resolve_regime(str(tmp_path)).pythonpath == ("src",)
     assert pytest_honors_bare_tool_pytest("weird") is False

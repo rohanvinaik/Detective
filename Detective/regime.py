@@ -363,6 +363,27 @@ def _as_list(key: str, value: str) -> object:
     return value
 
 
+def _path_list(value: object) -> tuple[str, ...]:
+    """A pytest args/paths ini value (``testpaths`` / ``pythonpath``) as a tuple of entries (pure — pinned).
+
+    The value arrives EITHER as a list (``testpaths = ["tests", "more"]``, and the ini side of
+    ``_pytest_table`` already whitespace-splits its one string into a list) OR as a bare STRING
+    (``testpaths = "tests"`` in pyproject — valid TOML, and exactly what pytest itself accepts). A bare
+    ``tuple("tests")`` splits it into CHARACTERS — ``('t','e','s','t','s')`` — the "iterating a str
+    yields characters" trap this module already fixed once for ``markers``. Found dogfooding structlog,
+    whose ``testpaths = "tests"`` made discovery hunt for files named ``t``/``e``/``s``. A string is
+    whitespace-split (matching pytest and the ini ``_as_list``); a list/tuple is taken as-is; ``None``
+    or empty is empty.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return tuple(value.split())
+    if isinstance(value, (list, tuple)):
+        return tuple(str(v) for v in value)
+    return ()  # an unexpected TOML shape (int, table, …) yields no paths, never a crash
+
+
 def _conftest_module(root: str, conftest: str) -> str:
     """The module name pytest imports a conftest under (prepend mode).
 
@@ -445,8 +466,8 @@ def resolve_regime(project_root: str = ".", file: str | None = None) -> TestRegi
         root=root,
         layout=_layout(root),
         suite_path=tuple(_suite_path(root)),
-        testpaths=tuple(table.get("testpaths", []) or []),
-        pythonpath=tuple(table.get("pythonpath", []) or []),
+        testpaths=_path_list(table.get("testpaths")),
+        pythonpath=_path_list(table.get("pythonpath")),
         marker_declared=any(str(m).startswith("detective:") for m in markers),
         root_resolves=root_resolves,
         has_config=config is not None,
