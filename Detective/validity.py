@@ -166,6 +166,13 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
     else:
         containment = "contained" if contained_raw else "uncontained"
 
+    # The engine's own execution mode (in_process / isolated). The field defaults to "in_process",
+    # so an UNREAD isolated run is silently mislabeled as in-process — a false description of how the
+    # measurement ran. Read with the same absent-sentinel as the others: an older engine that does
+    # not report it keeps the default AND is flagged absent, never a fabricated "in_process".
+    execution_mode_raw = getattr(result, "execution_mode", _ABSENT)
+    execution_mode = str(execution_mode_raw) if execution_mode_raw is not _ABSENT else "in_process"
+
     missing: list[str] = []
     if not reports_gateable:
         missing.append("is_gateable")
@@ -175,6 +182,8 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
         missing.append("collection_conflicts")
     if contained_raw is _ABSENT:
         missing.append("all_contained")
+    if execution_mode_raw is _ABSENT:
+        missing.append("execution_mode")
 
     reasons = measurement_cut_reasons(
         reported_gateable=reports_gateable,
@@ -190,6 +199,7 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
         cut_reasons=reasons,
         containment_status=containment,
         coverage_depth=depth,
+        execution_mode=execution_mode,
         engine_version=engine_version,
         capability_flags=tuple(f"absent:{name}" for name in missing),
         policy_id=str(getattr(result, "policy_id", "") or ""),

@@ -139,6 +139,7 @@ def test_a_current_engine_normalizes_to_a_clean_validity():
             coverage_depth="profiled",
             collection_conflicts=(),
             all_contained=True,
+            execution_mode="in_process",
         )
     )
     assert validity.admits_certificate is True
@@ -178,6 +179,7 @@ def test_an_older_engine_names_every_field_it_could_not_supply():
         "absent:coverage_depth",
         "absent:collection_conflicts",
         "absent:all_contained",
+        "absent:execution_mode",
     }
 
 
@@ -209,3 +211,34 @@ def test_an_ambiguous_collection_identity_refuses_even_when_counts_are_clean():
     )
     assert validity.admits_certificate is False
     assert "ambiguous_module_identity" in validity.cut_reasons
+
+
+# ── execution mode: how the measurement ran, described honestly, never assumed ──
+
+
+def test_a_reported_isolated_run_is_recorded_as_isolated_not_the_default():
+    """The #7 defect: ``MeasurementValidity.execution_mode`` defaults to ``"in_process"`` and the
+    adapter never read it — so an ISOLATED measurement was silently described as in-process, a false
+    claim about how it ran. A reported mode must reach the validity object. Fails before the fix
+    (the default stood)."""
+    validity = normalize_validity(_Result(is_gateable=True, execution_mode="isolated"))
+    assert validity.execution_mode == "isolated"
+    assert "absent:execution_mode" not in validity.capability_flags
+
+
+def test_a_reported_in_process_run_is_a_positive_observation_not_the_default():
+    """Reported ``"in_process"`` and UNREPORTED both surface as the string ``"in_process"``; only
+    ``capability_flags`` tells them apart, which is the whole point of the absent-sentinel. A
+    reported mode is observed, so it is NOT flagged absent."""
+    validity = normalize_validity(_Result(is_gateable=True, execution_mode="in_process"))
+    assert validity.execution_mode == "in_process"
+    assert "absent:execution_mode" not in validity.capability_flags
+
+
+def test_an_engine_that_omits_execution_mode_keeps_the_default_and_is_flagged():
+    """Absence is not falsehood: an engine that does not publish ``execution_mode`` keeps the
+    conservative ``"in_process"`` default AND is named in ``capability_flags``, so a certificate can
+    state the mode was not observed rather than fabricated as in-process."""
+    validity = normalize_validity(_Result(is_gateable=True))
+    assert validity.execution_mode == "in_process"
+    assert "absent:execution_mode" in validity.capability_flags
