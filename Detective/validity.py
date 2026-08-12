@@ -185,6 +185,19 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
     if execution_mode_raw is _ABSENT:
         missing.append("execution_mode")
 
+    # In-process mutant EVALUATION shares the target module's mutable state across mutants, so a
+    # borderline mutant's SCORED disposition (crash-kill vs unscored) is not reproducible run-to-run
+    # — the mutant-universe COUNT / kill% is an in-process ESTIMATE, not an exact figure. This flags
+    # the NUMBER, never the specification: the value-kill PROOF the certificate rests on IS exact and
+    # deterministic (`certificate_standing` reads killable/unclassified survivors, not the count). The
+    # isolated worker (#19) has fresh per-mutant state and is exact, so it is NOT flagged. Found
+    # dogfooding python-slugify: total 133 vs 140 at a FIXED hash seed. A consumer reads this to
+    # present the universe count as `≈`, never as a precise gateable measurement — and it does NOT
+    # refuse the certificate (it is not a cut reason): the proof is gateable, the count is an estimate.
+    approximate: list[str] = []
+    if execution_mode == "in_process":
+        approximate.append("approximate:mutant_universe")
+
     reasons = measurement_cut_reasons(
         reported_gateable=reports_gateable,
         gateable=gateable,
@@ -201,6 +214,6 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
         coverage_depth=depth,
         execution_mode=execution_mode,
         engine_version=engine_version,
-        capability_flags=tuple(f"absent:{name}" for name in missing),
+        capability_flags=tuple([f"absent:{name}" for name in missing] + approximate),
         policy_id=str(getattr(result, "policy_id", "") or ""),
     )

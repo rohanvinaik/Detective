@@ -132,6 +132,9 @@ def test_the_object_is_frozen_so_a_refusal_cannot_be_relaxed():
 
 
 def test_a_current_engine_normalizes_to_a_clean_validity():
+    # A truly CLEAN (no-flags) validity is an ISOLATED run: it reports every field AND its
+    # mutant-universe count is exact. An in_process run reports everything too but carries the
+    # honest `approximate:mutant_universe` flag (its own test below), so "clean" means isolated.
     validity = normalize_validity(
         _Result(
             is_gateable=True,
@@ -139,7 +142,7 @@ def test_a_current_engine_normalizes_to_a_clean_validity():
             coverage_depth="profiled",
             collection_conflicts=(),
             all_contained=True,
-            execution_mode="in_process",
+            execution_mode="isolated",
         )
     )
     assert validity.admits_certificate is True
@@ -180,6 +183,8 @@ def test_an_older_engine_names_every_field_it_could_not_supply():
         "absent:collection_conflicts",
         "absent:all_contained",
         "absent:execution_mode",
+        # execution_mode absent -> defaults to in_process -> the count is an in-process estimate
+        "approximate:mutant_universe",
     }
 
 
@@ -242,3 +247,44 @@ def test_an_engine_that_omits_execution_mode_keeps_the_default_and_is_flagged():
     validity = normalize_validity(_Result(is_gateable=True))
     assert validity.execution_mode == "in_process"
     assert "absent:execution_mode" in validity.capability_flags
+
+
+# ── the count is an in-process ESTIMATE; the PROOF the certificate rests on is exact (A2) ──
+
+
+def test_an_in_process_run_flags_the_count_approximate_but_still_admits_the_certificate():
+    """In-process mutant evaluation shares module state across mutants, so the mutant-universe COUNT
+    is not reproducible run-to-run (found dogfooding python-slugify: 133 vs 140 at a fixed seed). The
+    validity object says so — `approximate:mutant_universe` — but it is NOT a cut reason: the value-
+    kill proof the certificate rests on is exact, so the certificate is still admitted. The label is
+    about the NUMBER, never the specification."""
+    validity = normalize_validity(
+        _Result(
+            is_gateable=True,
+            budget_exhausted=False,
+            coverage_depth="profiled",
+            collection_conflicts=(),
+            all_contained=True,
+            execution_mode="in_process",
+        )
+    )
+    assert "approximate:mutant_universe" in validity.capability_flags
+    assert "approximate:mutant_universe" not in validity.cut_reasons
+    assert validity.admits_certificate is True  # the proof is gateable; only the count is an estimate
+
+
+def test_an_isolated_run_count_is_exact_and_not_flagged_approximate():
+    """The isolated worker (#19) gives each mutant a fresh process — no cross-mutant state leakage —
+    so its count IS exact and carries no approximate flag."""
+    validity = normalize_validity(
+        _Result(
+            is_gateable=True,
+            budget_exhausted=False,
+            coverage_depth="profiled",
+            collection_conflicts=(),
+            all_contained=True,
+            execution_mode="isolated",
+        )
+    )
+    assert "approximate:mutant_universe" not in validity.capability_flags
+    assert validity.admits_certificate is True
