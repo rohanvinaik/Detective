@@ -113,14 +113,16 @@ def test_plain_terms_names_line_gap():
 
 
 def test_terse_line_gap_leads_with_supply_not_flag():
-    # candidate-equivalents + a line gap: lead with 'supply an input' (progress), not 'flag'
+    # candidate-equivalents + a line gap: lead with input authoring (progress), not 'flag'.
+    # The angle-bracket shape is deliberately not rendered as an executable DO THIS command.
     rep = SurvivorReport((_equiv(),), ())
     out = _format_converge_terse(
         _cr(line_complete=False, missing_lines=(8, 10), survivor_report=rep, final_survivors=1, killed=9),
         "r.txt",
     )
-    action = out.split("DO THIS:")[1].split("FINAL")[0]
+    action = out.split("AUTHOR INPUTS:")[1].split("FINAL")[0]
     assert "flag" not in action
+    assert "THEN RUN:" in action
 
 
 def test_plain_terms_incomplete_points_at_inputs():

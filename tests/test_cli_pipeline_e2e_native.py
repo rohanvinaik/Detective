@@ -21,6 +21,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -81,10 +82,18 @@ def tier_price(units, member=False):
 _NOISE = "\n\n".join(f"def test_noise_{i}():\n    assert {i} + 1 == {i + 1}" for i in range(12))
 
 
+def _console_script() -> Path:
+    """The installed entry point, including the interpreter encoded in its shebang."""
+    name = "detective.exe" if sys.platform == "win32" else "detective"
+    script = Path(sys.executable).with_name(name)
+    assert script.is_file(), f"installed-boundary test requires the console script beside {sys.executable}"
+    return script
+
+
 def _run(project, *args, timeout=300):
-    """The CLI as a user gets it: a subprocess, output captured (so NOT a tty)."""
+    """The CLI as a user gets it: the real console script in a captured subprocess."""
     return subprocess.run(
-        [sys.executable, "-m", "Detective.cli", *args, "--project-root", str(project)],
+        [str(_console_script()), *args, "--project-root", str(project)],
         cwd=str(project),
         capture_output=True,
         text=True,

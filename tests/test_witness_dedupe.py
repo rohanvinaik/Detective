@@ -42,3 +42,19 @@ def test_identical_witnesses_collapse_to_one_line_with_kill_set():
     assert "kills" not in solo
     # The header still counts VERDICTS, not lines — three killable mutants.
     assert "not auto-applied, 3" in out
+
+
+def test_a_test_built_object_is_described_as_prose_never_rendered_as_python():
+    class BuiltOnly:
+        def __repr__(self):
+            return "BuiltOnly(state=<State.READY: 'ready'>)"
+
+    rep = SurvivorReport(
+        verdicts=(_killable("VALUE_aaaa1111", (BuiltOnly(),), "'ready'"),),
+        unclassified=(),
+    )
+
+    out = "\n".join(_format_survivor_report(rep, verbose=False))
+
+    assert "hand-write a test using BuiltOnly" in out
+    assert "assert f(BuiltOnly(" not in out

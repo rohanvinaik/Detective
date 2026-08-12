@@ -74,9 +74,25 @@ def _pytest_norecursedirs(root: str) -> frozenset[str]:
     return frozenset(d for d in raw if isinstance(d, str) and "*" not in d and "/" not in d)
 
 
-def module_name(root: str, path: str) -> str:
-    """Dotted module name for ``path`` relative to ``root``. ``a/b/__init__.py`` -> ``a.b``."""
-    rel = os.path.relpath(os.path.abspath(path), os.path.abspath(root))
+def module_name(root: str, path: str, import_roots: tuple[str, ...] = ()) -> str:
+    """Dotted import name under the suite's authoritative import roots.
+
+    A source file under ``root/src/pkg`` imports as ``pkg``, not ``src.pkg``.  The testing regime
+    already measured that distinction; reachability must consume those roots instead of deriving a
+    second, root-relative identity.  The deepest containing root wins, with ``root`` as the
+    conservative fallback for test modules and flat layouts.
+    """
+    full = os.path.abspath(path)
+    candidates = {os.path.abspath(root), *(os.path.abspath(p) for p in import_roots)}
+    containing: list[str] = []
+    for candidate in candidates:
+        try:
+            if os.path.commonpath((candidate, full)) == candidate:
+                containing.append(candidate)
+        except ValueError:
+            continue
+    base = max(containing, key=len) if containing else os.path.abspath(root)
+    rel = os.path.relpath(full, base)
     stem = rel[:-3] if rel.endswith(".py") else rel
     parts = [p for p in stem.split(os.sep) if p not in ("", ".")]
     if parts and parts[-1] == "__init__":
@@ -130,7 +146,9 @@ def _imports_of(tree: ast.AST, this_module: str) -> tuple[set[str], bool]:
     return out, opaque
 
 
-def _build_graph(root: str) -> tuple[dict[str, set[str]], dict[str, str], set[str]]:
+def _build_graph(
+    root: str, import_roots: tuple[str, ...] = ()
+) -> tuple[dict[str, set[str]], dict[str, str], set[str]]:
     """``(module -> imported names, module -> path, modules whose imports are opaque)``."""
     graph: dict[str, set[str]] = {}
     paths: dict[str, str] = {}
@@ -147,12 +165,12 @@ def _build_graph(root: str) -> tuple[dict[str, set[str]], dict[str, str], set[st
                     tree = ast.parse(fh.read(), filename=p)
             except (OSError, SyntaxError, ValueError):
                 # Unparseable: cannot rule it out, so let it reach (never exclude on error).
-                m = module_name(root, p)
+                m = module_name(root, p, import_roots)
                 paths[m] = p
                 graph[m] = set()
                 opaque.add(m)
                 continue
-            m = module_name(root, p)
+            m = module_name(root, p, import_roots)
             paths[m] = p
             graph[m], is_opaque = _imports_of(tree, m)
             if is_opaque:
@@ -188,7 +206,12 @@ def _reaches(start: str, target: str, graph: dict[str, set[str]], opaque: set[st
     return False
 
 
-def reachable_test_paths(root: str, target_file: str) -> list[str] | None:
+def reachable_test_paths(
+    root: str,
+    target_file: str,
+    target_module: str | None = None,
+    import_roots: tuple[str, ...] = (),
+) -> list[str] | None:
     """Test files that could execute ``target_file``'s lines, or None to collect everything.
 
     None is returned whenever the analysis is not trustworthy — no target module, nothing
@@ -197,10 +220,10 @@ def reachable_test_paths(root: str, target_file: str) -> list[str] | None:
     dropped conftest turns a scoped collection into a broken one.
     """
     root = os.path.abspath(root)
-    target = module_name(root, target_file)
+    target = target_module or module_name(root, target_file, import_roots)
     if not target:
         return None
-    graph, paths, opaque = _build_graph(root)
+    graph, paths, opaque = _build_graph(root, import_roots)
     if target not in graph:
         return None  # target outside the tree -> cannot reason -> collect everything
 

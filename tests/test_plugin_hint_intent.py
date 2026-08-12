@@ -48,7 +48,8 @@ def test_the_collection_error_warning_names_the_missing_plugin():
     }
     msg = _format_session_warning(diagnostic)
     assert "pytest-asyncio" in msg
-    assert "pip install pytest-asyncio" in msg
+    assert "uv pip install --python" in msg
+    assert msg.count("pytest-asyncio") >= 2
 
 
 def test_an_unrecognised_collection_error_keeps_the_generic_guidance():

@@ -12,6 +12,7 @@ import ast
 import difflib
 import json
 import os
+import shlex
 import sys
 import textwrap
 from dataclasses import asdict, dataclass
@@ -26,7 +27,7 @@ from Wesker.engine import (
 from Detective.validity import cut_reason_sentence
 
 from . import __version__
-from .equivalence import crash_only_status, is_expressible
+from .equivalence import crash_only_status
 
 
 def _trace_budget(args) -> float | None:
@@ -46,7 +47,75 @@ def _trace_session_budget(args) -> float | None:
     return None if v is not None and v <= 0 else v
 
 
-def _reachable_paths(root: str, targets: list[str] | None) -> list[str] | None:
+@dataclass(frozen=True)
+class ExecutionContext:
+    """The interpreter boundary every live-suite decision is measured under."""
+
+    executable: str
+    prefix: str
+    active_environment: str | None
+    disposition: str
+
+
+def execution_disposition(active_environment: str | None, interpreter_prefix: str) -> str:
+    """Name whether the active project environment owns this interpreter (#58, pure — pinned).
+
+    ``PYTHONPATH`` can redirect imports but cannot change a console script's shebang.  Keeping the
+    two states named prevents a foreign launcher from falling through to pytest, where the same
+    mismatch is reconstructed later as a missing target package or plugin.
+    """
+    if not active_environment:
+        return "ready"
+    return "ready" if active_environment == interpreter_prefix else "wrong_interpreter"
+
+
+def _execution_context() -> ExecutionContext:
+    """Capture the process/environment identity once, before pytest is allowed to start."""
+    active = os.environ.get("VIRTUAL_ENV")
+    # CONDA_PREFIX often survives when an explicit uv/venv interpreter is launched from a Conda
+    # shell.  In that state it describes the parent shell, not the project environment.  Accept it
+    # only when it actually contains this interpreter; unlike VIRTUAL_ENV it cannot safely prove a
+    # mismatch on its own.
+    conda = os.environ.get("CONDA_PREFIX")
+    if not active and conda:
+        prefix = os.path.normcase(os.path.realpath(sys.prefix))
+        conda_real = os.path.normcase(os.path.realpath(conda))
+        if prefix == conda_real:
+            active = conda
+    active_real = os.path.normcase(os.path.realpath(active)) if active else None
+    prefix_real = os.path.normcase(os.path.realpath(sys.prefix))
+    return ExecutionContext(
+        executable=os.path.realpath(sys.executable),
+        prefix=prefix_real,
+        active_environment=active_real,
+        disposition=execution_disposition(active_real, prefix_real),
+    )
+
+
+def _format_execution_refusal(context: ExecutionContext) -> str:
+    """An exact recovery for a console script bound to a foreign interpreter."""
+    active = context.active_environment or ""
+    bindir = "Scripts" if os.name == "nt" else "bin"
+    python = os.path.join(active, bindir, "python")
+    detective = os.path.join(active, bindir, "detective")
+    install = shlex.join(["uv", "pip", "install", "--python", python, "detective-spec"])
+    rerun = shlex.join([detective, *sys.argv[1:]])
+    return (
+        "REFUSED: Detective is running under a different interpreter than the active project environment.\n"
+        f"  active environment: {active}\n"
+        f"  Detective Python:   {context.executable}\n"
+        "  Install Detective into the active environment, then invoke that environment's launcher:\n"
+        f"    {install}\n"
+        f"    {rerun}\n"
+    )
+
+
+def _reachable_paths(
+    root: str,
+    targets: list[str] | None,
+    target_module: str | None = None,
+    import_roots: tuple[str, ...] = (),
+) -> list[str] | None:
     """pytest collection paths scoped to the target, or None to collect everything.
 
     Wrapped so the scoping can NEVER be the thing that breaks a run: any failure in the
@@ -59,7 +128,12 @@ def _reachable_paths(root: str, targets: list[str] | None) -> list[str] | None:
     try:
         from .reachability import reachable_test_paths
 
-        return reachable_test_paths(root, targets[0])
+        return reachable_test_paths(
+            root,
+            targets[0],
+            target_module=target_module,
+            import_roots=import_roots,
+        )
     except Exception:  # noqa: BLE001 — scoping is an optimisation; never fail the run for it
         return None
 
@@ -325,12 +399,12 @@ def _score(killed: int, total: int) -> str:
 
 
 def _input_template(param_names: tuple[str, ...] | None) -> str:
-    """A copy-pasteable ``--input`` skeleton shaped to the target's parameters.
+    """A visibly non-executable ``--input`` template shaped to the target's parameters.
 
     The user replaces each ``<name>`` slot with a literal to exercise the residual; the
-    CLI parses it (``ast.literal_eval``) and the AST builds the test. This is the Zone-2
-    hand-back made concrete — the tool states the exact input shape to supply, so a user
-    never has to reverse-engineer it from prose.
+    CLI parses the completed value and the AST builds the test.  Angle-bracket slots are a
+    drafting aid, never a ``DO THIS`` command: only parser-validated concrete values may be
+    rendered as executable guidance.
 
     A zero-parameter target gets NO skeleton (#8). Measured, `status()` — which accepts nothing
     — was handed ``--input "(<value>,)"`` two lines below a report printing ``Signature
@@ -1052,9 +1126,7 @@ def _format_survivor_report(
         # A zero-parameter target has no slots to fill, so "supply:" would head an empty
         # recipe and instruct the reader to do something impossible (#8).
         if _tmpl := _input_template(param_names):
-            lines.append(
-                f"      supply:  {_tmpl}   # fill the slots to reach a branch above, then re-run converge"
-            )
+            lines.append(f"      template: {_tmpl}   # replace every <...> slot before running")
     if crash_only:
         cats = ", ".join(sorted({v.category for v in crash_only}))
         n_det, n_undet = crash_only_status(crash_only)
@@ -1106,7 +1178,14 @@ def _format_survivor_report(
             else:
                 ids = ", ".join(v.mutant_id for v in verdicts)
                 kills = f"   (kills {len(verdicts)}: {ids})"
-            lines.append(f"    → assert f({args}) == {original}   (mutant gives {w.mutant}){kills}")
+            if _witness_input(w) is not None:
+                lines.append(f"    → assert f({args}) == {original}   (mutant gives {w.mutant}){kills}")
+            else:
+                objects = ", ".join(type(a).__name__ for a in w.args) or "test-built object"
+                lines.append(
+                    f"    → hand-write a test using {objects}; observed {original} "
+                    f"(mutant gives {w.mutant}){kills}"
+                )
     if rep.unclassified:
         tail = f": {rep.note}" if rep.note else ""
         lines.append(f"  uncertain — {len(rep.unclassified)} survivor(s) not classified{tail}")
@@ -1192,6 +1271,7 @@ def _plain_terms(result) -> str:
     # count only the former here.
     cand = len(rep.candidate_equivalent) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
+    unresolved = result.final_survivors if rep is None and not result.functionally_complete else 0
     uncertain = len(rep.unclassified) if rep is not None else 0
     gap = len(result.missing_lines)
     if result.complete and cand == 0:
@@ -1199,6 +1279,8 @@ def _plain_terms(result) -> str:
     parts = []
     if killable:
         parts.append(f"{killable} behavior(s) still killable — supply the input(s) below")
+    if unresolved:
+        parts.append(f"{unresolved} behavior(s) unresolved — classification produced no survivor report")
     if uncertain:
         parts.append(f"{uncertain} survivor(s) need a real sample input to classify")
     if cand:
@@ -1281,6 +1363,7 @@ def _final_banner(result) -> str:
     cand = len(rep.candidate_equivalent) if rep is not None else 0
     crash_only = len(rep.crash_only) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
+    unresolved = result.final_survivors if rep is None and not result.functionally_complete else 0
     gap = len(result.missing_lines)
     # "COMPLETE" is a claim about the OPERATOR UNIVERSE — every mutant the engine can
     # construct — never about all possible edits (a float threshold shifted by an
@@ -1300,6 +1383,8 @@ def _final_banner(result) -> str:
         bits = []
         if killable:
             bits.append(f"{killable} killable")
+        if unresolved:
+            bits.append(f"{unresolved} unresolved")
         if gap:
             bits.append(f"{gap}-line gap")
         # "✗ INCOMPLETE" reads as FAILURE, and the common case it labels is not one: every
@@ -1457,7 +1542,7 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
 
         traj = tuple(it.survivors for it in result.iterations) + (result.final_survivors,)
         pr = passes_to_complete(traj)
-        killable = (
+        unresolved = (
             len(result.survivor_report.killable)
             if result.survivor_report is not None
             else result.final_survivors
@@ -1474,11 +1559,11 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
                 f"  spec-completeness: {free} · ≈{pr} more pass{'es' if pr != 1 else ''} "
                 "to complete (greedy bulk decay)"
             )
-        elif killable > 0:
+        elif unresolved > 0:
             # Stalled with real killable residuals: the I_solve external facts.
             lines.append(
-                f"  spec-completeness: {free} · structure exhausted — {killable} killable "
-                "residual(s) = I_solve (supply --input below to finish)"
+                f"  spec-completeness: {free} · structure exhausted — {unresolved} unresolved "
+                "residual(s) = I_solve (supply input/evidence below to finish)"
             )
         # else: complete-modulo-equivalent — the verdict + survivor lines already say so.
     if result.remaining:
@@ -1504,9 +1589,7 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
         lines.append(f"  ✗ line gap: {len(result.missing_lines)} executable line(s) no test covers: {gap}")
         lines += _target_lines(result.signature)
         if _tmpl := _input_template(result.param_names):
-            lines.append(
-                f"      supply:  {_tmpl}   # fill the slots to execute line(s) {gap}, then re-run converge"
-            )
+            lines.append(f"      template: {_tmpl}   # replace every <...> slot to execute line(s) {gap}")
     elif result.minimal_test_count:
         lines.append("  ✓ line-complete — every executable line is covered by a test")
     if result.manually_unreachable:
@@ -1567,7 +1650,13 @@ def _write_converge_report(root: str, qualname: str, text: str, prefix: str = "c
     return os.path.relpath(path, root)
 
 
-def _format_converge_terse(result, report_path: str, root: str = ".", session_reason: str = "") -> str:
+def _format_converge_terse(
+    result,
+    report_path: str,
+    root: str = ".",
+    session_reason: str = "",
+    attempted_inputs: tuple[str, ...] = (),
+) -> str:
     """The converge report: what got written, what is left, the ONE next action — then the
     greppable ``FINAL`` banner, which stays LAST.
 
@@ -1646,6 +1735,10 @@ def _format_converge_terse(result, report_path: str, root: str = ".", session_re
         lines.append(_row("✗ still killable", f"{len(rep.killable)} — a witness exists for each"))
     if rep is not None and rep.unclassified:
         lines.append(_row("⚠ unclassified", f"{len(rep.unclassified)} — the search could not run on them"))
+    if rep is None and not result.functionally_complete:
+        lines.append(
+            _row("✗ unresolved", f"{result.final_survivors} — classification produced no survivor report")
+        )
     if result.missing_lines:
         gap = list(result.missing_lines)
         lines.append(_row("✗ uncovered", f"{len(gap)} line(s): {gap[:8]}"))
@@ -1711,13 +1804,18 @@ def _format_converge_terse(result, report_path: str, root: str = ".", session_re
     if report_path:
         lines.append(_row("· full report", report_path))
     lines.append("")
-    lines += _converge_action(result, rep, root, report_path, session_reason)
+    lines += _converge_action(result, rep, root, report_path, session_reason, attempted_inputs)
     lines.append("")
     lines.append(_final_banner(result))
     return "\n".join(lines)
 
 
-def converge_next_action(session_reason: str, has_killable: bool, has_line_gap: bool) -> str:
+def converge_next_action(
+    session_reason: str,
+    has_killable: bool,
+    has_line_gap: bool,
+    measurement_admissible: bool = True,
+) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
     The defect this exists to stop, reproduced in a directory with no pytest config:
@@ -1760,6 +1858,8 @@ def converge_next_action(session_reason: str, has_killable: bool, has_line_gap: 
     default and an older Wesker that reports no reason degrades to exactly the previous
     behaviour rather than to a spurious refusal.
     """
+    if not measurement_admissible:
+        return "repair_measurement"
     if not (has_killable or has_line_gap):
         return "settled"
     if session_reason == "pytest_missing":
@@ -1794,7 +1894,12 @@ def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> li
 
 
 def _converge_action(
-    result, rep, root: str = ".", report_path: str = "", session_reason: str = ""
+    result,
+    rep,
+    root: str = ".",
+    report_path: str = "",
+    session_reason: str = "",
+    attempted_inputs: tuple[str, ...] = (),
 ) -> list[str]:
     """Converge's ONE next action — the DERIVED input, same as decompose's residual and from
     the same machinery (`_derived_input`). A witness is a call the engine RAN; a boundary hint
@@ -1809,14 +1914,51 @@ def _converge_action(
     older Wesker that reports no reason keeps exactly the previous behaviour.
     """
     fn = result.function
-    blocked = rep is not None and (rep.killable or rep.unclassified)
+    # `functionally_complete` is the authoritative engine decision. A missing survivor report does
+    # not turn residual survivors into DONE — that was the exact measurement/decision split this
+    # function exists to prevent, and it produced "DONE" above `FINAL ... Incomplete` on a live run.
+    blocked = (not result.functionally_complete) or bool(
+        rep is not None and (rep.killable or rep.unclassified)
+    )
     # A dead suite OUTRANKS the gap. See `converge_next_action`: the gap ask was reached by
     # re-deriving "uncovered lines exist" while the measured cause sat unread one layer up.
-    kind = converge_next_action(session_reason, bool(blocked), bool(result.missing_lines))
+    kind = converge_next_action(
+        session_reason,
+        bool(blocked),
+        bool(result.missing_lines),
+        bool(getattr(result, "admits_certificate", True)),
+    )
+    if kind == "repair_measurement":
+        flags = " ".join(_shell_input_flag(raw) for raw in attempted_inputs)
+        if getattr(result, "collection_conflicts", ()):
+            command = f"detective regime '{fn}'"
+            why = "the live session resolved the target to conflicting module origins"
+        elif getattr(result, "budget_exhausted", False):
+            command = f"detective converge '{fn}' {flags} --deadline 0".replace("  ", " ")
+            why = "the aggregate command deadline expired before proof completed"
+        else:
+            command = (
+                f"detective converge '{fn}' {flags} --trace-budget 0 --trace-session-budget 0"
+            ).replace("  ", " ")
+            why = "the profile was cut before the mutant universe was measured"
+        return [
+            f"DO THIS:  {command}",
+            "",
+            _row("· Why first", why),
+            _row("", "An invalid measurement cannot justify an input/test action."),
+        ]
     if kind in ("install_pytest", "fix_collection"):
         return _dead_suite_action(kind, fn, root, session_reason)
     if blocked or result.missing_lines:
-        action = _derived_input(None, result, rep, fn, verb=f"detective converge '{fn}'", report=report_path)
+        action = _derived_input(
+            None,
+            result,
+            rep,
+            fn,
+            verb=f"detective converge '{fn}'",
+            report=report_path,
+            attempted_inputs=attempted_inputs,
+        )
         # An environment-gated line gap earns the honest decline FIRST: some uncovered lines sit
         # behind a read of the clock/filesystem/env, which no `--input` value reaches, so the ask
         # below is impossible for them. Saying so up front is the difference between a driver that
@@ -1990,8 +2132,41 @@ def _witness_args(w) -> str:
     return ", ".join(repr(a) for a in w.args) + ("," if len(w.args) == 1 else "")
 
 
-def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
-    """What the engine DERIVED about the inputs it still needs — as data, for any surface.
+@dataclass(frozen=True)
+class InputPlan:
+    """One next-action decision, before any human or MCP surface renders it."""
+
+    kind: str
+    items: tuple[str, ...]
+    item_total: int
+    obligation_total: int
+
+
+def _input_plan(kind: str, items: list[str], obligation_total: int) -> InputPlan:
+    """Keep distinct inputs separate from the obligations those inputs discharge."""
+    distinct = tuple(dict.fromkeys(items))
+    return InputPlan(kind, distinct[:_MAX_BATCH], len(distinct), obligation_total)
+
+
+def _witness_input(witness) -> str | None:
+    """The exact ``--input`` payload iff Detective's own parser accepts it (#58)."""
+    rendered = f"({_witness_args(witness)})"
+    try:
+        _parse_supplied_inputs([rendered])
+    except SystemExit:
+        return None
+    return rendered
+
+
+def _shell_input_flag(rendered: str) -> str:
+    """Quote one parser-validated input without making ordinary literals noisy."""
+    if not any(ch in rendered for ch in ('"', "$", "`", "\\", "\n")):
+        return f'--input "{rendered}"'
+    return f"--input {shlex.quote(rendered)}"
+
+
+def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> InputPlan:
+    """What the engine DERIVED about the inputs it still needs — as typed action data.
 
     Returns ``(kind, items, total)``:
 
@@ -2004,9 +2179,9 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     * ``("author", [], 0)`` — nothing derived. The caller supplies the value outright, which is
       the documented interface ("You supply what only you know"), not a fallback.
 
-    ``total`` is how many exist; ``items`` is capped at `_MAX_BATCH`. The gap between them MUST
-    be disclosed by the caller — a bound that is not named reads as "this is all of them", which
-    is how 65 requirements looked like 1.
+    ``item_total`` counts distinct calls/objects/requirements. ``obligation_total`` counts the
+    mutants or lines they discharge.  They are deliberately separate: one domain object can kill
+    31 mutants, and calling that "31 objects" sends the user looking for data that does not exist.
 
     DATA, not text, because the two surfaces render different commands: a human runs
     `--input "(...)"`, a tool caller passes `inputs=["(...)"]`. Sharing the rendered STRING put
@@ -2014,11 +2189,10 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     there. Sharing the derivation cannot do that, and it is the part that must never drift.
     """
     witnesses = [v for v in (rep.killable if rep is not None else ()) if v.witness]
-    # A witness is only a COMMAND if a human can type it: `--input` parses literals +
-    # ast.*, so a captured object (a function, a wrapper a test built) distinguishes
-    # the mutant while satisfying no `--input` string ever. Those become "test" —
-    # name the object, ask for a test — instead of a paste-this that always errors.
-    typeable = [v for v in witnesses if all(is_expressible(a) for a in v.witness.args)]
+    # The parser, not a parallel type predicate, decides whether a witness is a COMMAND. This
+    # round-trip is the load-bearing invariant: anything printed after `DO THIS` has already been
+    # accepted by the exact parser that will receive it.
+    commandable = [(v, rendered) for v in witnesses if (rendered := _witness_input(v.witness))]
     # ...AND only if an `--input`-derived test can actually CLOSE it. A witness whose two OUTCOMES
     # differ only by exception type/message (or share a repr) cannot be pinned by `==` on a return
     # value, so re-running `--input` recalls the same pin and the number never moves — the exact
@@ -2027,27 +2201,38 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     # witnesses route to `hand_pin` (write the exception/exact-value assertion by hand) instead of a
     # command that loops. Value witnesses are unaffected — `_outcome_needs_hand_pin` is False for two
     # plainly different return values, where `==` is exactly what separates them.
-    input_closes = [v for v in typeable if not _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)]
-    if input_closes:
-        return (
-            "witness",
-            [f"({_witness_args(v.witness)})" for v in input_closes[:_MAX_BATCH]],
-            len(input_closes),
-        )
-    hand_pin = [v for v in typeable if _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)]
+    input_closes = [
+        (v, rendered)
+        for v, rendered in commandable
+        if not _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)
+    ]
+    attempted = set(attempted_inputs)
+    fresh_inputs = [(v, rendered) for v, rendered in input_closes if rendered not in attempted]
+    if fresh_inputs:
+        return _input_plan("witness", [rendered for _, rendered in fresh_inputs], len(fresh_inputs))
+    # The exact input was accepted, executed, and returned as the same residual. Offering it again
+    # is a proven loop, not guidance. Route to the existing terminating hand-pin action.
+    repeated_inputs = [(v, rendered) for v, rendered in input_closes if rendered in attempted]
+    if repeated_inputs:
+        items = [
+            f"{rendered} — supplied already; real {v.witness.original[:28]} vs mutant {v.witness.mutant[:28]}"
+            for v, rendered in repeated_inputs
+        ]
+        return _input_plan("repeated", items, len(repeated_inputs))
+    hand_pin = [v for v, _ in commandable if _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)]
     if hand_pin:
         items = [
             f"({_witness_args(v.witness)}) — real {v.witness.original[:28]} vs mutant {v.witness.mutant[:28]}"
-            for v in hand_pin[:_MAX_BATCH]
+            for v in hand_pin
         ]
-        return "hand_pin", items, len(hand_pin)
+        return _input_plan("hand_pin", items, len(hand_pin))
     if witnesses:
         descs: list[str] = []
         for v in witnesses:
             d = ", ".join(f"a {type(a).__name__}: {repr(a)[:70]}" for a in v.witness.args)
             if d not in descs:
                 descs.append(d)
-        return "test", descs[:_MAX_BATCH], len(witnesses)
+        return _input_plan("test", descs, len(witnesses))
     hints: list[str] = []
     internal: list[str] = []
     # Skip crash-only survivors: an input already distinguishes them and no value assertion can
@@ -2074,14 +2259,20 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     # reaching only the informational row; a mutant on a line that never runs can never die, so
     # coverage is a PRECONDITION for the kill axis, not a parallel one.
     if gaps := _line_gap_items(proof):
-        return "lines", gaps[:_MAX_BATCH], len(gaps)
+        return _input_plan("lines", gaps, len(gaps))
     if hints:
-        return "boundary", hints[:_MAX_BATCH], len(hints)
+        return _input_plan("boundary", hints, len(hints))
     if internal:
         # Issue #8: the region exists but reads a derived local — no direct input
         # constraint is derivable, and saying so IS the result (certified abstention).
-        return "internal", internal[:_MAX_BATCH], len(internal)
-    return "author", [], 0
+        return _input_plan("internal", internal, len(internal))
+    return _input_plan("author", [], 0)
+
+
+def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
+    """Backward-compatible data adapter; new renderers consume :class:`InputPlan` directly."""
+    plan = _derive_input_plan(proof, rep)
+    return plan.kind, list(plan.items), plan.obligation_total
 
 
 def _line_gap_items(proof) -> list[str]:
@@ -2110,7 +2301,15 @@ def _outcome_needs_hand_pin(original: str, mutant: str) -> bool:
     return original.startswith("<raised") or mutant.startswith("<raised") or original == mutant
 
 
-def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "") -> list[str]:
+def _derived_input(
+    r,
+    proof,
+    rep,
+    target: str,
+    verb: str = "",
+    report: str = "",
+    attempted_inputs: tuple[str, ...] = (),
+) -> list[str]:
     """The CLI's `DO THIS:` block — `derive_inputs`' data rendered as terminal syntax.
 
     A thin renderer on purpose. The DERIVATION is shared with the MCP (`derive_inputs`); the
@@ -2129,7 +2328,9 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
     cmd = verb or f"detective decompose '{target}' --apply"
     sig = proof.signature or ""
     tmpl = _input_template(proof.param_names)
-    kind, items, total = _derive_inputs(proof, rep)
+    plan = _derive_input_plan(proof, rep, attempted_inputs)
+    kind = plan.kind
+    items = list(plan.items)
     where = report or "the full report"
 
     if kind == "witness":
@@ -2138,14 +2339,20 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         # thing this line is for: at 10 shared witnesses it rendered a ~600-character command,
         # which is not a thing anyone pastes. The mutant count is what the repetition was
         # actually carrying, so it is stated as a count instead of spelled out in argv.
-        distinct = list(dict.fromkeys(items))
-        flags = " ".join(f'--input "{a}"' for a in distinct)
+        distinct = items
+        flags = " ".join(_shell_input_flag(a) for a in distinct)
         out = [f"DO THIS:  {cmd} {flags}"]
         out.append("")
         out.append(_row("· Why these", f"Detective RAN each: the {len(distinct)} call(s) above each"))
         out.append(_row("", "make a mutant differ from your real function."))
-        if len(distinct) < len(items):
-            out.append(_row("", f"({len(distinct)} distinct — they cover {len(items)} mutant(s))"))
+        if plan.obligation_total != plan.item_total:
+            out.append(
+                _row(
+                    "",
+                    f"({plan.item_total} distinct call(s) cover "
+                    f"{plan.obligation_total} mutant obligation(s))",
+                )
+            )
         # The reason is data the engine already holds — show ONE observed pair inside the
         # same two budgeted lines, so a dead-end reads as a diagnosis, not a loop.
         # A representative VALUE pair. Witnesses whose outcome needs hand-pinning are routed to the
@@ -2157,7 +2364,9 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
                 (
                     v.witness
                     for v in rep.killable
-                    if v.witness and not _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)
+                    if v.witness
+                    and _witness_input(v.witness) is not None
+                    and not _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)
                 ),
                 None,
             )
@@ -2170,8 +2379,8 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         else:
             out.append(_row("", "SUGGESTED — not written for you, because the engine"))
             out.append(_row("", "could not verify the tests sound."))
-        if total > len(items):
-            out.append(_row("", f"({total - len(items)} more in {where})"))
+        if plan.item_total > len(items):
+            out.append(_row("", f"({plan.item_total - len(items)} more distinct calls in {where})"))
         return out
 
     if kind == "hand_pin":
@@ -2180,7 +2389,7 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         # no `==` on a return value separates them. Re-running `--input` recalls the same pin and the
         # number never moves. The next action that TERMINATES is to hand-write the assertion, so the
         # headline is that — never a `--input` command that loops.
-        out = ["DO THIS:  hand-write a test pinning the exact outcome below (no --input closes these)"]
+        out = ["WRITE TEST:  hand-write a test pinning the exact outcome below (no --input closes these)"]
         out.append("")
         out.append(_row("· Why", f"Detective RAN each: the {len(items)} call(s) differ from your"))
         out.append(_row("", "function only by exception type/message (or identical"))
@@ -2190,29 +2399,56 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         for i, d in enumerate(items[1:], start=2):
             out.append(_row("", f"{i}. {d}"))
         out.append(_row("", "e.g. assert the exception via pytest.raises(<Type>)."))
-        if total > len(items):
-            out.append(_row("", f"({total - len(items)} more in {where})"))
+        if plan.item_total > len(items):
+            out.append(_row("", f"({plan.item_total - len(items)} more distinct calls in {where})"))
+        out.append("")
+        out.append(f"THEN RUN:  {cmd}")
+        return out
+
+    if kind == "repeated":
+        out = ["WRITE TEST:  pin the observed distinction below; the supplied --input did not close it"]
+        out.append("")
+        out.append(_row("· Why", "Detective accepted and ran this exact input, then returned"))
+        out.append(_row("", "the same residual. Repeating the command is a proven loop."))
+        out.append(_row("· Observed", f"1. {items[0]}"))
+        for i, d in enumerate(items[1:], start=2):
+            out.append(_row("", f"{i}. {d}"))
+        if plan.item_total > len(items):
+            out.append(_row("", f"({plan.item_total - len(items)} more distinct calls in {where})"))
+        out.append("")
+        out.append(f"THEN RUN:  {cmd}")
         return out
 
     if kind == "test":
-        out = [f"DO THIS:  add a test that calls the target with the object(s) below, then re-run: {cmd}"]
+        out = ["WRITE TEST:  call the target with the object/call below"]
         out.append("")
         out.append(_row("· Why", "Detective RAN each — a mutant differs on it — but none"))
         out.append(_row("", "can be typed as --input: they are objects only a test builds."))
-        out.append(_row("· Object(s)", f"1. {items[0]}"))
+        out.append(
+            _row(
+                "· Coverage",
+                f"{plan.item_total} distinct object/call(s) cover "
+                f"{plan.obligation_total} mutant obligation(s)",
+            )
+        )
+        out.append(_row("· Object/call(s)", f"1. {items[0]}"))
         for i, d in enumerate(items[1:], start=2):
             out.append(_row("", f"{i}. {d}"))
-        if total > len(items):
-            out.append(_row("", f"({total - len(items)} more in {where})"))
+        if plan.item_total > len(items):
+            out.append(_row("", f"({plan.item_total - len(items)} more distinct calls in {where})"))
+        out.append("")
+        out.append(f"THEN RUN:  {cmd}")
         return out
 
     if kind == "lines":
         # ONE slot, not N identical ones. Every copy is the same unfilled template, so repeating
         # it says nothing the Task line does not, and at seven uncovered lines it produced a
         # command that was 90% the same string. How many to author is a sentence; it is not argv.
-        out = [f"DO THIS:  {cmd} {tmpl}".rstrip()]
+        out = ["AUTHOR INPUTS:  write the calls that reach the uncovered lines below"]
         out.append("")
         out.append(_row("· Signature", sig))
+        if tmpl:
+            out.append(_row("· Template", f"{tmpl}  (replace every <...> slot before running)"))
         out.append("")
         out.append(_row("· Task", f"Author {len(items)} call(s) — one per line below — each as"))
         out.append(_row("", "its own --input. Detective derives every test from them."))
@@ -2222,31 +2458,39 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         out.append(_row("· Uncovered", f"1. {items[0]}"))
         for i, gap in enumerate(items[1:], start=2):
             out.append(_row("", f"{i}. {gap}"))
-        if total > len(items):
-            out.append(_row("", f"(+{total - len(items)} more in {where})"))
+        if plan.item_total > len(items):
+            out.append(_row("", f"(+{plan.item_total - len(items)} more in {where})"))
+        out.append("")
+        out.append(f"THEN RUN:  {cmd}")
         return out
 
     if kind == "boundary":
         # One slot — see the `lines` branch above; the count is in the Task line.
-        out = [f"DO THIS:  {cmd} {tmpl}".rstrip()]
+        out = ["AUTHOR INPUTS:  write the boundary calls described below"]
         out.append("")
         out.append(_row("· Signature", sig))
+        if tmpl:
+            out.append(_row("· Template", f"{tmpl}  (replace every <...> slot before running)"))
         out.append("")
         out.append(_row("· Task", f"Author {len(items)} call(s), one per requirement, each as"))
         out.append(_row("", "its own --input. Detective derives every test from them."))
         out.append(_row("· Requirements", f"1. {items[0]}"))
         for i, rel in enumerate(items[1:], start=2):
             out.append(_row("", f"{i}. {rel}"))
-        if total > len(items):
-            out.append(_row("", f"(+{total - len(items)} more in {where})"))
+        if plan.item_total > len(items):
+            out.append(_row("", f"(+{plan.item_total - len(items)} more in {where})"))
         out.append(_row("", "Derived from your code: two orderings differ exactly"))
         out.append(_row("", "at the equality edge."))
+        out.append("")
+        out.append(f"THEN RUN:  {cmd}")
         return out
 
     if kind == "internal":
-        out = [f"DO THIS:  {cmd} {tmpl}".rstrip()]
+        out = ["AUTHOR INPUTS:  write a call that drives the internal condition below"]
         out.append("")
         out.append(_row("· Signature", sig))
+        if tmpl:
+            out.append(_row("· Template", f"{tmpl}  (replace every <...> slot before running)"))
         out.append("")
         out.append(_row("· Status", "The surviving distinction sits behind an INTERNAL"))
         out.append(_row("", "condition — a derived local, not a parameter — so no"))
@@ -2255,22 +2499,27 @@ def _derived_input(r, proof, rep, target: str, verb: str = "", report: str = "")
         out.append(_row("· Condition(s)", f"1. {items[0]}"))
         for i, cond in enumerate(items[1:], start=2):
             out.append(_row("", f"{i}. {cond}"))
-        if total > len(items):
-            out.append(_row("", f"(+{total - len(items)} more in {where})"))
+        if plan.item_total > len(items):
+            out.append(_row("", f"(+{plan.item_total - len(items)} more in {where})"))
         out.append(_row("· Task", "Author one real call whose execution drives the"))
         out.append(_row("", "condition(s) above, and pass it as --input."))
+        out.append("")
+        out.append(f"THEN RUN:  {cmd}")
         return out
 
     return [
-        f"DO THIS:  {cmd} {tmpl}".rstrip(),
+        "AUTHOR INPUTS:  write one real call for the target below",
         "",
         _row("· Signature", sig),
+        _row("· Template", f"{tmpl}  (replace every <...> slot before running)" if tmpl else "(none)"),
         "",
         _row("· Task", "Author one real call and pass it as --input."),
         _row("· Requirement", "It must run. Detective derives every test from it."),
         _row("", "Values are yours to choose — it will not invent one whose"),
         _row("", "meaning is not in the code. A class from the module goes"),
         _row("", "in as its constructor. Repeatable for another branch."),
+        "",
+        f"THEN RUN:  {cmd}",
     ]
 
 
@@ -3282,6 +3531,11 @@ def _regime_action(regime, plan, applied, target: str | None = None) -> list[str
             "DO THIS:  resolve the conflict — every verdict here is untrustworthy until",
             "          you do. Run the command you wanted; it refuses with the exact fix.",
         ]
+    if applied:
+        return [
+            "DONE:  migration applied; the re-read regime now resolves cleanly. Run",
+            "       `detective audit`, `converge`, or `decompose` on a target in it.",
+        ]
     # `DONE:`, not `DO THIS: nothing`. Every other command already draws this line — `DONE: no
     # separable block`, `DONE: every killable behaviour is pinned` — and the split is the whole
     # contract for a caller that is not a person: `DO THIS:` is a command to RUN, `DONE:` is a
@@ -3539,17 +3793,38 @@ def _run_live(args) -> int:
     # be the one command guaranteed to fail exactly when it is needed.
     if getattr(args, "command", None) in ("purge", "regime", "parsimony") or not root:
         return _run(args)
+    context = _execution_context()
+    if context.disposition == "wrong_interpreter":
+        detail = _format_execution_refusal(context)
+        if getattr(args, "json", False):
+            print(
+                json.dumps(
+                    {
+                        "verdict": "REFUSED",
+                        "reason": "wrong_interpreter",
+                        "active_environment": context.active_environment,
+                        "executable": context.executable,
+                        "detail": detail.strip(),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            sys.stderr.write(detail)
+        return 2
     # Resolve the testing regime BEFORE the session — the session is the expensive part, and
     # tracing a suite that cannot reach the target is the longest possible way to learn nothing.
     # Refuse rather than warn: a warning above a plausible report is read as a footnote, and the
     # report underneath says "0 tests cover this", which is exactly the sentence that sends
     # someone off to write a suite against a copy nobody runs.
-    if (target_arg := getattr(args, "target", None)) and not getattr(args, "json", False):
+    target_arg = getattr(args, "target", None)
+    regime = None
+    if target_arg:
         try:
             from .regime import resolve_regime
 
             regime = resolve_regime(root, _split_target(target_arg, root)[0])
-            if regime.conflicts:
+            if regime.conflicts and not getattr(args, "json", False):
                 sys.stdout.write(_format_conflicts(regime, target_arg))
                 return 2
         except SystemExit:
@@ -3564,7 +3839,6 @@ def _run_live(args) -> int:
     # The file under analysis, so the suite-global baseline is traced once for it
     # rather than re-derived per profiled function.
     targets: list[str] | None = None
-    target_arg = getattr(args, "target", None)
     if target_arg:
         try:
             targets = [_split_target(target_arg, root)[0]]
@@ -3584,37 +3858,35 @@ def _run_live(args) -> int:
     # cannot import the target even transitively. `paths` is pytest's own collection argument,
     # so the scoping happens before anything is imported, not after everything is traced.
     # `None` (analysis unsure, or no target) collects everything — byte-identical to before.
-    paths = _reachable_paths(root, targets)
+    paths = _reachable_paths(
+        root,
+        targets,
+        target_module=regime.module if regime is not None else None,
+        import_roots=regime.suite_path if regime is not None else (),
+    )
     # `--trace-budget` / `--trace-session-budget` bound the pass that traces the whole suite, and
     # on the live path that pass runs HERE — inside the seam — not in `profile`. Sent only to
     # `profile`, they reached the per-function baseline the live path never uses, so raising them
     # changed nothing and the phase stayed capped at the engine's default: a documented opt-out
     # that could not reach the thing it opts out of.
     diagnostic: dict[str, Any] = {}
-    try:
-        code = run_with_live_suite(
-            root,
-            lambda: _run(args),
-            target_files=targets,
-            paths=paths,
-            trace_progress=_stream_trace_progress(label),
-            trace_budget_s=_trace_budget(args),
-            trace_session_budget_s=_trace_session_budget(args),
-            diagnostic=diagnostic,
-        )
-    except TypeError:  # older Wesker: seam without diagnostic (or the older progress/paths)
-        try:
-            code = run_with_live_suite(
-                root,
-                lambda: _run(args),
-                target_files=targets,
-                paths=paths,
-                trace_progress=_stream_trace_progress(label),
-                trace_budget_s=_trace_budget(args),
-                trace_session_budget_s=_trace_session_budget(args),
-            )
-        except TypeError:
-            code = run_with_live_suite(root, lambda: _run(args), target_files=targets)
+    # Call the seam ONCE. The previous `except TypeError` ladder feature-detected an older Wesker
+    # by RE-RUNNING the body — but `_run(args)` writes tests, and an ordinary TypeError raised
+    # INSIDE it (not a signature mismatch) was indistinguishable from an old signature, so the
+    # body replayed up to three times, repeating its writes. The published Detective/Wesker pair is
+    # version-pinned to a matched seam (pyproject floor + uv.lock), so a signature mismatch is a
+    # broken install that must fail LOUDLY here rather than be silently retried; the `ImportError`
+    # above still degrades a MISSING seam. An internal TypeError now propagates on the first call.
+    code = run_with_live_suite(
+        root,
+        lambda: _run(args),
+        target_files=targets,
+        paths=paths,
+        trace_progress=_stream_trace_progress(label),
+        trace_budget_s=_trace_budget(args),
+        trace_session_budget_s=_trace_session_budget(args),
+        diagnostic=diagnostic,
+    )
     if code is None:
         sys.stderr.write(_format_session_warning(diagnostic))
         reason = str(diagnostic.get("reason", "") or "")
@@ -3759,10 +4031,10 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
     """
     reason = diagnostic.get("reason", "unknown")
     if reason == "pytest_missing":
+        install = shlex.join(["uv", "pip", "install", "--python", sys.executable, "pytest"])
         return (
             "WARNING: pytest is not importable in the interpreter that runs the live suite.\n"
-            "         Install it (e.g. `pip install pytest`) in that environment, or run\n"
-            "         Detective from an interpreter that has it.\n"
+            f"         Install it in that exact interpreter: `{install}`.\n"
         )
     if reason == "collection_errors":
         errors = diagnostic.get("errors", [])
@@ -3782,21 +4054,32 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
         # project, not by pruning testpaths — pointing there sends the user chasing the wrong thing
         # for hours (#66). Detect the import signature and give the accurate remedy.
         blob = " ".join(f"{n} {d}" for n, d in errors).lower()
-        if any(
-            s in blob for s in ("modulenotfound", "importerror", "no module named", "conftest/config load")
-        ):
+        pkg = plugin_hint(blob)
+        is_import = any(s in blob for s in ("modulenotfound", "importerror", "no module named"))
+        if is_import:
+            install_project = shlex.join(
+                ["uv", "pip", "install", "--python", sys.executable, "-e", ".[test]"]
+            )
             hint = (
                 "         This is an IMPORT failure loading a conftest/config, not a discovery\n"
-                "         problem: install the project's dependencies (e.g. `pip install -e .`) or\n"
-                "         the named module, then re-run. Adjusting `testpaths` will not fix it.\n"
+                "         problem: install the project's dependencies in this exact interpreter\n"
+                f"         (for example `{install_project}`), then re-run. Adjusting `testpaths`\n"
+                "         will not fix it.\n"
             )
             # Turn "install something" into "install THIS": a --strict-config repo refuses its whole
             # config when a plugin it declares an ini option for is absent, so name the plugin.
-            if pkg := plugin_hint(blob):
+            if pkg:
+                install_plugin = shlex.join(["uv", "pip", "install", "--python", sys.executable, pkg])
                 hint += (
-                    f"         Likely missing: `{pkg}` — `pip install {pkg}` (or the project's\n"
-                    "         test extra, e.g. `pip install -e '.[test]'`), then re-run.\n"
+                    f"         Likely missing: `{pkg}` — `{install_plugin}` (or install the\n"
+                    "         project's test extra), then re-run.\n"
                 )
+        elif pkg:
+            install_plugin = shlex.join(["uv", "pip", "install", "--python", sys.executable, pkg])
+            hint = (
+                f"         Pytest rejected a config/marker owned by `{pkg}`. Install that plugin\n"
+                f"         in this exact interpreter: `{install_plugin}`, then re-run.\n"
+            )
         else:
             hint = (
                 '         Common fix: set `[tool.pytest.ini_options] testpaths = ["tests"]`\n'
@@ -4289,6 +4572,7 @@ def _run(args) -> int:
                     report_path,
                     args.project_root,
                     getattr(args, "session_reason", ""),
+                    tuple(getattr(args, "input", ()) or ()),
                 )
             )
         # 3, not 1: "the measurement is invalid, re-run" is a different failure

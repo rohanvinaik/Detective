@@ -260,7 +260,7 @@ def test_identical_witnesses_collapse_to_one_input_and_say_what_they_cover():
     which is not a thing anyone pastes. The count it was carrying is stated instead."""
     out = _out()  # 5 killable, all with the SAME witness (1,)
     assert out.count('--input "(1,)"') == 1
-    assert "1 distinct — they cover 5 mutant(s)" in out
+    assert "1 distinct call(s) cover 5 mutant obligation(s)" in out
     assert "SUGGESTED" in out
 
 
@@ -422,11 +422,12 @@ def test_the_line_ask_names_every_gap_not_just_the_first():
     assert kind == "lines" and total == 7 and len(items) == 7
 
 
-def test_the_line_ask_renders_a_runnable_command_and_names_each_condition():
-    """The renderer, not just the derivation: one `--input` slot per line so the count of
-    slots IS the number of calls to author, and every guard printed verbatim. The block a
-    reader pastes has to carry the conditions, because the informational row above it caps
-    at three and the report file is the thing they did not open."""
+def test_the_line_ask_renders_an_authoring_task_and_an_exact_rerun_command():
+    """An angle-bracket template is useful drafting guidance but invalid input syntax.
+
+    It therefore cannot sit after ``DO THIS``.  Conditions stay verbatim, while the only command
+    rendered is the exact, parser-valid rerun after the caller has authored real inputs/tests.
+    """
     from Detective.cli import _derived_input
 
     proof = _proof(
@@ -443,9 +444,10 @@ def test_the_line_ask_renders_a_runnable_command_and_names_each_condition():
         )
     )
 
-    command = out.splitlines()[0]
-    assert command.startswith("DO THIS:  detective converge 'p.py::quote' --input ")
-    assert command.count("--input") == 1  # ONE slot; the count is the Task line's job
+    assert out.splitlines()[0].startswith("AUTHOR INPUTS:")
+    assert not any(line.startswith("DO THIS:") for line in out.splitlines())
+    assert "THEN RUN:  detective converge 'p.py::quote'" in out
+    assert "<service>" not in next(line for line in out.splitlines() if line.startswith("THEN RUN:"))
     assert "Author 2 call(s)" in out
     assert "line 30 — reached only when: service == 'overnight'" in out
     assert "line 45 — reached only when: hazmat == 'limited'" in out
