@@ -483,7 +483,20 @@ def profile(
 
     if tests is None:
         func_names = [qn for qn, _ in walk_functions(tree)]
-        tests = discover_test_callables(root, rel, func_names, extra_dirs=list(extra_test_dirs) or None)
+        # Honor the repo's pytest `testpaths` (the regime is the single source of truth) so a suite
+        # pytest collects ONLY because testpaths names it — a bare `test.py`, say — is not invisible
+        # to Wesker's static discovery and silently reported as 0%. Found dogfooding python-slugify:
+        # pytest collected its 82-test `test.py`, static discovery saw zero, `slugify` read 0 pinned.
+        from .regime import resolve_regime
+
+        testpaths = resolve_regime(root).testpaths
+        tests = discover_test_callables(
+            root,
+            rel,
+            func_names,
+            extra_dirs=list(extra_test_dirs) or None,
+            testpaths=testpaths,
+        )
 
     # The budgets above default to the ENGINE's, imported — not to `None`. `None` is a real
     # value meaning "unbounded", so restating the session default as None claimed every
