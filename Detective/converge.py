@@ -1695,9 +1695,15 @@ def _converge_impl(
         # tests as evidence — their file is rewritten wholesale on that target's next
         # converge, and a witness dropped on their support silently regresses this
         # target's certificate. User tests and this target's own tests remain evidence.
+        # Weigh deletion on the SAME admissible ledger the certificate rests on (#59). A warm run
+        # replays traces that are proof-inadmissible, so the raw `line_coverage` can show a test as
+        # line-redundant while the admissible view still needs it — dropping it then deletes a test
+        # the certificate requires. Strip foreign evidence from the ADMISSIBLE lines, not the raw
+        # union. On a cold run the two coincide, so this is a no-op there.
+        _own_admissible, _ = admissible_proof_coverage(final_result)
         own_matrix, own_lines = strip_foreign_evidence(
             final_result.kill_matrix,
-            final_result.line_coverage,
+            _own_admissible,
             foreign_generated_test_names(root, func_key),
         )
         # Resolve each redundant identifier to its function name before the lookup (#13). The
@@ -1927,8 +1933,13 @@ def _converge_impl(
     # The branch each uncovered line sits behind — its OWN reach requirement, so the line gap is not
     # left to borrow a mutant's kill input (which targets the == edge, not the branch body).
     missing_guards = tuple((ln, " and ".join(g)) for ln in missing if (g := _line_guards(node, ln)))
-    redundant = redundant_2axis(final_result.kill_matrix, final_result.line_coverage)
-    minimal = minimal_cover_2axis(final_result.kill_matrix, final_result.line_coverage)
+    # Minimize on the SAME admissible ledger completeness rests on (#59): reporting a test as
+    # line-redundant from the raw union while the certificate uses the admissible one is the
+    # self-contradiction a warm (replayed) run produced — "delete this test" above a gap that test
+    # closes. `proof_coverage` is the admissible line ledger computed just above; on a cold run it
+    # equals the raw union, so this is a no-op there.
+    redundant = redundant_2axis(final_result.kill_matrix, proof_coverage)
+    minimal = minimal_cover_2axis(final_result.kill_matrix, proof_coverage)
     # #38: the certificate's verification axis. COMPLETE requires a GREEN run of the exact target
     # proof basis under REAL pytest — the generated file PLUS the hand-written files that supplied
     # target kills (`_covering_test_files`), not merely Wesker's direct-call runner. Run it only
