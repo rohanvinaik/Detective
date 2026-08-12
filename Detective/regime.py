@@ -329,7 +329,19 @@ def _pytest_table(root: str) -> dict:
             )
         except (OSError, ValueError, ImportError, AttributeError):
             return {}
-        return table if isinstance(table, dict) else {}
+        if not isinstance(table, dict):
+            return {}
+        # The ini comment below assumes "the TOML side returns LISTS for the keys we read" — but a
+        # TOML author may write a bare STRING for an args/paths option (`testpaths = "tests"`, valid
+        # and pytest-accepted), which every consumer then iterates CHARACTER-wise (`t`,`e`,`s`,…).
+        # Split those keys at the SINGLE source — the same ones `_as_list` splits on the ini side —
+        # so the assumption holds for every reader and none re-derives it wrong (this module's
+        # founding rule). Found dogfooding structlog: `_conftests` walked `root/t`/`root/e` and missed
+        # `tests/conftest.py`; `resolve_regime` rendered `testpaths: t, e, s, t, s`.
+        for _k in ("testpaths", "pythonpath", "norecursedirs"):
+            if isinstance(table.get(_k), str):
+                table[_k] = table[_k].split()
+        return table
     try:
         import configparser
 

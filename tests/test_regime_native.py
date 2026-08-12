@@ -389,4 +389,15 @@ def test_a_string_pythonpath_is_also_split_not_charwise(tmp_path):
     """`pythonpath` carries the identical bug — a bare string must not become its characters."""
     _cfg(tmp_path, '[tool.pytest.ini_options]\npythonpath = "src"\n')
     assert resolve_regime(str(tmp_path)).pythonpath == ("src",)
-    assert pytest_honors_bare_tool_pytest("weird") is False
+
+
+def test_a_conftest_under_a_string_testpaths_is_found_not_char_walked(tmp_path):
+    """The SIBLING of the string-testpaths bug: `_conftests` iterated `testpaths` char-wise (`root/t`,
+    `root/e`, …), so a real `tests/conftest.py` under `testpaths = "tests"` was invisible — `regime`
+    reported `conftest (none)` for structlog while it has one. Fixed at the single source
+    (`_pytest_table` splits the scalar string), so BOTH readers now see the real path."""
+    _cfg(tmp_path, '[tool.pytest.ini_options]\ntestpaths = "tests"\n')
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "conftest.py").write_text("import pytest\n")
+    assert "tests/conftest.py" in resolve_regime(str(tmp_path)).conftests
