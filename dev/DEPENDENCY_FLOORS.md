@@ -191,3 +191,22 @@ Wesker in the 0.11.x line — this floor encodes "the pairing we ship and verifi
 for repos that run both tools' CI, where the failure genuinely lands. That is a
 weaker justification class than every floor above, and the entry says so rather
 than dressing it up as one of them.
+
+## Wesker >= 0.12.0
+
+\>= 0.12.0 is the strongest justification class in this ledger: below it Detective does not run at
+all. `Detective.cli` imports `Wesker.trace_evidence` — the typed per-TestId line ledger (#17), whose
+`trace_admissibility` and `build_trace_ledger` the certificate's admissible view rests on — and
+published 0.11.2 has no such module. A wheel resolving `Wesker>=0.11.2` from PyPI installs a Wesker
+missing it, and `detective --help` dies on `ModuleNotFoundError: No module named
+'Wesker.trace_evidence'` before it parses a single argument. `Wesker.__init__` still called itself
+0.11.2 despite carrying the module, so the floor could not name the version that has it until this
+release bumped Wesker to 0.12.0.
+
+0.12.0 also carries the covering-tests fresh RE-OBSERVATION (#20): a warm `converge` / `diagnose`
+re-observes exactly the target's covering tests this session rather than admitting a cache-replayed
+trace, so a certificate stops reporting a false gap on a re-run. Detective reaches it through the
+unchanged `run_with_live_suite` seam — not a new import symbol — but a Detective run against a 0.11.x
+Wesker gets the OLD warm-run behaviour (the environment-sensitive
+`test_verdicts_are_stable_across_repeated_runs`, red on Linux CI). That correctness coupling, not only
+the crash, is why the pair must move together.

@@ -102,6 +102,9 @@ classifiers = [
 # reproduced, and why each is a requirement rather than a preference — live in
 # dev/DEPENDENCY_FLOORS.md. One-line pointers:
 #
+#   Wesker >= 0.12.0 `Wesker.trace_evidence` (typed per-TestId line ledger, #17) + the covering-tests
+#                    fresh re-observation (#20): published 0.11.2 has NEITHER, so `detective --help`
+#                    dies on `No module named 'Wesker.trace_evidence'` before it can run at all
 #   Wesker >= 0.11.2 fd-reentry in the action layer: the maintainer-directed pairing
 #                    floor — below it a repo running both tools' CI loses its badge
 #                    report to a mutant-killed stdout (EBADF after a complete run)
@@ -118,7 +121,7 @@ classifiers = [
 #   Wesker >= 0.6.0  stdout-buffer death: full report written to a dead buffer, exit 0
 #   pytest, ruff     RUNTIME deps: the product is a pytest file that must pass ruff format
 dependencies = [
-    "Wesker>=0.11.2",  # policy receipts + the report that survives its own measurement — see dev/DEPENDENCY_FLOORS.md
+    "Wesker>=0.12.0",  # Wesker.trace_evidence + covering-tests fresh re-observation — see dev/DEPENDENCY_FLOORS.md
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it
