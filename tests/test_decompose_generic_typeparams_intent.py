@@ -18,9 +18,17 @@ pinned wrong.
 from __future__ import annotations
 
 import ast
+import sys
 from types import SimpleNamespace
 
+import pytest
+
 from Detective.decompose_apply import extract_candidate, helper_generic_clause
+
+# PEP 695 generic syntax (`def f[E, R](...)`) and `ast.FunctionDef.type_params` are Python 3.12+.
+# On 3.11 the feature is a no-op (`extract_candidate` reads `getattr(func, "type_params", [])` → []),
+# so there is nothing to exercise — and the source strings below cannot even parse. Skip the module.
+pytestmark = pytest.mark.skipif(sys.version_info < (3, 12), reason="PEP 695 generics require Python 3.12+")
 
 
 def _cand(**kw):
