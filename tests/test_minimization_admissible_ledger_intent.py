@@ -19,10 +19,11 @@ from Detective.minimize import redundant_2axis
 
 
 def test_a_sole_admissible_coverer_is_not_redundant_even_if_raw_shows_a_co_coverer():
-    # `test_keep` is the only ADMISSIBLE coverer of line 5. `test_stale` reaches lines 5 and 9, but
-    # only via a replayed / baseline-red trace, so the admissible ledger bars it entirely. Neither
-    # kills a unique mutant, so redundancy is decided on the line axis alone.
-    km = {"test_keep": [], "test_stale": []}
+    # `kill_matrix` is `{mutant_id: [killing_test_ids]}`. BOTH tests kill m1, so neither is a unique
+    # killer — the kill axis is neutral and redundancy turns on the LINE axis, which is what this
+    # pins. `test_keep` is the only ADMISSIBLE coverer of line 5; `test_stale` reaches lines 5 and 9
+    # only via a replayed / baseline-red trace, so the admissible ledger bars its coverage.
+    km = {"m1": ["test_keep", "test_stale"]}
     raw = {"test_keep": [5], "test_stale": [5, 9]}
     admissible = {"test_keep": [5]}  # test_stale's inadmissible trace excluded
 
