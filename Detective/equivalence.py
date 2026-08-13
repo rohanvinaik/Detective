@@ -546,6 +546,48 @@ _CLASSIFY_TIMEOUT_S = 5.0
 _CLASSIFY_UNWIND_S = 0.25
 _OUTCOME_TIMEOUT = "<classifier-timeout>"
 
+# Elements observed before an iterator outcome is TRUNCATED (its suffix left unknown).
+_ITER_PREFIX_MAX = 64
+
+
+def _observe(value: Any) -> str:
+    """A comparable, address-free observation of a value — the SHARED outcome the equivalence and
+    characterization paths both read.
+
+    ``repr`` is unsound for a ONE-SHOT iterator: ``filter`` / ``map`` / a generator repr as
+    ``<... object at 0xADDR>``, so two EQUAL results differ only by address and a mutant manufactures
+    a witness no test can ever pin (the funcy ``where`` / ``pluck`` failure). A one-shot iterator
+    (``iter(x) is x`` — a list/str/dict returns a NEW iterator and is untouched) is observed by
+    CONTENT, bounded:
+
+      * ``<iter T exhausted [...]>`` — StopIteration within N: the whole result, pinnable exactly.
+      * ``<iter~trunc T [...]>`` — more than N elements: a prefix only. Equal-truncated is UNKNOWN,
+        never ``same`` (a suffix past N could still differ — proving equivalence there is a false
+        certificate on a long/infinite generator); a DIFFERING prefix is a real kill.
+      * ``<iter T raised@k E>`` — iteration itself raised at element k.
+
+    Element reprs are address-scrubbed for the same reason the whole is. Consumes ``value`` — safe
+    because the caller produced it FRESH for this one observation.
+    """
+    try:
+        one_shot = iter(value) is value
+    except TypeError:  # not iterable at all — a plain value
+        return repr(value)
+    if not one_shot:  # a re-iterable container: its repr is stable and address-free
+        return repr(value)
+    name = type(value).__name__
+    prefix: list[str] = []
+    try:
+        for element in value:
+            if len(prefix) >= _ITER_PREFIX_MAX:
+                return f"<iter~trunc {name} {prefix}>"
+            prefix.append(_VOLATILE_IN_MESSAGE.sub("0x_", repr(element)))
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as exc:  # noqa: BLE001 — an iterator raising IS an observable outcome
+        return f"<iter {name} raised@{len(prefix)} {type(exc).__name__}>"
+    return f"<iter {name} exhausted {prefix}>"
+
 
 def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
     """How one input distinguishes a mutant, from the ORIGINAL's and the MUTANT's outcomes.
@@ -556,6 +598,11 @@ def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
     which value-specification accounting does not credit). ``witness`` — a value-killable difference.
     """
     if original_outcome == _OUTCOME_TIMEOUT or mutant_outcome == _OUTCOME_TIMEOUT:
+        return "blocked"
+    # An equal TRUNCATED iterator prefix is UNKNOWN, not equivalent: a suffix past the observed bound
+    # could still differ, so declaring it 'same' would be a false certificate on a long or infinite
+    # generator. A DIFFERING prefix falls through to 'witness' below — a real kill.
+    if original_outcome == mutant_outcome and original_outcome.startswith("<iter~trunc"):
         return "blocked"
     if original_outcome == mutant_outcome:
         return "same"
@@ -616,7 +663,7 @@ def _outcome(fn: Callable[..., Any], args: tuple, timeout_s: float = _CLASSIFY_T
     def _run() -> None:
         try:
             with block_fs_writes():
-                box["v"] = repr(fn(*(unwrap(a) for a in args)))
+                box["v"] = _observe(fn(*(unwrap(a) for a in args)))
         except _CaptureWriteBlocked as exc:
             # A speculative write was PREVENTED (#30). The guard now sits above `Exception` so the
             # target's own `except Exception` can never swallow it — but that means OUR handler below
