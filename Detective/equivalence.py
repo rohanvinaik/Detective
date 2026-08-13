@@ -413,6 +413,81 @@ def param_type_names(node) -> list[str | None]:
     return [_type_of(a.annotation) for a in node.args.args if a.arg not in ("self", "cls")]
 
 
+def structural_shape(node) -> dict:
+    """The structural facts that decide whether the deterministic witness search can REACH a
+    target's distinguishing inputs (feeds :func:`structural_input_difficulty`).
+
+    Impure only in that it walks an ``ast`` node, so it is hand-tested, not pinnable — an AST is
+    not an ``--input`` literal. It reduces the node to three booleans the pure decision consumes:
+
+    * ``has_worklist_loop`` — a ``while`` whose controlling collection is BOTH ``.append``-ed and
+      ``.pop``-ed inside it (a fixpoint / worklist). This is the shape that makes the reachable
+      input space RECURSIVE: how many times the loop turns, and what it visits, depends on values
+      pulled out of the input, so a flat scalar grid cannot drive it to its distinguishing states.
+    * ``indexes_into_element`` — a chained subscript ``x[i][j]``: indexing INTO an element pulled
+      out of a collection, the value cross-reference synthesis does not construct.
+    * ``nested_container_param`` — a positional parameter annotated with a nested container
+      (``list[list[...]]`` / ``list[tuple[...]]`` / ``dict[..., list[...]]``): the same recursive
+      shape, declared in the signature.
+    """
+    positional = [*getattr(node.args, "posonlyargs", []), *node.args.args]
+    worklist = False
+    for while_node in (n for n in ast.walk(node) if isinstance(n, ast.While)):
+        test_names = {x.id for x in ast.walk(while_node.test) if isinstance(x, ast.Name)}
+        appended: set[str] = set()
+        popped: set[str] = set()
+        for call in ast.walk(while_node):
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and isinstance(call.func.value, ast.Name)
+            ):
+                if call.func.attr == "append":
+                    appended.add(call.func.value.id)
+                elif call.func.attr == "pop":
+                    popped.add(call.func.value.id)
+        # The SAME name must drive the loop test and be both grown and drained — a plain
+        # accumulator (append only) or an unrelated list is not a worklist.
+        if appended & popped & test_names:
+            worklist = True
+            break
+    indexes_into_element = any(
+        isinstance(n, ast.Subscript) and isinstance(n.value, ast.Subscript) for n in ast.walk(node)
+    )
+    nested_container_param = any(
+        isinstance(a.annotation, ast.Subscript)
+        and any(isinstance(s, ast.Subscript) for s in ast.walk(a.annotation.slice))
+        for a in positional
+        if a.annotation is not None
+    )
+    return {
+        "has_worklist_loop": worklist,
+        "indexes_into_element": indexes_into_element,
+        "nested_container_param": nested_container_param,
+    }
+
+
+def structural_input_difficulty(
+    has_worklist_loop: bool, indexes_into_element: bool, nested_container_param: bool
+) -> str:
+    """Pure (#67 detector — pinned): does this target have the shape whose distinguishing inputs
+    the deterministic witness search does NOT synthesize?
+
+    Returns ``"deep_structural"`` when it does — the caller should then caution that a persisting
+    survivor may be KILLABLE with a nested / cross-referential input rather than equivalent, so a
+    ``flag`` needs a differential check first — and ``"flat"`` otherwise.
+
+    Fires only on a worklist/fixpoint loop (the recursive-reachability signal) COMBINED with either
+    indexing into collection elements or a nested-container parameter. The worklist is REQUIRED: a
+    nested parameter iterated flatly is within synthesis's reach, and a chained subscript in a
+    straight-line function does not by itself defeat the scalar grid. Conservative on purpose — a
+    false ``"deep_structural"`` only adds an advisory, but it must not fire on ordinary functions.
+    """
+    if has_worklist_loop and (indexes_into_element or nested_container_param):
+        return "deep_structural"
+    return "flat"
+
+
 _TYPE_GRID: dict[str, list] = {
     "int": [-1, 0, 1, 2, 3],
     # 1.0625 = 1 + 1/16: exactly representable, four decimal digits. Every other

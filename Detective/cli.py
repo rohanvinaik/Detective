@@ -1083,7 +1083,11 @@ def _update_per_mutant_ms(observed_ms: float) -> None:
 
 
 def _format_survivor_report(
-    rep, signature: str = "", param_names: tuple[str, ...] = (), verbose: bool = True
+    rep,
+    signature: str = "",
+    param_names: tuple[str, ...] = (),
+    verbose: bool = True,
+    structural_difficulty: str = "",
 ) -> list[str]:
     """Render the grounded disposition of every leftover survivor: equivalent
     (retained), killable (a suggested test, NOT auto-applied), or uncertain.
@@ -1155,6 +1159,19 @@ def _format_survivor_report(
         head += " `flag` if truly equivalent:"
         lines.append(head)
         lines += _survivor_lines(crash_only, verbose, param_names)
+    # #67 detector: when the target has the nested / worklist-driven shape whose distinguishing
+    # inputs deterministic synthesis does not reach, a leftover survivor may be killable with a
+    # harder (nested / cross-referential) input rather than equivalent — so caution against a
+    # false `flag` here. Only when there ARE flag-eligible survivors (candidate-equivalent or
+    # crash-only); a fully killed target needs no caveat.
+    if structural_difficulty == "deep_structural" and (unproven or crash_only):
+        lines.append(
+            "  ⚠ deep-structure caveat: this target indexes into collection elements and drives a "
+            "worklist/fixpoint loop — a shape whose distinguishing inputs the witness search does "
+            "NOT synthesize. A survivor above may be KILLABLE with a nested / cross-referential "
+            "input, not equivalent. Confirm with a differential check (original vs mutant over "
+            "hand-built structural inputs) BEFORE you `flag`."
+        )
     if rep.manual_equivalent:
         lines.append(
             f"  ✓ {len(rep.manual_equivalent)} survivor(s) flagged equivalent (oracle — PROVEN, not gaps)"
@@ -1569,7 +1586,11 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
     if result.remaining:
         lines.append(f"  remaining: {', '.join(result.remaining)}")
     lines += _format_survivor_report(
-        result.survivor_report, result.signature, result.param_names, verbose=verbose
+        result.survivor_report,
+        result.signature,
+        result.param_names,
+        verbose=verbose,
+        structural_difficulty=result.structural_difficulty,
     )
     # Make the equivalent-mutant escape hatch discoverable: a new user should never have
     # to read --help to learn `flag`, nor loop forever chasing an unkillable mutant. Emit
@@ -3018,6 +3039,24 @@ _REGIME_STAGE = (
 )
 
 
+# converge is the one command that WRITES, and WHEN it writes is a first-order instruction, not
+# a nicety. Converge a function in ISOLATION right after writing it, BEFORE wiring it into a
+# property / to_dict / any broadly-called path: a wired target's covering set is every test that
+# reaches its callers, so tracing inflates to suite scale and the run can hang (the covering set
+# was never meant to scale with the suite — the unit is ONE function's tests). Converged in
+# isolation the covering set is just this function's own tests, and the complete suite lands while
+# the code is still fresh in hand. Shown on converge's own --help page (epilog).
+_CONVERGE_WORKFLOW = (
+    "WORKFLOW — converge at WRITE TIME, in isolation:\n"
+    "    Write the function, converge it, THEN wire it in. Converging a function that\n"
+    "    is already wired into a property / to_dict / a broadly-called path traces\n"
+    "    every test reaching those callers, so its covering set balloons to suite\n"
+    "    scale and the run can hang. In isolation the covering set is just this\n"
+    "    function's own tests — the complete, minimal suite lands while the code is\n"
+    "    still fresh in hand."
+)
+
+
 def _target_ns(file: str, function: str, root: str) -> dict:
     """The target module's namespace, for `--input`.
 
@@ -3202,6 +3241,9 @@ def _build_parser() -> argparse.ArgumentParser:
             ),
         )
         if name == "converge":
+            # The workflow note renders after the options on `converge --help` (this loop set
+            # RawDescriptionHelpFormatter, so the epilog is shown verbatim).
+            p.epilog = _CONVERGE_WORKFLOW
             p.add_argument(
                 "--write-dir",
                 default="tests/detective",

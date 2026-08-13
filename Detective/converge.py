@@ -38,7 +38,12 @@ from .certify import (
     wire_pytest,
 )
 from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
-from .equivalence import SourceExpr, SurvivorReport
+from .equivalence import (
+    SourceExpr,
+    SurvivorReport,
+    structural_input_difficulty,
+    structural_shape,
+)
 from .line_flags import classify_missing_lines
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
 from .purity import environment_reads, is_pure, uncovered_env_reads, world_effects
@@ -211,6 +216,13 @@ class ConvergeResult:
     # for building the input template. Both are cheap AST reads (node.args), no execution.
     signature: str = ""  # e.g. "minimal_cover_2axis(kill_matrix: dict, line_coverage: dict)"
     param_names: tuple[str, ...] = ()  # positional param names -> --input slot placeholders
+    # The target's structural class for input synthesis (#67 detector): "deep_structural" when the
+    # function has the nested / worklist-driven shape whose distinguishing inputs deterministic
+    # synthesis does not reach, else "flat" (or "" on an older result). A survivor on a
+    # deep_structural target may be killable-with-harder-input rather than equivalent, so the CLI
+    # cautions against flagging it equivalent without a differential check. A cheap AST read (like
+    # signature/param_names), computed once from the node — never gates a certificate, only advises.
+    structural_difficulty: str = ""
     # No pre-existing test file named this target or any function in its file, so discovery
     # returned the empty suite and every test below is one we synthesized. Reported because
     # the two ways to reach "COMPLETE" are not the same claim: converging a suite the user
@@ -1987,6 +1999,10 @@ def _converge_impl(
         inferred = infer_param_types(qualname or function, project_root, list(param_names))
         if inferred:
             sig, param_names = _signature(qualname, node, inferred=inferred)
+    # #67 detector: does this target have the nested / worklist-driven shape whose distinguishing
+    # inputs the witness search does not synthesize? Advisory only — the CLI uses it to caution
+    # against a false `flag` on a survivor that may be killable-with-harder-input, never a gate.
+    structural_difficulty = structural_input_difficulty(**structural_shape(node))
     return ConvergeResult(
         function=func_key,
         # A cut run has not "converged" anything either — it stopped short, so the
@@ -2018,6 +2034,7 @@ def _converge_impl(
         coverage_guarantee=greedy_coverage_guarantee(node, _cats, max_per_cat, len(iterations)),
         signature=sig,
         param_names=param_names,
+        structural_difficulty=structural_difficulty,
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(),
         stale_target=stale,

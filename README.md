@@ -85,6 +85,8 @@ $ detective converge stats.py::anomaly_score
     if score > 1.0:           →  >=   supply an input where score == 1.0
 ```
 
+> **Converge at write time, in isolation.** The moment to `converge` a function is the moment you finish writing it — and *before* you wire it into a property, a `to_dict`, or any broadly-called path. Converging a function that is already wired traces every test that reaches its callers, so its covering set balloons to suite scale and the run drags (or hangs). Converged in isolation, the covering set is just that function's own tests, and the complete, minimal suite lands in your hand while the code is still fresh. Write → `converge` → wire, in that order.
+
 Not every kill is worth the same, and Detective is the tool that says so. A test catches a mutant two ways: it *asserts* the return value is wrong, or it merely *crashes*. Only the first pins what the function computes; a crash proves the code ran differently and nothing more. Most tools blur the two into one percentage. Detective does not — it counts assertion kills as specified behavior and reports the crashes separately, against its own score:
 
 ```
