@@ -425,6 +425,41 @@ def _block_span_with_comments(lines, start, end):
     return start, e
 
 
+def helper_generic_clause(type_params, referenced) -> str:
+    """Pure (#28 follow-on — pinned): the PEP 695 generic clause the extracted helper
+    must declare so a threaded annotation that names a parent type-param stays defined.
+
+    ``#28`` threads the parent's parameter annotations onto the helper (``x: list[E]``)
+    but the helper is spliced at MODULE scope, where a type-param ``E`` scoped to the
+    parent ``def f[E, R](...)`` is an undefined name — ruff F821 / a ty unresolved-
+    reference on every applied split over a generic function. The helper must therefore
+    redeclare the subset of the parent's type-params its threaded annotations actually
+    use.
+
+    ``type_params`` is the parent's params in declaration order, each a
+    ``[name, source, deps]`` triple: ``source`` is the text to re-emit verbatim (so a
+    bound/default/``*``/``**`` rides along) and ``deps`` the type-param names that source
+    itself references. ``referenced`` is the type-param names the helper's threaded
+    annotations mention.
+
+    Returns the bracketed subset in PARENT ORDER, transitively closed over ``deps`` (a
+    bound ``R: list[E]`` drags in ``E``), and the empty string when nothing applies — so
+    the caller concatenates it unconditionally. Parent order preserves PEP 695's
+    'defaults last' invariant the valid parent already satisfies; emitting only the used
+    subset keeps the helper from declaring a type-param it never mentions.
+    """
+    by_name = {tp[0]: tp for tp in type_params}
+    need = {name for name in referenced if name in by_name}
+    frontier = list(need)
+    while frontier:
+        for dep in by_name[frontier.pop()][2]:
+            if dep in by_name and dep not in need:
+                need.add(dep)
+                frontier.append(dep)
+    used = [tp[1] for tp in type_params if tp[0] in need]
+    return f"[{', '.join(used)}]" if used else ""
+
+
 def extract_candidate(source: str, function: str, candidate) -> Extraction | None:
     """Extract the finder's contiguous block (``candidate.start_line..end_line``)
     into ``candidate.proposed_name``, using the def-use interface the deterministic
@@ -467,14 +502,44 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
     # local computed before the block has none. Dropping them all reds strict annotation lint
     # (ruff ANN001 / a mypy call-site) and broke a target repo's CI on every applied split — a
     # split that is behaviour-preserving must also stay mergeable.
-    annotations = {
-        a.arg: ast.unparse(a.annotation)
+    annotation_nodes = {
+        a.arg: a.annotation
         for a in [*func.args.posonlyargs, *func.args.args, *func.args.kwonlyargs]
         if a.annotation is not None
     }
+    annotations = {name: ast.unparse(node) for name, node in annotation_nodes.items()}
     params = _annotated_params(candidate.inputs, annotations)
+    # PEP 695: a threaded annotation (#28) that names one of the parent's type-params
+    # (``def f[E](x: list[E])``) would land ``E`` on the MODULE-level helper, where it is an
+    # undefined name (ruff F821 / ty unresolved-reference) — so the helper must redeclare the
+    # subset of the parent's type-params its threaded annotations actually use. ``referenced``
+    # is drawn only from the annotations that are emitted (the parent-param inputs); each
+    # type-param carries its own source and the names its bound/default reference, for
+    # helper_generic_clause to close over.
+    referenced = {
+        node.id
+        for name in candidate.inputs
+        if name in annotation_nodes
+        for node in ast.walk(annotation_nodes[name])
+        if isinstance(node, ast.Name)
+    }
+    type_params = [
+        [
+            tp.name,
+            ast.unparse(tp),
+            [
+                m.id
+                for child in (getattr(tp, "bound", None), getattr(tp, "default_value", None))
+                if child is not None
+                for m in ast.walk(child)
+                if isinstance(m, ast.Name)
+            ],
+        ]
+        for tp in getattr(func, "type_params", [])
+    ]
+    generic = helper_generic_clause(type_params, referenced)
     returns = ", ".join(candidate.outputs)
-    helper = f"def {helper_name}({params}):\n{body}"
+    helper = f"def {helper_name}{generic}({params}):\n{body}"
     if candidate.outputs:
         helper += f"    return {returns}\n"
     helper += "\n\n"
