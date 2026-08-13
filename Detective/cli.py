@@ -115,6 +115,7 @@ def _reachable_paths(
     targets: list[str] | None,
     target_module: str | None = None,
     import_roots: tuple[str, ...] = (),
+    testpaths: tuple[str, ...] = (),
 ) -> list[str] | None:
     """pytest collection paths scoped to the target, or None to collect everything.
 
@@ -122,6 +123,10 @@ def _reachable_paths(
     static analysis degrades to None, i.e. exactly today's full collection. A speedup that
     can turn a verdict wrong is not a speedup, and this one is only ever allowed to make the
     tool faster or leave it alone.
+
+    ``testpaths`` is the regime's declared pytest ``testpaths``: it bounds the collection to the
+    project's own suite so an installed dependency's ``test_*.py`` (which a repo-walk reaches under
+    ``.venv*/``) is never traced, and it is the collection FLOOR when reachability cannot narrow.
     """
     if not targets or len(targets) != 1:
         return None
@@ -133,6 +138,7 @@ def _reachable_paths(
             targets[0],
             target_module=target_module,
             import_roots=import_roots,
+            testpaths=testpaths,
         )
     except Exception:  # noqa: BLE001 — scoping is an optimisation; never fail the run for it
         return None
@@ -3947,6 +3953,10 @@ def _run_live(args) -> int:
         targets,
         target_module=regime.module if regime is not None else None,
         import_roots=regime.suite_path if regime is not None else (),
+        # Bound the collection to pytest's declared testpaths: the authoritative fix for a repo-walk
+        # admitting an installed dependency's suite (ARC: 736 `.venv312` test_*.py). Empty when
+        # undeclared, which leaves today's whole-tree behaviour untouched.
+        testpaths=regime.testpaths if regime is not None else (),
     )
     # `--trace-budget` / `--trace-session-budget` bound the pass that traces the whole suite, and
     # on the live path that pass runs HERE — inside the seam — not in `profile`. Sent only to

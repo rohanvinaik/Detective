@@ -206,26 +206,64 @@ def _reaches(start: str, target: str, graph: dict[str, set[str]], opaque: set[st
     return False
 
 
+def within_declared_testpaths(rel_path: str, testpaths: list[str]) -> str:
+    """Pure (#15/#67 — pinned): is a collected test file admissible under the project's declared
+    pytest ``testpaths``?
+
+    ``rel_path`` is the candidate's repo-relative path with ``/`` separators; ``testpaths`` the
+    declared ``[tool.pytest.ini_options] testpaths`` (each a ``/``-normalized, slash-stripped
+    directory). Returns:
+
+    * ``"unrestricted"`` — no testpaths declared, so pytest itself collects from the whole tree and
+      Detective must not narrow harder than pytest does (byte-identical to before this existed).
+    * ``"within"`` — the file lives under a declared testpath: this project's own suite.
+    * ``"foreign"`` — testpaths ARE declared and this file is outside every one, so pytest would
+      never collect it. It is an installed dependency's ``test_*.py`` (a repo-walk reaches
+      ``.venv*/site-packages/**``, which no name-based skip list can enumerate) — excluding it is
+      matching pytest's authoritative boundary, not a heuristic guess.
+    """
+    if not testpaths:
+        return "unrestricted"
+    if any(rel_path == tp or rel_path.startswith(tp + "/") for tp in testpaths):
+        return "within"
+    return "foreign"
+
+
+def _testpaths_floor(root: str, testpaths: tuple[str, ...]) -> list[str] | None:
+    """The collection to hand pytest when reachability cannot NARROW but testpaths ARE declared:
+    the declared test directories themselves. This is pytest's own default suite — strictly the
+    real tests, never the whole repository root — so a ``None``-would-be case still cannot re-admit
+    an installed dependency's suite. ``None`` (whole-root, today's behaviour) only when nothing is
+    declared to bound it."""
+    dirs = [os.path.join(root, tp) for tp in testpaths]
+    return dirs or None
+
+
 def reachable_test_paths(
     root: str,
     target_file: str,
     target_module: str | None = None,
     import_roots: tuple[str, ...] = (),
+    testpaths: tuple[str, ...] = (),
 ) -> list[str] | None:
-    """Test files that could execute ``target_file``'s lines, or None to collect everything.
+    """Test files that could execute ``target_file``'s lines, bounded to pytest's ``testpaths``.
 
-    None is returned whenever the analysis is not trustworthy — no target module, nothing
-    found, or every test reaching anyway — so the caller's behavior is byte-identical to
-    today. ``conftest.py`` is always included: pytest needs it to collect at all, and a
-    dropped conftest turns a scoped collection into a broken one.
+    When the static analysis cannot NARROW — no target module, target outside the tree, or every
+    test reaching anyway — the result is the ``testpaths`` FLOOR (the declared test dirs), or
+    ``None`` (collect everything, byte-identical to before) only when no testpaths are declared to
+    bound it. A ``test_*.py`` outside every declared testpath is FOREIGN — an installed dependency's
+    suite a repo-walk reached — and never collected: pytest's own boundary, not a name-skip guess.
+    ``conftest.py`` is always included for the kept tests; a dropped conftest breaks collection.
     """
     root = os.path.abspath(root)
+    floor = _testpaths_floor(root, testpaths)
+    tp_norm = [tp.replace(os.sep, "/").rstrip("/") for tp in testpaths]
     target = target_module or module_name(root, target_file, import_roots)
     if not target:
-        return None
+        return floor
     graph, paths, opaque = _build_graph(root, import_roots)
     if target not in graph:
-        return None  # target outside the tree -> cannot reason -> collect everything
+        return floor  # target outside the tree -> cannot reason -> pytest's own suite
 
     keep: list[str] = []
     conftests: list[str] = []
@@ -237,13 +275,16 @@ def reachable_test_paths(
             continue
         if not base.startswith("test_"):
             continue
+        rel = os.path.relpath(p, root).replace(os.sep, "/")
+        if within_declared_testpaths(rel, tp_norm) == "foreign":
+            continue  # an installed dependency's test_*.py — pytest never collects it
         tests += 1
         if m == target or _reaches(m, target, graph, opaque):
             keep.append(p)
     if not tests:
-        return None
+        return floor
     if not keep:
-        return None  # nothing reachable is more likely a broken analysis than a real answer
+        return floor  # nothing reachable is more likely a broken analysis than pytest's own suite
     return sorted(keep + _ancestor_conftests(conftests, keep))
 
 
