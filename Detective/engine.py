@@ -62,6 +62,17 @@ from .purity import is_pure as _is_pure
 from .purity import world_effects
 from .scope import ScopeMap, scope_from_profiling
 
+# Fix B target-first: does the installed Wesker support the per-function seed + lazy-widen path?
+# Feature-detected ONCE so an older pinned engine degrades to the full-baseline run rather than
+# crashing on an unknown `widen_tests` kwarg. `LazySessionBaseline.fork` + `split_live_callables`
+# arrived with it, so the profiling signature alone is a sufficient probe.
+try:
+    import inspect as _inspect
+
+    _WESKER_TARGET_FIRST = "widen_tests" in _inspect.signature(run_function_profiling).parameters
+except Exception:  # noqa: BLE001 — a capability probe must never break import
+    _WESKER_TARGET_FIRST = False
+
 
 def _resolve(
     tree: ast.Module, function: str
@@ -563,22 +574,57 @@ def profile(
     # Pass the live target so Wesker seeds the mutant namespace from its
     # __globals__ (module helpers/constants/imports resolve inside the mutant).
     original = _load_original(full, qualname or function)
-    result = run_function_profiling(  # type: ignore[arg-type]
-        node,
-        func_key,
-        categories,
-        tests,
-        original,
-        budget_ms=budget_ms,
-        max_per_category=max_per_category,
-        pass_index=pass_index,
-        progress=progress,
-        scope_tests=scope_tests,
-        mutant_slice=mutant_slice,
-        trace_budget_s=trace_budget_s,
-        trace_progress=trace_progress,
-        trace_session_budget_s=trace_session_budget_s,
-    )
+
+    # Fix B — TARGET-FIRST. In a live session, fork a per-function baseline holder, SEED it with the
+    # tests that statically name THIS target, and hand the rest to Wesker for lazy widening on a
+    # survivor (or an uncovered line). The fork means seeding this function cannot corrupt a sibling
+    # profiled in the same session. Skipped — leaving the full baseline — when nothing names the
+    # target (an empty seed) or everything does (nothing to defer). Wrapped so any failure degrades
+    # to the ordinary full-baseline run: a speedup must never break a verdict.
+    _seed_token = None
+    _widen_tests: list[Callable[..., Any]] | None = None
+    _session_baseline = None
+    if _WESKER_TARGET_FIRST and scope_tests and tests:
+        from Wesker.engine import _SESSION_BASELINE as _session_baseline
+
+        try:
+            from Wesker.ci import callable_origin, split_live_callables
+
+            _holder = _session_baseline.get()
+            if _holder is not None:
+                _target_name = (qualname or function).split(".")[-1]
+                _scoped_files = list({o for t in tests if (o := callable_origin(t))})
+                _cands, _unknowns = split_live_callables(tests, _scoped_files, _target_name, [_target_name])
+                if _cands and _unknowns:
+                    _seeded = _holder.fork()
+                    _seeded.seed(_cands)
+                    _seed_token = _session_baseline.set(_seeded)
+                    _widen_tests = _unknowns
+        except Exception:  # noqa: BLE001 — target-first is an optimisation; never fail the run
+            _seed_token = None
+            _widen_tests = None
+    _prof_kwargs = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
+    try:
+        result = run_function_profiling(  # type: ignore[arg-type]
+            node,
+            func_key,
+            categories,
+            tests,
+            original,
+            budget_ms=budget_ms,
+            max_per_category=max_per_category,
+            pass_index=pass_index,
+            progress=progress,
+            scope_tests=scope_tests,
+            mutant_slice=mutant_slice,
+            trace_budget_s=trace_budget_s,
+            trace_progress=trace_progress,
+            trace_session_budget_s=trace_session_budget_s,
+            **_prof_kwargs,
+        )
+    finally:
+        if _seed_token is not None and _session_baseline is not None:
+            _session_baseline.reset(_seed_token)
     # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
     # later as if it were the whole profile.
     # Admit on the engine's OWN validity verdict, not a correlate of it (#60). `not
