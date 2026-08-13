@@ -89,6 +89,10 @@ class ScopeMap:
     # there is NOTHING to kill with — a "write a test" signal, not weak tests. -1 = the
     # profiler did not report it (backward-compatible).
     tests_discovered: int = -1
+    # Function-local routing census from Wesker #15. Empty means the profiler did not route; when
+    # present, candidate + unknown + impossible equals tests_discovered and ``observed`` names how
+    # many decisions came from an exact prior trace rather than a static positive prior.
+    test_routing: dict[str, int] = field(default_factory=dict)
     # Structural decomposition seams: the count of clean single-exit, small-interface
     # extraction candidates the deterministic clustering finds (independent of tests). It is
     # the STRUCTURAL half of the "is this two things?" question; regime B is the BEHAVIORAL
@@ -167,6 +171,7 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         load_bearing_tests=load_bearing,
         unspecified_behaviors=[_survivor_desc(s) for s in survivors[:_MAX_UNSPECIFIED]],
         tests_discovered=getattr(result, "tests_discovered", -1),
+        test_routing=dict(getattr(result, "test_routing", {}) or {}),
         # getattr-defaulted: an older engine simply does not report it (same contract as
         # tests_discovered above), and a missing field must never read as "nothing was cut".
         trace_truncated=list(getattr(result, "trace_truncated", ()) or ()),

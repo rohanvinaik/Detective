@@ -51,3 +51,11 @@ def test_only_string_test_names_enter_teaching_set():
     scope = scope_from_profiling(pr)
     assert scope.load_bearing_tests == ["real_test"]
     assert scope.specification.sigma_proxy_teaching_set == 1
+
+
+def test_function_routing_census_survives_the_scope_adapter():
+    """Diagnose JSON/text must expose the exact partition that produced the seed."""
+    pr = make_pr()
+    pr.test_routing = {"candidate": 3, "unknown": 2, "impossible": 7, "observed": 10}
+    scope = scope_from_profiling(pr)
+    assert scope.test_routing == pr.test_routing

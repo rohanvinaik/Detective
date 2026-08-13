@@ -208,6 +208,19 @@ def _format_scope(scope) -> str:
         lines.append(_row("", "reflect ABSENT tests, not weak ones."))
     for row in _trace_cut_rows(scope):
         lines.append(row)
+    routing = getattr(scope, "test_routing", {}) or {}
+    if routing:
+        lines.append(
+            _row(
+                "· test routing",
+                (
+                    f"{routing.get('candidate', 0)} candidate · "
+                    f"{routing.get('unknown', 0)} unknown · "
+                    f"{routing.get('impossible', 0)} observed-impossible "
+                    f"({routing.get('observed', 0)} observed)"
+                ),
+            )
+        )
     # #40: two rows, never one. A crash/timeout kill proves the code RUNS, not what it returns, so
     # it must not sit under the checked "pinned" gutter — a scanning reader reads everything beside
     # ✓ as specified. value-pinned is the checked population; run-only is its own unchecked row.
@@ -944,9 +957,7 @@ def _stream_trace_progress(label: str):
             # Say the wait is coming BEFORE it happens: on a big suite the trace dominates the wall
             # clock and used to print nothing until it finished, indistinguishable from a hang (#53).
             state.opened = True
-            sys.stderr.write(
-                f"{lead}{label}: tracing {total} tests — first run on this target set, a one-time cost{pad}\n"
-            )
+            sys.stderr.write(f"{lead}{label}: tracing {total} function-routed tests{pad}\n")
             sys.stderr.flush()
         if done >= 1 and state.anchor_done == 0:
             state.anchor_done, state.anchor_ms = done, elapsed_ms  # exclude warm-up from the ETA
@@ -959,6 +970,13 @@ def _stream_trace_progress(label: str):
         secs = elapsed_ms / 1000.0
         if done >= total:
             sys.stderr.write(f"{lead}{label}: baseline traced · {total} tests · {secs:.1f}s{pad}\n")
+            # A target-first run may invoke the SAME callback for a candidate seed and, only if a
+            # gap remains, a widened unknown batch. Reset at the phase boundary so the second batch
+            # gets its own opener/ETA instead of following a mutant "done" line in silence.
+            state.opened = False
+            state.anchor_done = 0
+            state.anchor_ms = 0.0
+            state.last_ms = -1e9
         else:
             eta = eta_seconds(done, total, elapsed_ms, state.anchor_done, state.anchor_ms)
             eta_str = f"~{eta:.0f}s" if eta is not None else "estimating…"

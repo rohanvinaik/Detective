@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import inspect
 import json
 from collections.abc import Callable
 from dataclasses import asdict, fields
@@ -43,19 +42,16 @@ def _sha(text: str) -> str:
 
 
 def tests_fingerprint(tests: list[Callable[..., Any]]) -> str:
-    """Order-independent content hash of the discovered test callables' sources.
+    """Order-independent execution-context hash of the discovered TestIds (#15/#20).
 
-    Uses each test's source text, so editing ANY exercising test changes the hash and
-    invalidates the cache. Sorted, so discovery order does not affect the key. Falls back
-    to a qualified name when a callable has no recoverable source (dynamically built), so a
-    fingerprint is always produced (conservatively coarse, never wrong)."""
-    parts: list[str] = []
-    for t in tests:
-        try:
-            parts.append(inspect.getsource(t))
-        except (OSError, TypeError):
-            parts.append(f"{getattr(t, '__module__', '?')}.{getattr(t, '__qualname__', repr(t))}")
-    return _sha("\n".join(sorted(parts)))
+    Delegates each item to Wesker's routing/proof cache identity, which covers exact node ID, whole
+    test module, fixture definitions, and governing conftests. Two caches answering the same
+    question must not disagree about whether a fixture edit changed it; source-only here used to
+    serve a stale final verdict before the correctly-invalidated routing layer could even run.
+    """
+    from Wesker.trace_cache import test_fingerprint
+
+    return _sha("\n".join(sorted(test_fingerprint(t) for t in tests)))
 
 
 # The key is a POSITIONAL CONTRACT with two readers: `cache_key` builds it, `put` re-parses it

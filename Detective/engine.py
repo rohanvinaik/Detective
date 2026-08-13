@@ -556,6 +556,10 @@ def profile(
         _regime = _session_regime()
     except ImportError:  # older Wesker without the accessor — regime unknown, key unchanged
         _regime = ""
+    # Inside a live session, an empty regime means at least one plugin/config identity was not
+    # observable. Two unknown regimes must never compare equal: bypass both verdict-cache read and
+    # write. Outside a session `_measured_under is None`; the historical standalone cache remains.
+    _cache_allowed = use_cache and not (_measured_under is not None and not _regime)
 
     ck = verdict_cache.cache_key(
         func_key,
@@ -566,7 +570,7 @@ def profile(
         _measured_under if _measured_under is not None else (trace_budget_s, trace_session_budget_s),
         _regime,
     )
-    if use_cache:
+    if _cache_allowed:
         hit = verdict_cache.get(root, ck)
         if hit is not None:
             return hit
@@ -584,18 +588,46 @@ def profile(
     _seed_token = None
     _widen_tests: list[Callable[..., Any]] | None = None
     _session_baseline = None
+    _routing_counts: dict[str, int] = {}
     if _WESKER_TARGET_FIRST and scope_tests and tests:
         from Wesker.engine import _SESSION_BASELINE as _session_baseline
 
         try:
-            from Wesker.ci import callable_origin, split_live_callables
+            from Wesker.ci import callable_origin, partition_live_callables
+            from Wesker.trace_cache import observed_function_reach
 
             _holder = _session_baseline.get()
             if _holder is not None:
                 _target_name = (qualname or function).split(".")[-1]
                 _scoped_files = list({o for t in tests if (o := callable_origin(t))})
-                _cands, _unknowns = split_live_callables(tests, _scoped_files, _target_name, [_target_name])
-                if _cands and _unknowns:
+                _route_budgets = (
+                    _measured_under
+                    if _measured_under is not None
+                    else (trace_budget_s, trace_session_budget_s)
+                )
+                _observed = observed_function_reach(
+                    root,
+                    {full},
+                    _route_budgets,
+                    _regime,
+                    tests,
+                    full,
+                    _executable_lines(node),
+                )
+                _cands, _unknowns, _impossible = partition_live_callables(
+                    tests,
+                    _scoped_files,
+                    _target_name,
+                    [_target_name],
+                    _observed,
+                )
+                _routing_counts = {
+                    "candidate": len(_cands),
+                    "unknown": len(_unknowns),
+                    "impossible": len(_impossible),
+                    "observed": len(_observed),
+                }
+                if _cands and (_unknowns or _impossible):
                     _seeded = _holder.fork()
                     _seeded.seed(_cands)
                     _seed_token = _session_baseline.set(_seeded)
@@ -625,6 +657,8 @@ def profile(
     finally:
         if _seed_token is not None and _session_baseline is not None:
             _session_baseline.reset(_seed_token)
+    if _routing_counts:
+        result.test_routing = _routing_counts
     # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
     # later as if it were the whole profile.
     # Admit on the engine's OWN validity verdict, not a correlate of it (#60). `not
@@ -641,7 +675,7 @@ def profile(
     # conjunction: a result the engine calls gateable but whose coverage depth is `cut` is now
     # refused here too, which is the "truncated depth cannot satisfy completeness" requirement.
     _validity = normalize_validity(result)
-    if use_cache and verdict_cache.proof_cache_admits(
+    if _cache_allowed and verdict_cache.proof_cache_admits(
         gateable=_validity.admits_certificate,
         budget_exhausted=result.budget_exhausted,
         engine_reports_gateable=_validity.engine_reports_gateable,

@@ -15,7 +15,13 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from Detective.verdict_cache import cache_key, engine_fingerprint, key_prefix, params_suffix
+from Detective.verdict_cache import (
+    cache_key,
+    engine_fingerprint,
+    key_prefix,
+    params_suffix,
+    tests_fingerprint,
+)
 
 
 def _key(**over):
@@ -94,3 +100,24 @@ def test_different_budgets_remain_different_questions():
 
 def test_an_edit_to_the_function_still_misses():
     assert _key(func_source="def f(): pass") != _key(func_source="def f(): return 1")
+
+
+def test_a_fixture_or_test_module_edit_invalidates_the_final_verdict(tmp_path):
+    """#15/#20: final-cache lookup cannot bypass the routing cache's stronger context key."""
+    test_file = tmp_path / "test_mod.py"
+    test_file.write_text("def helper(): return 1\ndef test_one(): helper()\n")
+    fixture_file = tmp_path / "conftest.py"
+    fixture_file.write_text("def fixture_value(): return 1\n")
+
+    def test_one():
+        pass
+
+    test_one.__wesker_origin__ = str(test_file)
+    test_one.__wesker_fixture_origins__ = (str(fixture_file),)
+    before = tests_fingerprint([test_one])
+    test_file.write_text("def helper(): return 2\ndef test_one(): helper()\n")
+    after_module = tests_fingerprint([test_one])
+    fixture_file.write_text("def fixture_value(): return 2\n")
+    after_fixture = tests_fingerprint([test_one])
+
+    assert before != after_module != after_fixture

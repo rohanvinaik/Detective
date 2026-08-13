@@ -48,6 +48,9 @@ def body():
     if fn == "sibling_shared":
         deng.profile("pkg/mod.py", "target", root, scope_tests=True, use_cache=False)
         out["r"] = deng.profile("pkg/mod.py", "sibling", root, scope_tests=True, use_cache=False)
+    elif fn == "sibling_after_widen":
+        deng.profile("pkg/mod.py", "gappy", root, scope_tests=True, use_cache=False)
+        out["r"] = deng.profile("pkg/mod.py", "sibling", root, scope_tests=True, use_cache=False)
     else:
         out["r"] = deng.profile("pkg/mod.py", fn, root, scope_tests=True, use_cache=False)
 run_with_live_suite(root, body, target_files=modpath, paths=testsdir)
@@ -59,6 +62,7 @@ print(json.dumps({
     "kill_matrix": {m: sorted(k) for m, k in r.kill_matrix.items()},
     "survivors": sorted(x.get("mutant_id") for x in r.survivor_records),
     "covered_lines": sorted({ln for lines in r.line_coverage.values() for ln in lines}),
+    "test_routing": r.test_routing,
 }))
 """
 
@@ -80,6 +84,11 @@ def _repo(tmp_path):
         "    if flag:\n"
         "        return 'a'\n"
         "    return 'b'\n"
+        "\n"
+        "def gappy(x):\n"
+        "    if x > 0:\n"
+        "        return 1\n"
+        "    return 0\n"
     )
     tests = tmp_path / "tests"
     tests.mkdir()
@@ -100,6 +109,9 @@ def _repo(tmp_path):
     )
     (tests / "test_unrelated.py").write_text(
         "def test_u1():\n    assert 1 + 1 == 2\n\ndef test_u2():\n    assert 'x'.upper() == 'X'\n"
+    )
+    (tests / "test_gappy.py").write_text(
+        "from pkg.mod import gappy\n\ndef test_gappy_true():\n    assert gappy(1) == 1\n"
     )
     script = tmp_path / "_session_probe.py"
     script.write_text(_SESSION_SCRIPT)
@@ -122,6 +134,9 @@ def test_target_first_matches_full_in_a_real_session(tmp_path):
     root, script = _repo(tmp_path)
     tf = _session(script, root, "target", "on")
     full = _session(script, root, "target", "off")
+    routing = tf.pop("test_routing")
+    full.pop("test_routing")
+    assert routing == {"candidate": 3, "unknown": 5, "impossible": 0, "observed": 0}
     assert full["total_mutants"] > 0
     assert tf == full, "target-first through a live session diverged from the full baseline"
 
@@ -132,5 +147,19 @@ def test_a_sibling_profiled_after_the_target_is_not_corrupted(tmp_path):
     # fork isolated the holders; unequal => target's seed contaminated the sibling's baseline.
     shared = _session(script, root, "sibling_shared", "on")
     alone = _session(script, root, "sibling", "on")
+    shared.pop("test_routing")
+    alone.pop("test_routing")
     assert alone["total_killed"] > 0  # sibling has kills to lose to corruption
     assert shared == alone, "sibling corrupted by target's seed — the fork did not isolate the holders"
+
+
+def test_a_full_widen_becomes_observed_routing_for_the_next_function(tmp_path):
+    """Fresh file-wide reach from one gap routes a sibling; the sibling proves only its fresh seed."""
+    root, script = _repo(tmp_path)
+    sibling = _session(script, root, "sibling_after_widen", "on")
+    assert sibling["test_routing"] == {
+        "candidate": 2,
+        "unknown": 0,
+        "impossible": 6,
+        "observed": 8,
+    }
