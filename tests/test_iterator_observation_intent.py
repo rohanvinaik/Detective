@@ -67,3 +67,24 @@ def test_an_iterator_that_raises_during_iteration_is_its_own_outcome():
 
     out = _observe(boom())
     assert out.startswith("<iter generator raised@1 ValueError")
+
+
+def test_a_mutant_that_raises_on_iteration_where_the_original_exhausts_is_crash_only():
+    # funcy `pluck`: the mutant's `map` raises TypeError on the first element while the original
+    # yields values. That is a CRASH distinction (the mutant produces no value to pin), not a value
+    # witness — so it classifies crash-only and converge reaches `✓ COMPLETE modulo crash-only`,
+    # rather than looping on an unpinnable "witness".
+    exhausted = _observe(map(str, [1, 10]))
+    raised = "<iter map raised@0 TypeError>"
+    assert _pair_disposition(exhausted, raised) == "crash-only"
+
+
+def test_the_generated_test_pins_iterator_shape_and_contents():
+    from Detective.synthesis.characterization import golden_assert_line
+
+    marker = _observe(map(lambda m: m["a"], [{"a": 1}, {"a": 10}]))
+    line = golden_assert_line(marker, map(lambda m: m["a"], [{"a": 1}, {"a": 10}]))
+    # A CONTENT-differing iterator mutant is a real value kill: the generated test pins SHAPE (still a
+    # live iterator, not a materialized list — a mutant returning a list fails `iter(result) is
+    # result`) AND CONTENTS, in one line.
+    assert line == "assert iter(result) is result and list(result) == [1, 10]"

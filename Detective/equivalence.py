@@ -608,6 +608,11 @@ def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
         return "same"
     if mutant_outcome.startswith("<raised ") and not original_outcome.startswith("<raised "):
         return "crash-only"
+    # An iterator that RAISES during iteration where the original EXHAUSTS (or truncates) produces no
+    # value to pin — a crash distinction, not a value one, exactly like a top-level raise (funcy
+    # `pluck`: a mutant whose `map` raises `TypeError` on the first element).
+    if "raised@" in mutant_outcome and "raised@" not in original_outcome:
+        return "crash-only"
     return "witness"
 
 

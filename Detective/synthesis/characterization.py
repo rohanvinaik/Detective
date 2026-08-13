@@ -574,9 +574,18 @@ def _try_capture(
     blocked_write = False
     clock_dependent = False
     try:
+        from Detective.equivalence import _observe
+
         result = func(*call_args, **call_kwargs)
-        first = repr(result)
-        second = repr(func(*call_args, **call_kwargs))
+        first = _observe(result)
+        second = _observe(func(*call_args, **call_kwargs))
+        # A one-shot iterator fully consumed within the bound pins its CONTENTS — materialize a fresh
+        # call (the `result` above is spent by `_observe`, and its repr was an address). Truncated /
+        # raised keep the raw value; `golden_assert_line` renders those as before (not pinnable here).
+        result_value: Any = result
+        if first.startswith("<iter ") and "exhausted" in first:
+            with contextlib.suppress(Exception):
+                result_value = list(func(*call_args, **call_kwargs))
         if clock is None:
             # No freeze is planned for the emitted test, so any clock dependence is unpinnable —
             # `date.today()` one helper down pinned today's date and the suite began failing the
@@ -586,7 +595,7 @@ def _try_capture(
             with contextlib.suppress(Exception):
                 _probe_saved = apply_clock(_PERTURBED_EPOCH, namespace)
                 try:
-                    clock_dependent = repr(func(*call_args, **call_kwargs)) != first
+                    clock_dependent = _observe(func(*call_args, **call_kwargs)) != first
                 finally:
                     restore_clock(_probe_saved)
     except _CaptureWriteBlocked:
@@ -615,7 +624,7 @@ def _try_capture(
         inputs=args,
         kwargs=dict(kwargs),
         output=first,
-        value=result,
+        value=result_value,
         deterministic=first == second,
         environment_paths=_environment_paths(sink.opened, call_args, call_kwargs),
         # A DECLARED env var (via ``--env``, #48) is COVERED: the emitted test re-applies it, so its
@@ -779,6 +788,27 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str | None:
     needs no constructor source for the elements. ``value`` is the result itself: the repr
     string alone cannot answer "is this a set", which is why it is threaded here.
     """
+    # A one-shot iterator, fully consumed within the bound (``<iter T exhausted [...]>`` from
+    # ``_observe``): pin SHAPE and CONTENTS in one line. A mutant returning a list fails
+    # ``iter(result) is result``; one with different contents — or one that raises on iteration —
+    # fails ``list(result) == ...``. The golden path pre-materializes ``value`` to a list (its own
+    # iterator was spent by ``_observe``); the witness path passes a FRESH iterator, materialized
+    # here. Only a literal-reprable contents list is pinnable; anything else is left unpinned rather
+    # than shipping a flaky assert.
+    if output_repr.startswith("<iter ") and "exhausted" in output_repr:
+        contents: list | None = value if isinstance(value, list) else None
+        if contents is None and value is not None:
+            try:
+                if iter(value) is value:  # a fresh, unconsumed one-shot iterator (witness path)
+                    contents = list(value)
+            except Exception:  # noqa: BLE001 — not iterable / iteration raised -> not pinnable here
+                contents = None
+        if contents is not None:
+            try:
+                ast.literal_eval(repr(contents))
+            except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+                return None
+            return f"assert iter(result) is result and list(result) == {contents!r}"
     # THE ONE PLACE that decides whether a captured value may be pinned by equality at all.
     # None means "not pinnable", and every producer must handle it — which is the point of
     # putting it here rather than in each of them. There are two producers (a capture, and a
