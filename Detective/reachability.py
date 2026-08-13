@@ -146,6 +146,19 @@ def _imports_of(tree: ast.AST, this_module: str) -> tuple[set[str], bool]:
     return out, opaque
 
 
+def is_virtualenv_root(dir_filenames: list[str]) -> bool:
+    """Pure (#15 — pinned): does a directory's file listing mark it a Python virtualenv?
+
+    ``pyvenv.cfg`` is the authoritative PEP 405 marker written at a venv's root — present in every
+    virtualenv (``.venv``, ``.venv312``, ``.tox/py``, a poetry/uv env under any name) and nowhere
+    else. Pruning on it drops the whole venv subtree from the import-graph walk without a name list
+    the next differently-named env defeats: the authoritative-boundary principle (see
+    ``within_declared_testpaths``) applied to the WALK, so an installed dependency's sources are
+    never even parsed. Fixes the pre-session cost where the graph builder opened ``.venv312``
+    sources before rejecting their tests (measured on ARC: 34s across two reachability calls)."""
+    return "pyvenv.cfg" in dir_filenames
+
+
 def _build_graph(
     root: str, import_roots: tuple[str, ...] = ()
 ) -> tuple[dict[str, set[str]], dict[str, str], set[str]]:
@@ -155,6 +168,12 @@ def _build_graph(
     opaque: set[str] = set()
     skip = _SKIP_DIRS | _pytest_norecursedirs(root)
     for dirpath, dirnames, filenames in os.walk(root):
+        if is_virtualenv_root(filenames):
+            # A dir with pyvenv.cfg is a virtualenv: never our source or suite. Prune the whole
+            # subtree WITHOUT parsing its files, so an installed dependency's sources are not
+            # opened at all (the pre-session cost Fix A only rejected AFTER parsing).
+            dirnames[:] = []
+            continue
         dirnames[:] = [d for d in dirnames if d not in skip]
         for fn in filenames:
             if not fn.endswith(".py"):
