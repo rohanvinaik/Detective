@@ -442,6 +442,33 @@ def _attr_path(obj: Any, qualname: str) -> Any | None:
     return obj
 
 
+def _module_callers_of(tree: ast.Module, target_name: str) -> set[str]:
+    """Names of production functions in THIS module that statically reference ``target_name`` — the
+    one-hop, target-local backward slice (#15 B). A test that names such a caller (a public API
+    ``resolve_roles`` that calls a private ``_compute_sets``) reaches the target transitively though
+    it never names it, so it routes as a ``caller_reaches`` widen stratum rather than a bare unknown.
+
+    Positive-only and conservative: it never rules a test OUT, only promotes a plausible reacher, so a
+    miss is certificate-safe (the item stays a lower stratum and the widen still reaches it). It is
+    deliberately ONE HOP and same-module — the theory-complete slice (test -> public -> helper ->
+    target, cross-module, distance-ordered) is a later widening. The target itself is excluded (it
+    names itself); dynamic dispatch / aliases / decorators are not resolved — those stay unknown,
+    never falsely promoted.
+    """
+    callers: set[str] = set()
+    for qual, fnode in walk_functions(tree):
+        simple = qual.split(".")[-1]
+        if simple == target_name:
+            continue
+        for n in ast.walk(fnode):
+            if (isinstance(n, ast.Name) and n.id == target_name) or (
+                isinstance(n, ast.Attribute) and n.attr == target_name
+            ):
+                callers.add(simple)
+                break
+    return callers
+
+
 def profile(
     file: str,
     function: str,
@@ -614,12 +641,17 @@ def profile(
                     full,
                     _executable_lines(node),
                 )
+                # One-hop backward slice (#15 B): production functions in the target's module that
+                # reach it, so a test of a public caller that never names the private target still
+                # routes as a `caller_reaches` widen stratum (traced before the weak unknowns).
+                _caller_names = _module_callers_of(tree, _target_name)
                 _cands, _unknowns, _impossible = partition_live_callables(
                     tests,
                     _scoped_files,
                     _target_name,
                     [_target_name],
                     _observed,
+                    _caller_names,
                 )
                 _routing_counts = {
                     "candidate": len(_cands),
