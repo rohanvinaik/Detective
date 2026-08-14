@@ -43,6 +43,68 @@ Every factual claim is tagged so it can be audited independently of this documen
 
 ---
 
+# The scoping correction — sound reachability is an ELIGIBILITY BOUND, not a forbidden exclusion
+
+**Recorded 2026-08-14, after the ARC C1 measurement falsified the C-phase premise. This section
+OVERRIDES the conclusions of §3 (the "only Layer 3 excludes" reading), §4.1, §4.3, §7 and §13 that
+argued Layer 1's reachability filter should be DELETED. Those sections are kept for their
+measurements; their *conclusion* is struck. Read this first — it is the central purpose of the
+system, not a footnote.**
+
+**Core purpose: scoped suite + synthesis, NEVER a whole-suite grind.** The sandwich thesis says the
+unit is ONE function's operators and ONE function's tests. Operationally: discover the tests that
+could kill this function's mutants (the *reachable* set), run those, and when they do not kill every
+mutant, **drop to synthesis** (generate a killing test) — never trace the rest of the suite hoping a
+distant test covers. "Discoverable tests + mutant-killing synthesis" is the design, and it is
+achievable.
+
+**Why scoping is sound — the distinction the delete-Layer-1 argument missed.** Two different
+questions were collapsed into one:
+
+- **Certificate exclusion** — marking a test `disjoint` (does-not-cover) WITHOUT observing it. The
+  Law rightly forbids this (§2.1: absence ≠ falsehood; a never-traced test is `unknown`, never
+  `disjoint`). Only Layer 3 (observation) may write an exclusion into the proof basis.
+- **Eligibility bound** — deciding which tests are even worth TRACING for this target. This is NOT a
+  certificate claim, and static reachability MAY bound it soundly.
+
+A mutant changes one of the target's lines; a test kills it only by EXECUTING that line, which
+requires (transitively) calling the target. Therefore **a test that provably cannot reach the target
+provably cannot kill any of its mutants** — not tracing it discharges nothing and hides nothing. So a
+`gap` (§1.3, "every eligible unknown resolved") requires exhausting only the **reachable** unknowns,
+not the whole collection. Eligibility = `reachable(target)`; bounding the search by it is a
+soundness-preserving optimization, not a Layer-1 exclusion. This is what makes §1.2's "no reason to
+trace the whole suite" *operational* rather than aspirational.
+
+**The one condition: reachability must be a correct OVER-approximation** — it may over-*include*
+(trace a few irrelevant tests) but must NEVER call a real reacher unreachable. The old
+`reachability.py` was built exactly this way ("ANY doubt returns None / includes the file"). §4.3's
+conftest-fixture hole was an UNDER-approximation BUG (a missed fixture edge → a wrongly-excluded
+reacher → a lost kill) — a fixable defect, not proof the approach is impossible.
+
+**Why the delete-Layer-1 argument was over-motivated:**
+- §4.1 "does not discriminate on a cohesive package" (Detective 129/180) is a DENSE-repo observation —
+  there the covering set genuinely IS most of the suite. Scoping is for SPARSE repos (ARC 96→13),
+  where it is essential. "Doesn't help dense" is not "delete it."
+- §4.3 "unsound" is a specific missed-edge bug, closed by COMPLETING the over-approximation (conftest
+  fixtures, dynamic dispatch → opaque), not by deleting the analysis.
+
+**Measured (ARC `serialize_rule`, C1):** deleting Layer 1 held verdict-parity (18/24) but blew the
+widen's eligible-unknown pool **12 → 423**, grinding ~330 traces through slow irrelevant tests. F1
+(ordering-only, §11) *cannot* recover it: ordering cannot reduce a sound exhaustion, and
+`serialize_rule`'s 6 residual obligations are undischargeable by ANY suite test, so no re-rank
+discharges them. The recovery is not F1 — it is the sound eligibility bound above, plus
+drop-to-synthesis for the residual.
+
+**Consequence for the plan.** C1 (delete Layer 1) is **REVERTED**. `collection_universe` (the
+target-agnostic Layer-1 universe) STAYS. The C-phase becomes: **restore a SOUND over-approximating
+reachability scope as the eligibility bound** (fix its conftest-fixture / dynamic holes — the real
+§4.3 defect), **and route the un-killed residual to synthesis**. The Three-Layer Law (§3) is amended:
+"only Layer 3 may EXCLUDE (from the certificate)" stands; eligibility for the widen may be soundly
+bounded by an over-approximating reachability at Layer 2, because a provably-unreachable test is not
+a certificate claim — it is work that provably cannot contribute.
+
+---
+
 # Part I — The object
 
 ## 1. What is actually being computed **[P]**
