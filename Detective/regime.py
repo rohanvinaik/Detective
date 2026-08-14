@@ -31,11 +31,51 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import NewType
 
 from .engine import ShadowedTarget, _resolve_origin, _suite_path, shadowed_target
 from .reachability import _SKIP_DIRS, _pytest_norecursedirs
 from .synthesis.oracle_light import importable_module
+
+# ── Identity (TEST_BASIS §6, B1) ──────────────────────────────────────────────
+# Type ALIASES are not types: `TestId = str` lets a nodeid and a bare str interchange
+# silently. These are the canonical NewTypes and frozen records the subsystem will key on;
+# B1 only LANDS the vocabulary — nothing here consumes them yet (consumers adopt them in
+# later slices). `regime.py` is their single home, so the two-namer / alias drift of §4.6
+# becomes expressible in one place.
+
+TestId = NewType("TestId", str)  # pytest nodeid, post-parametrization. NEVER __name__.
+ModuleId = NewType("ModuleId", str)  # target-module name (single producer after C1 folds in
+#                                      oracle_light.importable_module → regime.module).
+
+
+@dataclass(frozen=True)
+class FileIdentity:
+    """LIVE-session file identity: ``path`` is the label, ``(dev, ino)`` is the identity.
+
+    Equality/hash are on ``(dev, ino)`` only (``path`` is ``compare=False``): a realpath can
+    collide across runs and a rename keeps the inode, so the path answers "what do I call
+    this file", never "is this the same open file". Meaningless ACROSS runs — that question
+    is ``RevisionId``'s. Conflating the two is ``109a5db``'s bug in a new spelling.
+    """
+
+    path: str = field(compare=False)  # canonical realpath — for messages only
+    dev: int  # ┐ equality/hash is on these two, never on path
+    ino: int  # ┘
+
+
+@dataclass(frozen=True)
+class RevisionId:
+    """ACROSS-run identity for a cached observation — a different question, a different key.
+
+    A content digest answers "same bytes?"; ``(dev, ino)`` answers "same open file?". They are
+    not interchangeable, and a content digest is meaningless for the live-session question.
+    """
+
+    path: str
+    content_digest: str  # the file's own bytes
+    context_digest: str  # ancestor conftests + fixture origins + the regime
 
 
 @dataclass(frozen=True)
