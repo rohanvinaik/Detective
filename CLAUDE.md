@@ -30,6 +30,44 @@ print('Wesker    ->', Wesker.__file__)
 
 **Drive Detective through the CLI only.** The `mcp__Detective__*` tools are stale and unused.
 
+## Testing Detective on another repo (greenfield dogfood)
+
+Running Detective on a real OUTSIDE repo is how production usability bugs surface — the
+internal suites cannot, because they have no foreign dependencies. It found two real advice
+bugs in one session (`d7177f0`, `77e3b3d`). But it has ONE non-obvious requirement.
+
+**Detective opens an IN-PROCESS live pytest session under its OWN interpreter.** So the
+interpreter that runs `detective` must import BOTH pytest AND the target repo's own deps (its
+`conftest.py` imports them). A bare global `detective` (miniconda / `~/.local/bin`) usually
+has neither for a foreign project, so Detective correctly REFUSES ("could not be collected")
+rather than measure nothing — that refusal is the tool working.
+
+**Run detective from the TARGET repo's own venv** — the one that has pytest + the project's
+deps + a `detective` console script (a runtime-only venv without pytest cannot run the suite)
+— with `PYTHONPATH=$PP` to shadow the pinned copies with our LOCAL code:
+
+```bash
+cd /path/to/target-repo
+# pick the venv that has pytest AND the deps, NOT a runtime-only one:
+PYTHONPATH=$PP ./.venvXXX/bin/detective diagnose 'src/mod.py::func'
+```
+
+- **Confirm you are running LOCAL code**, not the PyPI build, before trusting the result:
+  `PYTHONPATH=$PP ./.venvXXX/bin/python -c "import Detective; print(Detective.__file__)"` must
+  print `/Users/rohanvinaik/tools/Detective/...`. (`PYTHONPATH=$PP` = local code; the venv's
+  python = the target's deps. Two orthogonal knobs — you need both.)
+- **Read the CLI output DIRECTLY and in FULL — never `| tail`.** A refusal names the exact
+  interpreter and the fix; that IS the instruction to act on.
+- **Do NOT invoke a bare/global `detective`** for a foreign repo, and do NOT hand-pick a venv
+  that lacks pytest/detective.
+- **Heavy suites: BACKGROUND the run** and read the full output file. A real repo's live
+  baseline trace + widen can take minutes (ARC_AGI_3's story tests: 10–30s each); a short
+  foreground `timeout` CUTS it mid-widen (exit 124) and is NOT a Detective problem.
+
+Worked example — `~/Projects/ARC_AGI_3`: `.venv312` is the capable env (pytest + `arc_agi` +
+`detective`); `.venv` is runtime-only (no pytest). Scoping narrowed its 96 test files to 9
+function-routed tests for one target — the sparse-repo scoping win.
+
 ## The per-issue loop
 
 Read every issue body in ONE call — not one `gh issue view` per issue — then build a task
