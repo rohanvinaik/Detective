@@ -130,7 +130,7 @@ Two independent axes decide what an observation may do. Conflating them is the r
 | **positive, fresh, inadmissible** (inert / baseline-failing / truncated / uncontained) | ❌ | ✅ | — |
 | **positive, replayed from cache** | ❌ | ✅ | — |
 | **negative, fresh, outcome-qualified, in-session** | — | ✅ | ✅ |
-| **negative, replayed** | — | ✅ | **[?] see 2.2** |
+| **negative, replayed** | — | ✅ | ✅ only under a complete regime (§2.2, B3) |
 | **absent** (never observed) | ❌ | — | ❌ |
 
 Two rules carry it, and both already exist in the codebase as invariants:
@@ -139,7 +139,7 @@ Two rules carry it, and both already exist in the codebase as invariants:
 >
 > **Absence is not falsehood.** A test never traced is `unknown`, never `disjoint`.
 
-### 2.2 [?] The one open decision: may a replayed negative exclude?
+### 2.2 [RESOLVED — B3] May a replayed negative exclude? — yes, under a complete regime
 
 A replayed negative is what lets routing skip a known-disjoint test without re-tracing it. It is
 also the only cached value that can *shrink* the search, i.e. the only one that could manufacture
@@ -154,22 +154,20 @@ baseline-outcome pass at the same fingerprint. The `os.urandom` nonce at `:146-1
 unreadable contexts cannot compare equal and *"promote stale non-reach to impossible."*
 
 So the rule is **conditionally sound**, and the condition is exactly Wesker #20 — whether the
-context digest is *complete*. #20's body is now partly stale: the conftest/fixture-content half
-landed. What remains unkeyed is plugins, pytest config, rootdir, import mode,
-`pytest_generate_tests`, and Hypothesis seed/db, to whatever extent `regime_digest` covers them
-— **verify before ruling.**
+context digest is *complete*. **Grounded (B3):** #20's "unkeyed" list was mostly stale.
+`regime_digest` (`session_manifest.py`) already keys rootdir, inipath, import mode, and the sorted
+plugin set (dist plugins by version, local plugins/conftests by path+content), and refuses to `""` —
+uncacheable — on any unobserved/unreadable plugin; `pytest_generate_tests` rides its conftest's
+content. Only **two** residuals were real: the config-file **content** (only its path was keyed) and
+the **Hypothesis seed** (a property test's covered lines vary per example).
 
-Three options, in order of cost:
-
-- **(a) Keep it, make the precondition explicit.** Admit a replayed negative only when the context
-  digest is declared complete; degrade to `unknown` otherwise. Requires auditing `regime_digest`'s
-  composition against #20's remaining list.
-- **(b) Demote it to ordering only.** Strictly safer, simpler to state. Costs a re-trace to
-  establish every non-reach — most of the routing benefit.
-- **(c) Keep as-is.** Not recommended: the precondition stays implicit, which is how it drifts.
-
-Recommendation **(a)**, because it converts an assumption into a checkable claim. This decision
-gates slice B3.
+**Ruling: option (a) — make the precondition checkable — implemented in B3 (Wesker `05be94d`).**
+Both residuals are closed: (a-1) `capture_manifest` binds `inicontent_digest = _digest(inipath)` at
+build, folded into `regime_digest` (pure — a hash of the frozen snapshot, never a property that
+reads the FS); and (a-2) the pinned `replayed_negative_admission(has_outcome, fingerprint_matches,
+is_property_test)` degrades a Hypothesis test's cached negative to `unknown` (`✓ COMPLETE · 9/9`),
+with `_is_property_test` walking the `__wrapped__` chain. The replayed-positive rule (§2.1) is
+untouched — a cached positive still only orders.
 
 ### 2.3 The two halves of the Sandwich are typed apart **[P]**
 
