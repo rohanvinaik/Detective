@@ -258,6 +258,27 @@ def _testpaths_floor(root: str, testpaths: tuple[str, ...]) -> list[str] | None:
     return dirs or None
 
 
+def reach_disposition(module_reaches: bool, fixture_reaches: bool) -> str:
+    """Pure (#15 §4.3 — pinned): may a collected test execute the target's lines?
+
+    Named codes, never a bool — the two positive reasons are DIFFERENT evidence of reach and
+    must not collapse, because §4.3's soundness hole was exactly the fixture path going unseen:
+
+      "direct"    the test's own module transitively imports the target — it can call it.
+      "fixture"   the module does not, but an ANCESTOR conftest that DOES reach the target
+                  could inject it through a fixture (autouse or requested). Kept as a sound
+                  OVER-approximation: a conftest that cannot reach the target defines no
+                  fixture that can, so this never keeps a provable non-reacher and — the whole
+                  point of §4.3 — never drops a real fixture-mediated reacher.
+      "unreached" neither holds — the test provably cannot execute a target line; safe to exclude.
+    """
+    if module_reaches:
+        return "direct"
+    if fixture_reaches:
+        return "fixture"
+    return "unreached"
+
+
 def reachable_test_paths(
     root: str,
     target_file: str,
@@ -273,6 +294,10 @@ def reachable_test_paths(
     bound it. A ``test_*.py`` outside every declared testpath is FOREIGN — an installed dependency's
     suite a repo-walk reached — and never collected: pytest's own boundary, not a name-skip guess.
     ``conftest.py`` is always included for the kept tests; a dropped conftest breaks collection.
+
+    A test is kept when its own module reaches the target OR an ancestor ``conftest.py`` does — the
+    latter closing §4.3's soundness hole: a fixture-only reacher imports nothing from the target, so
+    a conftest that reaches it (and could inject it through a fixture) is what keeps the test in.
     """
     root = os.path.abspath(root)
     floor = _testpaths_floor(root, testpaths)
@@ -286,19 +311,36 @@ def reachable_test_paths(
 
     keep: list[str] = []
     conftests: list[str] = []
-    tests = 0
+    conftest_reach: dict[str, bool] = {}
+    candidates: list[tuple[str, str]] = []
+    # First pass: score every conftest's reach and gather in-scope candidate tests. Conftests
+    # must be scored before tests are judged — dict order can place a fixture-only test before
+    # the conftest that governs it, and its keep decision depends on that conftest's reach.
     for m, p in paths.items():
         base = os.path.basename(p)
         if base == "conftest.py":
             conftests.append(p)
+            # A conftest that reaches the target may inject it through a fixture (§4.3); one that
+            # cannot reach it defines no fixture that can. Recording the reach is what stops a
+            # fixture-only test from being wrongly called unreachable.
+            conftest_reach[p] = m == target or _reaches(m, target, graph, opaque)
             continue
         if not base.startswith("test_"):
             continue
         rel = os.path.relpath(p, root).replace(os.sep, "/")
         if within_declared_testpaths(rel, tp_norm) == "foreign":
             continue  # an installed dependency's test_*.py — pytest never collects it
-        tests += 1
-        if m == target or _reaches(m, target, graph, opaque):
+        candidates.append((m, p))
+    tests = len(candidates)
+    for m, p in candidates:
+        module_reaches = m == target or _reaches(m, target, graph, opaque)
+        test_dir = os.path.dirname(os.path.abspath(p))
+        fixture_reaches = any(
+            test_dir == (cd := os.path.dirname(os.path.abspath(c))) or test_dir.startswith(cd + os.sep)
+            for c, reached in conftest_reach.items()
+            if reached
+        )
+        if reach_disposition(module_reaches, fixture_reaches) != "unreached":
             keep.append(p)
     if not tests:
         return floor
