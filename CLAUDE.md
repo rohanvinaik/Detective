@@ -147,8 +147,11 @@ PYTHONPATH=$PP detective converge 'Detective/certify.py::write_disposition' \
   and get resolved by `detective flag`, never by grinding.
 - A stale generated golden is **regenerated, not hand-patched**: `rm` the `*_synth.py` and
   re-run converge.
-- `rm -rf .detective/pins .detective/samples` between runs so a cached verdict can't mask a
-  change.
+- Clear the caches between runs so a cached verdict OR a recalled `--input` can't mask a change:
+  `rm -f .detective/inputs.json .detective/pins.json .detective/verdict_cache.json`. These are
+  FILES, not dirs — the old `.detective/pins` / `.detective/samples` PATHS DO NOT EXIST, so
+  `rm -rf`-ing them is a silent no-op that leaves supplied inputs recalled (measured: converge kept
+  re-applying stale `--input`s across runs, which masked the true no-input behaviour).
 - Every command resolves the testing **regime** first and REFUSES on a shadowed target or
   conflicting conftest. A refusal is the tool working; `detective regime` is where the reason
   is. Never work around it.
