@@ -1373,6 +1373,29 @@ def _safely_fresh(candidate: tuple, pool: Sequence[tuple]) -> bool:
         return True
 
 
+def rescue_disposition(expressible: bool, rescuable: bool, has_inexpressible_witness: bool) -> str:
+    """Whether the pool-poverty rescue — an expensive capture that RUNS the covering tests — is
+    worth running, or the run should terminate early and ask for ``--input`` (pure — pinned).
+
+    The rescue's value is STRUCTURED inputs a grid cannot fabricate ("a domain-object parameter no
+    grid can build", "a witness only a test can build"). When the function is grid-FRIENDLY —
+    ``exercising`` is a literal input (``expressible``) and no killable witness is inexpressible —
+    captures cannot supply what the grid could not, so running the whole suite to hunt a
+    distinguishing literal is futile (it burned the full --deadline on ARC-scale suites). The honest,
+    fast path is to ask the human for the value only they know — the same "supply what only you know"
+    contract as elsewhere. A named code, never a bool:
+
+      "nothing"         not rescuable — no residual to rescue
+      "skip_ask_input"  grid-friendly + no inexpressible witness — skip the capture, ask for --input
+      "run"             a non-literal (structured/object) input is in play — the capture may help
+    """
+    if not rescuable:
+        return "nothing"
+    if expressible and not has_inexpressible_witness:
+        return "skip_ask_input"
+    return "run"
+
+
 def classify_survivors(
     file: str,
     function: str,
@@ -1669,7 +1692,19 @@ def classify_survivors(
     # skipped once the aggregate wall is gone (issue #31): a cut run keeps its first-pass
     # verdicts rather than starting a second search it cannot finish.
     rescuable = any((not v.killable and not v.crash_only) or _inexpressible_witness(v) for v in verdicts)
-    if rescuable and not _cls_exhausted():
+    _rescue = rescue_disposition(
+        bool(expressible), rescuable, any(_inexpressible_witness(v) for v in verdicts)
+    )
+    if _rescue == "skip_ask_input":
+        # Grid-friendly survivors no synthesized input discriminates: the distinguishing value is a
+        # literal only the caller knows. Running the covering suite to hunt it is futile — it burned
+        # the full --deadline on ARC-scale suites — so ask for --input, the fast honest path.
+        note = (
+            "no synthesized input discriminates the remaining survivor(s), and their inputs are "
+            "expressible as literals — supply the distinguishing value(s) with --input rather than "
+            "searching the covering suite"
+        )
+    elif _rescue == "run" and not _cls_exhausted():
         func_names = [qn for qn, _ in walk_functions(tree)]
         harvest_tests = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
