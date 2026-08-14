@@ -95,10 +95,13 @@ widen's eligible-unknown pool **12 → 423**, grinding ~330 traces through slow 
 discharges them. The recovery is not F1 — it is the sound eligibility bound above, plus
 drop-to-synthesis for the residual.
 
-**Consequence for the plan.** C1 (delete Layer 1) is **REVERTED**. `collection_universe` (the
-target-agnostic Layer-1 universe) STAYS. The C-phase becomes: **restore a SOUND over-approximating
-reachability scope as the eligibility bound** (fix its conftest-fixture / dynamic holes — the real
-§4.3 defect), **and route the un-killed residual to synthesis**. The Three-Layer Law (§3) is amended:
+**Consequence for the plan.** C1 (delete Layer 1) is **REVERTED** — both commits; the pre-C1 sound
+scoping is restored. `reachable_test_paths` already combines the Layer-1 floor (testpaths) with the
+Layer-2 reachability narrowing, so the separate `collection_universe` C1 introduced was unnecessary
+churn. The C-phase becomes: **fix reachability's SOUNDNESS** — the real §4.3 conftest-fixture /
+dynamic-dispatch holes, completing the over-approximation so it never calls a real reacher
+unreachable — **and route the un-killed residual to synthesis** (never grind the suite). The
+Three-Layer Law (§3) is amended:
 "only Layer 3 may EXCLUDE (from the certificate)" stands; eligibility for the widen may be soundly
 bounded by an over-approximating reachability at Layer 2, because a provably-unreachable test is not
 a certificate claim — it is work that provably cannot contribute.
