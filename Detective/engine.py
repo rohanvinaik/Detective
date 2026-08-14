@@ -31,6 +31,7 @@ from Detective.validity import normalize_validity
 
 if TYPE_CHECKING:
     from .parsimony import ParsimonySignals
+    from .regime import TestId  # annotation-only: regime imports engine, so never import at runtime
 from Wesker.engine import (  # imported, never restated — one owner for each of these numbers
     DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S,
 )
@@ -464,6 +465,86 @@ def _activate_target_first(n_cands: int, has_caller_reacher: bool, n_unknowns: i
     has_reacher = n_cands > 0 or has_caller_reacher
     deferred = n_unknowns > 0 or n_impossible > 0
     return "seed" if has_reacher and deferred else "full_baseline"
+
+
+def basis_membership(observed: str, freshness: str, admissibility: str) -> str:
+    """Why one test item is, or is not, evidence about the target (#D1 §9, pure — pinned).
+
+    The per-item warrant a ``FunctionBasis`` records — a NAMED CODE, never a bool, because the
+    observed-vs-admissible distinction (§2.1) is the recurring defect and its cases must not
+    collapse into one truthy check.
+
+      observed      the reach observation ∈ {"covers", "non_reach", "unseen"}
+      freshness     provenance of that observation ∈ {"fresh", "replayed"}  (§2.1)
+      admissibility ∈ {"admissible", "barred", "inadmissible"}
+                      "admissible"   — may enter the proof basis
+                      "barred"       — baseline outcome bars it: inert / baseline-failing (§4.6)
+                      "inadmissible" — observed but cannot prove: truncated / uncontained (§2.1)
+
+    Returns the warrant:
+      "proof"     fresh, admissible, covers — may discharge an obligation (enters B_t)
+      "routing"   covers, but replayed OR inadmissible — orders only, never proves (§2.1)
+      "barred"    covers, but its baseline outcome bars it (inert / failing) (§4.6)
+      "disjoint"  a FRESH outcome-qualified non-reach — the only observation that may EXCLUDE (§2.1)
+      "pending"   not observed, or a non-reach not freshly re-observed — the stratum rank is the prior
+    """
+    if observed == "covers":
+        if admissibility == "barred":
+            return "barred"
+        if freshness == "replayed" or admissibility == "inadmissible":
+            return "routing"
+        return "proof"
+    if observed == "non_reach" and freshness == "fresh":
+        return "disjoint"
+    return "pending"
+
+
+@dataclasses.dataclass(frozen=True)
+class Obligations:
+    """O_t = L_t ∪ A_t ∪ M_t — what a proof basis for one function must discharge (§1.2, #D1).
+
+    L_t executable-line obligations · A_t branch arcs (both endpoints in L_t) · M_t the mutation
+    dimensions. A carrier only; the counting lives where the profile is read. Reported as U_t too,
+    for the undischargeable residue (candidate-equivalent mutants, flagged-unreachable lines).
+    """
+
+    lines: tuple[int, ...] = ()
+    arcs: tuple[tuple[int, int], ...] = ()
+    mutation_dims: tuple[str, ...] = ()
+
+
+@dataclasses.dataclass(frozen=True)
+class BasisWitness:
+    """One admitted test and exactly what it discharges (§9, #D1).
+
+    Named ``BasisWitness``, not ``Witness``: ``equivalence.Witness`` is the mutation-difference
+    witness (a concrete input on which original and mutant differ) — a different object entirely,
+    and conflating the two would be the §6 identity error in a new spelling.
+    """
+
+    test: TestId
+    discharged: Obligations
+    warrant: str  # basis_membership's code: proof | routing | barred (§9)
+    origin: str  # intent | characterization | unattributed (§2.3 — from the write ledger, not a glob)
+
+
+@dataclasses.dataclass(frozen=True)
+class FunctionBasis:
+    """The per-function value the subsystem produces and every consumer reads (§9, #D1).
+
+    Not yet wired — D1 lands the object before D2 rewires seed → widen → next_routing_action to
+    produce it. `action` is `next_routing_action`'s existing terminal state (§1.3): complete |
+    trace_next | gap | unresolved. `unresolved` tests were routed but not traced — NOT disjoint.
+    Only `excluded` carries a Layer-3 exclusion, and only for a fresh outcome-qualified non-reach.
+    """
+
+    target: str
+    obligations: Obligations = Obligations()
+    undischargeable: Obligations = Obligations()
+    admitted: tuple[BasisWitness, ...] = ()
+    unresolved: tuple[TestId, ...] = ()
+    excluded: tuple[tuple[TestId, str], ...] = ()
+    action: str = "trace_next"
 
 
 def _module_callers_of(tree: ast.Module, target_name: str) -> set[str]:
