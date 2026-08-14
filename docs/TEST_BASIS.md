@@ -109,6 +109,57 @@ a certificate claim — it is work that provably cannot contribute.
 
 ---
 
+# The synthesis floor — a zero-candidate target is pinned by SYNTHESIS, never by a whole-suite trace
+
+**Recorded 2026-08-15, the first EXPLICIT statement of this principle by the project owner. It is a
+direct corollary of the sandwich thesis and co-equal with "The scoping correction": the two together
+are why Detective never touches the whole suite. It OVERRIDES any path that traces every discovered
+test — specifically the `_activate_target_first` "full_baseline" fallback and `_tests_for`'s
+`not line_cov → full` degradation (§14).**
+
+**The principle.** The test suite is a **helper and an efficiency boost, never a requirement.** Raw
+synthesis of the mutant-complete set is genuinely expensive — several rounds — but a whole-suite
+trace usually takes **WAY** longer (the observed pathology: ~1013 tests traced in-process to profile
+ONE function, and an intermittent hour-long deadlock when one of those tests blocks outside the
+interpreter — see the converge-hang investigation). So the rule is absolute:
+
+> **NEVER trace the whole test suite.** If discovery is sound, a zero- or low-candidate routed subset
+> honestly means **there are no reaching tests** — and that is **FINE**: behavior is pinned by
+> synthesis alone, with no suite at all. A **leaf orphan** (no routed candidate, no caller-reacher)
+> synthesizes from an **EMPTY** baseline; it does not fall back to tracing the hundreds of tests that
+> provably cannot reach it.
+
+**Why it is disposition-exact (and keeps the #40 oracle green).** For a *true* orphan, no test
+reaches the target, so the whole suite kills **zero** of its mutants — identical to evaluating
+against the empty set. `full_baseline` (trace everything) and `synthesize-from-empty` therefore
+produce the **same verdict** — every mutant survives → synthesize — so removing the trace changes no
+conclusion, only the wall-clock. The equivalence holds **iff orphan detection never false-negatives a
+reacher**, the same soundness the over-approximating reachability of "The scoping correction" already
+supplies.
+
+**The accepted trade — stated so it is not a silent gap.** A *purely dynamic* reacher — a test that
+reaches the target only by reflection, naming it nowhere static and touching it through no fixture
+edge — is invisible to routing and *would* be caught by a whole-suite trace. **We accept not finding
+it.** Routing by discovery is the contract; a zero-candidate subset is taken as "no tests." This is a
+deliberate trade of "catch a reflection-only reacher" for "never whole-suite-trace," and it is
+exactly what makes the hour-long converge deadlock structurally impossible rather than merely rarer.
+A consumer who needs the reflection-only test found must name it (static reference or fixture), not
+rely on an exhaustive trace.
+
+**The measurement/decision gap it closes.** An empty covering set from a *completed scoped trace*
+("we traced the routed set and no test covers this line → synthesize") must never render identically
+to an empty set from *no trace* ("no data — be safe, run the full set"). `_tests_for` conflated them
+(`not line_cov → return usable`, the whole set); the fix names them apart — an authoritatively-scoped
+empty baseline returns `[]` (→ all mutants survive → synthesis), only a genuinely-absent baseline
+keeps the full fallback.
+
+**Consequence for the build.** `_activate_target_first` gains a `"synthesize"` disposition for a leaf
+orphan (was `"full_baseline"`); a leaf orphan is `seed([])` — no trace — and the resolver returns `[]`
+so mutants route to the existing "synthesize from scratch" path. Pinned as pure decisions;
+disposition-exact under the differential oracle (#40).
+
+---
+
 # Part I — The object
 
 ## 1. What is actually being computed **[P]**
