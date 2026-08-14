@@ -4213,15 +4213,18 @@ def _declared_extras(project_root: str | None) -> list[str]:
     return list(opt) if isinstance(opt, dict) else []
 
 
-def _venv_with_module(project_root: str | None, module: str) -> str | None:
-    """A sibling virtualenv under ``project_root`` whose site-packages already contains ``module``,
-    or ``None``.
+def _ready_venv(project_root: str | None, module: str) -> str | None:
+    """A sibling virtualenv under ``project_root`` that can ALREADY run detective's live suite for
+    this target — it has the missing ``module``, pytest, AND a ``detective`` console script — or
+    ``None``.
 
-    Lets the advice say "the deps are already in ./.venv — run detective from there" instead of
-    telling the user to install into detective's OWN interpreter — the accurate fix when detective
-    was invoked from outside the project's environment (a global install against a venv-scoped
-    project). Filesystem check only, never a subprocess, so it cannot hang a session that is
-    already failing.
+    Requiring all three is the point. A runtime-only venv that has the module but not pytest or
+    detective CANNOT run the suite, so recommending it would send the user in a circle — the exact
+    bug the ARC_AGI_3 end-to-end run caught: ``.venv`` had ``arc_agi`` but no pytest/detective, while
+    ``.venv312`` had all three. This lets the advice say "run detective from ``.venv312`` — the deps
+    are already there" instead of telling the user to install into detective's OWN interpreter (the
+    accurate fix when detective was invoked from outside the project's environment). Filesystem check
+    only, never a subprocess, so it cannot hang a session that is already failing.
     """
     if not project_root or not module:
         return None
@@ -4234,10 +4237,13 @@ def _venv_with_module(project_root: str | None, module: str) -> str | None:
     for venv in sorted(candidates):
         if not os.path.isfile(os.path.join(venv, "bin", "python")):
             continue
+        if not os.path.isfile(os.path.join(venv, "bin", "detective")):
+            continue  # we recommend `<venv>/bin/detective` — it must actually be runnable there
         for site in glob.glob(os.path.join(venv, "lib", "python*", "site-packages")):
-            if os.path.isdir(os.path.join(site, mod_dir)) or os.path.isfile(
+            has_module = os.path.isdir(os.path.join(site, mod_dir)) or os.path.isfile(
                 os.path.join(site, mod_dir + ".py")
-            ):
+            )
+            if has_module and os.path.isdir(os.path.join(site, "pytest")):
                 return venv
     return None
 
@@ -4255,7 +4261,7 @@ def _format_session_warning(diagnostic: dict[str, Any], project_root: str | None
     """
     reason = diagnostic.get("reason", "unknown")
     if reason == "pytest_missing":
-        have_venv = _venv_with_module(project_root, "pytest")
+        have_venv = _ready_venv(project_root, "pytest")
         if have_venv:
             return (
                 "WARNING: pytest is not importable in the interpreter that runs the live suite,\n"
@@ -4291,7 +4297,7 @@ def _format_session_warning(diagnostic: dict[str, Any], project_root: str | None
             # (usability, ARC_AGI_3 repro) If the missing module ALREADY lives in a sibling venv,
             # the fix is to run detective from THAT interpreter, not to install into this one — the
             # accurate remedy when detective was invoked from outside the project's environment.
-            have_venv = _venv_with_module(project_root, pkg) if pkg else None
+            have_venv = _ready_venv(project_root, pkg) if pkg else None
             if have_venv:
                 hint = (
                     "         This is an IMPORT failure loading a conftest/config. The missing\n"
