@@ -4042,7 +4042,7 @@ def _run_live(args) -> int:
         diagnostic=diagnostic,
     )
     if code is None:
-        sys.stderr.write(_format_session_warning(diagnostic))
+        sys.stderr.write(_format_session_warning(diagnostic, project_root=root))
         reason = str(diagnostic.get("reason", "") or "")
         # REFUSE the legacy fallback on a collection ERROR (#66). `empty_collection` — the project
         # genuinely has no test for this target — legitimately falls through to a from-scratch
@@ -4172,7 +4172,77 @@ def plugin_hint(blob: str) -> str:
     return ""
 
 
-def _format_session_warning(diagnostic: dict[str, Any]) -> str:
+def install_extra_target(extras: list[str]) -> str:
+    """Which ``.[extra]`` a missing-dependency install command should name (pure — pinned).
+
+    The advice installs the project into the interpreter that runs the suite, so the extra it
+    names must be DECLARED in that project or the copied command errors — a project with a
+    ``dev`` extra but no ``test`` extra (the common case, e.g. ARC_AGI_3) breaks on a guessed
+    ``.[test]``. Chosen from what the pyproject ACTUALLY declares, not from a convention:
+
+      a test-ish extra ('test'/'tests'/'testing') is declared -> ".[<that exact name>]"
+      else a dev-ish extra ('dev'/'develop'/'development')     -> ".[<that exact name>]"
+      else (no test/dev extra, or none declared)               -> "."  (bare — core deps only)
+    """
+    by_lower = {e.lower(): e for e in extras}
+    for cand in ("test", "tests", "testing"):
+        if cand in by_lower:
+            return f".[{by_lower[cand]}]"
+    for cand in ("dev", "develop", "development"):
+        if cand in by_lower:
+            return f".[{by_lower[cand]}]"
+    return "."
+
+
+def _declared_extras(project_root: str | None) -> list[str]:
+    """The ``[project.optional-dependencies]`` extra names in the project's pyproject.toml, or
+    ``[]`` when there is no readable/parseable pyproject — the advice then falls back to a bare
+    ``-e .`` rather than naming an extra that may not exist.
+    """
+    if not project_root:
+        return []
+    try:
+        import tomllib
+
+        with open(os.path.join(project_root, "pyproject.toml"), "rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return []
+    project = data.get("project", {})
+    opt = project.get("optional-dependencies", {}) if isinstance(project, dict) else {}
+    return list(opt) if isinstance(opt, dict) else []
+
+
+def _venv_with_module(project_root: str | None, module: str) -> str | None:
+    """A sibling virtualenv under ``project_root`` whose site-packages already contains ``module``,
+    or ``None``.
+
+    Lets the advice say "the deps are already in ./.venv — run detective from there" instead of
+    telling the user to install into detective's OWN interpreter — the accurate fix when detective
+    was invoked from outside the project's environment (a global install against a venv-scoped
+    project). Filesystem check only, never a subprocess, so it cannot hang a session that is
+    already failing.
+    """
+    if not project_root or not module:
+        return None
+    import glob
+
+    mod_dir = module.replace("-", "_").split(".")[0]
+    candidates = glob.glob(os.path.join(project_root, ".venv*")) + glob.glob(
+        os.path.join(project_root, "venv")
+    )
+    for venv in sorted(candidates):
+        if not os.path.isfile(os.path.join(venv, "bin", "python")):
+            continue
+        for site in glob.glob(os.path.join(venv, "lib", "python*", "site-packages")):
+            if os.path.isdir(os.path.join(site, mod_dir)) or os.path.isfile(
+                os.path.join(site, mod_dir + ".py")
+            ):
+                return venv
+    return None
+
+
+def _format_session_warning(diagnostic: dict[str, Any], project_root: str | None = None) -> str:
     """Render the "no live pytest session" fallback warning with the actual reason.
 
     Wesker's ``run_in_session`` populates ``diagnostic["reason"]`` with one of
@@ -4185,6 +4255,13 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
     """
     reason = diagnostic.get("reason", "unknown")
     if reason == "pytest_missing":
+        have_venv = _venv_with_module(project_root, "pytest")
+        if have_venv:
+            return (
+                "WARNING: pytest is not importable in the interpreter that runs the live suite,\n"
+                f"         but it IS installed in `{have_venv}`. Run detective from THAT environment\n"
+                f"         (e.g. `{have_venv}/bin/detective …`) rather than this interpreter.\n"
+            )
         install = shlex.join(["uv", "pip", "install", "--python", sys.executable, "pytest"])
         return (
             "WARNING: pytest is not importable in the interpreter that runs the live suite.\n"
@@ -4211,23 +4288,38 @@ def _format_session_warning(diagnostic: dict[str, Any]) -> str:
         pkg = plugin_hint(blob)
         is_import = any(s in blob for s in ("modulenotfound", "importerror", "no module named"))
         if is_import:
-            install_project = shlex.join(
-                ["uv", "pip", "install", "--python", sys.executable, "-e", ".[test]"]
-            )
-            hint = (
-                "         This is an IMPORT failure loading a conftest/config, not a discovery\n"
-                "         problem: install the project's dependencies in this exact interpreter\n"
-                f"         (for example `{install_project}`), then re-run. Adjusting `testpaths`\n"
-                "         will not fix it.\n"
-            )
-            # Turn "install something" into "install THIS": a --strict-config repo refuses its whole
-            # config when a plugin it declares an ini option for is absent, so name the plugin.
-            if pkg:
-                install_plugin = shlex.join(["uv", "pip", "install", "--python", sys.executable, pkg])
-                hint += (
-                    f"         Likely missing: `{pkg}` — `{install_plugin}` (or install the\n"
-                    "         project's test extra), then re-run.\n"
+            # (usability, ARC_AGI_3 repro) If the missing module ALREADY lives in a sibling venv,
+            # the fix is to run detective from THAT interpreter, not to install into this one — the
+            # accurate remedy when detective was invoked from outside the project's environment.
+            have_venv = _venv_with_module(project_root, pkg) if pkg else None
+            if have_venv:
+                hint = (
+                    "         This is an IMPORT failure loading a conftest/config. The missing\n"
+                    f"         module is ALREADY installed in `{have_venv}`, but detective is running\n"
+                    "         under a DIFFERENT interpreter. Re-run detective from that environment\n"
+                    f"         (e.g. `{have_venv}/bin/detective …`) — nothing needs installing.\n"
                 )
+            else:
+                # Name the project's ACTUAL declared extra, not a guessed `.[test]` that may not
+                # exist (a project with a `dev` extra but no `test` extra breaks the copied command).
+                target = install_extra_target(_declared_extras(project_root))
+                install_project = shlex.join(
+                    ["uv", "pip", "install", "--python", sys.executable, "-e", target]
+                )
+                hint = (
+                    "         This is an IMPORT failure loading a conftest/config, not a discovery\n"
+                    "         problem: install the project's dependencies in this exact interpreter\n"
+                    f"         (`{install_project}`), then re-run. Adjusting `testpaths` will not\n"
+                    "         fix it.\n"
+                )
+                # Turn "install something" into "install THIS": a --strict-config repo refuses its
+                # whole config when a plugin it declares an ini option for is absent, so name it.
+                if pkg:
+                    install_plugin = shlex.join(["uv", "pip", "install", "--python", sys.executable, pkg])
+                    hint += (
+                        f"         Likely missing: `{pkg}` — `{install_plugin}` (or install the\n"
+                        "         project's declared extra), then re-run.\n"
+                    )
         elif pkg:
             install_plugin = shlex.join(["uv", "pip", "install", "--python", sys.executable, pkg])
             hint = (
