@@ -4008,16 +4008,14 @@ def _run_live(args) -> int:
     # cannot import the target even transitively. `paths` is pytest's own collection argument,
     # so the scoping happens before anything is imported, not after everything is traced.
     # `None` (analysis unsure, or no target) collects everything — byte-identical to before.
-    paths = _reachable_paths(
-        root,
-        targets,
-        target_module=regime.module if regime is not None else None,
-        import_roots=regime.suite_path if regime is not None else (),
-        # Bound the collection to pytest's declared testpaths: the authoritative fix for a repo-walk
-        # admitting an installed dependency's suite (ARC: 736 `.venv312` test_*.py). Empty when
-        # undeclared, which leaves today's whole-tree behaviour untouched.
-        testpaths=regime.testpaths if regime is not None else (),
-    ).paths
+    # Layer 1 (C1): the collection is the regime's declared testpaths VERBATIM — pytest's own
+    # boundary, not an import-graph filter (§4.1: import reachability does not discriminate on a
+    # cohesive package). The target-aware narrowing is Layer 2/3's job (measured on ARC: the whole
+    # testpaths collect, then routing traces the function's own tests). `None` — no testpaths or no
+    # regime — collects everything, byte-identical to before.
+    from .regime import collection_universe
+
+    paths = collection_universe(regime) if regime is not None else None
     # `--trace-budget` / `--trace-session-budget` bound the pass that traces the whole suite, and
     # on the live path that pass runs HERE — inside the seam — not in `profile`. Sent only to
     # `profile`, they reached the per-function baseline the live path never uses, so raising them

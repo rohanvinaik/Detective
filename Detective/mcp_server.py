@@ -51,8 +51,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from .cli import _reachable_paths
-
 # ── rendering ────────────────────────────────────────────────────────────────────────
 # One rule: every response closes every circle. After reading it there is no question left
 # whose answer is "go look." Either the caller is told the exact next call, or it is done.
@@ -706,7 +704,12 @@ def _in_session(
         return fn(), None
 
     targets = [file] if file else None
-    paths = _reachable_paths(root, targets).paths
+    # Layer 1 (C1): compute the SAME collection universe the CLI does (§14) — the regime's declared
+    # testpaths, via resolve_regime. Previously this passed no testpaths and collected everything.
+    from .regime import collection_universe, resolve_regime
+
+    _regime = resolve_regime(root, file) if file else None
+    paths = collection_universe(_regime) if _regime is not None else None
     diagnostic: dict[str, Any] = {}
     try:
         result = run_with_live_suite(
