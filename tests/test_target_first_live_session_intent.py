@@ -118,6 +118,38 @@ def _repo(tmp_path):
     return str(tmp_path), str(script)
 
 
+def _caller_repo(tmp_path):
+    """A repo where `_priv` is tested ONLY through its public caller `pub` (which calls it) — the #15
+    B empty-seed case: `_priv` has no direct-naming test, so its candidates are EMPTY and target-first
+    must still activate off the caller slice (seed([]) + widen the caller-reaching tests)."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.pytest.ini_options]\ntestpaths = ['tests']\nmarkers = ['detective: generated']\n"
+    )
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "mod.py").write_text(
+        "def _priv(x):\n"
+        "    if x > 0:\n"
+        "        return x + 100\n"
+        "    return x - 100\n"
+        "\n"
+        "def pub(x):\n"
+        "    return _priv(x) * 2\n"
+    )
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_pub.py").write_text(
+        "from pkg.mod import pub\n\n"
+        "def test_pub_pos():\n    assert pub(3) == 206\n\n"
+        "def test_pub_neg():\n    assert pub(-3) == -206\n"
+    )
+    (tests / "test_unrelated.py").write_text("def test_u():\n    assert 1 + 1 == 2\n")
+    script = tmp_path / "_session_probe.py"
+    script.write_text(_SESSION_SCRIPT)
+    return str(tmp_path), str(script)
+
+
 def _session(script, root, fn, mode):
     proc = subprocess.run(
         [sys.executable, script, root, fn, mode],
@@ -151,6 +183,24 @@ def test_a_sibling_profiled_after_the_target_is_not_corrupted(tmp_path):
     alone.pop("test_routing")
     assert alone["total_killed"] > 0  # sibling has kills to lose to corruption
     assert shared == alone, "sibling corrupted by target's seed — the fork did not isolate the holders"
+
+
+def test_a_caller_only_target_activates_off_the_caller_slice(tmp_path):
+    """#15 B empty-seed: `_priv` is tested only through `pub` (which calls it), so it has ZERO direct
+    candidates — its `pub` tests are caller-reaching UNKNOWNS. Target-first must ACTIVATE anyway
+    (seed([]) then widen the caller tests) and match the full baseline; the old `_cands and ...` guard
+    sent every caller-only target to the full baseline instead. The disposition is identical either
+    way (a perf bug, not a correctness one), so the census proves the caller-only shape and this gate
+    proves the empty-seed live path runs correctly end to end."""
+    root, script = _caller_repo(tmp_path)
+    tf = _session(script, root, "_priv", "on")
+    full = _session(script, root, "_priv", "off")
+    routing = tf.pop("test_routing")
+    full.pop("test_routing")
+    assert routing["candidate"] == 0, "a caller-only target must have no direct candidate"
+    assert routing["unknown"] >= 2, "the public caller's tests must route as (caller-reaching) unknowns"
+    assert full["total_mutants"] > 0
+    assert tf == full, "caller-only target-first (empty seed + caller widen) diverged from the full baseline"
 
 
 def test_a_full_widen_becomes_observed_routing_for_the_next_function(tmp_path):

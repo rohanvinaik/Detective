@@ -442,6 +442,30 @@ def _attr_path(obj: Any, qualname: str) -> Any | None:
     return obj
 
 
+def _activate_target_first(n_cands: int, has_caller_reacher: bool, n_unknowns: int, n_impossible: int) -> str:
+    """Whether the routed partition warrants the target-first seed+widen, and why (#15, pure — pinned).
+
+    Target-first pays off only when BOTH a plausible reacher exists to trace AND something is deferred
+    to widen. A reacher is a direct/fixture candidate (``n_cands``) OR a caller-reaching test
+    (``has_caller_reacher`` — #15 B: a test of a public caller reaches the private target through the
+    call, though it never names it). An EMPTY candidate seed is productive when a caller-reacher
+    exists: ``seed([])`` then widen the caller tests first — the exact caller-only scenario the old
+    ``_cands and …`` guard sent to the full baseline.
+
+    But a LEAF ORPHAN — nothing names the target and it has no tested caller — has NO reacher: every
+    unknown is a blind non-reacher. Seeding empty and widening that whole irrelevant suite is both
+    pointless and WRONG here — it bypasses the orphan short-circuit (`synthesize INSTEAD of running the
+    suite`) and perturbs the converge verdict. So without a reacher, fall back to the full baseline.
+    This makes a no-reacher target behave EXACTLY as the pre-caller-stratum code did; only a target
+    with a real caller-reacher gains the new empty-seed path.
+      * ``"seed"``          — fork, seed the candidates (possibly none), widen the unknowns.
+      * ``"full_baseline"`` — no reacher, or nothing deferred: the plain full run (orphan-safe).
+    """
+    has_reacher = n_cands > 0 or has_caller_reacher
+    deferred = n_unknowns > 0 or n_impossible > 0
+    return "seed" if has_reacher and deferred else "full_baseline"
+
+
 def _module_callers_of(tree: ast.Module, target_name: str) -> set[str]:
     """Names of production functions in THIS module that statically reference ``target_name`` — the
     one-hop, target-local backward slice (#15 B). A test that names such a caller (a public API
@@ -620,7 +644,11 @@ def profile(
         from Wesker.engine import _SESSION_BASELINE as _session_baseline
 
         try:
-            from Wesker.ci import callable_origin, partition_live_callables
+            from Wesker.ci import (
+                _item_body_names,
+                callable_origin,
+                partition_live_callables,
+            )
             from Wesker.trace_cache import observed_function_reach
 
             _holder = _session_baseline.get()
@@ -659,7 +687,18 @@ def profile(
                     "impossible": len(_impossible),
                     "observed": len(_observed),
                 }
-                if _cands and (_unknowns or _impossible):
+                # A reacher must exist for an empty seed to be productive: a direct/fixture candidate,
+                # or a caller-reaching test (#15 B — a test whose body names a production caller of the
+                # target). A LEAF ORPHAN (no candidate, no tested caller) has no reacher: target-first
+                # would widen the whole irrelevant suite and bypass the orphan short-circuit, so it
+                # must fall back to the full baseline. `seed([])+widen` is disposition-exact.
+                _has_caller_reacher = bool(_caller_names) and any(
+                    _caller_names & _item_body_names(t) for t in _unknowns
+                )
+                if (
+                    _activate_target_first(len(_cands), _has_caller_reacher, len(_unknowns), len(_impossible))
+                    == "seed"
+                ):
                     _seeded = _holder.fork()
                     _seeded.seed(_cands)
                     _seed_token = _session_baseline.set(_seeded)
