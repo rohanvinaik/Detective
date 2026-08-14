@@ -453,18 +453,20 @@ def _activate_target_first(n_cands: int, has_caller_reacher: bool, n_unknowns: i
     exists: ``seed([])`` then widen the caller tests first — the exact caller-only scenario the old
     ``_cands and …`` guard sent to the full baseline.
 
-    But a LEAF ORPHAN — nothing names the target and it has no tested caller — has NO reacher: every
-    unknown is a blind non-reacher. Seeding empty and widening that whole irrelevant suite is both
-    pointless and WRONG here — it bypasses the orphan short-circuit (`synthesize INSTEAD of running the
-    suite`) and perturbs the converge verdict. So without a reacher, fall back to the full baseline.
-    This makes a no-reacher target behave EXACTLY as the pre-caller-stratum code did; only a target
-    with a real caller-reacher gains the new empty-seed path.
+    A LEAF ORPHAN — nothing names the target and it has no tested caller — has NO reacher, so it
+    SYNTHESIZES from an empty baseline: it does NOT trace the suite ("The synthesis floor", TEST_BASIS).
+    A zero-candidate routed subset honestly means no reaching test exists; the whole-suite trace the
+    old code fell back to is the sandwich-thesis category error (it deadlocked converge for an hour on
+    ~1000 in-process traces). Disposition-exact: a true orphan's whole suite kills ZERO of its mutants,
+    identical to the empty set, so both conclude "all survive → synthesize".
       * ``"seed"``          — fork, seed the candidates (possibly none), widen the unknowns.
-      * ``"full_baseline"`` — no reacher, or nothing deferred: the plain full run (orphan-safe).
+      * ``"synthesize"``    — leaf orphan (no reacher): seed([]), no trace, mutants survive → synthesize.
+      * ``"full_baseline"`` — a reacher exists but nothing is deferred: the plain full run over the
+                              candidates (which ARE the whole routed set here, so no waste).
     """
-    has_reacher = n_cands > 0 or has_caller_reacher
-    deferred = n_unknowns > 0 or n_impossible > 0
-    return "seed" if has_reacher and deferred else "full_baseline"
+    if not (n_cands > 0 or has_caller_reacher):
+        return "synthesize"  # leaf orphan — never trace the suite (the synthesis floor)
+    return "seed" if (n_unknowns > 0 or n_impossible > 0) else "full_baseline"
 
 
 def basis_membership(observed: str, freshness: str, admissibility: str) -> str:
@@ -780,13 +782,15 @@ def profile(
     # Fix B — TARGET-FIRST. In a live session, fork a per-function baseline holder, SEED it with the
     # tests that statically name THIS target, and hand the rest to Wesker for lazy widening on a
     # survivor (or an uncovered line). The fork means seeding this function cannot corrupt a sibling
-    # profiled in the same session. Skipped — leaving the full baseline — when nothing names the
-    # target (an empty seed) or everything does (nothing to defer). Wrapped so any failure degrades
-    # to the ordinary full-baseline run: a speedup must never break a verdict.
+    # profiled in the same session. A LEAF ORPHAN (nothing reaches the target) SYNTHESIZES from an
+    # empty baseline instead of tracing the suite (the synthesis floor, TEST_BASIS); the full-baseline
+    # path is kept only when a reacher exists but nothing is deferred. Wrapped so any failure degrades
+    # to the ordinary full run: a speedup must never break a verdict.
     _seed_token = None
     _widen_tests: list[Callable[..., Any]] | None = None
     _session_baseline = None
     _routing_counts: dict[str, int] = {}
+    _synthesize_orphan = False
     if _WESKER_TARGET_FIRST and scope_tests and tests:
         from Wesker.engine import _SESSION_BASELINE as _session_baseline
 
@@ -836,20 +840,28 @@ def profile(
                 }
                 # A reacher must exist for an empty seed to be productive: a direct/fixture candidate,
                 # or a caller-reaching test (#15 B — a test whose body names a production caller of the
-                # target). A LEAF ORPHAN (no candidate, no tested caller) has no reacher: target-first
-                # would widen the whole irrelevant suite and bypass the orphan short-circuit, so it
-                # must fall back to the full baseline. `seed([])+widen` is disposition-exact.
+                # target). A LEAF ORPHAN (no candidate, no tested caller) has no reacher, so it
+                # SYNTHESIZES from an empty baseline — it NEVER traces the suite (the synthesis floor).
                 _has_caller_reacher = bool(_caller_names) and any(
                     _caller_names & _item_body_names(t) for t in _unknowns
                 )
-                if (
-                    _activate_target_first(len(_cands), _has_caller_reacher, len(_unknowns), len(_impossible))
-                    == "seed"
-                ):
+                _disposition = _activate_target_first(
+                    len(_cands), _has_caller_reacher, len(_unknowns), len(_impossible)
+                )
+                if _disposition == "seed":
                     _seeded = _holder.fork()
                     _seeded.seed(_cands)
                     _seed_token = _session_baseline.set(_seeded)
                     _widen_tests = _unknowns
+                elif _disposition == "synthesize":
+                    # Seed EMPTY (the forked baseline traces nothing) and profile against NO tests, so
+                    # every mutant survives and routes to the existing synthesis pass. Disposition-exact:
+                    # a true orphan's whole suite kills zero of its mutants, identical to the empty set.
+                    _seeded = _holder.fork()
+                    _seeded.seed([])
+                    _seed_token = _session_baseline.set(_seeded)
+                    _widen_tests = []
+                    _synthesize_orphan = True
         except Exception:  # noqa: BLE001 — target-first is an optimisation; never fail the run
             _seed_token = None
             _widen_tests = None
@@ -859,7 +871,7 @@ def profile(
             node,
             func_key,
             categories,
-            tests,
+            [] if _synthesize_orphan else tests,
             original,
             budget_ms=budget_ms,
             max_per_category=max_per_category,
