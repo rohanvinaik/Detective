@@ -27,7 +27,7 @@ from Wesker.ci import discover_test_callables, walk_functions
 from Wesker.line_coverage import executable_lines as _executable_lines
 from Wesker.line_coverage import trace_line_coverage as _trace_line_coverage
 
-from Detective.validity import normalize_validity
+from Detective.validity import MeasurementValidity, normalize_validity
 
 if TYPE_CHECKING:
     from .parsimony import ParsimonySignals
@@ -499,6 +499,39 @@ def basis_membership(observed: str, freshness: str, admissibility: str) -> str:
     return "pending"
 
 
+def basis_action(admits_certificate: bool, has_open_obligations: bool) -> str:
+    """The FunctionBasis terminal state, from the engine's OWN validity (§1.3, #D2 — pure, pinned).
+
+    Consumes ``admits_certificate`` (Wesker's gateability, absorbing over every cut reason) — NEVER a
+    re-derived proxy like ``bool(survivors)``, the measurement/decision gap this whole phase closes.
+    A truncated or ungateable search is ``unresolved``, and a truncated search is NEVER a gap (#16,
+    ``303289b``): only a search that actually EXHAUSTED its eligible unknowns may conclude one.
+
+      "complete"    gateable, and every obligation discharged
+      "gap"         gateable, exhausted, but an obligation is open — a real specification gap
+      "unresolved"  not gateable / cut — the search was truncated; no negative conclusion is earned
+
+    (``next_routing_action``'s fourth state ``trace_next`` is a widen-loop state; a FINAL result —
+    the only thing this sees — never carries it.)
+    """
+    if not admits_certificate:
+        return "unresolved"
+    return "gap" if has_open_obligations else "complete"
+
+
+def has_open_obligations(surviving_mutants: int, candidate_equivalents: int, uncovered_lines: int) -> bool:
+    """Whether any PROOF obligation is still open (§1.2/§1.3, #D2 — pure, pinned).
+
+    A candidate-equivalent mutant is NOT an open obligation — it is the undischargeable residue U_t
+    ("modulo N unproven-equivalent"), resolved by ``detective flag``, never by grinding the suite. So
+    a surviving mutant counts as open ONLY if it is killable (survivors minus candidate-equivalents);
+    an uncovered executable line always counts. This is what keeps ``basis_action`` from reporting a
+    ``gap`` that is really an undecidable equivalence, or a ``complete`` that still has a killable hole.
+    """
+    killable_survivors = surviving_mutants - candidate_equivalents
+    return killable_survivors > 0 or uncovered_lines > 0
+
+
 @dataclasses.dataclass(frozen=True)
 class Obligations:
     """O_t = L_t ∪ A_t ∪ M_t — what a proof basis for one function must discharge (§1.2, #D1).
@@ -545,6 +578,39 @@ class FunctionBasis:
     unresolved: tuple[TestId, ...] = ()
     excluded: tuple[tuple[TestId, str], ...] = ()
     action: str = "trace_next"
+
+
+def function_basis(result: ProfilingResult, validity: MeasurementValidity) -> FunctionBasis:
+    """Assemble the FunctionBasis a completed profile earned (§9, #D2 — the accessor).
+
+    The DECISIONS it calls are pinned separately: ``basis_action`` (converge ✓) and
+    ``has_open_obligations`` (intent-pinned). This accessor only holds the object handling, per the
+    house rule. It reads the engine's OWN signals — ``admits_certificate``, the executable-line
+    denominator, the mutant counts — never a re-derived proxy.
+
+    D2 populates the OBLIGATIONS and the terminal ACTION. The admitted witnesses (each with a
+    ``basis_membership`` warrant and an ℋ/𝒢 origin) are D3/D5, so ``admitted``, ``unresolved`` and
+    ``excluded`` are empty here BY DESIGN, not omission. Every field is read defensively so an older
+    engine that omits one degrades to an empty obligation, never a crash.
+    """
+    lines = tuple(sorted(getattr(result, "executable_lines", ()) or ()))
+    covered: set[int] = set()
+    for cov in (getattr(result, "line_coverage", {}) or {}).values():
+        covered.update(cov)
+    uncovered = tuple(sorted(set(lines) - covered))
+    killed_dims = tuple(sorted((getattr(result, "kill_matrix", {}) or {}).keys()))
+
+    open_obligations = has_open_obligations(
+        int(getattr(result, "total_survived", 0) or 0),
+        int(getattr(result, "total_equivalent", 0) or 0),
+        len(uncovered),
+    )
+    return FunctionBasis(
+        target=str(getattr(result, "function_key", "")),
+        obligations=Obligations(lines=lines, mutation_dims=killed_dims),
+        undischargeable=Obligations(lines=uncovered),
+        action=basis_action(validity.admits_certificate, open_obligations),
+    )
 
 
 def _module_callers_of(tree: ast.Module, target_name: str) -> set[str]:
