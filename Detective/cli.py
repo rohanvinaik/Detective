@@ -110,38 +110,80 @@ def _format_execution_refusal(context: ExecutionContext) -> str:
     )
 
 
+def reachable_disposition(n_targets: int, raised: bool, scoped_count: int | None) -> str:
+    """Why `_reachable_paths` chose its collection scope — a named disposition, not the old
+    `list | None` (B2, pure — pinned).
+
+    The old wrapper collapsed THREE unrelated outcomes into one `None`: no single target, a
+    CRASHED analysis, and a deliberate "collect everything". The ARC measurement (TEST_BASIS §13)
+    cannot tell "declined" from "narrowed" through that, and a blanket crash-swallow of exactly
+    this shape has hidden a real defect before (bd6f24e). Each state means something different, so
+    each gets its own code — never a bool:
+
+      "declined_multi"  0 or >1 targets — no analysis was attempted
+      "declined_error"  the static analysis RAISED — degrade to full collection, but say so
+      "roots"           analysis ran and did not narrow — the configured floor / full tree
+      "scoped"          analysis narrowed to `scoped_count` target-relevant paths
+    """
+    if n_targets != 1:
+        return "declined_multi"
+    if raised:
+        return "declined_error"
+    if scoped_count is None:
+        return "roots"
+    return "scoped"
+
+
+@dataclass(frozen=True)
+class PathScope:
+    """The pytest collection scope AND why it is that scope (B2).
+
+    ``paths`` is pytest's own collection argument — a scoped list, or ``None`` to collect
+    everything. ``disposition`` is :func:`reachable_disposition`'s code, so a decline (no single
+    target, or a CRASHED analysis) is never the same value as a deliberate "collect everything".
+    Consumers read ``.paths`` today; the ARC measurement (TEST_BASIS C1) reads ``.disposition`` to
+    tell "declined" from "narrowed".
+    """
+
+    paths: list[str] | None
+    disposition: str
+
+
 def _reachable_paths(
     root: str,
     targets: list[str] | None,
     target_module: str | None = None,
     import_roots: tuple[str, ...] = (),
     testpaths: tuple[str, ...] = (),
-) -> list[str] | None:
-    """pytest collection paths scoped to the target, or None to collect everything.
+) -> PathScope:
+    """pytest collection scope for the target, carrying WHY — a PathScope, not a bare list | None.
 
-    Wrapped so the scoping can NEVER be the thing that breaks a run: any failure in the
-    static analysis degrades to None, i.e. exactly today's full collection. A speedup that
-    can turn a verdict wrong is not a speedup, and this one is only ever allowed to make the
-    tool faster or leave it alone.
+    Wrapped so the scoping can NEVER be the thing that breaks a run: any failure in the static
+    analysis degrades to full collection (``paths=None``), i.e. exactly today's behaviour — but now
+    as ``disposition='declined_error'`` rather than a silent ``None`` indistinguishable from the two
+    other reasons ``paths`` can be ``None`` (the §14 conflation that once hid a real defect).
 
     ``testpaths`` is the regime's declared pytest ``testpaths``: it bounds the collection to the
     project's own suite so an installed dependency's ``test_*.py`` (which a repo-walk reaches under
     ``.venv*/``) is never traced, and it is the collection FLOOR when reachability cannot narrow.
     """
-    if not targets or len(targets) != 1:
-        return None
+    n_targets = len(targets) if targets else 0
+    if not targets or n_targets != 1:  # `not targets` also narrows `targets` to non-None below
+        return PathScope(None, reachable_disposition(n_targets, raised=False, scoped_count=None))
     try:
         from .reachability import reachable_test_paths
 
-        return reachable_test_paths(
+        paths = reachable_test_paths(
             root,
             targets[0],
             target_module=target_module,
             import_roots=import_roots,
             testpaths=testpaths,
         )
-    except Exception:  # noqa: BLE001 — scoping is an optimisation; never fail the run for it
-        return None
+    except Exception:  # noqa: BLE001 — scoping is an optimisation; degrade to full, but NAME it
+        return PathScope(None, reachable_disposition(1, raised=True, scoped_count=None))
+    scoped_count = len(paths) if paths is not None else None
+    return PathScope(paths, reachable_disposition(1, raised=False, scoped_count=scoped_count))
 
 
 def _split_target(target: str, project_root: str | None = None) -> tuple[str, str]:
@@ -3975,7 +4017,7 @@ def _run_live(args) -> int:
         # admitting an installed dependency's suite (ARC: 736 `.venv312` test_*.py). Empty when
         # undeclared, which leaves today's whole-tree behaviour untouched.
         testpaths=regime.testpaths if regime is not None else (),
-    )
+    ).paths
     # `--trace-budget` / `--trace-session-budget` bound the pass that traces the whole suite, and
     # on the live path that pass runs HERE — inside the seam — not in `profile`. Sent only to
     # `profile`, they reached the per-function baseline the live path never uses, so raising them

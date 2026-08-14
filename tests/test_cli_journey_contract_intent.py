@@ -92,7 +92,7 @@ def test_src_layout_reachability_consumes_the_module_identity_regime_measured(tm
     )
 
     regime = resolve_regime(str(tmp_path), str(target))
-    paths = _reachable_paths(
+    scope = _reachable_paths(
         str(tmp_path),
         [str(target)],
         target_module=regime.module,
@@ -100,9 +100,10 @@ def test_src_layout_reachability_consumes_the_module_identity_regime_measured(tm
     )
 
     assert regime.module == "acme.pricing"
-    assert paths is not None
-    assert str(relevant) in paths
-    assert str(noise) not in paths
+    assert scope.disposition == "scoped"  # it narrowed — not declined, not roots
+    assert scope.paths is not None
+    assert str(relevant) in scope.paths
+    assert str(noise) not in scope.paths
 
 
 def test_one_test_built_object_is_not_reported_as_thirty_one_objects():

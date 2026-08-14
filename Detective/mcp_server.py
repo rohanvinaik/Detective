@@ -706,7 +706,7 @@ def _in_session(
         return fn(), None
 
     targets = [file] if file else None
-    paths = _reachable_paths(root, targets)
+    paths = _reachable_paths(root, targets).paths
     diagnostic: dict[str, Any] = {}
     try:
         result = run_with_live_suite(
