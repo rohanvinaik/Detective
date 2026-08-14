@@ -16,12 +16,11 @@ Three, from which most of the design follows.
 > question correctly. A spec arguing that one question is answered in too many places may not
 > answer it in one more.
 >
-> **2 · No new module.** This is a **rewiring**, never an addition. Net **−1 module if C1's ARC
-> measurement lands** (§13): `reachability.py` is deleted and its surviving facts move into
-> `regime.py`. If ARC shows the import closure is load-bearing in the sparse regime, that closure
-> survives as an **ordering-only Layer-2 prior** and the module count is unchanged. The deletion
-> headline is a bet on an unrun external measurement (#9, yours); everything in Phases A, B, D, E
-> and F is sound either way.
+> **2 · No new module. [SETTLED — module count unchanged.]** This is a **rewiring**, never an
+> addition. The "−1 module if C1 lands" bet is OFF: the ARC measurement ran, C1 (delete
+> `reachability.py`) was REVERTED, and the import closure is load-bearing in the sparse regime as a
+> sound eligibility bound (see "The scoping correction"). `reachability.py` STAYS. Everything in
+> Phases A, B, D, E and F is sound regardless.
 >
 > **3 · The decisions almost all exist and are already pinned.** Nine pure functions (§5.1)
 > survive verbatim; exactly **one is added** — `basis_membership` (§9), authored and pinned in D1.
@@ -95,13 +94,15 @@ widen's eligible-unknown pool **12 → 423**, grinding ~330 traces through slow 
 discharges them. The recovery is not F1 — it is the sound eligibility bound above, plus
 drop-to-synthesis for the residual.
 
-**Consequence for the plan.** C1 (delete Layer 1) is **REVERTED** — both commits; the pre-C1 sound
-scoping is restored. `reachable_test_paths` already combines the Layer-1 floor (testpaths) with the
-Layer-2 reachability narrowing, so the separate `collection_universe` C1 introduced was unnecessary
-churn. The C-phase becomes: **fix reachability's SOUNDNESS** — the real §4.3 conftest-fixture /
-dynamic-dispatch holes, completing the over-approximation so it never calls a real reacher
-unreachable — **and route the un-killed residual to synthesis** (never grind the suite). The
-Three-Layer Law (§3) is amended:
+**Consequence for the plan. [Soundness + deletions DONE; residual→synthesis OPEN.]** C1 (delete
+Layer 1) is **REVERTED**; the pre-C1 sound scoping is restored and `reachability.py` stays. The
+corrected C-phase (§13) has three DONE slices: **C1′** fixed reachability's §4.3 soundness hole
+(`reach_disposition`, Detective `c9f732c`); **C2** deleted the four genuinely-dead symbols after
+grounding proved the doc's ledger mostly stale (Wesker `1c5c9ad`); **C3** short-circuited the
+proven-identity live routing path, keeping `_route_live_callables` for the conservative narrowing
+(Wesker `1b34e44`). The §4.3 "dynamic-dispatch" hole was already sound (opaque covers it). Still
+**OPEN**: **route the un-killed residual to synthesis** (never grind the suite) — Phase F territory.
+The Three-Layer Law (§3) is amended:
 "only Layer 3 may EXCLUDE (from the certificate)" stands; eligibility for the widen may be soundly
 bounded by an over-approximating reachability at Layer 2, because a provably-unreachable test is not
 a certificate claim — it is work that provably cannot contribute.
@@ -333,15 +334,27 @@ is the substance of #15"*): explicit paths yield origins spelled as given where 
 canonicalises, and the ordinary route *"DROPS the test whose module-level `from <target> import
 ...` cannot resolve."* Detective does externally what Wesker refused to do internally.
 
-### 4.3 It has a live soundness hole **[R-exec — reproduce the synthetic repo before acting]**
+### 4.3 [RESOLVED — Detective `c9f732c`] The fixture-only reacher soundness hole
 
-A test whose only path to the target is a **conftest fixture** is silently excluded. The import
-graph has no `conftest → test` edge, because pytest *injects* fixtures. Reported reproduction:
+**Fixed.** Reproduced live against local Detective, then closed by COMPLETING the
+over-approximation: `reachable_test_paths` now keeps a test iff its own module reaches the target
+**OR** an ancestor `conftest.py` does. A conftest that cannot reach the target defines no fixture
+that can, so a fixture-only reacher is no longer dropped, and a genuine non-reacher still is. The
+decision is the pinned pure function `reach_disposition(module_reaches, fixture_reaches) -> direct |
+fixture | unreached` (§5.1, ✓ 6/6). Measured on ARC `serialize_rule` via the **real** regime
+(`resolve_regime` → module `src.story.crystallize`, `import_roots=()` — NOT a hand-guessed `('src',)`,
+which yields 0/96): 96 in-scope, keep 12 unchanged — **zero over-inclusion**, still narrows 96→13.
+Precision (fixture-name + autouse resolution, to drop no-fixture riders under a reaching conftest) is
+deferred to Phase F: a precision gain, not a soundness requirement, and premature fixture parsing
+would reintroduce the drop-a-reacher risk. The original defect, for the record:
+
+A test whose only path to the target was a **conftest fixture** was silently excluded. The import
+graph has no `conftest → test` edge, because pytest *injects* fixtures. Reproduction:
 `tests/conftest.py` does `from pkg.mod import quote` and exposes it as a fixture;
-`tests/test_via_fixture.py` takes only the fixture and is dropped.
+`tests/test_via_fixture.py` takes only the fixture and was dropped.
 
 The same failure Wesker already fixed **[C]** (`e860780`), reintroduced one layer up where that
-fix cannot see it — and in the direction `reachability.py:13-17` says it never goes.
+fix could not see it — and in the direction `reachability.py:13-17` says it never goes.
 
 ### 4.4 Every walk-pruning patch solves pytest's problem for it **[M]**
 
@@ -389,16 +402,26 @@ test file plus a second impact map over fixture files, computed and dropped, per
   `oracle_light.importable_module:159` names the target, and `reachability.py:284` tests
   membership across the two schemes.
 
-### 4.7 The dead ledger **[R-wire — `find_referencing_symbols` each before deletion]**
+### 4.7 The dead ledger **[R-wire — GROUNDED, mostly stale — Wesker `1c5c9ad`]**
 
-`ci.discover_tests` (the advertised 3-tier orchestrator — one referencing symbol, its own test) ·
-`ci.split_live_callables` · `ci.route_admits(conservative=True)` · `ci.live_suite_active` (zero
-references) · `run_function_converged`'s `widen_tests` and its ~125-line widen (a hand-mirrored
-copy with a **different obligation set** — no line axis) · `unknown_dynamic` (`dynamic_uncertain`
-is a literal `False` at both call sites, so the documented 7-stratum lattice is really **6**) ·
-`line_coverage.trace_evidence_admissible` (a second admissibility implementation with no replay
-concept — dead **and** a drift hazard) · `_is_test_filename(patterns=…)` (never passed, so a
-custom `python_files` is invisible to the static selector).
+**This list was ~9 items; `find_referencing_symbols` on each showed only FOUR were production-dead.**
+The C2 gate ("a behavioural probe, not a reference sweep") caught the rest before any deletion — the
+same over-reporting the closed-issue audits keep producing. Deleting the live group would have broken
+the seams.
+
+**Deleted (Wesker `1c5c9ad`) — genuinely dead, only their own tests referenced them:**
+`ci.discover_tests` (a duplicate 3-tier orchestrator) · `ci.split_live_callables` (a thin wrapper
+over live `partition_live_callables`) · `ci.live_suite_active` (**zero** references — a spawn-safety
+predicate never wired; the real guard lives in `Detective.engine.profile`) ·
+`line_coverage.trace_evidence_admissible` (the #29 drift-hazard second admissibility impl —
+`trace_admissibility` is the live owner).
+
+**NOT dead — the doc was stale, these are LIVE (or the claim was already fixed):**
+`ci.route_admits(conservative=True)` is called by `_route_live_callables` and is a real, test-covered
+narrowing (§8) · `unknown_dynamic` — **no such symbol exists** (already resolved) ·
+`_is_test_filename(patterns=…)` — `patterns` **is** passed at `_discover_all_test_files` (bug already
+fixed) · `run_function_converged`'s `widen_tests` — the function is LIVE and exported; the "dead
+internal widen" sub-claim was not re-confirmed and is left untouched.
 
 ### 4.8 The diagnosis is already written down **[V]**
 
@@ -420,7 +443,8 @@ that observation — the Sandwich one level down: you do not model the suite; yo
 
 | decision | where | pin |
 |---|---|---|
-| `within_declared_testpaths` | `reachability.py:228` → moves to `regime.py` | 16/16 |
+| `within_declared_testpaths` | `reachability.py` (STAYS — C1 reverted, §"scoping correction") | 16/16 |
+| `reach_disposition` | `reachability.py` (NEW — §4.3 fix, `c9f732c`) | 6/6 |
 | `route_test_item` | `Wesker/ci.py` | 32/32 |
 | `_unknown_stratum_rank` | `Wesker/ci.py` | 17/17 |
 | `next_routing_action` | `Wesker/engine.py` | 9/9 |
@@ -482,17 +506,20 @@ The two file identities answer different questions and must not share a type: `(
 meaningless across runs, and a content digest is meaningless for "is this the same open file."
 Conflating them is `109a5db`'s bug in a new spelling **[C]**.
 
-**`reachability.module_name` is deleted in C1, not here — and there is no cycle to dissolve.**
-`module_name`'s only callers are `_build_graph` and `reachable_test_paths` **[V]** (verified via
-`find_referencing_symbols`), which the walk deletion removes together; deleting it earlier would
-break a walk that Phase B keeps. The real `regime.py → reachability.py` dependency is a **one-way**
-import of the walk constants `_SKIP_DIRS` / `_pytest_norecursedirs` (`regime.py:37` **[V]**) — not
-`module_name`, and not a cycle: `reachability.py` imports only `ast`/`os` **[V]**. It dissolves when
-the walk goes (C1). Today the target is named by `oracle_light.importable_module` (`regime.py:38`)
-and graph nodes by `module_name` — the §4.6 two-namer split; folding both onto `regime.module` is
-part of the C1 deletion and touches **#28**.
+**`reachability.module_name` STAYS — C1 is reverted (see "The scoping correction").** It was to be
+deleted with the walk in C1; that reversion keeps the walk, so `module_name` keeps naming graph
+nodes. Its only callers are `_build_graph` and `reachable_test_paths` **[V]** (verified via
+`find_referencing_symbols`). The `regime.py → reachability.py` dependency remains a **one-way**
+import of the walk constants `_SKIP_DIRS` / `_pytest_norecursedirs` — not a cycle: `reachability.py`
+imports only `ast`/`os` **[V]**. The §4.6 two-namer split (target named by
+`oracle_light.importable_module`, graph nodes by `module_name`) is therefore NOT folded here — it
+would have ridden the C1 deletion, and touches **#28**; it is now a standalone follow-up if pursued.
 
-## 7. Layer 1 — universe construction **[P]**
+## 7. Layer 1 — universe construction **[P]** — ⚠️ STRUCK (C1 reverted)
+
+**Do not build `collection_universe` or the deletions below.** This whole section is the delete-Layer-1
+plan; C1 was measured and REVERTED (see "The scoping correction" and §13 Phase C). `reachability.py`
+and its walk STAY; the corrected work was C1′/C2/C3 (§13), all done. Kept for its reasoning only.
 
 ```python
 # Detective/regime.py — beside resolve_regime, which supplies its only argument
@@ -533,12 +560,22 @@ regime question rather than a relevance one.
 `route_test_item` unchanged in shape: a total function from an evidence tuple to an ordered code
 set, first-true-clause, one-sided. Four wiring changes:
 
-1. **Delete `_route_live_callables`** (§4.5). It is the identity function *and* the only reason
-   `static_reach` carries two incompatible denotations — a FILE bit there, a per-ITEM bit in the
-   seed router, with the collision acknowledged in a comment (`ci.py:524-529`) rather than
-   resolved. Deleting it removes one denotation.
-2. **Delete L2's discarded computation** — `relevant_test_files`, `_build_static_impact_map`,
-   `_fixture_files_reaching_target`, `discover_tests`.
+1. **[DONE — Wesker `1b34e44`, refined by the `[R-exec]` probe] Short-circuit the proven-identity
+   path — do NOT delete `_route_live_callables`.** The probe (executed, not read) showed it is the
+   identity function **only at `conservative=False`** (every production call): all four routes
+   `static_reach×fixture` over `{item,none}×{T,F}` are admitted, so it returns `live` verbatim. At
+   `conservative=True` it genuinely drops `unknown_no_path` — a real, test-covered narrowing — so
+   deleting it (the original plan) would remove a capability. Instead, `discover_test_callables` now
+   short-circuits `if live is not None and not conservative: return live` **before** computing
+   `scoped`, skipping the `relevant_test_files` impact map the identity discarded on every live call
+   (§4.5 waste). Behavior-preserving in all cases. **Not done:** the `static_reach` FILE-vs-item
+   denotation collision survives with the function — it is documented and intentional, and removing
+   it was contingent on a deletion the grounding does not support.
+2. **NOT a discarded computation — these are LIVE.** `relevant_test_files`,
+   `_build_static_impact_map`, `_fixture_files_reaching_target` feed `discover_test_callables`'s
+   non-live backends and its conservative router; only `discover_tests` (a genuine dead duplicate)
+   was deleted (§4.7, C2). The impact map is no longer *discarded* on the live path — it is no longer
+   *computed* there (point 1).
 3. **Return tagged items.** `partition_live_callables` returns three untagged lists, so Detective
    re-derives `_item_body_names` — `inspect.getsource` + `ast.parse` **per item** — a second time
    (`Detective/engine.py:695-697`) to recover a bit Wesker computed at `ci.py:669` and discarded.
@@ -733,25 +770,31 @@ B2 precedes every deletion on purpose: it is 32 lines with one caller and change
 it makes Phase C's risk *observable* — once a decline carries a reason, the ARC measurement can
 distinguish "declined" from "narrowed" instead of inferring it.
 
-### Phase C — delete
+### Phase C — soundness + delete (SUPERSEDES the delete-Layer-1 plan; see "The scoping correction")
 
-| # | slice | seam | risk | proves |
-|---|---|---|---|---|
-| **C1** | **Delete Layer 1's target filtering.** `regime.collection_universe`; roots verbatim; no synthesized file list. Removes the walk (`_build_graph` / `reachable_test_paths` / `module_name`) and folds `oracle_light.importable_module` + `module_name` into `regime.module` (§6, #28) | `reachable_test_paths` | **medium** | ARC e2e: verdict-parity + wall-clock |
-| **C2** | Delete §4.7's dead ledger and L2's discarded computation | `discover_test_callables` | low | the identity-function claim, re-confirmed **by execution** |
+C1 (delete Layer 1) was built, measured on ARC, and **REVERTED**: sound scoping is an ELIGIBILITY
+BOUND, not a forbidden exclusion. The corrected C-phase is **fix reachability's soundness**, then
+**delete only what grounding proves dead** — all three slices below are DONE.
 
-**C2's gate is a behavioural probe, not a reference sweep.** The `_route_live_callables`
-identity-function finding is **[R-exec]**: it came from executing the function directly against
-the local Wesker with the production argument values (`static_reach ∈ {item,none}`,
-`fixture_reaches ∈ {T,F}`, `caller_reaches=False`, `observed_reach="unseen"`,
-`dynamic_uncertain=False`). `find_referencing_symbols` cannot settle it — a single-seam reference
-structure is entirely consistent with a non-identity function. Re-run the probe before deleting.
+| # | slice | seam | status |
+|---|---|---|---|
+| **C1′** | **Fix reachability's §4.3 soundness hole** (was: delete Layer 1). A fixture-only reacher is kept via the pinned `reach_disposition`; sound over-approximation, measured 96→13 on ARC with **zero** over-inclusion | `reachable_test_paths` | ✅ Detective `c9f732c` |
+| **C2** | Delete only the FOUR genuinely-dead symbols §4.7 grounding confirmed (`discover_tests`, `split_live_callables`, `live_suite_active`, `trace_evidence_admissible`) — NOT the doc's stale ~9-item list, and NOT the live L2 computation | `discover_test_callables` | ✅ Wesker `1c5c9ad` |
+| **C3** | Short-circuit the proven-identity live routing path (skip the discarded impact map); keep `_route_live_callables` for the `conservative=True` narrowing | `discover_test_callables` | ✅ Wesker `1b34e44` |
 
-**C1 is the only slice carrying real risk**, and it needs a measurement, not an argument: **ARC
-end-to-end** — the sparse repo Layer 1 was built for. The claim under test is that Layer 2's
-per-item routing already recovers there what Layer 1's file filter was doing. If it does not, C1
-stops and the import graph returns as a Layer-2 **prior** — ordering only, never excluding — which
-the Law permits. Every other slice is independent of that outcome.
+**The `[R-exec]` probe governed C2/C3, not a reference sweep.** `_route_live_callables` is the
+identity function **only at `conservative=False`** (executed against local Wesker: all four
+`static_reach×fixture` routes admit; `conservative=True` drops `unknown_no_path`). So it was
+short-circuited, not deleted — deletion would have removed a test-covered narrowing. And §4.7's
+`find_referencing_symbols` sweep proved most of the "dead ledger" LIVE before any deletion.
+
+**What C1's reversion settled:** deleting Layer 1 held verdict-parity but blew the widen's
+eligible-unknown pool **12→423**, and the residual obligations were undischargeable by ANY suite
+test. The recovery is the sound eligibility bound (C1′) plus **drop-to-synthesis for the residual**
+(the remaining C-phase work, still open), not an ordering-only prior. `module_name`,
+`within_declared_testpaths`, `_SKIP_DIRS`, `_pytest_norecursedirs`, `is_virtualenv_root`,
+`_ancestor_conftests` all STAY in `reachability.py` — the C1 deletion that would have moved or
+removed them is reverted.
 
 ### Phase D — rebuild around the basis
 
