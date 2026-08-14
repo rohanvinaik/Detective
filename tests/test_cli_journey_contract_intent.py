@@ -15,7 +15,6 @@ from Detective.cli import (
     _converge_action,
     _derive_input_plan,
     _derived_input,
-    _reachable_paths,
     _regime_action,
     execution_disposition,
     main,
@@ -75,35 +74,31 @@ def test_live_command_refuses_before_pytest_can_misdiagnose_the_environment(tmp_
     assert "pytest collection" not in captured.err
 
 
-def test_src_layout_reachability_consumes_the_module_identity_regime_measured(tmp_path):
-    source = tmp_path / "src" / "acme"
-    tests = tmp_path / "tests"
-    source.mkdir(parents=True)
-    tests.mkdir()
-    (source / "__init__.py").write_text("")
-    target = source / "pricing.py"
+def test_collection_universe_is_the_declared_testpaths_verbatim(tmp_path):
+    """C1: Layer 1 is the declared testpaths, VERBATIM — no target, no import-graph filter, no
+    synthesized file list. The per-item, target-aware narrowing is Layer 2/3's job."""
+    from Detective.regime import collection_universe
+
+    (tmp_path / "src" / "acme").mkdir(parents=True)
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "acme" / "__init__.py").write_text("")
+    target = tmp_path / "src" / "acme" / "pricing.py"
     target.write_text("def quote(value):\n    return value + 1\n")
-    relevant = tests / "test_pricing.py"
-    relevant.write_text("from acme.pricing import quote\n\ndef test_quote():\n    assert quote(1) == 2\n")
-    noise = tests / "test_noise.py"
-    noise.write_text("def test_noise():\n    assert True\n")
     (tmp_path / "pyproject.toml").write_text(
         "[tool.pytest.ini_options]\npythonpath = ['src']\ntestpaths = ['tests']\n"
     )
 
     regime = resolve_regime(str(tmp_path), str(target))
-    scope = _reachable_paths(
-        str(tmp_path),
-        [str(target)],
-        target_module=regime.module,
-        import_roots=regime.suite_path,
-    )
-
     assert regime.module == "acme.pricing"
-    assert scope.disposition == "scoped"  # it narrowed — not declined, not roots
-    assert scope.paths is not None
-    assert str(relevant) in scope.paths
-    assert str(noise) not in scope.paths
+    assert collection_universe(regime) == [str(tmp_path / "tests")]
+
+
+def test_collection_universe_is_none_when_no_testpaths(tmp_path):
+    from Detective.regime import collection_universe
+
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    regime = resolve_regime(str(tmp_path), None)
+    assert collection_universe(regime) is None
 
 
 def test_one_test_built_object_is_not_reported_as_thirty_one_objects():
