@@ -791,12 +791,12 @@ def profile(
     _session_baseline = None
     _routing_counts: dict[str, int] = {}
     _synthesize_orphan = False
+    _impossible_ids: set[int] = set()
     if _WESKER_TARGET_FIRST and scope_tests and tests:
         from Wesker.engine import _SESSION_BASELINE as _session_baseline
 
         try:
             from Wesker.ci import (
-                _item_body_names,
                 callable_origin,
                 partition_live_callables,
             )
@@ -838,12 +838,19 @@ def profile(
                     "impossible": len(_impossible),
                     "observed": len(_observed),
                 }
+                # A proof-grade impossible test (observed non-reach under a complete regime) provably
+                # cannot kill any of this target's mutants, so it leaves the POOL entirely (#D3, §14),
+                # not merely the widen list — else it re-enters through every `_tests_for` fallback and
+                # is run for nothing. Sound: a non-reacher's exclusion is a Layer-3 observation.
+                _impossible_ids = {id(t) for t in _impossible}
                 # A reacher must exist for an empty seed to be productive: a direct/fixture candidate,
                 # or a caller-reaching test (#15 B — a test whose body names a production caller of the
                 # target). A LEAF ORPHAN (no candidate, no tested caller) has no reacher, so it
                 # SYNTHESIZES from an empty baseline — it NEVER traces the suite (the synthesis floor).
+                # The route code travels WITH each unknown now (#D3), so read `caller_reaches` off the
+                # tag instead of re-parsing every unknown's body a second time.
                 _has_caller_reacher = bool(_caller_names) and any(
-                    _caller_names & _item_body_names(t) for t in _unknowns
+                    code == "caller_reaches" for _, code in _unknowns
                 )
                 _disposition = _activate_target_first(
                     len(_cands), _has_caller_reacher, len(_unknowns), len(_impossible)
@@ -852,7 +859,7 @@ def profile(
                     _seeded = _holder.fork()
                     _seeded.seed(_cands)
                     _seed_token = _session_baseline.set(_seeded)
-                    _widen_tests = _unknowns
+                    _widen_tests = [c for c, _ in _unknowns]  # unknowns are tagged (callable, code)
                 elif _disposition == "synthesize":
                     # Seed EMPTY (the forked baseline traces nothing) and profile against NO tests, so
                     # every mutant survives and routes to the existing synthesis pass. Disposition-exact:
@@ -871,7 +878,7 @@ def profile(
             node,
             func_key,
             categories,
-            [] if _synthesize_orphan else tests,
+            [] if _synthesize_orphan else [t for t in tests if id(t) not in _impossible_ids],
             original,
             budget_ms=budget_ms,
             max_per_category=max_per_category,
