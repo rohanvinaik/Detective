@@ -1239,7 +1239,7 @@ def _format_survivor_report(
     # harder (nested / cross-referential) input rather than equivalent — so caution against a
     # false `flag` here. Only when there ARE flag-eligible survivors (candidate-equivalent or
     # crash-only); a fully killed target needs no caveat.
-    if structural_difficulty == "deep_structural" and (unproven or crash_only):
+    if deep_structure_caveat(structural_difficulty, bool(unproven or crash_only)):
         lines.append(
             "  ⚠ deep-structure caveat: this target indexes into collection elements and drives a "
             "worklist/fixpoint loop — a shape whose distinguishing inputs the witness search does "
@@ -1866,6 +1866,18 @@ def _format_converge_terse(
             lines.append(
                 _row("· crash-only-equiv", f"{len(crash_only)} — detected by crash; no value pins them")
             )
+        # F2: the deep-structure caveat must reach the DEFAULT surface too, not only the verbose
+        # report — this is the surface that invites a `flag`, and a `deep_structural` survivor above
+        # may be killable-with-harder-input, not equivalent. The SAME decision the verbose path uses,
+        # so the two cannot drift on when to caution.
+        if deep_structure_caveat(getattr(result, "structural_difficulty", ""), True):
+            lines.append(
+                _row(
+                    "⚠ deep-structure",
+                    "a survivor above may be KILLABLE with a nested/cross-referential input, not "
+                    "equivalent — confirm with a differential check before you `flag` (full report)",
+                )
+            )
     # The target printed to stdout while being measured, all contained off this channel
     # (issue #31). Named on EVERY run that produced output — not just cut ones — because a
     # function that traces/prints is side-effecting whether or not its return also pinned:
@@ -1904,6 +1916,21 @@ def _format_converge_terse(
     lines.append("")
     lines.append(_final_banner(result))
     return "\n".join(lines)
+
+
+def deep_structure_caveat(structural_difficulty: str, has_flag_eligible: bool) -> bool:
+    """Whether to warn that a flag-eligible survivor may be KILLABLE, not equivalent (F2 — pure, pinned).
+
+    A ``deep_structural`` target (it indexes into collection elements and drives a worklist/fixpoint
+    loop) has distinguishing inputs the witness search does NOT synthesize, so a survivor it left
+    ``candidate-equivalent`` may be killable with a hand-built structural input, not a genuine
+    equivalent. The caution must reach EVERY surface that invites a ``flag`` — the terse default AND
+    the verbose report — or the default surface (`_format_converge_terse`) invites the flag while the
+    caution lives only in the verbose one, which is the F2 measurement/decision gap. So the decision is
+    made ONCE here and both consume it. Only when there ARE flag-eligible survivors (candidate-
+    equivalent or crash-only): a fully killed target needs no caveat.
+    """
+    return structural_difficulty == "deep_structural" and has_flag_eligible
 
 
 def converge_next_action(

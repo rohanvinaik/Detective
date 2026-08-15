@@ -11,7 +11,12 @@ and its status token is stable, so tooling that tails the output always finds th
 from __future__ import annotations
 
 from Detective.certify import PytestWiring
-from Detective.cli import _final_banner, _format_converge_terse, _plain_terms
+from Detective.cli import (
+    _final_banner,
+    _format_converge_terse,
+    _plain_terms,
+    deep_structure_caveat,
+)
 from Detective.converge import ConvergeResult
 from Detective.equivalence import MutantVerdict, SurvivorReport, Witness
 
@@ -154,3 +159,45 @@ def test_terse_is_minimal_when_complete_clean():
     # and nothing per-mutant. The budget is the point: the product is the report.
     out = _format_converge_terse(_cr(), "r.txt")
     assert len(out.splitlines()) <= 10
+
+
+# ── F2: the deep-structure caveat must reach the DEFAULT terse surface ─────────
+def test_deep_structure_caveat_truth_table():
+    # Warn ONLY on a deep_structural target that HAS flag-eligible survivors; two axes, total.
+    assert deep_structure_caveat("deep_structural", True) is True
+    assert deep_structure_caveat("deep_structural", False) is False  # nothing to flag → no caveat
+    assert deep_structure_caveat("flat", True) is False
+    assert deep_structure_caveat("", True) is False
+
+
+def test_terse_surfaces_the_deep_structure_caveat_on_a_flag_eligible_survivor():
+    # A candidate-equivalent survivor on a deep_structural target: the terse DEFAULT surface — the one
+    # that invites a `flag` — must carry the caution that it may be killable-with-harder-input (F2).
+    rep = SurvivorReport((_equiv(),), ())
+    out = _format_converge_terse(
+        _cr(
+            functionally_complete=True,
+            final_survivors=1,
+            killed=9,
+            survivor_report=rep,
+            structural_difficulty="deep_structural",
+        ),
+        "",
+    )
+    assert "deep-structure" in out
+    assert "may be KILLABLE" in out
+
+
+def test_terse_omits_the_caveat_on_a_flat_target():
+    rep = SurvivorReport((_equiv(),), ())
+    out = _format_converge_terse(
+        _cr(
+            functionally_complete=True,
+            final_survivors=1,
+            killed=9,
+            survivor_report=rep,
+            structural_difficulty="flat",
+        ),
+        "",
+    )
+    assert "deep-structure" not in out
