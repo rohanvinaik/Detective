@@ -650,6 +650,51 @@ def write_disposition(exists: bool, claimed_owner: str, func_key: str) -> str:
     return "refuse_unowned" if not claimed_owner else "refuse_foreign"
 
 
+def witness_origin(authorship: str, edited: bool) -> str:
+    """Which half of the Sandwich a test's evidence is (§2.3, #D5 — pure, pinned).
+
+    Set from a RECORDED authorship fact — the file's Detective header via :func:`generated_owner` —
+    never a path glob (`tests/detective/` and `@pytest.mark.detective` are an AUTHORSHIP proxy, not
+    an intent one, and break in both directions). Named codes, because "we did not measure this" and
+    "we measured it and it is clean" must never render identically (§2.3):
+
+      authorship  "generated"    Detective wrote this file (a synth header claims a func_key)
+                  "hand_written"  a readable test file with NO Detective header — a human's
+                  "unreadable"    the file could not be read/parsed — no recorded fact
+      edited      True when a "generated" file's content no longer matches what Detective wrote
+                  (a human took it over); irrelevant to the other authorships.
+
+    Returns the witness origin:
+      "characterization"  generated AND unedited — pins what the code DOES, may already be wrong (𝒢)
+      "intent"            hand-written, OR generated-but-edited — a human's stated intent (ℋ)
+      "unattributed"      unreadable — reported separately, NEVER counted as either half
+    """
+    if authorship == "unreadable":
+        return "unattributed"
+    if authorship == "hand_written":
+        return "intent"
+    return "intent" if edited else "characterization"
+
+
+def witness_origin_of(path: str) -> str:
+    """The witness origin of the test file at ``path`` (#D5 — accessor over the pinned
+    :func:`witness_origin`; the accessor keeps the I/O, the decision holds no I/O).
+
+    Authorship is the RECORDED fact the file carries: a Detective header (``generated_owner``) marks
+    a generated suite, its absence on a readable file marks a human's, and a file that cannot be read
+    or parsed yields no fact at all. ``edited`` is False by construction: Detective records no content
+    digest of what it wrote to a synth file (the pins store keys the TARGET function, not the test), so
+    a human takeover of a generated file is not yet OBSERVABLE — a generated file reads
+    ``characterization`` until that signal exists. The pinned decision already covers the edited case.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            ast.parse(fh.read(), filename=path)
+    except (OSError, SyntaxError):
+        return witness_origin("unreadable", False)
+    return witness_origin("generated" if generated_owner(path) else "hand_written", False)
+
+
 def _write(source: str, write_dir: str, func_key: str, project_root: str | None = None) -> str:
     """Write synthesized source to ``write_dir/`` under :func:`synth_filename`; return the path,
     or "" when there was nothing to write.
