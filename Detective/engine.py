@@ -692,29 +692,52 @@ def function_basis(
 
 
 def _module_callers_of(tree: ast.Module, target_name: str) -> set[str]:
-    """Names of production functions in THIS module that statically reference ``target_name`` — the
-    one-hop, target-local backward slice (#15 B). A test that names such a caller (a public API
-    ``resolve_roles`` that calls a private ``_compute_sets``) reaches the target transitively though
-    it never names it, so it routes as a ``caller_reaches`` widen stratum rather than a bare unknown.
+    """Names of production functions in THIS module that TRANSITIVELY reach ``target_name`` — the
+    same-module backward slice (#15 B, extended to MULTI-HOP in F1). A test that names any such caller
+    reaches the target through a chain of same-module calls (``resolve`` → ``_helper`` →
+    ``_compute_sets``) though it never names the target, so it routes as a ``caller_reaches`` widen
+    stratum rather than a bare unknown — traced BEFORE the weak signals. That promotion IS the deep
+    re-rank: a multi-hop reacher moves from the weakest unknown stratum up to caller_reaches.
 
-    Positive-only and conservative: it never rules a test OUT, only promotes a plausible reacher, so a
-    miss is certificate-safe (the item stays a lower stratum and the widen still reaches it). It is
-    deliberately ONE HOP and same-module — the theory-complete slice (test -> public -> helper ->
-    target, cross-module, distance-ordered) is a later widening. The target itself is excluded (it
-    names itself); dynamic dispatch / aliases / decorators are not resolved — those stay unknown,
-    never falsely promoted.
+    Bounded to ONE module (the sandwich unit): the transitive closure is computed over THIS module's
+    own functions only, by BFS backward from the target. Cross-module chains are deliberately NOT
+    followed — that would be a codebase-scale scoping, the category error the sandwich thesis forbids;
+    a cross-module reacher simply stays a lower stratum and the widen still reaches it.
+
+    Positive-only and conservative: it only PROMOTES a plausible reacher, never rules one out, so a
+    false promotion just traces a test earlier and a miss keeps it a lower stratum — both
+    certificate-safe. The target excludes itself; dynamic dispatch / aliases / decorators are not
+    resolved and stay unknown, never falsely promoted.
     """
-    callers: set[str] = set()
+    # This module's name-reference graph: each function's SIMPLE name → the simple names its body
+    # references. Simple-name keying matches the one-hop slice's coarseness (a name collision keeps
+    # the conservative, promote-only behaviour rather than inventing a false negative).
+    references: dict[str, set[str]] = {}
     for qual, fnode in walk_functions(tree):
         simple = qual.split(".")[-1]
-        if simple == target_name:
-            continue
+        named: set[str] = set()
         for n in ast.walk(fnode):
-            if (isinstance(n, ast.Name) and n.id == target_name) or (
-                isinstance(n, ast.Attribute) and n.attr == target_name
-            ):
-                callers.add(simple)
-                break
+            if isinstance(n, ast.Name):
+                named.add(n.id)
+            elif isinstance(n, ast.Attribute):
+                named.add(n.attr)
+        references[simple] = named
+    # BFS backward from the target: a function is a caller when it names any member of the current
+    # frontier — distance 1 names the target, distance 2 names a distance-1 caller, and so on. The
+    # `not in callers` guard makes cycles terminate; the closure is bounded by this module's function
+    # count, so this is O(module), never O(repo).
+    callers: set[str] = set()
+    frontier = {target_name}
+    while frontier:
+        nxt = {
+            simple
+            for simple, named in references.items()
+            if simple != target_name and simple not in callers and (named & frontier)
+        }
+        if not nxt:
+            break
+        callers |= nxt
+        frontier = nxt
     return callers
 
 
