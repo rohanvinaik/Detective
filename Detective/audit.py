@@ -104,6 +104,17 @@ class SuiteAudit:
     # `malformed` (a broken engine view). `line_complete` on an `observed` basis is the weaker
     # claim, and a certificate must say so rather than imply the admissible one.
     line_basis: str = "observed"
+    # The ℋ ⊎ 𝒢 origin census over the tests that discharge an obligation (§2.3, D5). Each is
+    # attributed from a RECORDED authorship fact (the file's Detective header), never a path glob:
+    #   intent_tests         ℋ — hand-written, or a generated file a human edited: INTENT evidence
+    #   characterized_tests  𝒢 — Detective-generated and unedited: CHARACTERIZATION (may pin a bug)
+    #   unattributed_tests   no recorded fact (unreadable) — counted as neither, never silently either
+    # These sum to `test_count`. A suite that is 30/30 pinned but 0 intent-grounded is fully
+    # characterized and un-reviewed — the doctrine "generated tests are a characterization, not a
+    # review" made visible instead of true only in prose.
+    intent_tests: int = 0
+    characterized_tests: int = 0
+    unattributed_tests: int = 0
 
     @property
     def complete(self) -> bool:
@@ -240,6 +251,21 @@ def audit_suite(
         t for t, lines in result.line_coverage.items() if lines
     }
     test_names = sorted(suite)
+    # ℋ ⊎ 𝒢 origin census (§2.3, D5): attribute each obligation-discharging test to its half from the
+    # RECORDED authorship fact its file carries, never a path glob. The nodeid's path segment resolves
+    # the file; `witness_origin_of` reads its Detective header. A test whose file cannot be read is
+    # unattributed — "we did not measure this", kept apart from both halves.
+    from .certify import witness_origin_of
+
+    _root_abs = os.path.abspath(project_root)
+    _origins = {"intent": 0, "characterization": 0, "unattributed": 0}
+    for _tid in test_names:
+        # A nodeid is `file.py::name` (live, rootdir-relative) or `legacy:/abs/file.py::name` (the
+        # hand-rolled loader). Strip the `legacy:` tag, then resolve the file segment against the root.
+        _rel = _tid.split("::", 1)[0]
+        if _rel.startswith("legacy:"):
+            _rel = _rel[len("legacy:") :]
+        _origins[witness_origin_of(_rel if os.path.isabs(_rel) else os.path.join(_root_abs, _rel))] += 1
     # Issue #7: deletion proposals and the minimal cover count only DURABLE evidence —
     # user tests plus this target's own generated file. A sibling target's generated
     # tests may kill this function's mutants today, but that file is rewritten wholesale
@@ -372,6 +398,9 @@ def audit_suite(
         unclassified=unclassified,
         value_killed=result.value_killed,
         total_mutants=total,
+        intent_tests=_origins["intent"],
+        characterized_tests=_origins["characterization"],
+        unattributed_tests=_origins["unattributed"],
     )
 
 

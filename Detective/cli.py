@@ -2946,6 +2946,21 @@ def _format_audit(a, removing: bool = False) -> str:
                 f"{a.test_count} reach this function · {a.minimal_test_count} pin it ({ratio:.0f}:1){flag}",
             )
         )
+    # ℋ ⊎ 𝒢 origin census (§2.3, D5): which half of the Sandwich the suite's evidence is. A suite that
+    # is fully pinned but 0 intent-grounded is CHARACTERIZED and un-reviewed — generated tests pin what
+    # the code DOES, not what it should. Surfacing that is the whole point of typing the two halves.
+    _origin_bits = [
+        f"{n} {label}"
+        for n, label in (
+            (a.intent_tests, "intent-grounded"),
+            (a.characterized_tests, "characterized"),
+            (a.unattributed_tests, "unattributed"),
+        )
+        if n
+    ]
+    if _origin_bits:
+        _note = " — characterization only, UNREVIEWED" if a.characterized_tests and not a.intent_tests else ""
+        lines.append(_row("· origin (ℋ⊎𝒢)", " · ".join(_origin_bits) + _note))
     if a.failing_tests:
         # First, always: a failing test means the suite disagrees with the code RIGHT NOW.
         # Nothing else in this report matters until that is resolved, and it is never ours
