@@ -958,7 +958,15 @@ def trace_tier(
         raise LookupError(f"function {function!r} not found in {file}")
     rel = os.path.relpath(full, root)
     func_names = [qn for qn, _ in walk_functions(tree)]
-    tests = discover_test_callables(root, rel, func_names)
+    # Match `profile`'s universe (§4.6, E1): scope discovery to the regime's testpaths, or the
+    # trace-only tier predicts fan-in / mutant-budget over a BROADER set than the mutation tier runs —
+    # `audit --plan`'s numbers would describe a different universe than the profile they inform (e.g.
+    # counting `.venv*` test files a declared testpaths excludes). One of the five call sites #4.6
+    # named as not threading the regime; this is the trace tier's.
+    from .regime import resolve_regime
+
+    testpaths = resolve_regime(root).testpaths
+    tests = discover_test_callables(root, rel, func_names, testpaths=testpaths)
     original = _load_original(full, qualname or function)
     exec_lines = set(_executable_lines(node))  # type: ignore[arg-type]
     coverage = (
