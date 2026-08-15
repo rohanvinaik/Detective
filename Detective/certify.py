@@ -650,6 +650,51 @@ def write_disposition(exists: bool, claimed_owner: str, func_key: str) -> str:
     return "refuse_unowned" if not claimed_owner else "refuse_foreign"
 
 
+_CONTENT_DIGEST_PREFIX = "# detective-content-sha256: "
+
+
+def _stamp_content_digest(source: str) -> str:
+    """Prepend a body-content digest comment so a later HUMAN edit of this generated file is
+    OBSERVABLE (#X5/G5). The digest covers ``source`` — the file WITHOUT this line — which solves the
+    self-reference: the reader strips the first line and re-hashes the rest. A comment before the
+    module docstring is inert (ast still finds the docstring, so ``generated_owner`` reads the header
+    unchanged), and it travels WITH the file, so the intent signal survives a ``.detective`` wipe or
+    a move — unlike a sidecar store.
+    """
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    return f"{_CONTENT_DIGEST_PREFIX}{digest}\n{source}"
+
+
+def _content_digest_status(path: str) -> tuple[bool, bool]:
+    """``(has_recorded_digest, digest_matches)`` for the file — the I/O behind the edited signal.
+
+    No digest line → ``(False, False)``: a file written before X5, or one whose digest line a human
+    removed, carries no recorded fact and is never called edited. Otherwise strip the stamped first
+    line, re-hash the body, and compare to the recorded digest.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError:
+        return False, False
+    if not content.startswith(_CONTENT_DIGEST_PREFIX):
+        return False, False
+    line, _, body = content.partition("\n")
+    recorded = line[len(_CONTENT_DIGEST_PREFIX) :].strip()
+    return True, hashlib.sha256(body.encode("utf-8")).hexdigest() == recorded
+
+
+def content_edited(has_digest: bool, digest_matches: bool) -> bool:
+    """Has a human taken over a generated file since Detective wrote it? (#X5/G5 — pure, pinned).
+
+    Edited ONLY when Detective recorded a digest AND the file no longer matches it. A MISSING record
+    means the edit status was never measured — NOT edited: a generated file reads ``characterization``
+    until a POSITIVE edit signal exists, and is never flipped to ``intent`` by the mere absence of a
+    record. That is the §2.3 discipline — "we did not measure this" must not manufacture a verdict.
+    """
+    return has_digest and not digest_matches
+
+
 def witness_origin(authorship: str, edited: bool) -> str:
     """Which half of the Sandwich a test's evidence is (§2.3, #D5 — pure, pinned).
 
@@ -682,17 +727,19 @@ def witness_origin_of(path: str) -> str:
 
     Authorship is the RECORDED fact the file carries: a Detective header (``generated_owner``) marks
     a generated suite, its absence on a readable file marks a human's, and a file that cannot be read
-    or parsed yields no fact at all. ``edited`` is False by construction: Detective records no content
-    digest of what it wrote to a synth file (the pins store keys the TARGET function, not the test), so
-    a human takeover of a generated file is not yet OBSERVABLE — a generated file reads
-    ``characterization`` until that signal exists. The pinned decision already covers the edited case.
+    or parsed yields no fact at all. ``edited`` is now OBSERVABLE (#X5): ``_write`` stamps a
+    body-content digest into the file, so a human takeover flips a generated file's origin from
+    ``characterization`` to ``intent`` when the current body no longer matches what Detective wrote.
+    A file without a stamped digest (written before X5, or with the line removed) is not called
+    edited — the absence of a record is not evidence of a change.
     """
     try:
         with open(path, encoding="utf-8") as fh:
             ast.parse(fh.read(), filename=path)
     except (OSError, SyntaxError):
         return witness_origin("unreadable", False)
-    return witness_origin("generated" if generated_owner(path) else "hand_written", False)
+    edited = content_edited(*_content_digest_status(path))
+    return witness_origin("generated" if generated_owner(path) else "hand_written", edited)
 
 
 def _write(source: str, write_dir: str, func_key: str, project_root: str | None = None) -> str:
@@ -759,7 +806,10 @@ def _write(source: str, write_dir: str, func_key: str, project_root: str | None 
             _publish_suite_change(project_root, path)  # a DELETION changes the suite too
         return ""
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write(source)
+        # Stamp a body-content digest (#X5/G5) so a later human edit of this generated file is
+        # observable — ``witness_origin_of`` re-hashes and flips its origin to ``intent``. The digest
+        # covers ``source`` (the file minus the stamped line), so the round-trip is self-consistent.
+        fh.write(_stamp_content_digest(source))
     _publish_suite_change(project_root, path)
     return path
 

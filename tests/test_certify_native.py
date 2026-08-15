@@ -141,7 +141,11 @@ def test_write_creates_named_file():
     path = _write("# content\n", d, "reset")
     assert path == os.path.join(d, synth_filename("reset"))
     with open(path, encoding="utf-8") as fh:
-        assert fh.read() == "# content\n"
+        written = fh.read()
+    # #X5: a body-content digest is stamped as the first line so a later human edit is observable.
+    # The source itself is written verbatim after it (the digest covers exactly that body).
+    assert written.startswith("# detective-content-sha256: ")
+    assert written.endswith("# content\n")
 
 
 def test_write_converts_dotted_qualname():
