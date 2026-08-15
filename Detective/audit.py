@@ -272,19 +272,25 @@ def audit_suite(
     # on the sibling's next converge; proposing a deletion on its support would let this
     # function's certificate silently regress. (``suite``/``test_names`` above stay
     # whole-evidence: they describe what exercises the function right now.)
-    own_matrix, own_lines = strip_foreign_evidence(
-        result.kill_matrix,
-        result.line_coverage,
-        foreign_generated_test_names(os.path.abspath(project_root), result.function_key),
-    )
-    redundant = redundant_2axis(own_matrix, own_lines)
-    # The line ledger rests on the ADMISSIBLE view, never the raw observed union (#59): audit
-    # judged line completeness from `result.line_coverage`, so a baseline-FAILING test's coverage
-    # closed the ledger and audit read line-complete on evidence that proves nothing. The shared
-    # helper is the SAME one converge uses, so the two verdicts cannot diverge.
+    # The line ledger rests on the ADMISSIBLE view, never the raw observed union (#59): audit judged
+    # line completeness from `result.line_coverage`, so a baseline-FAILING test's coverage closed the
+    # ledger and audit read line-complete on evidence that proves nothing. The SAME helper converge
+    # uses, so the two verdicts cannot diverge.
     from .converge import admissible_proof_coverage
 
     proof_coverage, line_basis = admissible_proof_coverage(result)
+    # The minimize basis is admissible AND foreign-stripped (the G6 fix, §15.4): strip foreign tests
+    # from the ADMISSIBLE ledger, NOT the raw union. Before, `redundant`/`minimal` rested on the raw
+    # observed coverage while converge minimized on the admissible one — the two proposed different
+    # "delete this test" sets for the same suite, the #59 drift one axis over. Now audit minimizes on
+    # exactly the coverage a certificate may rest on (admissible, like converge), with foreign tests
+    # removed (#7, so it never proposes deleting a sibling's rewritten-wholesale generated file).
+    own_matrix, own_lines = strip_foreign_evidence(
+        result.kill_matrix,
+        proof_coverage,
+        foreign_generated_test_names(os.path.abspath(project_root), result.function_key),
+    )
+    redundant = redundant_2axis(own_matrix, own_lines)
     missing = missing_lines(result.executable_lines, proof_coverage)
     minimal = minimal_cover_2axis(own_matrix, own_lines)
     # Issue #9: the line-unreachability oracle. A missing line whose statement a user

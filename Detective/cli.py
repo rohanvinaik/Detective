@@ -252,17 +252,26 @@ def _format_scope(scope) -> str:
         lines.append(row)
     routing = getattr(scope, "test_routing", {}) or {}
     if routing:
+        # The PARTITION of discovered tests — candidate + unknown + impossible = every discovered
+        # test. Rendered as the partition it is.
         lines.append(
             _row(
                 "· test routing",
                 (
                     f"{routing.get('candidate', 0)} candidate · "
                     f"{routing.get('unknown', 0)} unknown · "
-                    f"{routing.get('impossible', 0)} observed-impossible "
-                    f"({routing.get('observed', 0)} observed)"
+                    f"{routing.get('impossible', 0)} impossible"
                 ),
             )
         )
+        # `observed` is ORTHOGONAL to that partition — a provenance count, not a fourth bucket: how
+        # many routes came from an exact prior POSITIVE trace rather than a static positive prior.
+        # Rendered on its own line so it is never read as "of which N impossible": the old inline
+        # `(N observed)` after impossible was backwards, since impossible ⊆ observed by construction
+        # (G6/§15.4). ``impossible`` is 0 on a normal run since X1 (a replayed negative never excludes).
+        observed = routing.get("observed", 0)
+        if observed:
+            lines.append(_row("", f"{observed} of these routed from an exact prior trace"))
     # #40: two rows, never one. A crash/timeout kill proves the code RUNS, not what it returns, so
     # it must not sit under the checked "pinned" gutter — a scanning reader reads everything beside
     # ✓ as specified. value-pinned is the checked population; run-only is its own unchecked row.

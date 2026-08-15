@@ -89,9 +89,16 @@ class ScopeMap:
     # there is NOTHING to kill with — a "write a test" signal, not weak tests. -1 = the
     # profiler did not report it (backward-compatible).
     tests_discovered: int = -1
-    # Function-local routing census from Wesker #15. Empty means the profiler did not route; when
-    # present, candidate + unknown + impossible equals tests_discovered and ``observed`` names how
-    # many decisions came from an exact prior trace rather than a static positive prior.
+    # Function-local routing census from Wesker #15. Empty means the profiler did not route. When
+    # present, the three route buckets PARTITION every discovered test — candidate + unknown +
+    # impossible = the full discovered set — while ``tests_discovered`` counts only the pool actually
+    # PROFILED, which is that set MINUS ``impossible`` (a proof-grade non-reacher leaves the pool
+    # before profiling, #D3; ``tests_discovered = len(test_functions)`` at Wesker/engine.py). So the
+    # identity is ``candidate + unknown == tests_discovered``, and ``impossible`` is the count that
+    # LEFT the pool — NOT a third addend to it (the old docstring's false invariant, G7). Since X1
+    # made a replayed cache negative non-excluding, ``impossible`` is 0 on a normal run, but the
+    # arithmetic holds either way. ``observed`` names how many routes came from an exact prior
+    # positive trace rather than a static positive prior.
     test_routing: dict[str, int] = field(default_factory=dict)
     # Structural decomposition seams: the count of clean single-exit, small-interface
     # extraction candidates the deterministic clustering finds (independent of tests). It is
