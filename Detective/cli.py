@@ -1929,8 +1929,17 @@ def deep_structure_caveat(structural_difficulty: str, has_flag_eligible: bool) -
     caution lives only in the verbose one, which is the F2 measurement/decision gap. So the decision is
     made ONCE here and both consume it. Only when there ARE flag-eligible survivors (candidate-
     equivalent or crash-only): a fully killed target needs no caveat.
+
+    DERIVED from the canonical `residual_disposition` typing (F2), so the caveat and the typed residual
+    can never disagree on what "deep-structural" means: a candidate-equivalent survivor on a
+    deep_structural target IS a `structural_residual`, which is exactly what this caveat names.
     """
-    return structural_difficulty == "deep_structural" and has_flag_eligible
+    from .equivalence import residual_disposition
+
+    return (
+        has_flag_eligible
+        and residual_disposition(False, False, structural_difficulty) == "structural_residual"
+    )
 
 
 def converge_next_action(

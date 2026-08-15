@@ -488,6 +488,34 @@ def structural_input_difficulty(
     return "flat"
 
 
+def residual_disposition(is_killable: bool, is_crash_only: bool, structural_difficulty: str) -> str:
+    """The KIND of residual a surviving mutant is, and thus its one next action (F2 — pure, pinned).
+
+    Named codes, never a bool: ``structural_residual`` and ``genuine_equivalent`` BOTH arise from a
+    survivor with no distinguishing input found, and are told apart ONLY by the #67 structural gate
+    (:func:`structural_input_difficulty`). Collapsing them is the exact conflation this closes — a
+    killable-but-unsynthesized survivor ``flag``-ged as equivalent is a false specification claim.
+
+      "killer_ready"        a witness exists — synthesize the test (not really a residual)
+      "value_residual"      crash-only: a crash input distinguishes it, no value PINS it
+      "structural_residual" no input found AND the target is deep_structural — likely KILLABLE with a
+                            nested / cross-referential input the witness search does not reach; route
+                            to the structural hand-back, NEVER flag
+      "genuine_equivalent"  no input found AND flat — flag is appropriate
+
+    Order is the point: a killer outranks everything (it is not a residual); crash-only is checked
+    before the structural gate because a crash-distinguished survivor is value-unspecified, not "no
+    input found"; the structural split is last, over the true candidate-equivalents only.
+    """
+    if is_killable:
+        return "killer_ready"
+    if is_crash_only:
+        return "value_residual"
+    if structural_difficulty == "deep_structural":
+        return "structural_residual"
+    return "genuine_equivalent"
+
+
 _TYPE_GRID: dict[str, list] = {
     "int": [-1, 0, 1, 2, 3],
     # 1.0625 = 1 + 1/16: exactly representable, four decimal digits. Every other
