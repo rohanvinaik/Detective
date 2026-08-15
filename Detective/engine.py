@@ -682,6 +682,28 @@ def _module_callers_of(tree: ast.Module, target_name: str) -> set[str]:
     return callers
 
 
+def _attach_function_basis(result: ProfilingResult, root: str, node: ast.AST) -> ProfilingResult:
+    """Attach the FunctionBasis a completed profile earned, so diagnose / audit / converge read ONE
+    object instead of each re-deriving obligations (#X4/G4 — the D-phase object goes LIVE).
+
+    The attach precedent is Detective-side state riding on the Wesker result without threading it
+    through 13 callers: ``result.test_routing = _routing_counts`` (below) and ``hit.served_from_cache
+    = True``. ``candidate_equivalent`` is 0 here — ``profile()`` has no ``SurvivorReport``, so a
+    killable-looking survivor is an OPEN obligation and the profile-time action is honestly ``gap``;
+    converge (which runs ``classify_survivors``) attaches a real count. ``function_basis`` is
+    defensive (degrades, never crashes) on a real result, so it is attached directly — a basis is
+    advisory, and a bug in it is a bug to fix, not a swallow to hide (§14).
+    """
+    # An ATTRIBUTE, not a Wesker field (the `served_from_cache` convention, verdict_cache.get): the
+    # basis is Detective's per-function object, not the shape of Wesker's measurement, and it must
+    # never round-trip through the result's JSON into a stored row. Wesker cannot type it either —
+    # `FunctionBasis` lives in Detective, so a field would need a back-import Wesker forbids.
+    result.function_basis = function_basis(  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        result, normalize_validity(result), root, node
+    )
+    return result
+
+
 def profile(
     file: str,
     function: str,
@@ -813,7 +835,9 @@ def profile(
     if _cache_allowed:
         hit = verdict_cache.get(root, ck)
         if hit is not None:
-            return hit
+            # A cached verdict is a real ProfilingResult; attach the basis fresh (the cache serializes
+            # known fields, not this Detective-side object) so a warm run reads it too (#X4).
+            return _attach_function_basis(hit, root, node)
 
     # Pass the live target so Wesker seeds the mutant namespace from its
     # __globals__ (module helpers/constants/imports resolve inside the mutant).
@@ -958,7 +982,7 @@ def profile(
         engine_reports_gateable=_validity.engine_reports_gateable,
     ):
         verdict_cache.put(root, ck, verdict_cache.key_prefix(func_key), result)
-    return result
+    return _attach_function_basis(result, root, node)
 
 
 @dataclasses.dataclass(frozen=True)

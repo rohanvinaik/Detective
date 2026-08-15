@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from Wesker.engine import CategoryResult, ProfilingResult
 
 if TYPE_CHECKING:
+    from .engine import FunctionBasis
     from .parsimony import ParsimonySignals
 
 _CRASH_DOMINATED = (
@@ -123,6 +124,12 @@ class ScopeMap:
     # ``engine.diagnose`` AFTER the seam count is set, so its structural lenses see the final scope.
     # None on any path that did not compute it (older callers, or a best-effort read that failed).
     parsimony: ParsimonySignals | None = None
+    # The FunctionBasis this profile earned (#X4/§9): the per-function obligations (L_t, M_t), the
+    # undischargeable residue U_t, and the terminal action (complete | gap | unresolved | trace_next).
+    # Attached by ``engine.profile`` and carried here so ``diagnose --json`` reports the D-phase's ONE
+    # authoritative object, not only the derived counts. ``getattr``-defaulted: an older result/engine
+    # simply omits it, and ``None`` must read as "not attached", never as an empty basis.
+    function_basis: FunctionBasis | None = None
 
 
 def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -> str | None:
@@ -186,6 +193,9 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         # getattr contract as above, and for the same reason: unset must read as "this run
         # measured it", which is the claim the renderer can safely make in the present tense.
         served_from_cache=bool(getattr(result, "served_from_cache", False)),
+        # The FunctionBasis engine.profile attached to the result (#X4). getattr-defaulted like the
+        # fields above: an older engine that does not attach one leaves it None (not an empty basis).
+        function_basis=getattr(result, "function_basis", None),
     )
 
 
