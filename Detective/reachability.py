@@ -23,7 +23,10 @@ import ast
 import os
 
 # Modules that can reach anything: importing these makes reachability undecidable here.
-_DYNAMIC = frozenset({"importlib", "pkgutil", "__import__", "pytest_plugins"})
+# NOTE: `pytest_plugins` is deliberately NOT here — it is a conftest module-level *variable*,
+# never an imported module, so an import-name check can never see it (that was G2's dead entry).
+# A `pytest_plugins = [...]` assignment is detected structurally in `_imports_of` instead.
+_DYNAMIC = frozenset({"importlib", "pkgutil", "__import__"})
 
 # `mutants/` is here for the same reason `.venv/` is: it's a *shadow* of the real source tree that
 # a common test-adjacent tool (mutmut) writes into the repo. Walking into it enumerates a second
@@ -140,6 +143,14 @@ def _imports_of(tree: ast.AST, this_module: str) -> tuple[set[str], bool]:
             fn = node.func
             name = getattr(fn, "id", None) or getattr(fn, "attr", None)
             if name in ("__import__", "import_module"):
+                opaque = True
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            # A `pytest_plugins = [...]` declaration pulls in plugin modules that pytest imports
+            # and whose fixtures it injects with no import edge — so the plugin can reach (and
+            # inject) the target while this file names it nowhere. Treat the declaring module as
+            # opaque; that keeps a fixture-only reacher instead of dropping it (G2, a lost kill).
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id == "pytest_plugins" for t in targets):
                 opaque = True
     if pkg:
         out.add(pkg)
