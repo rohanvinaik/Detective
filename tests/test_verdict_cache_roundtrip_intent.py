@@ -54,6 +54,21 @@ def test_warm_trace_evidence_reconstructs_to_the_dataclass(tmp_path):
     assert all(isinstance(ev, TraceEvidence) for ev in warm.trace_evidence)
 
 
+def test_replayed_trace_evidence_is_stamped_replayed_never_fresh(tmp_path):
+    """§2.1 (D4 repair 2): a cache HIT traced nothing THIS session, so its trace rows are REPLAYED,
+    never fresh. A warm result that shipped rows still claiming ``provenance='fresh'`` would let a
+    replayed positive read as freshly-traced PROOF — the live violation of the replayed-positive rule
+    (a replayed positive may order, never prove)."""
+    cold = _profiled(tmp_path)
+    assert cold.trace_evidence, "fixture must produce trace evidence, else the test proves nothing"
+    assert any(ev.provenance == "fresh" for ev in cold.trace_evidence), (
+        "a cold profile's rows are freshly traced — else this test cannot show the stamp changed them"
+    )
+    warm = verdict_cache._from_json(json.loads(json.dumps(verdict_cache._to_json(cold))))
+    assert warm.trace_evidence
+    assert all(ev.provenance == "replayed" for ev in warm.trace_evidence)
+
+
 def test_warm_admissibility_unions_match_cold_and_do_not_raise(tmp_path):
     """The proof-basis signals (#59/#17) survive the cache: warm equals cold on all three unions,
     where before the fix each raised on the ``dict`` trace rows."""
