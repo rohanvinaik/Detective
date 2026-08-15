@@ -3914,6 +3914,60 @@ def main(argv: list[str] | None = None) -> int:
     return code
 
 
+def hang_watchdog_seconds(session_budget_s: float | None) -> float:
+    """The preemptive-backstop deadline for a whole live-session run (#hang — pure, pinned).
+
+    NOT a budget — a DEADLOCK catcher. The cooperative trace/per-test budgets cannot fire while the
+    main thread is blocked OUTSIDE the interpreter (a test in a subprocess / socket / C-extension that
+    ``interrupt.abandon`` cannot stop — see the converge-hang investigation), so a WALL-CLOCK backstop
+    is the only thing that can end an infinite hang. Sized to NEVER fire on a legitimate run: twice the
+    session trace budget plus a fixed margin for mutant evaluation and synthesis. An unbounded (None or
+    ``<= 0``) session budget has no proportional bound, so it degrades to a large fixed backstop.
+    """
+    if session_budget_s and session_budget_s > 0:
+        return session_budget_s * 2.0 + 600.0
+    return 3600.0
+
+
+class _hang_watchdog:
+    """Arm a PREEMPTIVE wall-clock backstop around a live-session run (#hang).
+
+    ``faulthandler.dump_traceback_later`` runs a C-level timer thread that fires even when the Python
+    main thread is DEADLOCKED — unlike any cooperative budget, which can only be checked between steps
+    the stuck thread never reaches. On expiry it dumps EVERY thread's stack to stderr (the diagnosis of
+    WHERE it hung) and hard-exits, turning an infinite hang into a bounded, debuggable failure.
+    Cancelled on normal completion, so a fast run leaves no timer armed. The deadline is
+    :func:`hang_watchdog_seconds` — a backstop sized never to fire on a legitimate run.
+    """
+
+    def __init__(self, seconds: float) -> None:
+        self._seconds = seconds
+        self._armed = False
+
+    def __enter__(self) -> _hang_watchdog:
+        # `dump_traceback_later` writes to a file that must have a real ``fileno()``. Under pytest
+        # capture (or any redirected stderr) it does not, so arming would raise — and a BACKSTOP must
+        # never break the run it guards. Arm only when stderr is a real stream: the watchdog matters
+        # in production (a terminal/pipe with an fd), not under a harness whose runs cannot hang.
+        try:
+            import faulthandler
+            import sys
+
+            sys.stderr.fileno()
+            faulthandler.dump_traceback_later(self._seconds, exit=True)
+            self._armed = True
+        except Exception:  # noqa: BLE001 — a backstop degrades silently; it never fails the run
+            self._armed = False
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        if self._armed:
+            import faulthandler
+
+            faulthandler.cancel_dump_traceback_later()
+        return False
+
+
 def _run_live(args) -> int:
     """Run the command inside a LIVE pytest session, so profiling sees the REAL suite.
 
@@ -4031,16 +4085,22 @@ def _run_live(args) -> int:
     # version-pinned to a matched seam (pyproject floor + uv.lock), so a signature mismatch is a
     # broken install that must fail LOUDLY here rather than be silently retried; the `ImportError`
     # above still degrades a MISSING seam. An internal TypeError now propagates on the first call.
-    code = run_with_live_suite(
-        root,
-        lambda: _run(args),
-        target_files=targets,
-        paths=paths,
-        trace_progress=_stream_trace_progress(label),
-        trace_budget_s=_trace_budget(args),
-        trace_session_budget_s=_trace_session_budget(args),
-        diagnostic=diagnostic,
-    )
+    # Preemptive backstop: the in-process live session runs arbitrary consumer tests, and one that
+    # blocks OUTSIDE the interpreter cannot be stopped by the cooperative trace budgets (they check
+    # between steps the stuck main thread never reaches). The wall-clock watchdog fires regardless and
+    # dumps stacks, so a deadlock fails LOUD and bounded instead of hanging (see the converge-hang
+    # investigation). Sized never to fire on a real run.
+    with _hang_watchdog(hang_watchdog_seconds(_trace_session_budget(args))):
+        code = run_with_live_suite(
+            root,
+            lambda: _run(args),
+            target_files=targets,
+            paths=paths,
+            trace_progress=_stream_trace_progress(label),
+            trace_budget_s=_trace_budget(args),
+            trace_session_budget_s=_trace_session_budget(args),
+            diagnostic=diagnostic,
+        )
     if code is None:
         sys.stderr.write(_format_session_warning(diagnostic, project_root=root))
         reason = str(diagnostic.get("reason", "") or "")
