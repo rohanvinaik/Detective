@@ -29,7 +29,7 @@ from typing import Any
 
 from Wesker.ci import walk_functions
 
-from .engine import classify_survivors, profile
+from .engine import FunctionBasis, classify_survivors, function_basis, profile
 from .line_flags import classify_missing_lines, load_line_flags
 from .minimize import (
     _obligations_by_test,
@@ -115,6 +115,12 @@ class SuiteAudit:
     intent_tests: int = 0
     characterized_tests: int = 0
     unattributed_tests: int = 0
+    # The FunctionBasis this audit earned (#X4 tail, §9) — the ONE object diagnose/audit both carry.
+    # Attached with the REAL candidate-equivalent count from THIS audit's classification, so its
+    # `action` (complete | gap | unresolved) is accurate where the profile-time basis (which cannot
+    # classify, so reads 0 equivalents) would wrongly say `gap` for an all-equivalent survivor set.
+    # None only on an older result or a direct construction. `asdict` carries it to `audit --json`.
+    function_basis: FunctionBasis | None = None
 
     @property
     def complete(self) -> bool:
@@ -300,6 +306,7 @@ def audit_suite(
     # never reads this store.
     manually_unreachable: list[int] = []
     contradicted_flags: tuple[str, ...] = ()
+    node: ast.AST | None = None  # bound for the FunctionBasis below even when the flag oracle skips
     if missing or load_line_flags(os.path.abspath(project_root)):
         root_abs = os.path.abspath(project_root)
         full_path = file if os.path.isabs(file) else os.path.join(root_abs, file)
@@ -367,6 +374,21 @@ def audit_suite(
             f"candidate_equivalent={candidate_equivalent} manual={manual_equivalent} "
             f"unclassified={unclassified}"
         )
+    # The FunctionBasis this audit earned (#X4 tail): built with the REAL undischargeable-equivalent
+    # count — `candidate_equivalent` here is the UNION of true-equivalent and crash-only, and a
+    # crash-only survivor is KILLABLE (a crash input distinguishes it), NOT undischargeable, so
+    # subtract it. Same `node` the line oracle used, so the basis's U_t agrees with this audit's
+    # `manually_unreachable`. Both counts are 0 when classification did not run, giving a conservative
+    # basis rather than a crash.
+    from .validity import normalize_validity
+
+    _basis = function_basis(
+        result,
+        normalize_validity(result),
+        os.path.abspath(project_root),
+        node,
+        candidate_equivalent=candidate_equivalent - crash_only_equivalent,
+    )
     return SuiteAudit(
         function=result.function_key,
         test_count=len(test_names),
@@ -407,6 +429,7 @@ def audit_suite(
         intent_tests=_origins["intent"],
         characterized_tests=_origins["characterization"],
         unattributed_tests=_origins["unattributed"],
+        function_basis=_basis,
     )
 
 
