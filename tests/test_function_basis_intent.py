@@ -46,7 +46,13 @@ def test_complete_when_gateable_all_covered_no_survivors():
     assert b.obligations.mutation_dims == ("m0",)  # from killed_records, keyed on mutant_id
     assert b.obligations.arcs == ()  # A_t intentionally empty (arc tracing is opt-in)
     assert b.undischargeable.lines == ()
-    assert b.admitted == () and b.excluded == () and b.unresolved == ()  # D3/D5, empty by design
+    assert b.excluded == () and b.unresolved == ()  # D3/D5, empty by design
+    # admitted is now WIRED (#D1): one witness for the covering test "t", warranted `proof`
+    # (fresh admissible cover), discharging the three lines it owns.
+    assert len(b.admitted) == 1
+    assert b.admitted[0].test == "t"
+    assert b.admitted[0].warrant == "proof"
+    assert b.admitted[0].discharged.lines == (1, 2, 3)
 
 
 def test_mutation_dims_are_the_applied_universe_killed_and_survived():

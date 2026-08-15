@@ -261,17 +261,14 @@ def audit_suite(
     # RECORDED authorship fact its file carries, never a path glob. The nodeid's path segment resolves
     # the file; `witness_origin_of` reads its Detective header. A test whose file cannot be read is
     # unattributed — "we did not measure this", kept apart from both halves.
-    from .certify import witness_origin_of
+    from .certify import witness_origin_of_nodeid
 
     _root_abs = os.path.abspath(project_root)
     _origins = {"intent": 0, "characterization": 0, "unattributed": 0}
     for _tid in test_names:
-        # A nodeid is `file.py::name` (live, rootdir-relative) or `legacy:/abs/file.py::name` (the
-        # hand-rolled loader). Strip the `legacy:` tag, then resolve the file segment against the root.
-        _rel = _tid.split("::", 1)[0]
-        if _rel.startswith("legacy:"):
-            _rel = _rel[len("legacy:") :]
-        _origins[witness_origin_of(_rel if os.path.isabs(_rel) else os.path.join(_root_abs, _rel))] += 1
+        # `witness_origin_of_nodeid` owns the nodeid→file resolution (live `file.py::name` or a
+        # `legacy:/abs/...::name`), so this census and the FunctionBasis witnesses agree file-for-file.
+        _origins[witness_origin_of_nodeid(_root_abs, _tid)] += 1
     # Issue #7: deletion proposals and the minimal cover count only DURABLE evidence —
     # user tests plus this target's own generated file. A sibling target's generated
     # tests may kill this function's mutants today, but that file is rewritten wholesale

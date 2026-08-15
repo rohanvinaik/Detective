@@ -642,6 +642,41 @@ def function_basis(
         )
     )
 
+    # Admitted witnesses (§9, #D1 wiring): each test that discharged an obligation, with its warrant
+    # and ℋ/𝒢 origin — the basis B_t made per-test, so `basis_membership` and `BasisWitness` go live.
+    # The admissible line owners (`proof_coverage`) and the killers ARE the proof basis. A test's
+    # warrant is `basis_membership` over (covers, freshness, admissibility): freshness is the whole
+    # result's replay status (§2.1 — a warm result's coverage only ROUTES, never proves), and
+    # admissibility follows the line basis (an `observed` union is not admissible, so it only routes).
+    # `witness_origin_of_nodeid` reads each test's recorded authorship. Bounded to ONE function's
+    # covering tests (the sandwich unit), so the per-test read is a handful, not the suite.
+    from .certify import witness_origin_of_nodeid  # local: certify imports engine at module scope
+
+    _freshness = "replayed" if getattr(result, "served_from_cache", False) else "fresh"
+    _warrant = basis_membership(
+        "covers", _freshness, "admissible" if _line_basis == "admissible" else "inadmissible"
+    )
+    _kills: dict[str, set[str]] = {}
+    for _key, _tests in (getattr(result, "kill_matrix", {}) or {}).items():
+        _mid = _key.split(": ", 1)[0]  # kill_matrix keys are "mutant_id: desc" — take the id
+        for _t in _tests or ():
+            _kills.setdefault(_t, set()).add(_mid)
+    admitted = tuple(
+        BasisWitness(
+            # A plain nodeid str. `TestId = NewType("TestId", str)` is runtime-identity and is
+            # TYPE_CHECKING-only in engine (importing it at runtime cycles regime↔engine), so it
+            # cannot be called to cast here; the value already IS the str the NewType wraps.
+            test=_tid,  # ty: ignore[invalid-argument-type]
+            discharged=Obligations(
+                lines=tuple(sorted(int(ln) for ln in proof_coverage.get(_tid, ()))),
+                mutation_dims=tuple(sorted(_kills.get(_tid, ()))),
+            ),
+            warrant=_warrant,
+            origin=witness_origin_of_nodeid(project_root, _tid),
+        )
+        for _tid in sorted(set(proof_coverage) | set(_kills))
+    )
+
     open_obligations = has_open_obligations(
         int(getattr(result, "total_survived", 0) or 0),
         candidate_equivalent,
@@ -651,6 +686,7 @@ def function_basis(
         target=func_key,
         obligations=Obligations(lines=lines, mutation_dims=mutation_dims),
         undischargeable=Obligations(lines=tuple(manually_unreachable)),
+        admitted=admitted,
         action=basis_action(validity.admits_certificate, open_obligations),
     )
 

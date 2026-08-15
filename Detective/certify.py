@@ -742,6 +742,20 @@ def witness_origin_of(path: str) -> str:
     return witness_origin("generated" if generated_owner(path) else "hand_written", edited)
 
 
+def witness_origin_of_nodeid(root: str, test_id: str) -> str:
+    """The witness origin (ℋ/𝒢) of the test named by a pytest NODEID (#D5 accessor).
+
+    Resolves the file segment — a live ``file.py::name`` (rootdir-relative) or a hand-rolled loader's
+    ``legacy:/abs/file.py::name`` — against ``root``, then reads its recorded authorship via
+    :func:`witness_origin_of`. The ONE place the nodeid→file resolution lives, so ``audit``'s origin
+    census and the ``FunctionBasis`` admitted witnesses attribute the same file the same way.
+    """
+    rel = test_id.split("::", 1)[0]
+    if rel.startswith("legacy:"):
+        rel = rel[len("legacy:") :]
+    return witness_origin_of(rel if os.path.isabs(rel) else os.path.join(os.path.abspath(root), rel))
+
+
 def _write(source: str, write_dir: str, func_key: str, project_root: str | None = None) -> str:
     """Write synthesized source to ``write_dir/`` under :func:`synth_filename`; return the path,
     or "" when there was nothing to write.
