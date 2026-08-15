@@ -582,35 +582,75 @@ class FunctionBasis:
     action: str = "trace_next"
 
 
-def function_basis(result: ProfilingResult, validity: MeasurementValidity) -> FunctionBasis:
-    """Assemble the FunctionBasis a completed profile earned (§9, #D2 — the accessor).
+def function_basis(
+    result: ProfilingResult,
+    validity: MeasurementValidity,
+    project_root: str = ".",
+    func_node: ast.AST | None = None,
+    candidate_equivalent: int = 0,
+) -> FunctionBasis:
+    """Assemble the FunctionBasis a completed profile earned (§9, #D2/#X3 — the accessor).
 
-    The DECISIONS it calls are pinned separately: ``basis_action`` (converge ✓) and
-    ``has_open_obligations`` (intent-pinned). This accessor only holds the object handling, per the
-    house rule. It reads the engine's OWN signals — ``admits_certificate``, the executable-line
-    denominator, the mutant counts — never a re-derived proxy.
+    The DECISIONS it calls are pinned separately: ``basis_action`` and ``has_open_obligations``.
+    This accessor holds only object handling, reusing the SAME helpers converge and audit use so the
+    three cannot drift (#59, the G3 fix):
 
-    D2 populates the OBLIGATIONS and the terminal ACTION. The admitted witnesses (each with a
-    ``basis_membership`` warrant and an ℋ/𝒢 origin) are D3/D5, so ``admitted``, ``unresolved`` and
-    ``excluded`` are empty here BY DESIGN, not omission. Every field is read defensively so an older
-    engine that omits one degrades to an empty obligation, never a crash.
+    - L_t / U_t lines rest on ``admissible_proof_coverage`` — the admissible view, never the raw
+      observed union: a baseline-FAILING test's coverage may not discharge a line. Imported in the
+      body because converge imports engine at module scope, so a top-level import would cycle.
+    - The undischargeable line half is ``classify_missing_lines``' ``manually_unreachable`` — a line a
+      human flagged unreachable is U_t, closed on the line ledger only (#9), NOT merely "uncovered".
+      Skipped (no flags applied) when no ``func_node`` is supplied.
+    - M_t is the APPLIED mutation universe — the ``mutant_id``s Wesker actually built, killed OR
+      survived. ``kill_matrix`` keys are ``"mid: desc"`` (a key space disjoint from ``mutant_id``),
+      so they are NOT used. On an in-process run the COUNT is ``≈`` (``validity.approximate`` carries
+      the flag); the value-kill proof the action rests on is exact.
+
+    A_t (arcs) is intentionally left empty: arc tracing is opt-in and off on a normal run, so an arc
+    obligation would read vacuously complete. The equivalent count is CALLER-SUPPLIED — 0 at
+    ``profile()`` time, where no ``SurvivorReport`` exists and a killable-looking survivor is an OPEN
+    obligation; converge supplies a real count once classification has run. ``admitted`` /
+    ``unresolved`` / ``excluded`` are D3/D5, empty here by design. Every result field is read
+    defensively so an older engine that omits one degrades to an empty obligation, never a crash.
     """
+    from .converge import admissible_proof_coverage
+    from .line_flags import classify_missing_lines
+
+    func_key = str(getattr(result, "function_key", ""))
     lines = tuple(sorted(getattr(result, "executable_lines", ()) or ()))
-    covered: set[int] = set()
-    for cov in (getattr(result, "line_coverage", {}) or {}).values():
-        covered.update(cov)
-    uncovered = tuple(sorted(set(lines) - covered))
-    killed_dims = tuple(sorted((getattr(result, "kill_matrix", {}) or {}).keys()))
+
+    proof_coverage, _line_basis = admissible_proof_coverage(result)
+    covered: set[int] = {ln for cov in proof_coverage.values() for ln in cov}
+    missing: list[int] = sorted(set(lines) - covered)
+
+    # U_t line half: a missing line a human flagged unreachable is undischargeable, not open — the
+    # same oracle converge (converge.py:1942) and audit (audit.py:310) apply, on the admissible view.
+    manually_unreachable: list[int] = []
+    if missing and func_node is not None:
+        missing, manually_unreachable, _contradicted = classify_missing_lines(
+            os.path.abspath(project_root), func_key, func_node, missing, covered
+        )
+
+    mutation_dims = tuple(
+        sorted(
+            {mid for rec in (getattr(result, "killed_records", ()) or ()) if (mid := rec.get("mutant_id"))}
+            | {
+                mid
+                for rec in (getattr(result, "survivor_records", ()) or ())
+                if (mid := rec.get("mutant_id"))
+            }
+        )
+    )
 
     open_obligations = has_open_obligations(
         int(getattr(result, "total_survived", 0) or 0),
-        int(getattr(result, "total_equivalent", 0) or 0),
-        len(uncovered),
+        candidate_equivalent,
+        len(missing),
     )
     return FunctionBasis(
-        target=str(getattr(result, "function_key", "")),
-        obligations=Obligations(lines=lines, mutation_dims=killed_dims),
-        undischargeable=Obligations(lines=uncovered),
+        target=func_key,
+        obligations=Obligations(lines=lines, mutation_dims=mutation_dims),
+        undischargeable=Obligations(lines=tuple(manually_unreachable)),
         action=basis_action(validity.admits_certificate, open_obligations),
     )
 
