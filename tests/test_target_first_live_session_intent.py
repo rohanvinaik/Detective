@@ -204,12 +204,19 @@ def test_a_caller_only_target_activates_off_the_caller_slice(tmp_path):
 
 
 def test_a_full_widen_becomes_observed_routing_for_the_next_function(tmp_path):
-    """Fresh file-wide reach from one gap routes a sibling; the sibling proves only its fresh seed."""
+    """Fresh file-wide reach from one gap routes a sibling; the sibling proves only its fresh seed.
+
+    POSITIVE-ONLY (X1/G1): the prior widen's REACHING cells route this sibling's two candidates, but a
+    cached non-reach is no longer replayed as an exclusion — `test_fingerprint` cannot certify a test's
+    imported-helper closure is unchanged, so a stale negative could exclude a now-reaching test (a
+    false COMPLETE). The six former `impossible_observed` tests are therefore UNKNOWN now — re-traced
+    fresh — not excluded: `observed` counts only the two positives, `impossible` is 0, `unknown` is 6.
+    """
     root, script = _repo(tmp_path)
     sibling = _session(script, root, "sibling_after_widen", "on")
     assert sibling["test_routing"] == {
         "candidate": 2,
-        "unknown": 0,
-        "impossible": 6,
-        "observed": 8,
+        "unknown": 6,
+        "impossible": 0,
+        "observed": 2,
     }
