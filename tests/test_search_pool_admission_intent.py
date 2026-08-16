@@ -48,3 +48,26 @@ def test_deferral_is_a_distinct_named_code_not_a_dropped_admit():
 
 def test_opt_in_forces_a_shaped_test_back_into_the_pool():
     assert search_pool_admission(False, True) == "admit_shaped"
+
+
+def test_classify_survivors_threads_include_shaped_into_its_internal_reprofile(monkeypatch, tmp_path):
+    # Regression — the ~488s witness-pass bug. converge's witness pass IS classify_survivors, and it
+    # RE-PROFILES internally when handed no profile_result. An earlier fix deferred converge's DIRECT
+    # profile calls but MISSED this internal one, so its target-first widen traced shape-hazardous
+    # unknowns undeferred (the whole cost). Pins the wiring directly: the flag the caller passes must
+    # reach the internal profile() call, or the deferral never touches the pass that pays for it.
+    import Detective.engine as engine
+
+    (tmp_path / "m.py").write_text("def f(x):\n    return x + 1\n")
+    (tmp_path / "test_m.py").write_text("from m import f\n\n\ndef test_f():\n    assert f(1) == 2\n")
+
+    seen: dict = {}
+    real = engine.profile
+
+    def spy(*a, **k):
+        seen["include_shaped"] = k.get("include_shaped")
+        return real(*a, **k)
+
+    monkeypatch.setattr(engine, "profile", spy)
+    engine.classify_survivors("m.py", "f", str(tmp_path), include_shaped=False)
+    assert seen.get("include_shaped") is False

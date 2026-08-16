@@ -1905,6 +1905,7 @@ def classify_survivors(
     deadline_s: float | None = None,
     receiver_factory: ReceiverFactory | None = None,
     profile_result: ProfilingResult | None = None,
+    include_shaped: bool = True,
 ) -> SurvivorReport:
     """Classify each surviving mutant as killable (with a distinguishing witness),
     equivalent-candidate, or unclassified — by running the original against the
@@ -1987,7 +1988,12 @@ def classify_survivors(
         result = profile_result
     else:
         result = profile(
-            file, function, project_root, budget_ms=_cls_budget_ms(), extra_test_dirs=extra_test_dirs
+            file,
+            function,
+            project_root,
+            budget_ms=_cls_budget_ms(),
+            extra_test_dirs=extra_test_dirs,
+            include_shaped=include_shaped,
         )
     # Value-survivors: true survivors PLUS crash/timeout kills — the mutants whose RETURN
     # VALUE no test pins. Classifying THESE is how a crash-killed mutant gets a real

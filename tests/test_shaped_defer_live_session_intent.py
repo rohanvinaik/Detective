@@ -1,16 +1,21 @@
-"""shaped-defer end-to-end: a shape-hazardous widen reacher is DEFERRED by default, disclosed.
+"""shaped-defer end-to-end: a shape-hazardous UNKNOWN reacher is deferred from the widen, disclosed.
 
-Usability (ARC dogfood): the converge/diagnose widen speculatively traces UNKNOWN-stratum reachers,
-and a non-hermetic one (subprocess/thread/signal) forces the expensive isolation path — a 50s
-live-game system test per widen step dominated a real converge and cut it at the deadline. This
-drives the REAL target-first widen through a live pytest session (the same subprocess harness the
-Fix B oracle uses — nesting a live session inside this pytest run corrupts later sessions).
+Usability (ARC dogfood): the converge/diagnose widen — INCLUDING the witness pass, which re-profiles
+internally — speculatively traces UNKNOWN-stratum tests to find distinguishers. A non-hermetic one
+(subprocess/thread/signal) forces the expensive isolation path, and a 50s live-game system test
+traced per widen step dominated a real converge (~488s over 13 slow unknowns) and cut it at the
+deadline. This drives the REAL target-first widen through a live pytest session (the same subprocess
+harness the Fix B oracle uses — nesting a live session inside this pytest run corrupts later ones).
 
-A test that reaches ``target`` only through the production caller ``run_target`` routes as an UNKNOWN
-widen reacher; a ``subprocess.run`` in its body makes it shape-hazardous. By DEFAULT ``profile``
-defers it from the widen and records ``deferred_shaped`` in the routing census (the disclosure —
-never a silent exclusion); ``include_shaped=True`` traces it and the disclosure disappears. A direct
-hermetic test keeps ``target`` seeded so the run still activates target-first.
+The slow test is a FILE-PEER unknown: its module references the target's module (so the file is in
+scope) but the test itself never CALLS the target, so it can never be an observed candidate — it is
+deterministically an UNKNOWN the widen explores. Made shape-hazardous with a subprocess. By DEFAULT
+``profile`` defers it and records ``deferred_shaped`` (the disclosure — never a silent exclusion);
+``include_shaped=True`` traces it and the disclosure disappears.
+
+Regression guard for the witness pass specifically: an earlier fix deferred converge's DIRECT profile
+calls but MISSED ``classify_survivors``' internal re-profile (the witness pass), so the widen there
+ran undeferred — the whole ~488s. This pins that the deferral reaches the unknown widen at all.
 """
 
 from __future__ import annotations
@@ -55,29 +60,21 @@ def _repo(tmp_path):
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("")
-    (pkg / "mod.py").write_text(
-        "def target(x):\n"
-        "    if x > 0:\n"
-        "        return x * 2\n"
-        "    return -x\n"
-        "\n"
-        "def run_target(x):\n"  # a production caller — a test of THIS routes target as caller_reaches
-        "    return target(x)\n"
-    )
+    (pkg / "mod.py").write_text("def target(x):\n    if x > 0:\n        return x * 2\n    return -x\n")
     tests = tmp_path / "tests"
     tests.mkdir()
-    # A direct hermetic candidate keeps target seeded (target-first activates on a real candidate).
     (tests / "test_direct.py").write_text(
         "from pkg.mod import target\n\ndef test_target_direct():\n    assert target(3) == 6\n"
     )
-    # A caller reacher (UNKNOWN widen stratum for target) that is SHAPE-HAZARDOUS: the subprocess in
-    # its body makes collection stamp spawns_subprocess -> non-hermetic -> deferred from the widen.
-    (tests / "test_caller.py").write_text(
+    # A FILE-PEER unknown: the module reference puts the file in scope, but the shape-hazardous test
+    # never calls target, so it is deterministically an UNKNOWN the widen explores — not a candidate.
+    (tests / "test_peer_slow.py").write_text(
         "import subprocess\n"
-        "from pkg.mod import run_target\n\n"
-        "def test_via_caller():\n"
+        "from pkg import mod\n\n"
+        "def test_peer_reaches():\n    assert mod.target(1) == 2\n\n"
+        "def test_slow_unrelated():\n"
         "    subprocess.run(['true'])\n"
-        "    assert run_target(4) == 8\n"
+        "    assert 1 + 1 == 2\n"
     )
     return str(tmp_path)
 
@@ -94,15 +91,17 @@ def _routing(root, *, include):
     return json.loads(proc.stdout.strip().splitlines()[-1])["test_routing"]
 
 
-def test_a_shaped_widen_reacher_is_deferred_and_disclosed_by_default(tmp_path):
+def test_a_shaped_unknown_is_deferred_from_the_widen_and_disclosed_by_default(tmp_path):
     routing = _routing(_repo(tmp_path), include=False)
-    # The subprocess test routed as an unknown reacher of target and is shape-hazardous, so it is
-    # held out of the widen — and the count is DISCLOSED in the census, never silently dropped.
+    # The shape-hazardous file-peer routed as an unknown and was held out of the widen — and the
+    # count is DISCLOSED in the census, never silently dropped.
+    assert routing.get("unknown", 0) >= 1, routing
     assert routing.get("deferred_shaped", 0) >= 1, routing
 
 
-def test_include_shaped_traces_the_shaped_reacher_and_drops_the_disclosure(tmp_path):
+def test_include_shaped_traces_the_shaped_unknown_and_drops_the_disclosure(tmp_path):
     routing = _routing(_repo(tmp_path), include=True)
-    # With the opt-in, the shaped reacher re-enters the widen; nothing is deferred, so the disclosure
+    # With the opt-in, the shaped unknown re-enters the widen; nothing is deferred, so the disclosure
     # key is absent (it only appears when there is something to disclose).
+    assert routing.get("unknown", 0) >= 1, routing
     assert "deferred_shaped" not in routing, routing

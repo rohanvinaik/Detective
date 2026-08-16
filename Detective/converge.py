@@ -1638,6 +1638,7 @@ def _converge_impl(
             extra_test_dirs=extra_test_dirs,
             deadline_s=_budget_s(),
             receiver_factory=_rf,
+            include_shaped=include_shaped,
         )
         witnessed = False
         n_witnessed = 0
@@ -1905,6 +1906,7 @@ def _converge_impl(
                 call_site_inputs=supplied_inputs,
                 extra_test_dirs=extra_test_dirs,
                 deadline_s=_budget_s(),
+                include_shaped=include_shaped,
             )
         except Exception:  # noqa: BLE001 — classification is advisory; never fail the run
             survivor_report = None
