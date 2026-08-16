@@ -2084,7 +2084,10 @@ def _converge_impl(
         signature=sig,
         param_names=param_names,
         structural_difficulty=structural_difficulty,
-        deferred_shaped=getattr(final_result, "test_routing", {}).get("deferred_shaped", 0),
+        deferred_shaped=max(
+            getattr(final_result, "test_routing", {}).get("deferred_shaped", 0),
+            getattr(survivor_report, "deferred_shaped", 0) if survivor_report is not None else 0,
+        ),
         function_basis=_basis,
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(),

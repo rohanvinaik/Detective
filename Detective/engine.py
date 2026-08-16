@@ -2081,12 +2081,21 @@ def classify_survivors(
                 return args
         return None
 
+    _deferred_shaped_capture = 0
     exercising = _first_exercising(inputs)
     if exercising is None:
         func_names = [qn for qn, _ in walk_functions(tree)]
         harvest_tests = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
         )
+        # shaped-defer the capture HARVEST too, not just the widen: `capture_call_inputs` RUNS every
+        # harvested test to profile-hook its inputs, so a 50s live-game system test is traced here even
+        # when the widen already deferred it — the residual slow path a pure function's survivors hit.
+        # Held out by default, disclosed, restored by --include-shaped (the `search_pool_admission`
+        # contract), so a candidate-equivalent is never silently attributed to code a deferred test
+        # might have distinguished.
+        harvest_tests, _hd = _admit_search_pool(harvest_tests, include_shaped)
+        _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
         captured = capture_call_inputs(original, harvest_tests)
         inputs = supplied + captured + inputs
         exercising = _first_exercising(inputs)
@@ -2110,6 +2119,7 @@ def classify_survivors(
             note=note,
             manual_equivalent=manual_eq,
             inputs_expressible=None,  # nothing exercised it; `note` carries the reason
+            deferred_shaped=_deferred_shaped_capture,
         )
 
     pure = _is_pure(node, is_method="." in (qualname or ""))
@@ -2213,6 +2223,8 @@ def classify_survivors(
         harvest_tests = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
         )
+        harvest_tests, _hd = _admit_search_pool(harvest_tests, include_shaped)  # shaped-defer (see above)
+        _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
         captured = capture_call_inputs(original, harvest_tests)
         fresh = [t for t in captured if _safely_fresh(t, inputs)]
         if fresh:
@@ -2280,4 +2292,5 @@ def classify_survivors(
         note,
         manual_equivalent=tuple(manual_equivalent),
         inputs_expressible=expressible,
+        deferred_shaped=_deferred_shaped_capture,
     )

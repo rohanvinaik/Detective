@@ -1086,6 +1086,10 @@ class SurvivorReport:
     # False means exactly that: something in the exercising input has no literal form. None
     # means nothing exercised the function at all (see ``note``).
     inputs_expressible: bool | None = None
+    # How many shape-hazardous tests were held out of the CAPTURE harvest (shaped-defer), so a
+    # residual is never silently attributed to the code when a deferred slow test might have supplied
+    # the distinguishing input. Disclosed by converge; restored by --include-shaped.
+    deferred_shaped: int = 0
 
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:
