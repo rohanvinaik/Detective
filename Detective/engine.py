@@ -652,9 +652,15 @@ def function_basis(
     # covering tests (the sandwich unit), so the per-test read is a handful, not the suite.
     from .certify import witness_origin_of_nodeid  # local: certify imports engine at module scope
 
-    _freshness = "replayed" if getattr(result, "served_from_cache", False) else "fresh"
+    # function_basis assembles from a VALIDATED profile: a fresh compute, OR a verdict-cache hit —
+    # which stores ONLY gateable certificates keyed on the function AST + test sources + regime +
+    # budgets (verdict_cache.proof_cache_admits). A hit therefore REPLAYS an established proof over
+    # unchanged inputs and REGAINS proof status; it is NOT §2.1's trace-cache routing replay (that is
+    # the coverage-ROUTING layer BELOW an assembled certificate, and it never reaches here). So the
+    # coverage is proof-eligible regardless of `served_from_cache`; the ONLY routing downgrade is an
+    # inadmissible (observed-union) line basis, where a baseline-failing owner may order but not prove.
     _warrant = basis_membership(
-        "covers", _freshness, "admissible" if _line_basis == "admissible" else "inadmissible"
+        "covers", "fresh", "admissible" if _line_basis == "admissible" else "inadmissible"
     )
     _kills: dict[str, set[str]] = {}
     for _key, _tests in (getattr(result, "kill_matrix", {}) or {}).items():

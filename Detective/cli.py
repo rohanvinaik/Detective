@@ -1239,7 +1239,7 @@ def _format_survivor_report(
     # harder (nested / cross-referential) input rather than equivalent — so caution against a
     # false `flag` here. Only when there ARE flag-eligible survivors (candidate-equivalent or
     # crash-only); a fully killed target needs no caveat.
-    if deep_structure_caveat(structural_difficulty, bool(unproven or crash_only)):
+    if deep_structure_caveat(structural_difficulty, bool(unproven)):
         from .equivalence import structural_residual_handback
 
         # F2 dispatch: never send the reader to `--input` for a residual whose distinguishing input
@@ -1878,7 +1878,9 @@ def _format_converge_terse(
         # report — this is the surface that invites a `flag`, and a `deep_structural` survivor above
         # may be killable-with-harder-input, not equivalent. The SAME decision the verbose path uses,
         # so the two cannot drift on when to caution.
-        if deep_structure_caveat(getattr(result, "structural_difficulty", ""), True):
+        if deep_structure_caveat(
+            getattr(result, "structural_difficulty", ""), bool(rep.candidate_equivalent)
+        ):
             from .equivalence import structural_residual_handback
 
             _how = (
@@ -1933,26 +1935,28 @@ def _format_converge_terse(
     return "\n".join(lines)
 
 
-def deep_structure_caveat(structural_difficulty: str, has_flag_eligible: bool) -> bool:
-    """Whether to warn that a flag-eligible survivor may be KILLABLE, not equivalent (F2 — pure, pinned).
+def deep_structure_caveat(structural_difficulty: str, has_candidate_equivalent: bool) -> bool:
+    """Whether to warn that a CANDIDATE-EQUIVALENT survivor may be KILLABLE, not equivalent (F2 — pinned).
 
     A ``deep_structural`` target (it indexes into collection elements and drives a worklist/fixpoint
     loop) has distinguishing inputs the witness search does NOT synthesize, so a survivor it left
     ``candidate-equivalent`` may be killable with a hand-built structural input, not a genuine
     equivalent. The caution must reach EVERY surface that invites a ``flag`` — the terse default AND
-    the verbose report — or the default surface (`_format_converge_terse`) invites the flag while the
-    caution lives only in the verbose one, which is the F2 measurement/decision gap. So the decision is
-    made ONCE here and both consume it. Only when there ARE flag-eligible survivors (candidate-
-    equivalent or crash-only): a fully killed target needs no caveat.
+    the verbose report — or the default invites the flag while the caution lives only in the verbose
+    one (the F2 measurement/decision gap). So the decision is made ONCE here and both consume it.
 
-    DERIVED from the canonical `residual_disposition` typing (F2), so the caveat and the typed residual
-    can never disagree on what "deep-structural" means: a candidate-equivalent survivor on a
-    deep_structural target IS a `structural_residual`, which is exactly what this caveat names.
+    The gate is CANDIDATE-EQUIVALENT presence specifically, NOT any flag-eligible survivor. A
+    crash-only survivor is a ``value_residual`` (a crash input DOES distinguish it), never a
+    ``structural_residual``, so a result with only crash-only survivors must NOT receive the
+    structural-input warning — passing the merged "candidate-equivalent OR crash-only" flag was the
+    bug that let it. DERIVED from the canonical `residual_disposition` typing so the caveat and the
+    typed residual cannot disagree: only a candidate-equivalent on a deep_structural target is a
+    ``structural_residual``, which is exactly what this caveat names.
     """
     from .equivalence import residual_disposition
 
     return (
-        has_flag_eligible
+        has_candidate_equivalent
         and residual_disposition(False, False, structural_difficulty) == "structural_residual"
     )
 

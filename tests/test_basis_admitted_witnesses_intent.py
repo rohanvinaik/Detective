@@ -48,3 +48,15 @@ def test_a_fresh_admissible_cover_warrants_proof(tmp_path):
     r = profile("m.py", "f", _repo(tmp_path), use_cache=False)
     # A fresh run's admissible coverage is `proof` — the only warrant that may enter the basis.
     assert all(w.warrant == "proof" for w in r.function_basis.admitted)
+
+
+def test_a_warm_verdict_cache_hit_keeps_proof_warrants_not_routing(tmp_path):
+    # P1 review: a `complete` basis must rest on PROOF, not routing. The verdict cache stores only
+    # gateable certificates keyed on the function/tests/regime, so a hit REPLAYS an established proof
+    # over unchanged inputs and regains proof status — it is NOT §2.1's trace-cache routing replay.
+    root = _repo(tmp_path)
+    profile("m.py", "f", root, use_cache=True)  # populate the verdict cache
+    warm = profile("m.py", "f", root, use_cache=True)  # cache hit
+    assert getattr(warm, "served_from_cache", False), "the second run must be a cache hit"
+    assert warm.function_basis.admitted, "the warm result still carries witnesses"
+    assert all(w.warrant == "proof" for w in warm.function_basis.admitted)

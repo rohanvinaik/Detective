@@ -55,6 +55,13 @@ def _killable(mid: str = "K1") -> MutantVerdict:
     return MutantVerdict(mid, "VALUE", "- x\n+ x+1", killable=True, witness=w, searched=5)
 
 
+def _crash_only(mid: str = "C1") -> MutantVerdict:
+    # Non-killable by VALUE but distinguished by a crash — a value_residual, never a structural one.
+    return MutantVerdict(
+        mid, "VALUE", "- x\n+ x+1", killable=False, witness=None, searched=5, crash_only=True
+    )
+
+
 # ── _final_banner ─────────────────────────────────────────────────
 def test_banner_complete_clean():
     b = _final_banner(_cr())
@@ -163,9 +170,10 @@ def test_terse_is_minimal_when_complete_clean():
 
 # ── F2: the deep-structure caveat must reach the DEFAULT terse surface ─────────
 def test_deep_structure_caveat_truth_table():
-    # Warn ONLY on a deep_structural target that HAS flag-eligible survivors; two axes, total.
+    # Warn ONLY on a deep_structural target that HAS a CANDIDATE-EQUIVALENT survivor (the second arg);
+    # a crash-only survivor is a value_residual and must not trigger it (see the crash-only test).
     assert deep_structure_caveat("deep_structural", True) is True
-    assert deep_structure_caveat("deep_structural", False) is False  # nothing to flag → no caveat
+    assert deep_structure_caveat("deep_structural", False) is False  # no candidate-equiv → no caveat
     assert deep_structure_caveat("flat", True) is False
     assert deep_structure_caveat("", True) is False
 
@@ -227,3 +235,22 @@ def test_terse_caveat_asks_for_a_fixture_when_the_input_is_not_expressible():
     # never the broken `--input` ask.
     out = _deep_structural_terse(inputs_expressible=False)
     assert "hand-built object (no --input expresses it)" in out
+
+
+def test_terse_omits_the_caveat_for_a_crash_only_only_residual_on_deep_structural():
+    # A crash-only survivor is a value_residual (a crash input DOES distinguish it), NOT a
+    # structural_residual — so it must NOT receive the structural-input caveat even on a
+    # deep_structural target. The merged candidate-OR-crash flag was the bug that let it (P1 review).
+    rep = SurvivorReport((_crash_only(),), ())
+    out = _format_converge_terse(
+        _cr(
+            functionally_complete=True,
+            final_survivors=1,
+            killed=9,
+            survivor_report=rep,
+            structural_difficulty="deep_structural",
+        ),
+        "",
+    )
+    assert "deep-structure" not in out
+    assert "crash-only-equiv" in out  # the crash-only row itself is still shown
