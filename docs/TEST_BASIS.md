@@ -892,3 +892,188 @@ anything broadly called, or its covering set inflates to suite scale and the pin
 - **One measurement per report** (#36): counts and classifications never from two profiles.
 - **The MCP surface computes the same universe as the CLI.** `mcp_server.py:709` passes neither
   the target module, the import roots, nor the testpaths **[V]**.
+
+---
+
+# Part V — Gap closeout (A–E) and what F requires
+
+Written after A–E landed and were reviewed. Every claim below was **re-verified in this repo**:
+`find_referencing_symbols` for the wiring, a built synthetic repo for each soundness claim, and a
+cross-checking reconcile pass that settled nine contradictions between independent surveys. Where a
+survey and the code disagreed, the code won and the survey line is not reproduced.
+
+## 15. The verified gap ledger
+
+| # | gap | class | verified |
+|---|---|---|---|
+| **G1** | A replayed negative excludes a real reacher: `test_fingerprint` omits imported helper modules — the third bullet of Wesker #20's own unkeyed list, never closed | **soundness — false COMPLETE** | **[M] reproduced** |
+| **G2** | `pytest_plugins` is unmodelled, so a conftest reaching the target only through a declared plugin scores `conftest_reach=False` and drops the fixture-only test | **soundness — lost kill** | **[M] reproduced, fix verified** |
+| **G3** | `function_basis`'s three obligation sources are all wrong, and its **signature cannot reach the right ones** | semantics | **[V]** |
+| **G4** | Nothing in production calls `function_basis`; `basis_membership` has no consumer; `BasisWitness` is never instantiated | wiring (D2) | **[V]** |
+| **G5** | `witness_origin_of` pins `edited=False`; no content digest is recorded at write time | wiring (D5) | **[V]** `certify.py:695` |
+| **G6** | `diagnose`'s census flattens; **`audit` minimizes on the RAW union while converge minimizes on the ADMISSIBLE one**; "minimal" is unlabelled | surface (E1) | **[V]** |
+| **G7** | `ScopeMap`'s documented routing invariant is **false against the code** | correctness of a stated invariant | **[V]** `scope.py:92-94` |
+
+### 15.1 G1 — reproduced, and the seam is simpler than expected
+
+```
+fingerprint BEFORE helper edit: d8e3aaf6b6fc2509
+fingerprint AFTER  helper edit: d8e3aaf6b6fc2509     ← identical
+```
+
+§2.2/B3 ruled for option (a) and closed two residuals (config-file content; Hypothesis seed via the
+pinned `replayed_negative_admission`). That audit concluded *"only two residuals were real."*
+**A third was real and is on #20's own list** — *"helper modules/imported constants."*
+`regime_digest` keys plugins, conftests, config and import mode; `test_fingerprint` keys the test's
+own source, fixture origins, and ancestor conftests. An ordinary imported module is in neither.
+
+**The reconcile pass found the seam is narrower than the design assumed.** `trace_cache.py:392` is
+the **sole producer** of a routing negative and it is **disk-only** — `observed_function_reach`
+builds only from `load(...)` and `load_outcomes(...)`. Therefore:
+
+> **Every negative `route_test_item` can see is already a replay.** The "fresh negative may
+> exclude" row of §2.1 is *vacuous in production* — there is no fresh negative to admit.
+
+So `ci.py:406-407` (`observed == "not_reached" → impossible_observed`) is, today, exclusively the
+unsound case. Two consequences:
+
+- **X1 is a smaller change than scoped**: demote at the single consumer, or close the fingerprint.
+- **`basis_membership` already encodes the correct rule.** `Detective/engine.py:493-501`:
+  `if observed == "non_reach" and freshness == "fresh": return "disjoint"` else `"pending"`. The
+  right rule is written and pinned in the **unwired** object while the **wired** path does the
+  unsound thing. G4 is therefore not merely architectural — wiring it is part of G1's fix.
+
+### 15.2 G2 — reproduced, fix verified
+
+```
+pytest itself:          2 passed                     (collects and runs both)
+reachable_test_paths -> conftest.py, test_direct.py  ← test_via_plugin.py DROPPED
+WITH FIX ->             conftest.py, test_direct.py, test_via_plugin.py
+```
+
+`_DYNAMIC` already lists `pytest_plugins` (`reachability.py:26`) but is consulted only against
+**import-statement** names (`:119`, `:137`); `pytest_plugins` is a module-level list assignment, so
+the entry is dead as written. Marking such a module **opaque** restores the test — the module's own
+existing escape hatch, ~4 lines, no plugin resolution modelled. This is exactly what "The scoping
+correction" prescribes: *completing* the over-approximation, not deleting the analysis.
+
+### 15.3 G3 — larger than the review found
+
+`basis_action` (`engine.py:503`) is correct and pinned; `has_open_obligations` is pinned. **Both
+decisions are right and the guarantee is hollow, because the accessor feeding them is wrong** —
+*"pin the decision, never ask what feeds it."* Four defects, not three:
+
+| # | now | must be |
+|---|---|---|
+| 1 | covered lines from raw `result.line_coverage` | `admissible_proof_coverage(result)` — `converge.py:1139`, *"the ONE place the choice is made, so converge and audit cannot drift — and that drift WAS the #59 bug"*. Import **inside the function body**, as `audit.py:285` does (converge imports engine at module scope) |
+| 2 | `mutation_dims = kill_matrix.keys()` | `kill_matrix` keys are `f"{mutant_id}: {desc}"` — a key space **disjoint from `mutant_id`**, holding only killed-**and-attributed** mutants. Build $M_t$ from `killed_records + survivor_records` keyed on `mutant_id` |
+| 3 | `undischargeable` = uncovered lines | $U_t$ line half = `manually_unreachable` from `classify_missing_lines(project_root, func_key, func_node, missing, covered)` (`line_flags.py:242`), `covered` from the **admissible** map — the invariant both existing consumers keep (`audit.py:309`, `converge.py:1941`) |
+| 4 | `total_equivalent` for the equivalent count | **structurally 0 on every result Detective returns.** Only `run_function_converged` sets it (`Wesker/engine.py:6682`); Detective calls `run_function_profiling`. Source from `SurvivorReport.candidate_equivalent` |
+
+**And the signature cannot reach any of them.** `function_basis(result, validity)` has no
+`project_root`, no `func_key`, no AST node — but `classify_missing_lines` needs three,
+`classify_survivors` needs three, and the mutant universe needs the node. **G3 is a signature
+change**, which is why it must precede G4 rather than accompany it.
+
+Reuse, do not invent: `converge.py:1036-1089` (`_self_owned_obligation_ids`) already assembles
+line + arc + kill obligation ids from one result, and reaches arcs through `trace_evidence` +
+`getattr(ev, "admissible", False)` — **not** through `admissible_arc_union`, which has zero
+production consumers.
+
+### 15.4 Items the surveys corrected in the design's favour
+
+- **`partition_live_callables` already returns tagged `(callable, code)` pairs** (`ci.py:638-642`).
+  §8's "return tagged items" **shipped**; Detective throws the tag away at `engine.py:862`
+  (`_widen_tests = [c for c, _ in _unknowns]`). One Detective-side line, no Wesker API change.
+- **`_impossible_ids` removes tests from the POOL** (`engine.py:845` → `:881`), not merely the
+  widen — confirming the checklist item, and it is what makes **G7** true: `tests_discovered` is
+  computed from the impossible-filtered list (`Wesker/engine.py:5963`), so
+  `candidate + unknown + impossible == tests_discovered` is false. Correct the docstring or the
+  denominator; any surface printing it inherits the error.
+- **The `· test routing` render is wrong, not merely flat** (`cli.py:253-265`): it reads as
+  "N impossible, of which M observed", but `impossible` is populated **solely** by `ci.py:406-407`,
+  so impossible ⊆ observed and M ≥ N by construction.
+
+## 16. Closeout order
+
+**Soundness before architecture; correct the assembler before wiring it.**
+
+| slice | closes | seam | risk |
+|---|---|---|---|
+| **X1** | **G1** — the helper-closure fingerprint, or demote at `ci.py:406-407` | `trace_cache.py:392` → `ci.py:406` | medium |
+| **X2** | **G2** — `pytest_plugins` ⇒ opaque | `reachability._imports_of` | low |
+| **X3** | **G3** — assembler semantics **and signature**, still unwired | `engine.py:585-615` | medium |
+| **X4** | **G4** — attach a basis at `profile()`'s two return sites; wire `diagnose`/`audit`/converge | `engine.py:776` and `:913-921` | medium |
+| **X5** | **G5** — content digest at `certify._write` (sole writer, `:761-763`; source arrives ruff-formatted) | `certify.py:695` | low |
+| **X6** | **G6 + G7** — one minimize basis; census render; `ScopeMap` invariant | `audit.py:280`, `cli.py:253` | low |
+
+X1 and X2 close live soundness holes and are independent of everything else.
+
+**X4's attach seam is already precedented.** `engine.py:913` computes
+`_validity = normalize_validity(result)` and **discards it** after the cache-admission check — and
+the house pattern for attaching Detective-side state to a Wesker result already exists
+(`result.test_routing = _routing_counts`, `engine.py:897`; `hit.served_from_cache = True`). So a
+basis can reach production without touching 13 callers.
+
+## 17. What Phase F requires
+
+### F0 — route the un-killed residual to synthesis (highest value)
+
+"The scoping correction" names this as the open half of the core purpose. The ARC measurement is
+decisive: `serialize_rule`'s 6 residual obligations are **undischargeable by any suite test**, so
+no widening or re-ranking reaches them — only synthesis does. Blocked on X3/X4 for the obligation
+signal.
+
+### F1 — the deep-slice re-rank
+
+**Correction: F1 is NOT blocked on X4.** The obligation signals are already local to the widen loop
+head (`Wesker/engine.py:5678-5685`: `bool(_survivor_mutants) or _lines_incomplete`), so an
+in-loop progress counter needs nothing from the basis.
+
+The seams are exact:
+
+- **trigger** — the widen pop, `Wesker/engine.py:5689`: `_batch, _remaining_widen =
+  _remaining_widen[:1], _remaining_widen[1:]`. Never re-sorted, so widen order *is* the caller's
+  list order.
+- **re-rank** — `ci.py:640`, `key=lambda r: _unknown_stratum_rank(r[0])`, a **stable** sort. A
+  secondary key therefore cannot cross a stratum boundary **by construction**, so "may only order,
+  never exclude" holds structurally rather than by discipline.
+
+Scope it honestly: F1 cannot recover a large eligible pool ("ordering cannot reduce a sound
+exhaustion"). Its value is turning some `unresolved` runs into `complete` under budget pressure.
+
+### F2 — synthesis residual routing
+
+Its prerequisites are about the *residual*, not the basis: type the residual (today one
+undifferentiated `I_solve` bucket, which is what makes a killable-but-unsynthesized survivor
+indistinguishable from a genuine equivalent), then #67's structural detector as the shared gate,
+then the escalation dispatch.
+
+One live defect found in passing: **the structural advisory reaches neither surface that invites a
+flag.** `structural_difficulty` (`converge.py:2005`) is read once, at `cli.py:1659`, but the
+default terminal path is `_format_converge_terse` (`cli.py:4897`), which never calls it — and
+`converge_next_action` does not consume it. So the caution built to prevent a false equivalence
+flag is absent from the surface that invites one.
+
+## 18. Open questions — flag, never guess
+
+The reconcile pass surfaced twelve. The five that gate a slice:
+
+1. **The $M_t$ denominator.** `estimate_universe_size` sums mutation *targets*;
+   `len(generate_mutants(...))` counts *applied* transforms. Different numbers. — **gates X3**
+2. **Is the mutant universe stable enough to be a denominator at all?** `validity.py:197-199`
+   stamps `approximate:mutant_universe` on every in-process run, and a measured 133-vs-140
+   scored-count drift is on record. If the denominator is approximate, an obligation *count* is
+   too. — **gates X3**
+3. **Which basis should `audit`'s minimal cover use** — admissible (as converge does) or
+   foreign-stripped raw (as audit does)? Two live divergent behaviours; the code does not settle
+   intent. — **gates X6**
+4. **Should the arc axis be populated at all?** Arcs are opt-in (`trace_evidence.py:85-88`,
+   *"it doubles the hot callback"*), so `admissible_arc_union` is empty on a normal run and an arc
+   obligation would read **vacuously complete**. — **gates X3**, and it touches §1.2's $O_t$
+5. **Where a generated-file content digest lives** (header line / `pins.json` / sidecar) and how a
+   *missing* record is classified. All three options have named defects. — **gates X5**
+
+The remaining seven — including whether `run_function_converged`'s widen needs the same treatment,
+whether `_content_mutant_id` folds source positions into the digest, and the `uv.lock` ordering if
+a basis field is added to Wesker's `ProfilingResult` — are recorded in the run journal.
