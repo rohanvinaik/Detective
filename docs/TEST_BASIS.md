@@ -1,6 +1,10 @@
 # The Function Basis — an overhaul of test discovery, scoping, and proof accounting
 
-**Status:** design, pre-build. Nothing here is implemented.
+**Status:** A–E IMPLEMENTED (the Part V gap ledger X1–X6 is closed; see §15–§16). The FunctionBasis
+is live as a REPORTING projection, not yet the loop's governor; F0's residual→synthesis dispatch and
+"FunctionBasis governs converge" are the remaining work to call this the full Sandwich. Sections that
+still read as future tense (Part I–IV design prose) predate the build — the closeout in Part V is the
+current state of record.
 **Home:** Detective (the law, the universe, the basis) + Wesker (the router, the tracer).
 **Question:** *given `file.py::function`, which tests are admissible evidence about it, and when
 have we got enough?*
@@ -256,7 +260,15 @@ Two rules carry it, and both already exist in the codebase as invariants:
 >
 > **Absence is not falsehood.** A test never traced is `unknown`, never `disjoint`.
 
-### 2.2 [RESOLVED — B3] May a replayed negative exclude? — yes, under a complete regime
+### 2.2 [SUPERSEDED by X1/G1 — a replayed negative NEVER excludes] May a replayed negative exclude?
+
+**Struck. X1/G1 (§15.1) demoted this to "never".** The B3 ruling below let a replayed negative exclude
+under a "complete" regime, but the completeness precondition was unattainable in practice:
+`test_fingerprint` cannot certify a test's imported-helper closure is unchanged, so a stale negative
+could exclude a now-reaching test (a false COMPLETE, reproduced). `observed_function_reach` is now
+POSITIVE-ONLY — a replayed non-reach degrades to `unknown` and re-traces, never excludes — matching
+the pinned `basis_membership` rule (`replayed non-reach → pending`, never `disjoint`). The B3 admit
+decision (`replayed_negative_admission`) was retired. The B3 analysis below is kept for its grounding.
 
 A replayed negative is what lets routing skip a known-disjoint test without re-tracing it. It is
 also the only cached value that can *shrink* the search, i.e. the only one that could manufacture

@@ -3004,10 +3004,14 @@ def _format_audit(a, removing: bool = False) -> str:
     if a.minimal_test_count and a.test_count > a.minimal_test_count:
         ratio = a.test_count / a.minimal_test_count
         flag = " — high fan-in, thin contract: converge here" if ratio >= 3 else ""
+        # The minimal cover is BASIS-RELATIVE (§1.4): computed over THIS run's traced, admissible,
+        # own-suite evidence (own_matrix + admissible own_lines), not a suite-wide claim — a different
+        # `.wesker/` trace state yields a different B_t, so the count is minimal *for what was traced*.
         lines.append(
             _row(
                 "· fan-in",
-                f"{a.test_count} reach this function · {a.minimal_test_count} pin it ({ratio:.0f}:1){flag}",
+                f"{a.test_count} reach this function · {a.minimal_test_count} in the basis-relative "
+                f"minimal cover ({ratio:.0f}:1){flag}",
             )
         )
     # ℋ ⊎ 𝒢 origin census (§2.3, D5): which half of the Sandwich the suite's evidence is. A suite that

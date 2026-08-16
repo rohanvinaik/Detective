@@ -565,12 +565,14 @@ class BasisWitness:
 
 @dataclasses.dataclass(frozen=True)
 class FunctionBasis:
-    """The per-function value the subsystem produces and every consumer reads (§9, #D1).
+    """The per-function value the subsystem produces and every reporting consumer reads (§9, #D1).
 
-    Not yet wired — D1 lands the object before D2 rewires seed → widen → next_routing_action to
-    produce it. `action` is `next_routing_action`'s existing terminal state (§1.3): complete |
-    trace_next | gap | unresolved. `unresolved` tests were routed but not traced — NOT disjoint.
-    Only `excluded` carries a Layer-3 exclusion, and only for a fresh outcome-qualified non-reach.
+    WIRED as a REPORTING projection: `profile` attaches it (both return sites), `diagnose` carries it
+    into `--json`, and `audit` rebuilds it with the real classified equivalent count. NOT YET the
+    loop's governor — seed/widen termination is still `next_routing_action`'s own decision (#18),
+    `converge` does not rebuild or consume this object, and `unresolved` / `excluded` stay unpopulated
+    (`excluded` is vacuous post-X1: no fresh negative reaches an assembled certificate). `action` is
+    the terminal state (§1.3): complete | trace_next | gap | unresolved.
     """
 
     target: str
@@ -748,16 +750,19 @@ def _module_callers_of(tree: ast.Module, target_name: str) -> set[str]:
 
 
 def _attach_function_basis(result: ProfilingResult, root: str, node: ast.AST) -> ProfilingResult:
-    """Attach the FunctionBasis a completed profile earned, so diagnose / audit / converge read ONE
-    object instead of each re-deriving obligations (#X4/G4 — the D-phase object goes LIVE).
+    """Attach the profile-time FunctionBasis to the result, so diagnose reads it and audit rebuilds
+    it (#X4/G4 — the D-phase object goes LIVE as a reporting projection).
 
     The attach precedent is Detective-side state riding on the Wesker result without threading it
     through 13 callers: ``result.test_routing = _routing_counts`` (below) and ``hit.served_from_cache
     = True``. ``candidate_equivalent`` is 0 here — ``profile()`` has no ``SurvivorReport``, so a
-    killable-looking survivor is an OPEN obligation and the profile-time action is honestly ``gap``;
-    converge (which runs ``classify_survivors``) attaches a real count. ``function_basis`` is
-    defensive (degrades, never crashes) on a real result, so it is attached directly — a basis is
-    advisory, and a bug in it is a bug to fix, not a swallow to hide (§14).
+    killable-looking survivor is an OPEN obligation and the profile-time action is honestly ``gap``.
+    The REAL classified count comes from ``audit_suite`` (the ONLY consumer that runs
+    ``classify_survivors`` and rebuilds the basis); ``converge`` does not yet rebuild or consume it, so
+    this profile-time object stays advisory and MAY read ``gap`` where the classified result is
+    complete-modulo-equivalent — converge's own verdict (``functionally_complete`` / ``complete``) is
+    unaffected. ``function_basis`` is defensive (degrades, never crashes) on a real result, so it is
+    attached directly — a basis is advisory, and a bug in it is a bug to fix, not a swallow (§14).
     """
     # An ATTRIBUTE, not a Wesker field (the `served_from_cache` convention, verdict_cache.get): the
     # basis is Detective's per-function object, not the shape of Wesker's measurement, and it must
