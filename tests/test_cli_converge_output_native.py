@@ -201,3 +201,29 @@ def test_terse_omits_the_caveat_on_a_flat_target():
         "",
     )
     assert "deep-structure" not in out
+
+
+def _deep_structural_terse(inputs_expressible):
+    rep = SurvivorReport((_equiv(),), (), inputs_expressible=inputs_expressible)
+    return _format_converge_terse(
+        _cr(
+            functionally_complete=True,
+            final_survivors=1,
+            killed=9,
+            survivor_report=rep,
+            structural_difficulty="deep_structural",
+        ),
+        "",
+    )
+
+
+def test_terse_caveat_asks_for_input_when_the_structural_input_is_expressible():
+    out = _deep_structural_terse(inputs_expressible=True)
+    assert "nested/cross-referential --input" in out
+
+
+def test_terse_caveat_asks_for_a_fixture_when_the_input_is_not_expressible():
+    # F2 dispatch: no `--input` can express the shape, so the caveat asks for a hand-built object,
+    # never the broken `--input` ask.
+    out = _deep_structural_terse(inputs_expressible=False)
+    assert "hand-built object (no --input expresses it)" in out

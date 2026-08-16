@@ -516,6 +516,25 @@ def residual_disposition(is_killable: bool, is_crash_only: bool, structural_diff
     return "genuine_equivalent"
 
 
+def structural_residual_handback(inputs_expressible: bool) -> str:
+    """How to resolve a ``structural_residual`` — the escalation dispatch (F2 — pure, pinned).
+
+    A structural residual is likely KILLABLE with a nested / cross-referential input the deterministic
+    witness search does not reach. WHICH hand-back is honest depends on whether that input has a
+    literal form:
+
+      "structural_input"    ``inputs_expressible`` — the input CAN be typed, so ``--input`` (a nested
+                            literal) or a differential check is the ask
+      "structural_fixture"  NOT expressible — no ``--input`` can express it (a domain object / built
+                            state), so a hand-written test with a real value is the ask, NOT ``--input``
+
+    Splitting them is the same discipline as ``converge_next_action``: never send a reader to
+    ``--input`` for a residual whose distinguishing input has no literal form — that is the broken ask
+    that loops.
+    """
+    return "structural_input" if inputs_expressible else "structural_fixture"
+
+
 _TYPE_GRID: dict[str, list] = {
     "int": [-1, 0, 1, 2, 3],
     # 1.0625 = 1 + 1/16: exactly representable, four decimal digits. Every other

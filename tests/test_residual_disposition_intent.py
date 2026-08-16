@@ -10,7 +10,7 @@ value-unspecified, not "no input found".
 
 from __future__ import annotations
 
-from Detective.equivalence import residual_disposition
+from Detective.equivalence import residual_disposition, structural_residual_handback
 
 
 def test_a_killer_outranks_everything():
@@ -32,3 +32,10 @@ def test_a_true_candidate_equivalent_splits_only_on_the_structural_gate():
     assert residual_disposition(False, False, "deep_structural") == "structural_residual"
     assert residual_disposition(False, False, "flat") == "genuine_equivalent"
     assert residual_disposition(False, False, "") == "genuine_equivalent"
+
+
+def test_structural_residual_handback_never_asks_for_an_inexpressible_input():
+    # The escalation dispatch: an expressible structural input → `--input`/differential; a
+    # non-expressible one → a fixture / real object, NEVER the broken `--input` ask.
+    assert structural_residual_handback(True) == "structural_input"
+    assert structural_residual_handback(False) == "structural_fixture"

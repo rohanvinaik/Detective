@@ -1240,12 +1240,20 @@ def _format_survivor_report(
     # false `flag` here. Only when there ARE flag-eligible survivors (candidate-equivalent or
     # crash-only); a fully killed target needs no caveat.
     if deep_structure_caveat(structural_difficulty, bool(unproven or crash_only)):
+        from .equivalence import structural_residual_handback
+
+        # F2 dispatch: never send the reader to `--input` for a residual whose distinguishing input
+        # has no literal form — that is the broken ask `converge_next_action` also refuses.
+        _how = (
+            "a nested / cross-referential `--input`"
+            if structural_residual_handback(bool(rep.inputs_expressible)) == "structural_input"
+            else "a hand-built object (a real value — no `--input` expresses this shape)"
+        )
         lines.append(
             "  ⚠ deep-structure caveat: this target indexes into collection elements and drives a "
             "worklist/fixpoint loop — a shape whose distinguishing inputs the witness search does "
-            "NOT synthesize. A survivor above may be KILLABLE with a nested / cross-referential "
-            "input, not equivalent. Confirm with a differential check (original vs mutant over "
-            "hand-built structural inputs) BEFORE you `flag`."
+            "NOT synthesize. A survivor above may be KILLABLE, not equivalent. Confirm with a "
+            f"differential check (original vs mutant over {_how}) BEFORE you `flag`."
         )
     if rep.manual_equivalent:
         lines.append(
@@ -1871,11 +1879,18 @@ def _format_converge_terse(
         # may be killable-with-harder-input, not equivalent. The SAME decision the verbose path uses,
         # so the two cannot drift on when to caution.
         if deep_structure_caveat(getattr(result, "structural_difficulty", ""), True):
+            from .equivalence import structural_residual_handback
+
+            _how = (
+                "a nested/cross-referential --input"
+                if structural_residual_handback(bool(rep.inputs_expressible)) == "structural_input"
+                else "a hand-built object (no --input expresses it)"
+            )
             lines.append(
                 _row(
                     "⚠ deep-structure",
-                    "a survivor above may be KILLABLE with a nested/cross-referential input, not "
-                    "equivalent — confirm with a differential check before you `flag` (full report)",
+                    f"a survivor above may be KILLABLE, not equivalent — confirm over {_how} before "
+                    "you `flag` (full report)",
                 )
             )
     # The target printed to stdout while being measured, all contained off this channel
