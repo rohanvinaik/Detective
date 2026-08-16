@@ -37,7 +37,15 @@ from .certify import (
     synth_filename,
     wire_pytest,
 )
-from .engine import _load_original, _resolve, classify_survivors, profile, representative_site
+from .engine import (
+    FunctionBasis,
+    _load_original,
+    _resolve,
+    classify_survivors,
+    function_basis,
+    profile,
+    representative_site,
+)
 from .equivalence import (
     SourceExpr,
     SurvivorReport,
@@ -319,6 +327,14 @@ class ConvergeResult:
     # never unconditionally. ``clock=<epoch>`` today; the #24 remainder folds a compound capability
     # set (env / files) into a digest. None when no capability was supplied.
     capability_identity: str | None = None
+    # The FunctionBasis this converge REBUILT with the real classified count (review: converge is now a
+    # basis producer, not just profile()'s advisory equivalent=0 object). U_t folds every VALUE-
+    # undischargeable survivor (candidate-equivalent + crash-only + manual-equivalent), so `action`
+    # reads complete-modulo exactly where `functionally_complete` does — the object AGREES with this
+    # result's verdict by construction. converge's verdict stays `certificate_standing` (it adds the
+    # orthogonal validity gates: stale / verification / gateable the sandwich basis does not carry).
+    # None on an older/directly-built result. `asdict` carries it to `converge --json` for free.
+    function_basis: FunctionBasis | None = None
 
     @property
     def mutation_score(self) -> float:
@@ -2003,6 +2019,24 @@ def _converge_impl(
     # inputs the witness search does not synthesize? Advisory only — the CLI uses it to caution
     # against a false `flag` on a survivor that may be killable-with-harder-input, never a gate.
     structural_difficulty = structural_input_difficulty(**structural_shape(node))
+    # Rebuild the FunctionBasis with the REAL classified count (review — converge governs its own
+    # basis, not profile()'s equivalent=0 advisory object). U_t = every VALUE-undischargeable survivor
+    # (candidate-equivalent + crash-only + manual-equivalent), so `action` agrees with
+    # `functionally_complete` (open = killable + unclassified). Reuses `_validity` — the ONE normalized
+    # validity computed above — so the basis's action and the certificate rest on the same answer.
+    # 0 equivalents when classification did not run.
+    _modulo = (
+        len(survivor_report.equivalent) + len(survivor_report.manual_equivalent)
+        if survivor_report is not None
+        else 0
+    )
+    _basis = function_basis(
+        final_result,
+        _validity,
+        project_root,
+        node,
+        candidate_equivalent=_modulo,
+    )
     return ConvergeResult(
         function=func_key,
         # A cut run has not "converged" anything either — it stopped short, so the
@@ -2035,6 +2069,7 @@ def _converge_impl(
         signature=sig,
         param_names=param_names,
         structural_difficulty=structural_difficulty,
+        function_basis=_basis,
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(),
         stale_target=stale,

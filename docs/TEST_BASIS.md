@@ -196,8 +196,12 @@ Each admissible executed test discharges some subset $E(\tau, t) \subseteq O_t$.
 
 $$\bigcup_{\tau \in B_t} E(\tau, t) \;=\; O_t \setminus U_t$$
 
-where $U_t$ is the **undischargeable residue** — candidate-equivalent mutants and lines flagged
-unreachable. $U_t$ is reported, never absorbed.
+where $U_t$ is the **undischargeable residue** — every VALUE-undischargeable survivor
+(candidate-equivalent, **crash-only**, and manual-equivalent mutants) and lines flagged unreachable.
+$U_t$ is reported, never absorbed. The OPEN obligations are the killable and unclassified survivors,
+so the basis reads complete-modulo exactly where converge's `functionally_complete` does (review
+reconciliation: a crash-only survivor is value-undischargeable — no input pins its value — so it is
+$U_t$, not open, even though a crash input distinguishes it).
 
 **The consequence that makes everything else small:** tests outside $B_t$ need not be shown
 disjoint. They are simply *unnecessary to this certificate*. There is no obligation to classify

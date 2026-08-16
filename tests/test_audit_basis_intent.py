@@ -52,9 +52,11 @@ def test_audit_basis_reads_complete_when_every_survivor_is_candidate_equivalent(
     assert a.function_basis.action == "complete"
 
 
-def test_a_crash_only_survivor_keeps_the_basis_a_gap(monkeypatch, tmp_path):
-    # One true candidate-equivalent + one crash-only. The crash-only is KILLABLE (a crash input
-    # distinguishes it), so it is subtracted from the equivalent count and remains an open obligation.
+def test_a_crash_only_survivor_is_a_modulo_residual_not_a_gap(monkeypatch, tmp_path):
+    # One true candidate-equivalent + one crash-only. BOTH are VALUE-undischargeable (no input pins
+    # their value), so both are modulo residuals in U_t — the basis reads complete, agreeing with
+    # converge's `functionally_complete` (open = killable + unclassified only). Review reconciliation:
+    # the earlier "crash-only is killable → gap" made the basis disagree with converge's verdict.
     pr = make_pr(
         survivor_records=[{"mutant_id": "m1"}, {"mutant_id": "m2"}],
         mutants=2,
@@ -66,7 +68,5 @@ def test_a_crash_only_survivor_keeps_the_basis_a_gap(monkeypatch, tmp_path):
         lambda *a, **k: _report([_verdict("m1", crash_only=False), _verdict("m2", crash_only=True)]),
     )
     a = audit_suite("mod.py", "f", str(tmp_path))
-    # candidate_equivalent (union) is 2, but one is crash-only → the basis sees 1 undischargeable, so
-    # one survivor stays killable → gap.
     assert a.crash_only_equivalent == 1
-    assert a.function_basis.action == "gap"
+    assert a.function_basis.action == "complete"

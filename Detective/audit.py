@@ -371,12 +371,14 @@ def audit_suite(
             f"candidate_equivalent={candidate_equivalent} manual={manual_equivalent} "
             f"unclassified={unclassified}"
         )
-    # The FunctionBasis this audit earned (#X4 tail): built with the REAL undischargeable-equivalent
-    # count — `candidate_equivalent` here is the UNION of true-equivalent and crash-only, and a
-    # crash-only survivor is KILLABLE (a crash input distinguishes it), NOT undischargeable, so
-    # subtract it. Same `node` the line oracle used, so the basis's U_t agrees with this audit's
-    # `manually_unreachable`. Both counts are 0 when classification did not run, giving a conservative
-    # basis rather than a crash.
+    # The FunctionBasis this audit earned (#X4 tail, review-reconciled): the undischargeable residue
+    # U_t is every VALUE-undischargeable survivor — candidate-equivalent, crash-only, AND manual-
+    # equivalent — so the basis reads complete-modulo exactly where converge's `functionally_complete`
+    # does (open = killable + unclassified). `candidate_equivalent` here is the UNION (true-equivalent
+    # + crash-only, audit.py:341); adding `manual_equivalent` completes the modulo set. The earlier
+    # crash-only SUBTRACTION made a crash-only-only run read `gap` where converge reads complete-modulo
+    # — the review's crash-only inconsistency, ruled to modulo. Same `node` the line oracle used, so
+    # the basis's line U_t agrees with `manually_unreachable`. 0 when classification did not run.
     from .validity import normalize_validity
 
     _basis = function_basis(
@@ -384,7 +386,7 @@ def audit_suite(
         normalize_validity(result),
         os.path.abspath(project_root),
         node,
-        candidate_equivalent=candidate_equivalent - crash_only_equivalent,
+        candidate_equivalent=candidate_equivalent + manual_equivalent,
     )
     return SuiteAudit(
         function=result.function_key,

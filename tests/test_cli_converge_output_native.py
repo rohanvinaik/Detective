@@ -237,6 +237,29 @@ def test_terse_caveat_asks_for_a_fixture_when_the_input_is_not_expressible():
     assert "hand-built object (no --input expresses it)" in out
 
 
+def test_converge_result_carries_the_function_basis_into_json():
+    # Review "governs converge": converge rebuilds the basis and carries it on ConvergeResult, so
+    # `converge --json` (asdict) exposes the one authoritative obligation object.
+    from dataclasses import asdict
+    from types import SimpleNamespace
+
+    from Detective.engine import function_basis
+    from Detective.validity import MeasurementValidity
+
+    pr = SimpleNamespace(
+        function_key="m.py::f",
+        executable_lines=[1],
+        admissible_line_coverage={"t": [1]},
+        killed_records=[{"mutant_id": "m0"}],
+        survivor_records=[],
+        total_survived=0,
+    )
+    basis = function_basis(pr, MeasurementValidity(gateable=True, cut_reasons=()))
+    js = asdict(_cr(function_basis=basis))
+    assert js["function_basis"]["target"] == "m.py::f"
+    assert js["function_basis"]["action"] in {"complete", "gap", "unresolved", "trace_next"}
+
+
 def test_terse_omits_the_caveat_for_a_crash_only_only_residual_on_deep_structural():
     # A crash-only survivor is a value_residual (a crash input DOES distinguish it), NOT a
     # structural_residual — so it must NOT receive the structural-input caveat even on a
