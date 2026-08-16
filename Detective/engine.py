@@ -57,6 +57,8 @@ from .equivalence import (
     classify_survivor,
     is_expressible,
     is_scalar_type,
+    structural_input_difficulty,
+    structural_shape,
     synth_ast_input,
 )
 from .purity import is_pure as _is_pure
@@ -1498,6 +1500,81 @@ def _seq_length_variants(ann: ast.AST | None, namespace: dict) -> list | None:
     return [[], [v0], [v0, v1]]
 
 
+# B0 (#15 F0): the fixed cross-referential topology library — index-valid adjacency lists a scalar
+# or length-variant grid cannot construct. Each inner integer is a VALID index into the outer list
+# for that list's own length, so a worklist/fixpoint target (structural_input_difficulty ==
+# "deep_structural") is actually driven through its recursive states rather than skimming the
+# empty/single/pair length branches _seq_length_variants already covers. Small and fixed on purpose:
+# a bounded down-payment on routing the un-killed residual to synthesis (F0's tractable case), NOT
+# general worklist synthesis — arbitrary depth and arbitrary cross-reference stay the open frontier.
+# All are --input-expressible, so a witness found here still renders as a pasteable nested list.
+_ADJACENCY_TOPOLOGIES: list[list[list[int]]] = [
+    [[0]],  # one node, self-loop
+    [[1], [0]],  # two-node cycle
+    [[1], [2], []],  # three-node chain, terminating
+    [[], []],  # two nodes, no edges (disconnected)
+    [[1, 2], [2], []],  # branch with a shared successor
+]
+
+_NESTED_SEQ = ("list", "List", "Sequence", "Iterable", "tuple", "Tuple")
+
+
+def _is_nested_int_container(ann: ast.AST | None) -> bool:
+    """True for a ``list[list[int]]`` / ``list[tuple[int, ...]]`` style annotation — a sequence whose
+    element is itself a sequence of ``int``. Restricted to an ``int`` leaf on purpose: the topology
+    trick is that the inner values are valid INDICES back into the outer list, so a non-int leaf is
+    not indexable that way and stays ordinary synthesis's job.
+    """
+
+    def _seq_over(n: ast.AST | None) -> ast.AST | None:
+        if isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name) and n.value.id in _NESTED_SEQ:
+            inner = n.slice
+            # tuple[X, ...] carries an ast.Tuple slice; the element type is its first entry.
+            if isinstance(inner, ast.Tuple) and inner.elts:
+                inner = inner.elts[0]
+            return inner
+        return None
+
+    inner = _seq_over(ann)
+    leaf = _seq_over(inner)
+    return isinstance(leaf, ast.Name) and leaf.id == "int"
+
+
+def _nested_int_container_positions(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[int]:
+    """Indices — in the SAME ``self``/``cls``-skipped order :func:`_input_grids` builds its grids in —
+    of positional parameters annotated as a nested integer container: the slots an adjacency topology
+    fills, aligned so the caller can swap them into the grid list position-for-position.
+    """
+    positions: list[int] = []
+    idx = 0
+    for arg in node.args.args:
+        if arg.arg in ("self", "cls"):
+            continue
+        if _is_nested_int_container(arg.annotation):
+            positions.append(idx)
+        idx += 1
+    return positions
+
+
+def _structural_topology_inputs(node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict) -> list[tuple]:
+    """B0 (#15 F0): full positional-argument tuples that place a cross-referential adjacency topology
+    in every nested-int-container slot and the ordinary synthesized grid in every other, for a
+    ``deep_structural`` (worklist) target. Empty when the target has no such parameter.
+
+    These are OUR fabrications, so the caller applies the same world-effects gate the rest of the
+    fabricated pool obeys; the search is positive-only, so a topology that distinguishes a survivor
+    upgrades it to a proven KILL and one that does not leaves the residual exactly as it was.
+    """
+    positions = _nested_int_container_positions(node)
+    if not positions:
+        return []
+    grids = _input_grids(node, namespace)
+    for i in positions:
+        if i < len(grids):
+            grids[i] = list(_ADJACENCY_TOPOLOGIES)
+    return bounded_product(grids)
+
+
 def representative_site(node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict) -> list[dict]:
     """Golden call sites: a base site (numeric/unannotated params get 1, 2, 3… for
     order-distinction, other scalars a sample value, container/dataclass params a
@@ -1701,6 +1778,36 @@ def rescue_disposition(expressible: bool, rescuable: bool, has_inexpressible_wit
         return "nothing"
     if expressible and not has_inexpressible_witness:
         return "skip_ask_input"
+    return "run"
+
+
+def structural_retry_gate(
+    is_deep_structural: bool,
+    has_persisting_candidate: bool,
+    has_effects: bool,
+    wall_exhausted: bool,
+) -> str:
+    """B0 (#15 F0, pure — pinned): whether to retry classification over the cross-referential
+    topology library after the first pass (and any capture-rescue) still leaves a candidate-
+    equivalent survivor on a ``deep_structural`` (worklist/fixpoint) target.
+
+    The topologies are FABRICATED inputs, so the retry obeys the same two gates the fabricated grid
+    pool does: never on an effectful target — a fabricated adjacency list is damage, not a guess —
+    and never once the aggregate wall is gone (#31: a cut run keeps its first-pass verdicts rather
+    than starting a search it cannot finish). And there is nothing to gain when no candidate-
+    equivalent residual remains to upgrade. A named code, never a bool:
+
+      "skip"  not deep_structural, nothing left to upgrade, effectful, or wall exhausted
+      "run"   a worklist target still has a candidate-equivalent residual and the search is safe
+    """
+    if not is_deep_structural:
+        return "skip"
+    if not has_persisting_candidate:
+        return "skip"
+    if has_effects:
+        return "skip"
+    if wall_exhausted:
+        return "skip"
     return "run"
 
 
@@ -2048,6 +2155,35 @@ def classify_survivors(
                 "never call this function with inputs beyond the synthesized pool — "
                 "equivalence here is a claim about the input pool, not the code"
             )
+
+    # B0 (#15 F0): active structural search — the tractable half of routing the un-killed residual
+    # to synthesis. A deep_structural (worklist/fixpoint) target whose residual neither the scalar
+    # grid nor the capture-rescue killed may still be killable by a CROSS-REFERENTIAL input: an
+    # index-valid adjacency topology that the length-variant grid (default inner values) and a
+    # captured real call do not construct. Retry ONCE over the topology library through the same
+    # _classify_pool machinery, and adopt only if it proved a NEW kill (positive-only, so this can
+    # never manufacture a false COMPLETE). General worklist synthesis stays the open frontier.
+    _struct = structural_retry_gate(
+        structural_input_difficulty(**structural_shape(node)) == "deep_structural",
+        any(not v.killable and not v.crash_only for v in verdicts),
+        bool(effects),
+        _cls_exhausted(),
+    )
+    if _struct == "run":
+        struct_inputs = _structural_topology_inputs(node, ns)
+        fresh = [t for t in struct_inputs if _safely_fresh(t, inputs)]
+        if fresh:
+            retry = _classify_pool(supplied + fresh + inputs)
+            if sum(1 for v in retry[0] if v.killable) > sum(1 for v in verdicts if v.killable):
+                verdicts, unclassified, manual_equivalent = retry
+                # A "no input discriminates / equivalence is about the pool" note set above is
+                # falsified by the new kill — clear it rather than ship a stale claim.
+                note = None
+                # Topology witnesses are nested lists, which is_expressible accepts, so a topology
+                # kill still renders as a pasteable --input. Recompute on the WITNESS args.
+                witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
+                if witness_args:
+                    expressible = all(is_expressible(a) for args in witness_args for a in args)
 
     return SurvivorReport(
         tuple(verdicts),
