@@ -906,6 +906,7 @@ def profile(
         pass_index,
         _measured_under if _measured_under is not None else (trace_budget_s, trace_session_budget_s),
         _regime,
+        include_shaped=include_shaped,
     )
     if _cache_allowed:
         hit = verdict_cache.get(root, ck)

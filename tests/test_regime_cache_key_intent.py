@@ -39,3 +39,17 @@ def test_a_different_regime_keys_a_verdict_apart():
     args = ("mod.py::g", "def g(): ...", [_t], 3, 0, (None, None))
     assert cache_key(*args, "regimeA") != cache_key(*args, "regimeB")
     assert cache_key(*args, "regimeA") == cache_key(*args, "regimeA")
+
+
+def test_a_shaped_deferred_run_keys_apart_from_a_full_run():
+    """shaped-defer: a DEFERRED run measures a smaller speculative pool (widen + capture) than a full
+    one, so it is a different result. `include_shaped` must key them apart, or an --include-shaped
+    request is served the stale deferred under-count (the symptom: the re-run for the full measurement
+    returns the deferred one unchanged). The default (True, measure-everything) leaves the key
+    byte-identical, so no warm entry is dropped — the same absent-value contract as the regime digest."""
+    args = ("mod.py::g", "def g(): ...", [_t], 3, 0, (None, None))
+    # Default (measure everything) == the pre-shaped-defer key: nothing invalidated.
+    assert cache_key(*args, "", include_shaped=True) == cache_key(*args)
+    # A deferred run is a DIFFERENT result — keyed apart, never served to the full request.
+    assert cache_key(*args, "", include_shaped=False) != cache_key(*args, "", include_shaped=True)
+    assert cache_key(*args, "", include_shaped=False) == cache_key(*args) + ":defer_shaped"

@@ -147,6 +147,7 @@ def cache_key(
     pass_index: int,
     trace_budgets: tuple[float | None, float | None] = (None, None),
     regime_digest: str = "",
+    include_shaped: bool = True,
 ) -> str:
     """The content-addressed key: engine + identity + fn-hash + tests-hash + sampling + budgets.
 
@@ -167,6 +168,13 @@ def cache_key(
         f"{func_key}:{engine_fingerprint()}:{_sha(func_source)}:{tests_fingerprint(tests)}"
         f":{max_per_category}:{pass_index}:{budgets}"
     )
+    # A shaped-DEFERRED run measures a strictly smaller speculative pool (widen + capture) than a full
+    # one, so it is a DIFFERENT result and must never be served to an --include-shaped request — the
+    # same reason `trace_budgets` are keyed (the user asks for the full measurement and the cache hands
+    # back the deferred under-count). `include_shaped=True` (measure-everything, the library default)
+    # leaves the key byte-identical, so no existing entry is invalidated; only a deferred run marks it.
+    if not include_shaped:
+        base += ":defer_shaped"
     # Bind the pytest regime the verdict was measured under (#63) — empty leaves the key unchanged.
     return regime_keyed(base, regime_digest)
 
