@@ -1720,6 +1720,7 @@ def _converge_impl(
         budget_ms=_budget_ms(),
         extra_test_dirs=extra_test_dirs,
         progress=progress,
+        include_shaped=include_shaped,
     )
     if final_result.budget_exhausted and not budget_cut:
         budget_cut, cut_phase = True, "finalization"

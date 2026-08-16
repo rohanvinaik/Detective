@@ -71,3 +71,38 @@ def test_classify_survivors_threads_include_shaped_into_its_internal_reprofile(m
     monkeypatch.setattr(engine, "profile", spy)
     engine.classify_survivors("m.py", "f", str(tmp_path), include_shaped=False)
     assert seen.get("include_shaped") is False
+
+
+def test_converge_threads_include_shaped_into_every_profile_including_the_finalize(tmp_path, monkeypatch):
+    """Regression — the CLI defers by default, so EVERY profile() in the converge flow must inherit
+    that intent: the loop, and each authoritative `final_result` re-profile. The FINALIZE re-profile
+    (`converge.py`) was the one call that defaulted to include_shaped=True, so a defer run re-traced
+    the slow speculative pool at the very end and — with the include_shaped-keyed cache — recorded
+    under the full-measurement key in a deferred run. Spy on converge's `profile`: no call may leak."""
+    import importlib
+
+    # `Detective.converge` the attribute is the re-exported FUNCTION; get the MODULE to spy on its
+    # `profile` binding (the one `_converge_impl` calls).
+    cvmod = importlib.import_module("Detective.converge")
+
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.pytest.ini_options]\ntestpaths = ['tests']\nmarkers = ['detective: generated']\n"
+    )
+    (tmp_path / "m.py").write_text("def f(x):\n    if x > 0:\n        return x * 2\n    return -x\n")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_m.py").write_text("from m import f\n\ndef test_f():\n    assert f(1) == 2\n")
+
+    seen: list = []
+    real = cvmod.profile
+
+    def spy(*a, **k):
+        seen.append(k.get("include_shaped", "DEFAULTED"))
+        return real(*a, **k)
+
+    monkeypatch.setattr(cvmod, "profile", spy)
+    cvmod.converge("m.py", "f", str(tmp_path), include_shaped=False, write_dir=str(tests), deadline_s=120.0)
+    assert seen, "converge ran no profile() — the flow did not reach the finalize"
+    assert all(v is False for v in seen), (
+        f"a converge profile() call leaked the defer intent (include_shaped not threaded): {seen}"
+    )
