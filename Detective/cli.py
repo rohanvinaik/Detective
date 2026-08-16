@@ -272,6 +272,17 @@ def _format_scope(scope) -> str:
         observed = routing.get("observed", 0)
         if observed:
             lines.append(_row("", f"{observed} of these routed from an exact prior trace"))
+        # Also orthogonal: shape-hazardous unknowns DEFERRED from the speculative widen (shaped-defer),
+        # disclosed so a residual is never silently attributed to the code. Only present when non-zero.
+        deferred = routing.get("deferred_shaped", 0)
+        if deferred:
+            lines.append(
+                _row(
+                    "",
+                    f"{deferred} isolation-hazardous test(s) held out of the widen — "
+                    "re-run --include-shaped to trace them",
+                )
+            )
     # #40: two rows, never one. A crash/timeout kill proves the code RUNS, not what it returns, so
     # it must not sit under the checked "pinned" gutter — a scanning reader reads everything beside
     # ✓ as specified. value-pinned is the checked population; run-only is its own unchecked row.
@@ -1926,6 +1937,17 @@ def _format_converge_terse(
         lines.append(
             _row("· env-gated", f"{len(gated)} read(s) gate uncovered line(s) — fixture/manual, not --input")
         )
+    # Shape-hazardous tests held out of the speculative search (shaped-defer): a NAMED disclosure so a
+    # residual is never silently attributed to the code when a deferred test might have killed it.
+    if deferred := getattr(result, "deferred_shaped", 0):
+        lines.append(
+            _row(
+                "· deferred-shaped",
+                f"{deferred} isolation-hazardous test(s) held out of the widen search "
+                "(subprocess/thread/signal/custom-collector) — a residual MAY be killable by one; "
+                "re-run with --include-shaped to trace them",
+            )
+        )
     if report_path:
         lines.append(_row("· full report", report_path))
     lines.append("")
@@ -3389,6 +3411,21 @@ def _build_parser() -> argparse.ArgumentParser:
                 "raise it first, or set both to 0 for an exact measurement."
             ),
         )
+        if name in ("diagnose", "converge"):
+            # The two commands that run the speculative widen/capture search. By DEFAULT a
+            # shape-hazardous test is DEFERRED from that search (it forces the expensive isolation
+            # path and is almost never the minimal witness for a unit mutant); the count is disclosed
+            # so a residual is never silently attributed to the code when a deferred test might kill it.
+            p.add_argument(
+                "--include-shaped",
+                action="store_true",
+                help="include shape-hazardous tests (subprocess/thread/signal/custom-collector) in the "
+                "speculative widen search. By DEFAULT these are DEFERRED — one such test forces the "
+                "expensive isolation path (a subprocess per mutant, e.g. a 50s live-game system test per "
+                "widen step) and is almost never the minimal distinguishing witness for a unit-level "
+                "mutant, so the widen skips them and the report discloses how many. Pass this when a "
+                "residual may be killable ONLY by such a test and you want to pay to trace them.",
+            )
         if name == "converge":
             # The workflow note renders after the options on `converge --help` (this loop set
             # RawDescriptionHelpFormatter, so the epilog is shown verbatim).
@@ -4904,6 +4941,7 @@ def _run(args) -> int:
             # the seam but not this call would change the answer without changing the key.
             trace_budget_s=_trace_budget(args),
             trace_session_budget_s=_trace_session_budget(args),
+            include_shaped=args.include_shaped,
         )
         print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
         return 0
@@ -4935,6 +4973,7 @@ def _run(args) -> int:
             receiver_factory=getattr(args, "receiver_factory", None),
             fast=args.fast,
             deadline_s=args.deadline,
+            include_shaped=args.include_shaped,
             progress=_stream_progress(function),
             notify=_notify_stderr,
         )

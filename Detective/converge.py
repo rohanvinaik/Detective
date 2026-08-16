@@ -231,6 +231,13 @@ class ConvergeResult:
     # cautions against flagging it equivalent without a differential check. A cheap AST read (like
     # signature/param_names), computed once from the node — never gates a certificate, only advises.
     structural_difficulty: str = ""
+    # Shape-hazardous tests DEFERRED from the speculative widen search (shaped-defer): a
+    # non-hermetic test (subprocess/thread/signal/custom-collector) forces the expensive isolation
+    # path and is almost never the minimal witness for a unit mutant, so it is held out by default.
+    # DISCLOSED here — never a silent exclusion — so the reader knows a residual MAY be killable by a
+    # deferred test; ``--include-shaped`` re-includes them. 0 when none were deferred (the common
+    # hermetic case), so the caveat only ever renders when it is real.
+    deferred_shaped: int = 0
     # No pre-existing test file named this target or any function in its file, so discovery
     # returned the empty suite and every test below is one we synthesized. Reported because
     # the two ways to reach "COMPLETE" are not the same claim: converging a suite the user
@@ -1268,6 +1275,7 @@ def converge(
     receiver_factory: str | None = None,
     fast: bool = False,
     deadline_s: float | None = 300.0,
+    include_shaped: bool = True,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
@@ -1296,6 +1304,7 @@ def converge(
             receiver_factory=receiver_factory,
             fast=fast,
             deadline_s=deadline_s,
+            include_shaped=include_shaped,
             progress=progress,
             notify=notify,
         )
@@ -1316,6 +1325,7 @@ def _converge_impl(
     receiver_factory: str | None = None,
     fast: bool = False,
     deadline_s: float | None = 300.0,
+    include_shaped: bool = True,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
@@ -1506,6 +1516,7 @@ def _converge_impl(
             pass_index=_pass,
             extra_test_dirs=extra_test_dirs,
             progress=progress,
+            include_shaped=include_shaped,
         )
         if result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "mutant profiling"
@@ -1791,6 +1802,7 @@ def _converge_impl(
                 budget_ms=_budget_ms(),
                 extra_test_dirs=extra_test_dirs,
                 progress=progress,
+                include_shaped=include_shaped,
             )
             if final_result.budget_exhausted and not budget_cut:
                 budget_cut, cut_phase = True, "minimization"
@@ -1860,6 +1872,7 @@ def _converge_impl(
             budget_ms=_budget_ms(),
             extra_test_dirs=extra_test_dirs,
             progress=progress,
+            include_shaped=include_shaped,
         )
         if final_result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "regression-check"
@@ -2069,6 +2082,7 @@ def _converge_impl(
         signature=sig,
         param_names=param_names,
         structural_difficulty=structural_difficulty,
+        deferred_shaped=getattr(final_result, "test_routing", {}).get("deferred_shaped", 0),
         function_basis=_basis,
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(),

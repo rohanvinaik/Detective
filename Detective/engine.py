@@ -15,6 +15,7 @@ import ast
 import dataclasses
 import hashlib
 import importlib.util
+import inspect
 import os
 import subprocess
 import sys
@@ -40,6 +41,7 @@ from Wesker.engine import (
 )
 from Wesker.engine import ProfilingResult, generate_mutants, run_function_profiling
 from Wesker.filter import filter_categories
+from Wesker.isolation import callable_shape_hazards, fast_mode_standing, scan_source_hazards
 
 from ._contain import budget_is_exhausted, remaining_budget_ms
 from .binding import ReceiverFactory, resolve_execution, wrap_callable
@@ -794,6 +796,7 @@ def profile(
     trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
     trace_progress: Callable[[int, int, float], None] | None = None,
     trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
+    include_shaped: bool = True,
 ) -> ProfilingResult:
     """Profile one function with Wesker and return the raw ``ProfilingResult``.
 
@@ -995,7 +998,20 @@ def profile(
                     _seeded = _holder.fork()
                     _seeded.seed(_cands)
                     _seed_token = _session_baseline.set(_seeded)
-                    _widen_tests = [c for c, _ in _unknowns]  # unknowns are tagged (callable, code)
+                    # Defer shape-hazardous unknowns from the SPECULATIVE widen (shaped-defer): a
+                    # non-hermetic test forces the expensive isolation path (a subprocess per mutant,
+                    # a 50s live-game system test per widen step) and is almost never the minimal
+                    # witness for a unit mutant. Disclosed via test_routing["deferred_shaped"];
+                    # --include-shaped (include_shaped=True) forces them back in. The scoped baseline
+                    # is untouched — this only trims the speculative widen of unconfirmed reachers.
+                    _widen_tests, _deferred_shaped = _admit_search_pool(
+                        [c for c, _ in _unknowns],  # unknowns are tagged (callable, code)
+                        include_shaped,
+                    )
+                    # Disclose only when there IS a deferral — a zero would clutter the census and
+                    # break its exact-partition consumers for the hermetic common case.
+                    if _deferred_shaped:
+                        _routing_counts["deferred_shaped"] = _deferred_shaped
                 elif _disposition == "synthesize":
                     # Seed EMPTY (the forked baseline traces nothing) and profile against NO tests, so
                     # every mutant survives and routes to the existing synthesis pass. Disposition-exact:
@@ -1183,6 +1199,7 @@ def diagnose(
     trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
     trace_progress: Callable[[int, int, float], None] | None = None,
     trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
+    include_shaped: bool = True,
 ) -> ScopeMap:
     """Profile ``function`` and reshape the result into a behavioral-scope map.
 
@@ -1200,6 +1217,7 @@ def diagnose(
         trace_budget_s=trace_budget_s,
         trace_progress=trace_progress,
         trace_session_budget_s=trace_session_budget_s,
+        include_shaped=include_shaped,
     )
     scope = scope_from_profiling(result)
 
@@ -1809,6 +1827,71 @@ def structural_retry_gate(
     if wall_exhausted:
         return "skip"
     return "run"
+
+
+def search_pool_admission(is_hermetic: bool, include_shaped: bool) -> str:
+    """Whether a candidate test enters the SPECULATIVE widen pool — the converge/diagnose
+    kill-measurement that speculatively traces unconfirmed reachers (shaped-defer, pure — pinned).
+
+    A shape-hazardous test (non-hermetic per ``fast_mode_standing`` — it spawns a subprocess, starts
+    a thread, signals, or needs a custom collector) forces the expensive isolation path: ONE such
+    test in the scope drags the whole run out of ``in_process`` and pays a subprocess per mutant, so a
+    50s live-game system test traced per widen step dominates cost. Those tests are almost never the
+    minimal distinguishing witness for a unit-level mutant. So by DEFAULT they are DEFERRED from the
+    speculative pool — never silently: the caller counts them and the report discloses the count with
+    a ``--include-shaped`` opt-in that forces them back in. A hermetic test is always admitted; this
+    touches ONLY the speculative widen/capture, never the scoped baseline (which already ran them if
+    they reached). A named code, never a bool:
+
+      "admit"        — hermetic; always searched
+      "admit_shaped" — non-hermetic but the caller opted in (--include-shaped)
+      "defer_shaped" — non-hermetic and not opted in — deferred, DISCLOSED, never silently dropped
+    """
+    if is_hermetic:
+        return "admit"
+    return "admit_shaped" if include_shaped else "defer_shaped"
+
+
+def _callable_is_hermetic(c: Callable[..., Any]) -> bool:
+    """Whether a test callable is in_process-safe (hermetic), RESILIENT to the live-session path.
+
+    ``callable_shape_hazards`` reads the ``__wesker_shape__`` stamp ``_build_callables`` sets at
+    non-live collection. But converge/diagnose run through a LIVE pytest session, and those callables
+    carry NO stamp — so a stamped read defaults every hazard to hermetic and NOTHING would ever defer
+    (measured: a subprocess-spawning widen reacher read hermetic in a live session). So when the stamp
+    is absent, RE-DERIVE the source-detectable hazards (#19's ``scan_source_hazards``) from the
+    callable's own source, which the live path DOES expose via ``__wrapped__``. Unreadable source →
+    hermetic (conservative: never defer a test we cannot classify). The source scan recovers
+    subprocess / thread / signal — the isolation-forcing hazards; ``custom_collector`` is only caught
+    when the stamp is present, an accepted gap in the live path.
+    """
+    stamped = getattr(c, "__wesker_shape__", None)
+    if isinstance(stamped, dict):
+        return fast_mode_standing(**callable_shape_hazards(c)) == "hermetic"
+    real = getattr(c, "__wrapped__", c)
+    try:
+        src = inspect.getsource(real)
+    except (OSError, TypeError):
+        return True
+    return not scan_source_hazards(src)
+
+
+def _admit_search_pool(
+    candidates: list[Callable[..., Any]], include_shaped: bool
+) -> tuple[list[Callable[..., Any]], int]:
+    """Partition a speculative-search candidate list into ``(admitted, deferred_count)`` by shape
+    admission (shaped-defer). A test is deferred iff it is non-hermetic (:func:`_callable_is_hermetic`,
+    resilient to the live-session path) and the caller did not opt in. The count is RETURNED so the
+    caller can disclose it; deferral is never a silent drop.
+    """
+    admitted: list[Callable[..., Any]] = []
+    deferred = 0
+    for c in candidates:
+        if search_pool_admission(_callable_is_hermetic(c), include_shaped) == "defer_shaped":
+            deferred += 1
+        else:
+            admitted.append(c)
+    return admitted, deferred
 
 
 def classify_survivors(
