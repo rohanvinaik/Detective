@@ -1100,7 +1100,19 @@ def _self_owned_obligation_ids(
 
     cov, _ = admissible_proof_coverage(result)
     own_cov = {tid: lines for tid, lines in cov.items() if not _is_foreign(tid)}
-    line_ids = _line_obligation_ids(own_cov)
+    # A line obligation is "target line L is covered by OWNED admissible evidence" — its identity is
+    # the TARGET's source line, NEVER which test happens to cover it. `admissible_proof_coverage`
+    # keys by test nodeid, and feeding that straight in made the id `line:{test}:{L}`, so a
+    # regenerated suite that covers the SAME lines under different test names read as a mass
+    # regression — the cold-start guard then reverted a strictly-BETTER suite (a run that reached
+    # ✓ every-mutant-killed was rolled back to the incomplete one it improved on, so the
+    # bare→`--input`→re-converge loop could not converge). Collapse owned coverage to the target
+    # file's covered-line SET, the owner-independent model `_line_obligation_ids`'s own test uses.
+    # (Kills key on `mutant_id` and arcs are a set — both already owner-independent; only lines,
+    # dict-keyed by test, carried the owner.)
+    target_file = result.function_key.split("::")[0]
+    own_lines = sorted({ln for lines in own_cov.values() for ln in lines})
+    line_ids = _line_obligation_ids({target_file: own_lines})
 
     own_arcs = {
         arc

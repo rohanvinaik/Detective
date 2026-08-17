@@ -113,3 +113,40 @@ def test_line_and_arc_obligation_ids_are_stable_and_named():
     assert regressed_obligations(
         _line_obligation_ids({"m.py": [1, 2]}), _line_obligation_ids({"m.py": [2]})
     ) == ["line:m.py:1"]
+
+
+def test_line_obligation_is_keyed_by_target_line_not_the_owning_test():
+    """A regenerated suite that covers the SAME target lines under DIFFERENT test names is NOT a
+    regression — the obligation is the covered LINE, never its owner.
+
+    The false-revert bug: `admissible_proof_coverage` keys by test nodeid, and feeding that into
+    `_line_obligation_ids` made the id `line:{test}:{L}`. So the SECOND converge of an incomplete
+    function (bare, then again after supplying `--input`) regenerated the suite with new test
+    names, every prior `line:{old_test}:{L}` "vanished", the containment guard reported a mass
+    regression, and it reverted a suite that had reached ✓ every-mutant-killed to the incomplete
+    one it improved on. The obligation must be owner-independent.
+    """
+    from types import SimpleNamespace
+
+    from Detective.converge import _self_owned_obligation_ids
+
+    def _fake(function_key: str, coverage: dict[str, list[int]]) -> SimpleNamespace:
+        # Only the attributes `_self_owned_obligation_ids` + `admissible_proof_coverage` read.
+        return SimpleNamespace(
+            function_key=function_key,
+            admissible_line_coverage=coverage,  # {test_nodeid: [target_lines]}
+            line_coverage=coverage,
+            kill_matrix={},
+            killed_records=[],
+            trace_evidence=[],
+        )
+
+    # SAME target lines {10, 11}, covered under DIFFERENT owning tests across two runs.
+    _, line_a, _, _ = _self_owned_obligation_ids(_fake("m.py::f", {"tests/t.py::test_a_0": [10, 11]}), set())
+    _, line_b, _, _ = _self_owned_obligation_ids(_fake("m.py::f", {"tests/t.py::test_b_9": [10, 11]}), set())
+    assert line_a == line_b == ["line:m.py:10", "line:m.py:11"]
+    assert regressed_obligations(line_a, line_b) == []  # a rename is NOT a regression
+
+    # A genuinely dropped line is STILL caught, whatever the owner.
+    _, line_c, _, _ = _self_owned_obligation_ids(_fake("m.py::f", {"tests/t.py::test_c_0": [10]}), set())
+    assert regressed_obligations(line_a, line_c) == ["line:m.py:11"]

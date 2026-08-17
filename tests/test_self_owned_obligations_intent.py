@@ -42,6 +42,8 @@ def _te(test_id: str, arcs: list[tuple[int, int]]):
 
 def _result():
     return SimpleNamespace(
+        # The target this receipt is about; line obligations are keyed by ITS source line.
+        function_key="m.py::f",
         # M_foreign is killed ONLY by the sibling's test; M_owned only by the user's; M_mixed by both;
         # M_unattributed is killed but has no recorded killer.
         kill_matrix={
@@ -111,8 +113,11 @@ def test_a_foreign_sole_line_and_arc_are_stripped():
     """Line 12 is covered only by the foreign test; arc (3,4) is executed only by it. Neither may be
     a proof obligation this certificate rests on; the owned line/arc survive."""
     _, line_ids, arc_ids, _ = _self_owned_obligation_ids(_result(), FOREIGN)
-    assert any("test_user_pins" in x for x in line_ids)  # owned lines kept
-    assert not any("test_sibling_value_0" in x for x in line_ids)  # foreign line stripped
+    # Owned lines 10, 11 kept; foreign-sole line 12 stripped. Line obligations are keyed by the
+    # TARGET's source line, not the owning test — that owner-keying is what made a regenerated
+    # suite covering the same lines read as a mass regression, so the assertion is on the LINE.
+    assert "line:m.py:10" in line_ids and "line:m.py:11" in line_ids  # owned lines kept
+    assert not any(x.endswith(":12") for x in line_ids)  # foreign-sole line 12 stripped
     assert "arc:1-2" in arc_ids and "arc:3-4" not in arc_ids
 
 
