@@ -2334,6 +2334,33 @@ def _residual_action(r, proof, rep, target: str, root: str = ".") -> list[str]:
     return out
 
 
+def _blocked_action(rep, target: str) -> list[str]:
+    """The terminal when the proof suite is mutation-complete but the extraction could NOT be
+    proven because candidate-equivalent / crash-only survivors remain (#decompose-banner).
+
+    This is NOT a rejection — no trial ran against a sufficient suite, so the tool never
+    observed a behaviour change. `apply_decomposition` withholds the proof suite while unproven
+    survivors stand (a green trial would prove only the pinned behaviours), and `trial_verdict`
+    returns ``unproven``. The honest next action is to resolve those survivors — `flag` the
+    truly-equivalent, or supply the ``--input`` that kills a killable one — never a claim, from
+    a run that tested nothing, that the rewrite changes behaviour. The distinction is the whole
+    reason the banner reads the trial code instead of ``functionally_complete``.
+    """
+    n = len(rep.equivalent) if rep is not None else 0
+    out = [
+        "STOP.  Not a rejection — this rewrite was never tested. The proof suite kills every",
+        "       KILLABLE mutant but keeps unproven survivor(s), so a green trial would prove",
+        "       only the pinned behaviours. The extraction is proposed, not proven, and your",
+        "       source was NOT touched.",
+        "",
+    ]
+    if n:
+        out.append(_row("· blocked by", f"{n} candidate-equivalent / crash-only survivor(s)"))
+    out.append(_row("· to prove it", "flag the survivor(s) truly equivalent, or supply --input to"))
+    out.append(_row("", f"kill them, then  detective decompose '{target}' --apply"))
+    return out
+
+
 def _hint_relation(hint: str) -> str:
     """The bare relation out of a boundary hint — "where amt == 0"."""
     tail = hint.split("—", 1)[-1].strip()
@@ -2811,7 +2838,6 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
         return f"{r.function} — decompose\n\nDONE:  no separable block. There is no seam here to split."
 
     proof = r.proof
-    proof_incomplete = proof is not None and not proof.functionally_complete
     rep = proof.survivor_report if proof is not None else None
     lines.append(_RULE)
     lines.append(f"{r.function} — decompose{_headline_counts(proof, rep)}")
@@ -2851,12 +2877,32 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
         lines.append("          against. Your source was NOT touched.")
         return "\n".join(lines)
 
-    if not proof_incomplete:
-        # A complete suite that rejects the rewrite has PROVEN behaviour changed. There is no
-        # input to supply and nothing to retry; offering one sends the reader to close a hole
-        # that does not exist.
+    # The last three verdicts are the ones that were conflated. Read the trial outcome the
+    # engine computed (`Decomposition.trial`), never re-derive "rejected" from
+    # `functionally_complete`: a mutation-complete suite that still retains candidate-equivalent
+    # survivors withheld its proof suite, so the trial was `unproven` (blocked), NOT `rejected`
+    # (#decompose-banner). The pure decision is pinned; here we only dispatch on it.
+    from .decompose import decompose_terminal
+
+    code = decompose_terminal(
+        any_applied=bool(r.applied),
+        has_validated=bool(validated),
+        applied_mode=applied_mode,
+        proof_present=proof is not None,
+        proof_complete=proof is not None and proof.functionally_complete,
+        any_rejected=any(d.trial == "rejected" for d in r.proposed),
+    )
+    if code == "rejected":
+        # A trial ran against a SUFFICIENT (mutation-complete, unblocked) suite and went red:
+        # the rewrite genuinely changes behaviour. There is no input to supply and nothing to
+        # retry; offering one sends the reader to close a hole that does not exist.
         lines.append("STOP.  This is a verdict, not a gap. The suite is mutation-complete and it")
         lines.append("       proves this extraction changes behaviour. Your source was NOT touched.")
+        return "\n".join(lines)
+    if code == "blocked":
+        # Mutation-complete-modulo-equivalent: the rewrite was never tested, so this is NOT a
+        # disproof. Name the real blocker instead of accusing a change the tool never observed.
+        lines += _blocked_action(rep, tgt)
         return "\n".join(lines)
 
     lines += _residual_action(r, proof, rep, tgt, root)

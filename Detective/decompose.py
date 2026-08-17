@@ -212,6 +212,50 @@ def trial_verdict(proven: bool, has_proof_suite: bool, apply_disposition_code: s
     return "proven"
 
 
+def decompose_terminal(
+    any_applied: bool,
+    has_validated: bool,
+    applied_mode: bool,
+    proof_present: bool,
+    proof_complete: bool,
+    any_rejected: bool,
+) -> str:
+    """Which terminal verdict ``_format_decompose`` prints — one code, read off the trial
+    outcome the engine already computed, never re-derived from ``functionally_complete``
+    (decompose banner, pure — pinned).
+
+    The bug this closes: the selector took ``proof_complete`` (``functionally_complete``) to
+    mean "a trial disproved the rewrite". But a mutation-complete suite that still RETAINS
+    candidate-equivalent / crash-only survivors is not a basis a green trial can stand on —
+    :func:`~Detective.decompose_apply.apply_decomposition` withholds the proof suite, so
+    :func:`trial_verdict` returns ``unproven``, NOT ``rejected``. Reading ``any_rejected`` (the
+    real trial code) separates the two; a functionally-complete run with no rejection is
+    ``blocked`` (unproven-because-modulo-equivalent), never a disproof.
+
+    Named codes, never a bool — ``rejected`` and ``blocked`` are opposite claims about the
+    tool's confidence and must not collapse:
+
+      "applied"   an extraction was applied; source rewritten
+      "ready"     a validated (proven) proposal awaits ``--apply``
+      "no_suite"  no proof suite exists yet; converge first
+      "rejected"  a trial ran against a sufficient suite and went red: behaviour changed
+      "blocked"   mutation-complete-modulo-equivalent — a green trial would prove only the
+                  pinned behaviours, so nothing could be proven; NOT a disproof
+      "residual"  a killable mutant is still unpinned; hand back the ``--input`` that kills it
+    """
+    if any_applied:
+        return "applied"
+    if has_validated and not applied_mode:
+        return "ready"
+    if not proof_present:
+        return "no_suite"
+    if any_rejected:
+        return "rejected"
+    if proof_complete:
+        return "blocked"
+    return "residual"
+
+
 # ── Statement-level def-use analysis ────────────────────────────────────
 
 

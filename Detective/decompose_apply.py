@@ -564,7 +564,13 @@ class Decomposition:
     proved it behavior-preserving (hence auto-appliable)."""
 
     extraction: Extraction
-    validated: bool  # True -> safe to auto-apply; False -> propose only
+    validated: bool
+    # The `trial_verdict` code this candidate earned (proven / witnessed / rejected / unproven),
+    # carried so the CLI reads the ACTUAL trial outcome instead of re-deriving it from
+    # `functionally_complete` — the two disagree exactly when a mutation-complete suite still
+    # retains candidate-equivalent survivors, where the trial was `unproven` (the suite was
+    # withheld), NOT `rejected`. Default "" for directly-built results (tests, older callers).
+    trial: str = ""  # True -> safe to auto-apply; False -> propose only
 
 
 @dataclass(frozen=True)
@@ -919,7 +925,11 @@ def _apply_decomposition_impl(
             # Never leave the USER's next import running trial bytecode: the revert
             # restores the pre-trial content, so retire the trial's cache with it.
             _purge_stale_bytecode(full)
-            proposed.append(Decomposition(extraction, validated=apply_ok))
+            # Carry the ACTUAL trial code, not just `validated`: `_code` distinguishes a rewrite
+            # the suite disproved (`rejected`) from one that was never tested (`unproven` — the
+            # suite was withheld because candidate-equivalents block it). The CLI banner needs that
+            # difference; `validated=apply_ok` collapses it to a single False.
+            proposed.append(Decomposition(extraction, validated=apply_ok, trial=_code))
         if not (write and progressed):
             break
     return DecompositionApply(

@@ -80,16 +80,23 @@ def _proof(**over) -> ConvergeResult:
     return replace(base, **over) if over else base
 
 
-def _result(proof: ConvergeResult | None, validated: bool = False) -> DecompositionApply:
+def _result(proof: ConvergeResult | None, validated: bool = False, trial: str = "") -> DecompositionApply:
     ex = Extraction("_compute_base", ("weight",), ("base",), _HELPER_SRC)
-    return DecompositionApply("quote", (), (Decomposition(ex, validated=validated),), (), proof=proof)
+    return DecompositionApply(
+        "quote", (), (Decomposition(ex, validated=validated, trial=trial),), (), proof=proof
+    )
 
 
-def _out(**over) -> str:
+def _out(*, trial: str = "", validated: bool = False, **over) -> str:
     # Pass the target, as the CLI does. `DecompositionApply.function` is the BARE name, and a
     # bare name is not a resolvable CLI target — the fallback exists for direct library callers,
-    # never for a printed command.
-    return _format_decompose(_result(_proof(**over)), applied_mode=True, target="p.py::quote")
+    # never for a printed command. `trial` / `validated` ride on the Decomposition; everything
+    # else is a proof (ConvergeResult) field.
+    return _format_decompose(
+        _result(_proof(**over), validated=validated, trial=trial),
+        applied_mode=True,
+        target="p.py::quote",
+    )
 
 
 # ── count what blocks ────────────────────────────────────────────────
@@ -150,9 +157,26 @@ def test_no_classification_abstains_instead_of_naming_a_population():
 
 
 def test_mutation_complete_rejection_is_a_verdict_not_a_gap():
-    out = _out(functionally_complete=True)
+    # A trial ran against a SUFFICIENT (mutation-complete, unblocked) suite and went red:
+    # trial == "rejected". Only THEN may the banner say behaviour changed.
+    out = _out(functionally_complete=True, trial="rejected")
     assert "STOP." in out
+    assert "proves this extraction changes behaviour" in out
     assert "--input" not in out and "block the proof" not in out
+
+
+def test_mutation_complete_but_unproven_is_not_a_rejection():
+    # functionally_complete, but the trial was `unproven` — candidate-equivalent survivors
+    # withheld the proof suite, so the rewrite was NEVER tested. The banner must not claim
+    # behaviour changed (#decompose-banner): that accuses a rewrite the tool never observed.
+    # This is the exact conflation the old `not proof_incomplete` discriminator produced.
+    out = _out(functionally_complete=True, trial="unproven")
+    assert "proves this extraction changes behaviour" not in out
+    assert "Not a rejection" in out
+    assert "NOT touched" in out
+    # It names the real blocker; it does NOT run the killable-residual hand-back (that path,
+    # `_residual_action`, is for an INCOMPLETE proof and says "block the proof").
+    assert "block the proof" not in out
 
 
 def test_proven_but_not_written_asks_for_apply():
