@@ -114,7 +114,7 @@ priors:
     path: docs/theory/NEGATIVE_SPECIFICATION.md
     root: local
     role: the theory document this manifest serves
-    sha256: 171ea0826376c8105b2be24173786864dae9af0248d00b9ed205c3cee60da23a
+    sha256: b77c031ffcdae73100a46549b09ab87884c64081f7e399d0c385d4402b7f2335
     cited_by: [docs/theory/GLOSSARY.md, docs/theory/CONSTRAINT_BLOCK.md]
 
   - id: negative-spec-glossary

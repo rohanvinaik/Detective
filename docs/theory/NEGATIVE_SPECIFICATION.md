@@ -3,7 +3,7 @@ title: "Negative Specification: Two-Sign Mutation Testing as Complete Behavioral
 subtitle: "The output-space mutation operator μ⁻, population-derived censors, and the specification complexity σ(P, μ ∪ μ⁻)"
 author: "Rohan Vinaik"
 date: "2026-08-22"
-status: "formal specification (design-complete; Form A of μ⁻ grounded against the live Wesker engine)"
+status: "formal specification, extended 2026-08-23 into the full stack (μ⁻ Forms A+B, Fork 1+2 built and grounded against the live engine; the learner §13/ESL, the corpus-κ §14/Significance-Weighting, the canonical form §15, and the paradigm §16 integrated with per-claim proved/transported/built/measured/conjectured status)"
 priors_do_not_rederive:
   - "σ = teaching dimension (Specification-Complexity [SC] Thm 2.7 / Lean T5_17); σ is μ-parameterized (SC §2.3)"
   - "Representation independence (SC Thm 2.3); redundant ⟺ zero information gain (SC Thm 3.11); composition gap (SC Thm 3.15)"
@@ -24,7 +24,8 @@ external_citation_caveat: >
 
 ### Abstract
 
-Mutation-based specification, as realized by the Wesker engine and the Detective front-end, measures a
+Mutation-based specification, as realized by the Wesker engine (`Wesker` on PyPI) and the Detective
+front-end (`detective-spec` on PyPI), measures a
 function $f$ by generating a finite set of syntactic variants (mutants) and asking which a covering
 test suite distinguishes. The minimum suite achieving full mutation kill is the *specification
 complexity* $\sigma(P,\mu)$, and $\sigma$ is proved equal to the **teaching dimension** of $P$'s
@@ -44,7 +45,16 @@ finite-domain, decidable-equivalence class and is obstructed elsewhere by Rice's
 the disposition calculus that keeps degenerate negative measurements from corrupting the score (§7),
 the admissibility condition governing population-derived censors (§9), the composition obstruction that
 makes the valuable negative constraints super-additive (§10), and the operational realization against
-the live engine (§11). §12 formalizes the authoring problem the whole construction reduces to.
+the live engine (§11), including the channel-propagation discipline that closes two measured leaks of the
+isolation result (§11.12). §12 formalizes the authoring problem the whole construction reduces to. §§13–16
+then close the loop the construction opens: §13 turns $\sigma$ from a ruler into a learner (the σ-gap as a
+benchmark read forward and a curriculum descended backward, the Detective CLI as its exact-learning
+harness, and the two-sign extension as the target of a fully-automated form we name Uroboros); §14 supplies
+the $\kappa$ machinery that scores a population-derived censor and states the load-bearing *negative*
+result — the censor loop's tractability is bounded-curvature, not submodular, because the valuable censors
+are *bridges* (measured, not conjectured); §15 makes the canonical implementation computable as the
+$\sigma + \gamma$ minimizer and identifies it with consolidation, the σ-invariant run backward; and §16
+states the resulting paradigm and its honest, decidability-bounded register.
 
 ---
 
@@ -433,7 +443,9 @@ and submodularity *within* a connected component.
 line- and mutant-redundant *for one function*; the field failure is that the test was load-bearing over
 the closure — Def. 10.2's bridge counterexample. The correct invariant is significance-weighted:
 $\mathrm{safe\_remove}(t) \iff \kappa\text{-}\mathrm{closure}(T) = \kappa\text{-}\mathrm{closure}(T
-\setminus \{t\})$, resting on the machine-checked SC Thm 2.3 and 3.11. Blocked on §13 Q1 (κ for code).
+\setminus \{t\})$, resting on the machine-checked SC Thm 2.3 and 3.11. Now grounded: κ, its dynamics, and the
+admissibility guard are supplied in §14 (built for the rule graph); the residual is the code-graph choice
+of §17 Q1.
 
 ---
 
@@ -470,7 +482,7 @@ of Def. 11.3 with no new type. Home: a new category `MutationCategory.OUTPUT`, g
 **Proposition 11.5 (Equivalence generalizes for Form A; [traced]).** `check_equivalent(func_node, mutant)`
 compiles original and mutant and compares outputs on boundary inputs. For Form A a perturbation *is* a
 compilable mutant, so `check_equivalent` decides candidate-equivalence of perturbations with no new
-machinery. This resolves §13 Q3 for Form A. (Inherited limitation: `check_equivalent` skips methods —
+machinery. This resolves §17 Q3 for Form A. (Inherited limitation: `check_equivalent` skips methods —
 no synthesizable `self`.)
 
 **Definition 11.6 (Form B — runtime wrapper).** Realize $\mu^-$ as a wrapper on the function object that
@@ -596,7 +608,7 @@ the crossing (some covering test fails on $f \oplus p$ exactly when it would wit
 Thm 2.2's one-test-per-mutant); for structured $R$, $\Pi_R$ must *generate*, under composition, enough of
 the deviation monoid on $R$ to separate the intended concept from its near-misses. Whether a *finite*
 $\Pi_R$ is complete for a given structured $R$ is the negative analogue of SC §2.3's open
-operator-basis question (§13 Q4), and its measurement requires Fork 2's observed codomain type (Def.
+operator-basis question (§17 Q4), and its measurement requires Fork 2's observed codomain type (Def.
 11.10).
 
 **Definition 11.10 (Typing Π — two forks).** A perturbation must be typed to the codomain to be valid,
@@ -629,6 +641,59 @@ mis-attributed, and Prop. 7.4's abstention obligation is *vacuous* for it (no so
 arises). Fork 2 extends $\Pi$ to the type-conditional family under observed types, where applicability is
 guaranteed by construction, so it too never mis-attributes. They compose as Form A/Form B do: Fork 1 the
 always-applicable skeleton, Fork 2 the typed-reach completion.
+
+### 11.12 Channel-information propagation (the operational realization of §5)
+
+Isolation (Thm 5.2) makes the negative sign worth *measuring*; the following is what makes the
+measurement *reach the certificate*. Two failures of it were found and closed by direct trace against
+the live engine on 2026-08-22, and they are the first measured instances of a general obligation.
+
+**Definition 11.12 (Channel-propagation).** A two-sign measurement is *channel-propagating* iff every
+codomain distinction the classifier can OBSERVE (at the repr level, via `equivalence._observe`) is one
+the certificate can CONSUME — i.e. every flagged distinction becomes, where the identity holds, a
+*written* value-killing pin. The failure mode is a **leaked** distinction: a negative-channel difference
+that is measured (the survivor is flagged killable) yet unpinnable (no `==`-golden kills it), so the
+survivor re-surfaces as *killable-but-unwritten* and the report asserts a soundness failure that did not
+occur. This is the negative-channel instance of the standing discipline "trace the signal to the
+decision — each layer must *consume* the computed signal, never re-derive a narrower proxy" (Detective
+ARCHITECTURE §0). Isolation is why the second channel carries information; propagation is why that
+information is not discarded before the pin.
+
+**Proposition 11.13 (The existence fence must value-kill, not crash-kill; built `f5e0efc`).** For a
+generator target (Form B codomain, Def. 11.6) the dominant mutant deletes the `yield`, collapsing the
+observable output to a non-iterable ($\texttt{None}$). The characterization golden
+`assert iter(result) is result and list(result) == […]` kills this mutant by CRASH — `iter(None)` raises
+`TypeError` — which banks nothing toward the value specification (Def. 1.4, Remark 3.3). Prepending the
+existence fence $p_{\mathrm{none}}$ (Def. 11.8(i), "the output must exist") as a *short-circuit
+conjunct*, `assert result is not None and iter(result) is result and …`, makes the same mutant fail by
+ASSERTION (the conjunction is `False` before `iter(None)` is evaluated). *Measured:* `converge <gen>
+--two-sign` moved from `Incomplete: 1 killable · unsound` to `✓ COMPLETE · 6/6`, the deleted-yield mutant
+now VALUE-pinned. The fence is $p_{\mathrm{none}}$ realized in the golden synthesizer, and the
+proposition is the value-vs-run precedence (Def. 1.4) enforced on the negative channel.
+
+**Proposition 11.14 (The container-contract fence requires the mutant's VALUE, not its repr; built
+`3ba2387`).** By Thm 5.2 a construct choice can be value-$\equiv$-equal yet negative-channel-distinct.
+The measured instance: a positive `SWAP` mutant strips `frozenset(...)` from a returned dataclass field,
+so `Flow(uses=frozenset({1,2}))` becomes `Flow(uses={1,2})` — value-`==`-equal (`frozenset({1,2}) ==
+{1,2}`, and the dataclass `__eq__` agrees) yet type-distinct: the $p_{\mathrm{ctype}}$ container-mutability
+fence (Def. 11.8(v)) *inside a field* ($p_{\mathrm{field}}$, Def. 11.8(vi)). The classifier flags it
+killable off the *repr* difference; but the witness carried only the mutant's repr, and a dataclass repr
+is not `literal_eval`-able, so the type pin `assert type(result.uses) is frozenset` could not be
+synthesized — the `==`-golden passed on the mutant too (SOUND but NON-KILLING), and the survivor
+re-surfaced *killable-unsound*. Threading the mutant's live value (a symmetric `_outcome_value(mutant,
+args)` carried on the `Witness`) lets the distinction walk to the leaf and pin it by type. *Measured:*
+`converge <flow> --two-sign` moved from `Incomplete: 1 killable · unsound` to `✓ COMPLETE · 8/8`. The
+proposition is the information-theoretic completeness principle at the operational layer: the positive
+path must propagate ALL available negative-channel information — the value itself, never a lossy repr
+projection — or a Thm-5.2 distinction is silently discarded.
+
+**Remark 11.15 (One phenomenon, two leaks).** Props. 11.13–11.14 are the two failure modes of a single
+gap: a negative-channel distinction (existence; type) is COMPUTED but does not PROPAGATE to a value-kill
+— once because the kill leaked out as a crash, once because the value was projected to a repr before the
+leaf was reached. In both, the certificate asserted `unsound` (a soundness *failure*) when the truth was
+*sound, but the fence did not reach the decision*. They are the first measured instances of the general
+obligation Def. 11.12 names, and they locate exactly where §11's operational realization touches §5's
+isolation theorem: the fence is only as good as its propagation to the pin.
 
 ---
 
@@ -671,62 +736,363 @@ brownfield behavior, reframed as the legacy path). Same artifact, same stations
 
 ---
 
-## 13. Open Problems
+## 13. Exact Specification Learning: σ as Ruler and Reward
 
-1. **κ for code (blocks censors and Cor. 10.6).** In the semantic setting κ is genealogy PageRank over
-   an IS-A graph. The code analogue needs a graph — call graph, import graph, or the obligation graph
-   induced by interface mutants — and the choice decides whether $I_{\mathrm{ind}}$ is cheap or a
-   research project.
+The preceding sections treat $\sigma(P, \mu^{\pm})$ as a *measure* of a program's two-sign identity. It
+is also, because it is COMPUTED by a theorem-checked engine rather than read from a hand-authored key,
+simultaneously a *benchmark* (read the gap to the optimum) and a *curriculum* (descend that gap). This
+section imports the Exact Specification Learning construction (Vinaik, *Exact Specification Learning* —
+hereafter ESL) and extends it from the one-sign to the two-sign policy. ESL is cited, not re-proved; its
+own status ledger (forward pass demonstrated on a running prototype 2026-07-17; backward pass designed,
+not run) is inherited verbatim.
+
+**Definition 13.1 (The σ-gap).** For an agent $A$ driving specification of $P$ over the degree-of-freedom
+universe $\mathrm{Mut}^{\neq}_{\mu^{\pm}}(P)$, the *coverage gap* $g_{\mathrm{cov}}(A) = 1 -
+\mathrm{SC}_{\mathrm{achieved}}(A)$ (distance from complete identification) and the *efficiency gap*
+$g_{\mathrm{eff}}(A) = |T_A| / \sigma(P, \mu^{\pm})$ (distance from optimal identification). In Wesker's
+DOF mode the cover sets are singletons, so greedy is EXACTLY optimal — not merely $(1-1/e)$ — and the
+optimum $A$ is scored against is COMPUTED and PROVED (`coverage_submodular`, `marginal_antitone`,
+`greedy_coverage_bound`, machine-checked). There is no "our reference solver might be suboptimal"
+confound: on the DOF universe the engine *is* the exact minimum.
+
+**Proposition 13.2 (The exact-learning identity; cited).** Greedy mutation testing is an Angluin exact
+learner (SC Thm 4.3, `T6_6_greedy_is_exact_learner`): a *membership query* is one input; an *equivalence
+query* is the suite-against-a-mutant check. An agent that, shown the surviving mutants, synthesizes
+inputs to kill them IS performing exact identification (identity testing, SC T6.17). Hence
+$g_{\mathrm{cov}}$ is a learner's distance from *complete* identity and $g_{\mathrm{eff}}$ its distance
+from *optimal* identity — both against the proved optimum.
+
+**Theorem 13.3 (The duality — one apparatus, two directions; cited ESL).** Because $\sigma$ is generated
+by a deterministic engine and not by a finite labeled key, the σ-gap is a *benchmark* read forward and a
+*training reward* descended backward — the same object. A labeled benchmark's labels are an exhausting
+resource, so it can only measure; ESL's labels are engine-generated, so measurement and training are one
+signal read in two directions. *Forward:* fix the agent, read `gap = optimal − achieved` over held-out
+functions — a leaderboard of exact-learning competence on provable ground truth. *Backward:* take the
+same gap as reward — every killed mutant a verified bit pinned, every survivor a dense typed error signal
+(by category), descended by SFT or RL with the *tests as the target rather than the check*.
+
+**Definition 13.4 (The CLI is the exact-learning harness).** Detective's `converge`, its `--json` state
+machine, and the `DO THIS: --input` loop constitute the forward-pass harness: the learner is invoked at
+*exactly one branch* — input synthesis, the Angluin membership query — the per-category survivor set is
+the dense typed reward, and the residual state machine is the trajectory. The discipline that keeps this
+classical rather than a model with a shell is ESL §4.1's "agency is the bug; the model is a pure function
+from residual to candidate inputs": the *architecture* is the deterministic, Lean-checked σ-engine, and
+any learner is a schema-constrained, injection-proof tail whose reward is a theorem, never a learned
+reward model. Under this reading the tool's apparently over-built CLI is not overhead — it is the correct
+*instrument* of an exact-learning benchmark, and every element (the DO-THIS derivation, the typed
+categories, the residual machine) is a named component of it.
+
+**Proposition 13.5 (Two-sign ESL closes the target).** ESL as constructed measures the agent against the
+ONE-SIGN $\sigma$ (the eight positive categories, Def. 11.1). Under the two-sign policy the target
+becomes $\sigma(P, \mu^{\pm})$: the learner must construct the minimum distinguishing set over the
+positive mutants AND the $\mu^-$ codomain fences. Proposition 4.3 — that the interactive `--input`
+residual is mostly mis-classified un-authored *negative* intent — is precisely the statement that
+one-sign ESL OVERSTATES the external-teaching cost $I_{\mathrm{ext}}$: authoring the negative sign once
+(the teaching set, §6) moves that content out of the per-run query loop. Hence two-sign ESL has a
+strictly smaller $I_{\mathrm{ext}}$ than one-sign ESL, and the difference is the second sign's
+information content — the C3 falsifiable prediction (Appendix C), now with a named mechanism.
+
+**Definition 13.6 (Uroboros).** The fully-automated form is two-sign ESL run backward: a fleet of exact
+learners, trained on the $\sigma(P, \mu^{\pm})$-gap curriculum, driving code to its complete two-sign
+teaching set and — via consolidation (§15) — to its canonical form. The apparatus that MEASURES
+correctness (the ruler) and the reward that TRAINS the learner which ACHIEVES it (the curriculum) are one
+object; the loop closes on itself, which is the name. *Status: designed.* The learner substrate
+(ShortcutForge) and the Wesker-verified reward exist; no trained two-sign learner exists, and the
+exact-learning-to-intelligence bridge (György et al., 2025, plus the parent paper's conjecture that
+$\sigma$ measures the statistical/exact gap) is promising-not-established and is not collapsed here.
+
+---
+
+## 14. The Corpus Self-Teaching Loop: κ, Bridges, and the Bounded-Curvature Obstruction
+
+Section 9 defined censors (population-derived negative constraints) and Conjecture 10.4 asserted they are
+bridges. This section supplies the mechanism — $\kappa$, the marginal-coverage quantity that scores a
+censor's worth — imports the significance-weighting theory that realizes it in a running engine (Vinaik,
+*Significance Weighting*; built in Regenesis, `regenesis/significance.py`, `promotion_ledger.py`), and
+states the load-bearing NEGATIVE result: the tractability guarantee the naive story assumes does not
+transfer, and the place it breaks is exactly where the valuable censors live.
+
+**Definition 14.1 (κ, the marginal coverage).** For a rule/obligation graph $G$, a node $v$, and an
+adopted set $S$, $\kappa(v \mid S) = |\mathrm{cover}(v) \setminus \mathrm{cover}(S)|$ — the
+forward-reachable set $v$ adds beyond what $S$ already covers. $\kappa$ is the hub-score, realized in the
+semantic domain as genealogy PageRank over the IS-A graph. [Built: `significance.coverage` /
+`marginal_coverage` / `_reachable`; measured $L(\mathrm{NLP}) = 0.528$, ≈53% resolved for free.]
+
+**Proposition 14.2 (κ scores a censor's worth; it is the induction prior and its stopping rule).** A
+censor spanning call sites (Def. 9.1) has worth equal to its marginal coverage: a *high-κ* censor
+collapses a whole cluster of admissible near-misses into one fence (the **bulk** — propose it), a
+*low-κ* censor is an independent tail constraint (**tail** = $I_{\mathrm{solve}}$ — abstain, it must be
+taught). Propose the fence maximizing κ-compression of a surprising near-miss chain; STOP when
+$\kappa \to 0$ (the bulk/tail knee is the principled halting condition, not an arbitrary cap). [Built:
+`promotion_ledger.rank_candidates` / `marginal_kappa`.]
+
+**Definition 14.3 (κ re-flows — the endogenous teaching term).** $\kappa$ is a function of the graph, so
+every adopted censor adds an edge and re-computes $\kappa$: the source region's coverage rises, and a
+censor **bridging** two previously-disjoint clusters is the largest κ jump. This is $C(H)$ structural
+amplification (Def. 4.2; SSL §2.5) promoted to a dynamical law,
+$$\frac{dH}{dt} = -\big(N_{\mathrm{ext}} + \underbrace{N_{\mathrm{ind}}(H)}_{\text{the corpus teaches itself}} + C(H)\big),$$
+where $N_{\mathrm{ind}}(H)$ is the rate of admissible corpus-derived censors — the discrete self-teaching
+term SSL *names* (unknown-knowns, SSL §1.4c) but does not price. This yields the three-region completeness
+split of Def. 4.2, $I_{\mathrm{solve}} = I_{\mathrm{ind}} + I_{\mathrm{ext}}$, with
+$L_{\mathrm{ind}} = I_{\mathrm{ind}}/I_{\mathrm{solve}}$ the *self-teaching fraction* — what structure
+gives free ($L$), what the corpus teaches itself ($L_{\mathrm{ind}}$), and what a teacher must supply
+($I_{\mathrm{ext}}$). [Cited *Significance Weighting* §§11–12; the code computes a coverage analog of
+$L_{\mathrm{ind}}$, `promotion_ledger.self_teaching_fraction`, not the entropy-bit quantity.]
+
+**Theorem 14.4 (THE CRUX — submodularity fails at bridges; measured, constructive).** The κ-coverage
+function $f(S) = |\bigcup_{v \in S} \mathrm{cover}(v)|$ is submodular over a STATIC ground structure
+(machine-checked `coverage_submodular`). But under the corpus loop the ground structure is *not* static —
+adopting a censor mutates the graph $\kappa$ is read from (Def. 14.3) — and submodularity is VIOLATED,
+constructively: let cluster $A$ reach $x$ via $r'$ and let $B$ be disconnected from $A$; let $r$ be a
+bridge $x \to B$. With $S = \varnothing$, adding $r'$ covers $x$ plus $A$'s small downstream (small
+marginal); with $T = \{r\} \supseteq S$, adding $r'$ now reaches all of $B$ (large marginal). So
+$f(T \cup \{r'\}) - f(T) > f(S \cup \{r'\}) - f(S)$ for $S \subseteq T$ — diminishing returns FAILS; $r$
+and $r'$ are **complementary**, not redundant. [Measured, *Significance Weighting* §16.1a, six real pulls:
+supermodular degree $d \le 14$–$25$, $15$–$26$ weakly-connected components; the Macbeth witness — promoting
+one real bridge RAISES 16 other nodes' κ, $\kappa(\text{give} \mid \varnothing): 2 \to 3$ — is
+antitonicity violated on real captured data, not a toy.]
+
+**Corollary 14.5 (Censors are bridges — measured, not conjectured).** Conjecture 10.4 is upgraded to a
+measured fact of the regime: the *valuable* censors — those spanning call sites, fencing a cross-cluster
+near-miss — ARE bridges, hence super-additive with the positive tests, hence exactly the constraints a
+clean greedy bound cannot cover. The biggest wins and the reason the easy proof fails are the same
+constraints; a theory that assumed submodularity would be a theory of the boring cases.
+
+**Definition 14.6 (Bounded curvature — the correct tractability object).** The tractable object is not
+submodular greedy but *bounded supermodular degree* $d$ (Feige–Izsak): a function submodular except for a
+controlled amount of complementarity retains a degraded greedy guarantee, degrading in $d$ and recovering
+$(1-1/e)$ at $d = 0$ (no bridges); $d$ here is essentially the number of bridging adoptions. What survives
+regardless: monotonicity of forward closure (nearly free), and submodularity WITHIN a connected component.
+The dense-graph constants ($L = 0.528$, the ~3% knee, the 28× drop) were measured on a *dense* IS-A graph
+and DO NOT transfer to a *sparse* obligation graph — measured, the sparse rule graph knees 3–12× later
+with a 3.5–8× softer drop; citing the dense constants for code would be wrong by an order of magnitude.
+[Conjecture: `bridge_curvature_bound`, a Lean TARGET; $d$ measured on the rule graph, unproved for the
+obstruction bound.]
+
+**Proposition 14.7 (Admissibility is machine-checked, and it is the well-definedness condition).** A
+censor is admissible iff (i) it is *spine-sourced* — carved from an observed near-miss or a rejected-
+rewrite witness, structurally incapable of confirmation from the engine's own derived output — AND (ii)
+$\sigma(P \mid C \cup \{c\}) > 0$ (retained plurality). Without (i), $N_{\mathrm{ind}}$ and
+$I_{\mathrm{ind}}$ are UNDEFINED, not merely unsafe: a censor confirmed from the engine's own derivations
+reduces the residual by construction while carrying ZERO information ($L_{\mathrm{ind}} \to 1$ vacuously,
+the descent looking fast and meaning nothing). The guard is the *same object* as SSL's falsifiability
+constraint, machine-checked `self_confirming_cannot_certify` and `falsifiability_pivot` (mutual
+information $> 0 \iff$ the answer channel is non-degenerate), with the retained-plurality budget (SSL
+§4.4; $\hat{R}$ not driven to $0$) the quantitative lower bound. This is exactly Def. 9.3, now with its
+mechanism proved and built. [Built + tested: `promotion_ledger.is_spine_confirmed` / `retains_plurality`
+/ `admissible` / `corpus_fixpoint`; the loop is conservative-empty on clean data *by construction* — a
+positive promotion requires a corpus authored so the strengthened rule bridges disconnected clusters.]
+
+*Remark 14.8 (what is code-specific, and what transports).* Everything above is proved-or-built for the
+semantic *rule* graph. What is code-specific is a single unmade choice: the graph over which $\kappa$ is
+computed for programs — the call graph, the import graph, or the obligation graph induced by interface
+mutants (Def. 10.1) — and the measurement of $d$ on it (§17 Q1). The mechanism (κ = marginal coverage),
+the dynamics (κ re-flows), the tractability object (bounded curvature), and the guard (spine-sourced +
+retained plurality) all transport unchanged; only the graph and its $d$ are to be measured.
+
+---
+
+## 15. The Canonical Form: σ+γ Minimization and Consolidation
+
+Section 6 located the human contribution at the teaching set; §12 reduced authoring to a finite triage.
+The dual question remains: given the pinned two-sign identity, what is the *canonical implementation* of
+it? This section shows the answer is computable, is the σ-invariant run *backward*, and is the operator
+Detective already ships as `decompose`.
+
+**Definition 15.1 (Two readings of "the purest code").** Given a two-sign teaching set pinning the
+behavioral-plus-negative identity $[f]_{\equiv^{\pm}}$: (a) the *identity* itself is unique and
+well-defined (the contract pins it); (b) a canonical *representative implementation* is a further
+selection among the implementations satisfying it. Reading (a) is settled by the two-sign contract;
+reading (b) is what this section resolves.
+
+**Theorem 15.2 (The composition gap is the computable clean-abstraction-barrier; cited).**
+$\sigma(A \circ B, \mu) \le \sigma(A,\mu) + \sigma(B,\mu) + \gamma(A,B)$, with $\gamma \ge 0$ and
+$\gamma = 0$ for specification-independent components (SC Thm 3.15, `gammaZeroIfIndependent`), and
+$\gamma \le |\mathrm{InterfaceMutants}(A,B)|$ (SC Thm 3.16, `gammaLeInterfaceMutantsCard`), COMPUTABLE
+from the mutation analysis. A decomposition is *clean* — a SICP abstraction barrier — iff its interface
+leaks no specification, i.e. $\gamma = 0$; entangled behavioral dimensions cost $\Theta(\prod n_i)$ and
+independent ones $\Theta(\sum n_i)$. This is a complexity-theoretic argument, not a stylistic preference
+for smaller functions (SC §3.3).
+
+**Proposition 15.3 (The canonical representative is the σ+γ+accidental-I⁻ minimizer).** Among
+implementations of $[f]_{\equiv^{\pm}}$, the canonical one minimizes total specification cost on three
+computable terms: *low $\sigma$ per piece* (does-one-thing — few independent behavioral dimensions to
+pin); *$\gamma = 0$ at the seams* (composable — clean interfaces, Thm 15.2); and *minimal ACCIDENTAL
+negative signature* — Thm 5.2 discriminates value-equivalent siblings by their induced must-nots, so the
+`x+y`-over-`(3x+3y)/3` preference is exactly "fewest accidental fences." All three are computed by
+machinery Detective ships (`decompose`, the interface-mutant $\gamma$ estimate, the two-sign survivor
+set). This is the corpus claim "$\sigma$ makes SICP computable": SICP's informal aesthetic — minimal,
+composable, abstraction-clean code — receives a complexity-theoretic ground as the σ+γ+I⁻ minimizer.
+[The mechanism is verified here against SC Thm 3.15/3.16; the *phrasing* "σ makes SICP computable" is
+carried in `thesis_vision.md`, not read — status ASSERTED for the naming, PROVED for the mechanism. The
+minimizer selects an *equivalence class / decomposition structure*, μ-relative and possibly non-unique
+(ties), not necessarily a single syntactic string.]
+
+**Theorem 15.4 (Consolidation = σ-preserving reduction; cited).** *Safe forgetting* is σ-preserving
+reduction to the simplest member of the kill-profile equivalence class. Representation independence (SC
+Thm 2.3, machine-checked) says $\sigma$ is invariant under mutation-preserving transformations, so the
+class may be moved within freely; redundancy = zero information gain (SC Thm 3.11, machine-checked) says
+exactly what banks no significance-weighted coverage may be dropped WITH PROOF. Transported to the
+two-sign setting: a rewrite is safe iff it preserves the two-sign σ-witness — the value pins AND the
+negative fences. [Machine-checked SC 2.3/3.11; the transport is the ASSERTED target
+`safe_forget_preserves_sigma_sem`, *Significance Weighting* §17.]
+
+**Proposition 15.5 (Consolidation is `decompose`, run offline; the σ-dynamics reversed).** Detective's
+`decompose --apply` is exactly this operator on CODE: it discards a tangled implementation and keeps
+whatever preserves the mutant-kill witness, applying the rewrite only when the preservation is PROVEN
+behavior-identical. Reading (b) of Def. 15.1 is thereby resolved and mechanized — the canonical
+representative is the fixpoint of σ-preserving reduction. The two directions are one invariant:
+*waking* (active reading) is the forward greedy accumulation of the drift-laden bulk; *sleep* is reverse
+redundancy-elimination to the exact tail (SC Thm 3.4's statistical→exact transition enacted offline —
+the Crick–Mitchison reverse-learning theory of dreams, turned from conjecture into a definition: a
+spurious structure *is* a zero-κ derivation). Parts §1–§14 GENERATE the two-sign spec; consolidation
+makes it CANONICAL. [Cited *Significance Weighting* §17.1; the "consolidation minimizes a specification
+free energy" reading (SC Thm 3.10) is CONJECTURE, needing the σ free-energy machinery wired here.]
+
+---
+
+## 16. The Paradigm: From Handicraft to Assembly Line
+
+The construction closes a loop that the tool's own design half-implements and the theory names. Its
+consequence is a workflow for authoring code whose correctness is a certificate rather than a hope.
+
+**Definition 16.1 (The four-station pipeline).** (1) *Intent* — decide what the code must do. (2) *A
+happy-path implementation* — code that does it, if only on one path (human- or agent-written). (3) *The
+two-sign contract* — much of it auto-filled by the $\mu^-$ operator-tree walk (Def. 3.1, 11.8), the idiom
+lens (Prop. 12.4), and the corpus censor loop (§14), leaving the operator only the irreducible
+$I_{\mathrm{ext}}$ (Thm 6.2) as a finite triage (Def. 12.1). (4) *Mutation as selection pressure* —
+Detective subjects the code to the two-sign mutation universe and consolidates the survivor to its
+canonical form (§15). One artifact (the two-sign certificate), two feeds (greenfield / ingestion,
+Def. 12.5).
+
+**Proposition 16.2 (The stack).** The paradigm is the composition of four documents, each edge proved,
+built, or a named port:
+
+| Layer | Source | Contributes |
+|---|---|---|
+| Proved core | *Specification Complexity* | $\sigma$ = teaching dimension; Blum measure; composition gap $\gamma$ (computable); the consolidation theorems (2.3, 3.11); greedy = Angluin exact learner |
+| Complete target | this document | $\mu^-$ → two-sign $\sigma(P, \mu \cup \mu^-)$ — the whole teaching set |
+| Learner / curriculum | *Exact Specification Learning* | the σ-gap as ruler-forward and reward-backward; the CLI as the exact-learning harness |
+| Corpus + canonical form | *Significance Weighting* | $\kappa$; censors-as-bridges (measured); the self-teaching loop; consolidation = the canonical-form operator |
+
+**Remark 16.3 (The honest register of the claim).** The paradigm is *provable-where-decidable* (Thm 8.1,
+finite-domain, unqualified `correct`) and *honestly-scoped-complete* elsewhere (Thm 8.2, Cor. 8.3 —
+`correct modulo (μ ∪ μ⁻), observing set named`; the qualifier is decidability, not tool maturity). It
+does not say code authorship is automated (Remark 6.3); it says verification and pinning are mechanized
+down to the teaching set, the negative half of that set is now measurable rather than leaked into the
+per-run loop, and the canonical form is COMPUTED from the pinned identity. "Correct code" thereby acquires
+a definition — the σ+γ+I⁻-minimal member of the two-sign identity class — that is neither "clean" nor
+"well-written" but *provably identified and minimally represented, given the policy*.
+
+---
+
+## 17. Open Problems
+
+The frontier is now four *named, scoped* items (Q1, Q5, Q7, Q8) plus three standing theory questions
+(Q2–Q4) and one build-through target (Q6). None is a fog; §§13–16 turned the earlier open ground into
+these.
+
+1. **κ for code — the graph choice (was "blocks censors"; now the sole code-specific residual).** §14
+   supplies κ's definition (marginal coverage = PageRank), its re-flow dynamics, the bounded-curvature
+   tractability object, and the machine-checked admissibility guard — all built for the semantic *rule*
+   graph (Regenesis). What remains code-specific is which graph κ is computed over: call graph, import
+   graph, or the obligation graph induced by interface mutants (Def. 10.1). The choice decides whether
+   $I_{\mathrm{ind}}$ is cheap or a research project; it is a decision plus a measurement (Q5), not an
+   invention.
 2. **The regime key (Def. 9.1 keying).** Regime = symmetry; a censor keyed below the semantic-equivalence
    class over-reaches (traps positions that merely rhyme), keyed above it under-reaches. Working guess:
    typed interface + purity class. Wants a derivation.
 3. **μ⁻ equivalence — resolved for Form A (Prop. 11.5), open for Form B.** Form B has no compilable
    mutant, so TCE-style bytecode identity (Wesker #24) does not apply; a negative mirror of
    `candidate-equivalent — UNPROVEN` may be required per sibling type.
-4. **Completeness of Π (Def. 11.8).** How much of the codomain a finite perturbation family fences — the
-   negative analogue of the positive operator-basis question SC §2.3 leaves open. Bounds require measuring
-   reach against a codomain model, i.e. Fork 2's observed type (Def. 11.10).
-5. **The bounded-curvature bound (Conj. 10.4, Caveat 10.5).** Measure $d$ on the obligation graph; prove
-   greedy degrading in $d$, recovering $(1-1/e)$ at $d=0$.
-6. **Build ordering.** Form A + Fork 1 is buildable now, κ-free, reuses the whole pipeline (the walking
-   skeleton). Form A + Fork 2 and Form B are the completeness passes. Censors are blocked on Q1–Q2.
+4. **Completeness of Π (Def. 11.8, 11.8b).** How much of the codomain a finite perturbation family fences
+   — the negative analogue of the positive operator-basis question SC §2.3 leaves open. Bounds require
+   measuring reach against a codomain model, i.e. Fork 2's observed type (Def. 11.10). (The user's
+   fenced-off "full-40 Π" completeness item.)
+5. **The bounded-curvature bound (Def. 14.6; Conj. 10.4 → Cor. 14.5, now measured).** The obstruction is
+   no longer conjectured: `promotion_not_submodular` is measured constructively (Thm 14.4, $d \le 14$–$25$
+   on six real pulls, the Macbeth $\kappa(\text{give}\mid\varnothing): 2\to3$ witness). Open is the
+   POSITIVE bound — `bridge_curvature_bound`, greedy degrading in $d$ and recovering $(1-1/e)$ at $d=0$
+   (Feige–Izsak, or Golovin–Krause adaptive) — a Lean TARGET, to be proved against a graph whose $d$ is
+   already known. Measure $d$ on the *code* obligation graph once Q1 fixes it.
+6. **Build ordering (μ⁻ realizations — largely closed).** Form A + Fork 1, Fork 2, and Form B are all
+   built (Wesker `dfce857`/`bdefe56`/`bf0f179`), with Detective's two-sign consumption wired
+   (`diagnose`/`converge --two-sign`) and the two channel-propagation leaks closed (Props. 11.13–11.14,
+   `f5e0efc`/`3ba2387`). What remains under build is the corpus censor loop's *code* port (Q1) and the
+   `UNDEFINED` disposition (Def. 7.3), needed only once a degenerate-measure case lands.
+7. **Unify ESL's DOF universe with μ⁻ (§13).** ESL (forward prototype) drives a learner against the
+   ONE-SIGN σ; two-sign ESL (Prop. 13.5) requires the DOF universe the learner descends to be
+   $\mu \cup \mu^-$. The unification is the concrete next build toward Uroboros (Def. 13.6), and its
+   payoff — a strictly smaller $I_{\mathrm{ext}}$ — is the C6 falsifiable prediction (Appendix C).
+8. **The greenfield persisted-contract artifact (Def. 12.5).** The two-sign certificate exists as
+   ingredients (μ⁻ survivors, the idiom lens, `flag`), but the *author-once, persisted* triage of the
+   greenfield line is not a first-class artifact; the tool is still in ingestion/brownfield mode, which
+   is why the negative intent still leaks into the per-run `--input` loop (Prop. 4.3). This is the
+   station that turns the pipeline (§16) from a very good mutation tester into the paradigm.
+9. **Wire the σ / SSL H-series here for the entropy-bit quantities.** $L_{\mathrm{ind}}$ (Def. 14.3) and
+   the consolidation-as-free-energy reading (Prop. 15.5) are CONJECTURE pending the entropy-bit machinery
+   ($H_0$, $L(D)$, $I_{\mathrm{solve}}$ in bits); the built quantities are coverage analogs. And
+   `safe_forget_preserves_sigma_sem` (Thm 15.4's transport) is an unproved Lean target.
 
 ---
 
-## 14. Status Ledger
+## 18. Status Ledger
+
+*The smoothness of a document is not evidence of its truth; this ledger keeps proved / transported /
+built / measured / conjectured separate for every claim the added sections make.*
 
 **Proved (inherited, machine-checked — cite, do not re-derive).** σ = teaching dimension (SC Thm 2.7);
 σ μ-parameterized (SC §2.3); representation independence (SC Thm 2.3); redundant ⟺ zero information gain
-(SC Thm 3.11); composition gap (SC Thm 3.15); finite-domain Blum status and decidability (SC Thm 2.5);
-`self_confirming_cannot_certify`, `falsifiability_pivot`; `coverage_submodular`, `marginal_antitone`,
-`greedy_coverage_bound` — **the last three over a fixed ground structure only (Def. 10.2).**
+(SC Thm 3.11); composition gap and interface-mutant bound (SC Thm 3.15/3.16); finite-domain Blum status
+and decidability (SC Thm 2.5); greedy = Angluin exact learner (SC Thm 4.3); the DOF singleton-cover exact
+optimality and `coverage_submodular`, `marginal_antitone`, `greedy_coverage_bound`,
+`resolution_bulk_bounded` — **all over a fixed ground structure only (Def. 10.2, Thm 14.4)**;
+`self_confirming_cannot_certify`, `falsifiability_pivot` (the admissibility guard, Prop. 14.7).
 
 **Transported (argued here from cited priors, not re-proved).** Prop. 2.2 (positive policies are
 one-sign); Prop. 2.5 (μ⁻ is a second instantiation, no new metatheory); Theorem 5.2 (channel isolation);
 Theorem 6.2 (automation boundary from σ = TD); Cor. 8.3 (the qualifier is decidability); Prop. 9.4
-(admissibility as well-definedness); Prop. 10.3 (γ = d = bridge count); Cor. 10.6 (κ-gated removal).
+(admissibility as well-definedness); Prop. 10.3 (γ = d = bridge count); Cor. 10.6 (κ-gated removal);
+Thm 13.3 (the ruler/reward duality, from ESL); Prop. 13.2/13.5 (the agent as two-sign exact learner);
+Thm 15.2/15.4 (composition gap = clean-abstraction-barrier; consolidation = σ-preserving reduction);
+Prop. 15.3 (the σ+γ+I⁻ minimizer is the canonical representative — mechanism proved, naming asserted).
 
-**Built (Wesker `dfce857`, 2026-08-22).** μ⁻ **Form A + Fork 1** (Def. 11.4, 11.10) — the
-`MutationCategory.OUTPUT` operator with the always-applicable sub-modes (the independence pair
-$p_{\mathrm{const}}, p_{\mathrm{id}}$ plus $p_{\mathrm{none}}$), realized as return-site AST rewrites
-reusing the evaluate/score/cover pipeline; the **two-sign policy** σ(P, μ ∪ μ⁻) as an opt-in
-`mutation_policy(two_sign=True)` with its own id, the default one-sign id byte-identical. Hand-written
-intent tests confirm the independence pair catches an under-specified suite (→const survives `f(0)==0`,
-dies on `f(3)==6`) and that every kill is by assertion, never a perturbation crash (Prop. 11.11).
+**Built (Wesker `dfce857`/`bdefe56`/`bf0f179`; Detective `f8e912c`..`3ba2387`; all 2026-08-22 unless
+noted).** μ⁻ **Form A + Fork 1** (Def. 11.4, 11.10) — `MutationCategory.OUTPUT` with the always-applicable
+sub-modes ($p_{\mathrm{const}}, p_{\mathrm{id}}, p_{\mathrm{none}}$), return-site AST rewrites reusing the
+evaluate/score/cover pipeline. **Fork 2** — the type-conditional family generated only for an observed
+codomain type (`bdefe56`). **Form B** — the runtime `wrapper_factory` reaching the non-return codomain
+(generators, yield sub-modes; `bf0f179`). The **two-sign policy** σ(P, μ ∪ μ⁻) as an opt-in
+`mutation_policy(two_sign=True)` with its own id, the default one-sign id byte-identical. **Detective's
+consumption** — `diagnose`/`converge --two-sign`, the Fork-2 return-type capture, the classification and
+compile paths taught both new mutant kinds. **Channel propagation** (Props. 11.13–11.14) — the
+$p_{\mathrm{none}}$ existence fence in the generator golden (`f5e0efc`) and the mutant-value threading for
+the $p_{\mathrm{ctype}}$ field fence (`3ba2387`), each pinned by hand-written intent tests. **The corpus
+censor loop** (§14) — κ, marginal-coverage selection, the machine-checked admissibility gate, oscillation→
+specialize, the corpus fixpoint with demotion — built and tested *in Regenesis*
+(`significance.py`/`promotion_ledger.py`), conservative-empty on clean data by construction. **ESL forward
+pass** — a running prototype (2026-07-17), the CLI-as-harness (Def. 13.4).
 
-**Asserted / grounded but unbuilt.** μ⁻ **Form B** (Def. 11.6, the non-return codomain); **Fork 2** and
-the type-conditional perturbation family (Def. 11.8, 11.10); the `UNDEFINED` disposition (Def. 7.3 —
-needed only once Fork 2 / the degenerate-measure case lands); Detective's consumption of the two-sign
-policy (no CLI/converge wiring yet); censor derivation from call-site populations; κ for code (Q1).
+**Measured.** The out-of-universe rewrite passing a positive SC=1 badge (Prop. 3.5, slugify, 2026-08-07);
+the "degenerate" near-miss witnesses outperforming hand-written tests (2026-08-07; a teaching artifact,
+not a natural sample). The two channel-propagation closures end-to-end (`gen` 6/6, `flow` 8/8,
+2026-08-22). The bridge/bounded-curvature regime (Thm 14.4): $d \le 14$–$25$ over six real pulls, the
+sparse rule graph kneeing 3–12× later with a 3.5–8× softer drop than the dense IS-A graph, the Macbeth
+antitonicity-violation witness (all *Significance Weighting* §16.1a, 2026-07-15).
 
-**Conjectured.** Censors are bridges, not bulk (Conj. 10.4); bounded-curvature greedy for the obligation
-graph (Q5).
+**Conjectured / unbuilt (the Lean targets and the code ports).** `bridge_curvature_bound` — the positive
+degrading guarantee (Def. 14.6; the negative `promotion_not_submodular` is measured, the positive bound
+is not). κ for code — the graph choice (§17 Q1). Two-sign ESL and Uroboros (Def. 13.6) — designed; the
+backward pass is unrun and no trained two-sign learner exists. The greenfield persisted contract
+(Def. 12.5, §17 Q8). The entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5,
+§17 Q9); `safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition
+(Def. 7.3), needed only once a degenerate-measure case lands.
 
-**Measured (this repo, 2026-08-07).** The out-of-universe rewrite passing a positive SC=1 badge (Prop.
-3.5, slugify); the "degenerate" near-miss witnesses outperforming hand-written tests on plausible
-refactors — predicted by teaching theory, since teaching dimension is defined by a teacher minimizing
-identification cost, not by sampling a natural distribution, so grading a witness by "would a person
-write this" applies learner-intuition to a teaching artifact.
+**Asserted (interpretations, argued not proved).** "σ makes SICP computable" as a *phrasing*
+(`thesis_vision.md`, not read; the *mechanism* is proved, Prop. 15.3). The identification of ESL's
+statistical/exact gap with intelligence (György et al. + the parent conjecture, promising-not-established,
+Def. 13.6). The reading of the corpus self-teaching term as SSL's unknown-knowns regime (Def. 14.3;
+*Significance Weighting* §11's own asserted move).
 
 ---
 
@@ -749,30 +1115,57 @@ write this" applies learner-intuition to a teaching artifact.
 | $\Sigma^{\pm}(P)$ | minimal two-sign teaching set (Def. 6.1) |
 | $\nu(p), \ \bot$ | negative measure and its degenerate value (Def. 7.2) |
 | $c \subseteq D \times R$ | censor (Def. 9.1) |
-| $\gamma, d$ | composition gap, supermodular degree (Def. 10.1–10.2) |
+| $\gamma, d$ | composition gap, supermodular degree (Def. 10.1–10.2, 14.6) |
+| $\kappa(v \mid S)$ | marginal coverage / hub-score = genealogy PageRank (Def. 14.1) |
+| $L_{\mathrm{ind}}, N_{\mathrm{ind}}(H)$ | self-teaching fraction; rate of admissible corpus-derived censors (Def. 14.3) |
+| $g_{\mathrm{cov}}, g_{\mathrm{eff}}$ | coverage gap, efficiency gap — the σ-gap (Def. 13.1) |
+| $[f]_{\equiv^{\pm}}$ | the two-sign (behavioral + negative) identity class (Def. 15.1) |
 
 ## Appendix B — Citation ledger (priors read directly; cite, do not re-derive)
 
-**Author's corpus.** `specification_complexity_paper.md` §§2.1, 2.3, 2.4, Thm 2.3, 2.5, 2.7, 3.11, 3.15 ·
-`SSL_PAPER_SKELETON.md` §§2.5, 3.1, 4.3, 4.4 · `SIGNIFICANCE_WEIGHTING.md` §§12, 13, 14, 17 ·
-`law_as_architecture.md` §§7, 8 · this repo: `ARCHITECTURE.md` §§0, 11; `docs/PARSIMONY_ADVISORY.md`.
+**Author's corpus (read in full for the §§13–16 integration, 2026-08-22/23; cite, do not re-derive).**
+`specification_complexity_paper.md` — the proved core: Thm 2.3 (representation independence), 2.5 (Blum),
+2.7 (σ = teaching dimension), 3.4 (bulk→tail = statistical→exact), 3.10 (free energy), 3.11 (redundancy =
+zero information), 3.15/3.16 (composition gap $\gamma$; interface-mutant bound), 4.1 (regime = symmetry),
+4.3 (greedy = Angluin exact learner) · `Semantic_Specification_Learning/01_PAPER_SKELETON.md` (SSL) §§1.4c
+(three information regimes), 2.5 (Completeness Equation, $\kappa$, the machine-checked
+submodular/antitone/greedy/knee results, $L(\mathrm{NLP})=0.528$), 3.2, 4.3/4.4 (the falsifiability guard,
+retained-plurality budget), 5 (lawful plurality) · `Semantic_Specification_Learning/06_EXACT_SPECIFICATION_LEARNING.md`
+(ESL) §§1.4/1.4b (the ruler/reward duality), 2.2 (singleton covers ⇒ exact optimality), 4.1/4.2 (the
+harness; agency-is-the-bug), 4.3, 5 (the backward pass) · `SIGNIFICANCE_WEIGHTING.md` §§5 (weight by
+$\kappa$), 7b (κ re-flows), 11 ($N_{\mathrm{ind}}$), 12 ($I_{\mathrm{ind}}/I_{\mathrm{ext}}$), 13 (the
+bridge crux), 14 (admissibility = well-definedness), 16.1a (the measurement), 17/17.1 (consolidation) ·
+`law_as_architecture.md` §§7, 8 · this repo: `ARCHITECTURE.md` §§0, 11; `docs/PARSIMONY_ADVISORY.md`. Not
+read: `thesis_vision.md` (the "σ makes SICP computable" phrasing — a communication document; the mechanism
+is proved here from SC Thm 3.15/3.16, the naming is carried ASSERTED).
 
-**Live source (traced 2026-08-22).** `Wesker/engine.py`: `Mutant`, `MutationCategory`,
+**Live source (traced 2026-08-22/23).** `Wesker/engine.py`: `Mutant`, `MutationCategory`,
 `_RECORD_MUTATOR_FACTORIES`, `_BaseMutator`, `mutant_disposition`, `SCORED_DISPOSITIONS`,
-`generate_mutants`, `evaluate_mutant`, `check_equivalent`, `extract_boundary_inputs`, `BoundaryInput`,
-`run_function_profiling`, `_DataflowMutator` (`return_sub`).
+`generate_mutants`, `evaluate_mutant`, `check_equivalent`, `run_function_profiling`, `_DataflowMutator`
+(`return_sub`), the `wrapper_factory` Form-B seam. `Detective`: `equivalence.Witness`/`_search_witness`/
+`_outcome_value` (the mutant-value threading, Prop. 11.14), `synthesis/characterization.golden_assert_line`/
+`distinction_pin_lines`/`_walk_distinction` (the fences, Props. 11.13–11.14). `Regenesis`
+(`/Users/rohanvinaik/Projects/Regenesis`, the Python Genesis port, verified 2026-08-23): `significance.py`
+(`coverage`/`marginal_coverage`/`is_bridge`/`greedy_coverage`/`measure_coverage`) and `promotion_ledger.py`
+(`marginal_kappa`/`rank_candidates`/`is_spine_confirmed`/`retains_plurality`/`admissible`/`corpus_fixpoint`/
+`_demotion_keys`) — the built corpus censor loop of §14.
 
 **External (RECALLED, NOT VERIFIED — check before public use).** Winston 1970 (near-miss) · Minsky 1974/
 1980/1986 (frames, K-lines, censors) · Mitchell 1982 (version spaces) · Goldman–Kearns 1995,
 Goldman–Mathias 1996 (teaching dimension) · Angluin 1987/1988 (exact learning) · Zilles et al. 2011,
 Doliwa et al. 2014 (RTD) · Budd & Angluin 1982 (mutation equivalence undecidable) · Papadakis et al. (TCE)
-· Feige–Izsak (bounded supermodular degree) · Nemhauser–Wolsey–Fisher (greedy $(1-1/e)$) · Rice 1953 ·
-Landauer 1961 (erasure cost — the frame for the redundancy-in-representation intuition below).
+· Feige–Izsak (bounded supermodular degree) · Golovin–Krause 2011 (adaptive submodularity) ·
+Nemhauser–Wolsey–Fisher 1978 (greedy $(1-1/e)$) · Blais et al. 2012 (identity testing) · György et al.
+2025 (exact learning for general intelligence) · Crick–Mitchison 1983 (reverse learning) · Rice 1953 ·
+Landauer 1961 (erasure cost — the frame for the redundancy-in-representation intuition below) · Abelson &
+Sussman (SICP — the aesthetic §15 makes computable).
 
 ## Appendix C — Empirical Predictions and Falsifiable Tests
 
-The construction makes measurable predictions; two are already measured, three are runnable with
-instrumentation the tool already exposes (`converge` reports the killable residual = $I_{\mathrm{solve}}$).
+The construction makes measurable predictions. Several are already measured — C1, C2 (2026-08-07), the two
+channel-propagation closures (§11.12, `gen`/`flow`, 2026-08-22), and the bridge/bounded-curvature regime on
+the rule graph (§14, *Significance Weighting* §16.1a) — and the rest are runnable with instrumentation the
+tool already exposes (`converge` reports the killable residual = $I_{\mathrm{solve}}$).
 
 **C1 (measured, 2026-08-07).** *An out-of-$\mu$ behavior change passes a positive $\mathrm{SC}=1$ badge,
 and $\mu^-$ catches it.* Confirmed on `slugify` (Prop. 3.5). Falsifier: a codomain-changing rewrite that
@@ -803,6 +1196,28 @@ dependence or non-triviality unpinned (Remark 11.9). This fraction is a direct m
 positive-only completeness misses. Falsifier: the fraction is ~0 across a broad corpus — would show the
 independence pair is redundant with existing positive coverage in practice.
 
+**C6 (two-sign ESL residual, predicted — §13).** *A learner driving specification against $\sigma(P,
+\mu^{\pm})$ has a strictly smaller external-teaching residual $I_{\mathrm{ext}}$ than one driving against
+one-sign $\sigma(P, \mu)$.* Prop. 13.5: authoring the negative sign once moves the mis-classified negative
+intent (Prop. 4.3) out of the per-run query loop. Run the ESL forward pass under $\mu$ and under
+$\mu^{\pm}$ on the same held-out functions; the gap in query count is the second sign's information
+content. Falsifier: no reduction — would refute Prop. 13.5 and, with C3, the automation-relocation claim.
+
+**C7 (bounded curvature on the code graph, predicted — §14, §17 Q1/Q5).** *The code obligation graph is
+fragmented, so its supermodular degree $d$ is large and the borrowed $(1-1/e)$ greedy bound is far from
+holding; and $d$ falls as induced censors bridge components.* Measured on the *rule* graph, $d \le 14$–$25$
+across six pulls (Thm 14.4); the prediction is that a call/import/obligation graph over a real package is
+similarly fragmented (sparse, $b < 1$). Runnable once Q1 fixes the graph: compute $d$; then grow the censor
+set and re-measure. Falsifier: $d \approx 0$ (a connected code graph) — would make the naive submodular
+bound apply and retire Def. 14.6 for code (a welcome refutation, but predicted false).
+
+**C8 (consolidation preserves the two-sign witness, predicted — §15).** *`decompose --apply` under a
+two-sign profile returns a σ-minimal representative whose value pins AND negative fences are byte-identical
+to the pre-consolidation certificate.* Thm 15.4 transported: safe forgetting drops only zero-κ
+(zero-information) structure. Run `decompose --apply` on a converged two-sign target; re-profile. Falsifier:
+any surviving fence or value pin that the consolidated form no longer kills — would show the reduction
+crossed the σ-witness, refuting the representation-independence transport.
+
 ## Provenance
 
 The near-miss/censor half of this design is the ARC_AGI_3 corpus's (Winston's second operator, restored
@@ -815,3 +1230,22 @@ strand is the backup), not derived by a controller. Two channels over one messag
 one permits only *detection*. μ⁻ is the second strand; the consistency relation of §5 is mismatch repair;
 the thermodynamic accounting is Landauer's (local order paid for globally), which is why the construction
 is a compute budget rather than a violation.
+
+**§§13–16 — the stack integration (2026-08-23).** Sections 1–12 are the two-sign contract; §§13–16 were
+added by tracing four previously-separate documents of the author's corpus into one place, because the
+connective tissue between them is not written anywhere else and is easily lost. Each contributes one
+layer that this document had left implicit: *Exact Specification Learning* (ESL) supplies the observation
+that a computable $\sigma$ is a ruler read forward and a reward descended backward — so the tool's CLI was
+always an exact-learning harness, not an over-built menu (§13); *Significance Weighting* supplies the
+$\kappa$ machinery for population-derived censors and its load-bearing negative result — that the censor
+loop's tractability is bounded-curvature and not submodular, because the valuable censors are bridges — a
+result *measured*, on a running symbolic engine (Regenesis), before it was assumed (§14); the
+*Specification Complexity* composition-gap and redundancy theorems supply the computable definition of the
+canonical form and identify it with consolidation, the σ-invariant run in reverse — Detective's own
+`decompose`, and the Crick–Mitchison wake/sleep dynamics (§15). The result is one paradigm (§16): intent →
+implementation → the auto-fillable two-sign contract → mutation-as-selection to the canonical form. The
+integration is an *assembly*, not new machinery — every load-bearing claim carries the status (§18) of the
+document it came from, and the interpretive moves (the SICP naming, the intelligence bridge, the
+unknown-knowns reading) are marked ASSERTED, not proved. Nothing here is deterministic-AI dressed as a
+model: the architecture is the theorem-checked σ-engine throughout; any learner is a schema-constrained,
+injection-proof tail whose reward is a theorem (ESL §4.1, "agency is the bug").
