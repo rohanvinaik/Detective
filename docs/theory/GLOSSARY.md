@@ -1,229 +1,196 @@
-# The theory librarian — negative specification, stage by stage
+# Theory map — negative specification, stage by stage
 
-**Scope.** This file is the map for the **negative-specification** work: for each
-stage, (a) what it does and where it will live, (b) the **theoretical
-commitment** — the specific claim that explains why it is built this way and not
-the obvious way, (c) a sketch of the idea, (d) the deeper reading.
+Navigational index for the negative-specification work. Each stage: what it is, the load-bearing
+commitment, and where it lives in the formal document. Terse by design; the mathematics is in
+`NEGATIVE_SPECIFICATION.md`, cited here by section and numbered result.
 
-`ARCHITECTURE.md` is the operational map for what **exists today**; this file is
-the map for what is **designed and unbuilt**. Where they disagree, ARCHITECTURE
-wins on present behaviour and this file wins on intent — and the disagreement is
-a bug in this file.
+`ARCHITECTURE.md` maps what **exists today**; this file maps what is **designed** (and, for μ⁻ Form A,
+grounded against the live engine but code-unwritten). Where they disagree, ARCHITECTURE wins on present
+behaviour. Where this file disagrees with `NEGATIVE_SPECIFICATION.md`, the formal document wins.
 
-**The commitments are not decoration.** Several are enforced by the existing
-proof gate; the ones that get violated are the ones that turn a specification
-tool into a confident liar, which is the failure this whole project exists to
-refuse.
+**Verify the cited corpus:** `python docs/theory/check_reference_manifest.py`. Priors are hashed, not
+copied; a prior changing under a claim fails loudly. External citations marked `verified: false` are
+recalled, not looked up — they gate publication, not the build.
 
-**Verify the corpus this cites:** `python docs/theory/check_reference_manifest.py`
-Priors are hashed, not copied, so a prior changing under a claim fails loudly.
-Load-bearing external citations are marked `verified: false` — recalled, not
-looked up. They gate publication, not the build.
-
-**Entry point for the whole theory:** `docs/theory/NEGATIVE_SPECIFICATION.md`.
-**Handoff artifact (carry verbatim into any summary):** `docs/theory/CONSTRAINT_BLOCK.md`.
+**Formal document:** `docs/theory/NEGATIVE_SPECIFICATION.md`. **Handoff block:** `docs/theory/CONSTRAINT_BLOCK.md`.
 
 ---
 
-## The frame: the kill-set is already negative; the enumeration is not
+## Sign asymmetry — the kill-set is negative in content, single-signed in enumeration
 
-**Commitment:** σ is proved equal to a teaching dimension over **labeled**
-examples (SC Thm 2.7), and σ is **parameterized by the mutation policy**
-(SC §2.3). A policy enumerating only program space therefore specifies one sign
-of a two-sign teaching set — so the object is **σ(P, μ ∪ μ⁻)**, a second policy
-instantiation, not a new theory.
-**Sketch:** every killed mutant is already an exclusion, so the *content* is
-negative today. What has one sign is the authoring surface and the enumeration:
-nothing ranges over output space, and nothing accepts "no correct implementation
-does this."
-**Read:** `specification_complexity_paper.md` §2.3, Thm 2.7 ·
-`NEGATIVE_SPECIFICATION.md` §2 · Goldman–Kearns 1995 (`verified: false`).
+**Commitment:** σ = teaching dimension over **labeled** examples (SC Thm 2.7), σ is μ-parameterized
+(SC §2.3). A policy over program space alone specifies one sign of a two-sign teaching set, so the
+object is σ(P, μ ∪ μ⁻) — a second policy instantiation, not new metatheory.
+**Where:** §1 (Prop. 1.5), §2 (Prop. 2.2, 2.5; Def. 2.4). Read: SC §2.3, Thm 2.7 · Goldman–Kearns 1995.
 
-## The historical claim — Winston's second operator
+## Winston's second operator — the historical claim
 
-**Commitment:** the near-miss is not an enhancement, it is the half of the 1970
-learner that **specializes** a concept by the example that just fails. Testing
-inherited generalization and dropped specialization — not by argument, but
-because test-as-example had no slot for the second sign.
-**Sketch:** a positive example widens the concept; a near-miss (a non-example
-differing in exactly one crucial respect) installs a MUST-NOT link. Both
-operators, or the concept is unbounded above.
-**Read:** Winston 1970 (`verified: false`; PDFs of the later Winston work are
-bundled in the ARC corpus) · `law_as_architecture.md` §7 ·
-`SSL_PAPER_SKELETON.md` §3.1 — negative learning **defined** · Genesis IV-F/IV-G
-(SSL §7.3) — censor-without-retraction and withdraw-on-*does-not*, **running**.
+**Commitment:** the near-miss is the half of the 1970 learner that *specializes* a concept by the
+example that fails. Testing inherited generalization and dropped specialization, because test-as-example
+has no slot for a non-example.
+**Where:** §2 (Historical note 2.6). Read: Winston 1970 · `law_as_architecture.md` §7 ·
+`SSL_PAPER_SKELETON.md` §3.1 · Genesis IV-F/IV-G (SSL §7.3).
 
-## μ⁻ — output perturbation (Wesker; buildable now)
+## μ⁻ — the output-space mutation operator (Wesker; Form A grounded)
 
-**What:** a mutation operator on the **codomain**. Wrap the target, return a
-perturbed value, re-run the covering tests; green means that output dimension is
-unpinned.
-**Commitment:** it is **indifferent to syntax**, which is the entire point — it
-reaches behaviour no operator over program text can express. It is an operator,
-so it lives in the engine and carries an operator's status: it may gate, and it
-extends μ rather than sitting beside it.
-**Sketch:** the kill matrix gains rows keyed by *perturbation* instead of by
-*mutant*. Everything downstream — minimal cover, the trace, the certificate —
-reuses machinery that already exists.
-**Read:** `NEGATIVE_SPECIFICATION.md` §§2.4, 3 · Appendix A (the definition) ·
-`ARCHITECTURE.md` §0 (the value-vs-run boundary μ⁻ must respect).
+**What:** a mutation operator on the **codomain**: perturb the return, re-run covering tests; all-green
+means that output dimension is unpinned (a negative DOF).
+**Commitment:** indifferent to syntax — it reaches behaviour no program-text operator expresses
+(Prop. 3.5, the measured slugify separation). **Two build forms, both required** (grounded 2026-08-22):
+*Form A* rewrites `return X → return _perturb(X)`, making each perturbation an ordinary `Mutant` that
+reuses `evaluate_mutant`/`check_equivalent`/score/cover unchanged (this supersedes the earlier
+"sibling type / rows keyed by perturbation" framing for the return codomain); *Form B* is a runtime
+wrapper reaching the non-return codomain (generators, implicit-None, side effects), bespoke per sibling
+type, load-bearing for the completeness guarantee.
+**Where:** §3 (Def. 3.1–3.4, Prop. 3.5), §11 (Def. 11.4 Form A, 11.6 Form B, Prop. 11.7), Appendix A.
+Read: `ARCHITECTURE.md` §0 (value-vs-run boundary μ⁻ respects).
 
-## Censors — population-derived exclusions (Detective; blocked)
+## The perturbation family Π — the negative operator set
 
-**What:** a learned artifact — "no correct implementation does X" — derived from
-observed near-misses across **call sites**, not from the function alone.
-**Commitment:** a censor is `I_ind` — information latent in the corpus and
-unreachable per read. *"No caller ever passes `None`"* is not derivable from the
-function; it is derivable from the population, and it is invisible to any single
-read. This is why censors need judgement and governance where μ⁻ does not, and
-why they live in Detective rather than the engine.
-**Sketch:** the absence in the observed distribution IS the datum — SSL's **H6**
-("a distorted or absent expected signal is itself a signal"), which is
-`law_as_architecture` §7's title made literal: *forbidding what no real instance
-does*.
-**Read:** `SIGNIFICANCE_WEIGHTING.md` §12 (the three-region split) ·
-`law_as_architecture.md` §7 · `SSL_PAPER_SKELETON.md` §3.1 ·
-`NEGATIVE_SPECIFICATION.md` §4.
+**What:** a type-indexed family Π = ⋃ Πᵣ (dispatched by codomain type), each perturbation fencing one
+MUST-NOT invariant.
+**Commitment:** the load-bearing core is the **independence pair** — →constant (the output must depend
+on the input) and →identity (the output must be a non-trivial transform) — the value-space analogues of
+the MC/DC independence conditions, caught by no positive operator. Design criterion: populate Πᵣ
+preferentially with perturbations **orthogonal to the positive reach** (→const, →id, →empty on a
+computed string, →NaN, →reorder), keeping positive-redundant ones only where codomain-totality needs
+them.
+**Where:** §11.8 (Def. 11.8 taxonomy, Def. 11.8b Π-completeness), Remark 11.9. Open: completeness of a
+finite Πᵣ for structured R (§13 Q4).
 
-## The three-region completeness map — and the one-function law
+## Typing Π — two forks (the engine holds no return-type model)
 
-**What:** `I_solve = I_ind + I_ext`. Detective already reports `L` ("% resolved
-by structure for free") and `I_solve` by name; the middle region is uncomputed.
-**Commitment:** `I_ind` is **co-occurrence over call sites**, NOT an aggregate of
-per-function mutation scores. `ARCHITECTURE.md` §11 forbids the statistical smear
-(and removed `diagnose --learn` for being one); this is a different object, and
-the distinction is the entire license. The proof stays one function at a time;
-only the censor's *derivation* reads the population.
-**Sketch:** three regions — structure resolves it free / the corpus can teach
-itself / a human must tell us — and Detective currently reports the second as
-though it were the third.
-**Read:** `SSL_PAPER_SKELETON.md` §§1.4c, 2.5 · `SIGNIFICANCE_WEIGHTING.md` §12 ·
-`ARCHITECTURE.md` §11 · `NEGATIVE_SPECIFICATION.md` §4.1.
+**Commitment:** [traced] `run_function_profiling` carries no return type and captures no return value.
+*Fork 1* types Π from the AST alone and over-generates — a mis-typed perturbation raises on application
+and receives `undefined`, so it is sound but noisy (partial self-correction: catches raising mismatches,
+misses silent coercions like →negate on `bool`). *Fork 2* observes the codomain from a baseline
+return-capture (the return sibling of Detective's `capture_call_inputs`) and types Π precisely. Fork 1 =
+sound skeleton, Fork 2 = precision-completing pass.
+**Where:** §11 (Def. 11.10, Prop. 11.11). Open: §13 Q4.
 
-## Governance — admissibility, and why the guard is load-bearing on the MATH
+## Channel isolation — why the negative sign is non-redundant
 
-**What:** adopt a censor only if **(i)** it is spine-sourced — carved from an
-observed near-miss, never authored a priori, structurally incapable of
-confirmation from derived output — **and (ii)** σ(P | C ∪ {c}) > 0.
-**Commitment:** *"Without the guard, the extension's central quantity is not
-merely unsafe; it is undefined."* A censor confirmed from the engine's own
-derivations reduces the residual by construction while carrying zero information:
-`L_ind → 1` vacuously. Over-censoring is the **degenerate controller from the
-other side** — forbid enough and one program survives, σ collapses, EIG = 0. So
-the objection "negatives introduce false refusal" names a mode that is already
-detected and already machine-checked.
-**Sketch:** `flag`'s governance with the sign reversed. `flag` is a positive-space
-oracle outranked by a distinguishing input; a censor is a negative-space oracle
-outranked by a wanted behaviour that violates it. `UNVERIFIED` is never promoted
-to `forbidden`, exactly as `candidate-equivalent — UNPROVEN` is never promoted to
+**Commitment:** the positive and negative channels measure orthogonal quantities: `x+y ≡ (3x+3y)/3`
+positively (identical value-kills) yet the choice carries negative-space information (the division's
+undefined-at-a-point). Isolation is exactly what makes μ⁻ worth adding. Coupling is local and sparse
+(collisions at shared (x,y) pairs), so the consistency cross-check (below) is real but partial.
+**Where:** §5 (Thm 5.2 isolation, Prop. 5.5 consistency, Cor. 5.6 the two irreducible residues).
+
+## The automation boundary — where the human is
+
+**Commitment:** σ = teaching dimension, and a teaching dimension is undefined without a teacher.
+Automation is total *below* the two-sign teaching set (the mechanical residual, oracle-free) and nil
+*at* it. The tool relocates the oracle from synthesis-time (per-run `--input`) to authoring-time (once,
+a finite triage); it does not remove it. The negative half of intent — the MUST-NOTs — is the part
+previously leaking into the synthesis loop.
+**Where:** §6 (Thm 6.2), §4 (Prop. 4.3 the `--input` residual is mis-classified un-authored intent).
+
+## Censors — population-derived exclusions (Detective; blocked on κ)
+
+**What:** "no correct implementation does X", derived from observed near-misses across **call sites**,
+not from the function alone.
+**Commitment:** a censor is I_ind — latent in the corpus, invisible per single read ("no caller passes
+`None`" is a fact about the population). This is why censors need governance where μ⁻ does not, and why
+they live in Detective, not the engine. The proof stays one function at a time; only the censor's
+*derivation* reads the population — co-occurrence over call sites, NOT the per-function statistical smear
+`ARCHITECTURE.md` §11 forbids.
+**Where:** §9 (Def. 9.1, Rmk 9.2 one-function law). Read: SIGNIFICANCE_WEIGHTING §12; `law_as_architecture.md` §7.
+
+## Governance — admissibility as a well-definedness condition
+
+**Commitment:** adopt a censor only if **(i)** spine-sourced (carved from an observed near-miss, never
+authored a priori, structurally incapable of confirmation from derived output) **and (ii)**
+σ(P | C ∪ {c}) > 0. Without (ii) the central quantity is undefined, not merely unsafe (L_ind → 1
+vacuously). Over-censoring is the degenerate controller from the negative side (σ collapses, EIG = 0),
+detected by the machine-checked `self_confirming_cannot_certify` / `falsifiability_pivot`. `UNVERIFIED`
+is never promoted to `forbidden`, exactly as `candidate-equivalent — UNPROVEN` is never promoted to
 `equivalent`.
-**Read:** `SIGNIFICANCE_WEIGHTING.md` §14 · `SSL_PAPER_SKELETON.md` §§4.3, 4.4 ·
-`self_confirming_cannot_certify`, `falsifiability_pivot` (machine-checked,
-v4.28) · `NEGATIVE_SPECIFICATION.md` §5.
+**Where:** §9 (Def. 9.3, Prop. 9.4, Def. 9.5). Read: SIGNIFICANCE_WEIGHTING §14; SSL §§4.3–4.4.
+
+## The three-region completeness map
+
+**Commitment:** I_solve = I_ind + I_ext. Structure resolves DOF⁺ for free (reported as `L`); the corpus
+can teach DOF via induction (I_ind, uncomputed — the censor region); a teacher must supply the rest
+(I_ext, reported as the `--input` residual). Detective currently reports the middle as though it were
+the third.
+**Where:** §4 (Def. 4.1 three regions, Def. 4.2 I_solve). Read: SSL §§1.4c, 2.5; SIGNIFICANCE_WEIGHTING §12.
+
+## The UNDEFINED disposition — the negative channel's principled abstention
+
+**Commitment:** the negative measure has its own denominator (codomain universe size); a
+degenerate/inverting input collapses it to ⊥. That is `undefined`, a disposition sibling to `cut`,
+excluded from `SCORED_DISPOSITIONS` — never coerced to `unconstrained` (the error slips) nor into
+`SC=1` (a false badge). The negative-channel form of value-vs-run and cannot-determine-vs-determined-false.
+**Where:** §7 (Def. 7.1–7.3, Prop. 7.4). Read: `ARCHITECTURE.md` §0.
+
+## Decidability of the unqualified contract
+
+**Commitment:** on the finite-domain, decidable-equivalence class with a complete μ±, `SC=1` is a
+decision procedure for behavioural identity and the certificate `provably correct` needs no qualifier.
+Off that class equivalence is undecidable (Rice; Budd–Angluin 1982) and the qualifier is mandatory. The
+boundary is decidability, not the maturity of μ⁻; the certificate names its side.
+**Where:** §8 (Thm 8.1, 8.2, Cor. 8.3 the observing set on the certificate).
+
+## The authoring problem — a triage of a finite set
+
+**Commitment:** Thm 6.2 reduces the human contribution to authoring the teaching set, and the act is a
+**partition of the finite enumerated survivor set**: `equivalent/valid` (the `flag` side) vs `invalid`
+(a fence). μ⁻ widens the triage universe so "partition the list" equals "specify the intent" rather than
+"specify the syntactically-reachable subset" (Prop. 12.2). The un-triaged region is a high-entropy
+signal that *asks* the operator (elicitation). Idiom partially auto-fills the valid partition by lens
+agreement but never gates (a fluent wrong implementation writes fluent idiom).
+**Where:** §12 (Def. 12.1 triage, Prop. 12.2, Def. 12.3 elicitation, Prop. 12.4 idiom, Def. 12.5 two
+feed points: greenfield-native + ingestion-retrofit).
 
 ## ★ The bridge crux — γ = d = bridge count
 
-**What:** the real obstacle. Coverage is submodular over a **fixed** ground
-structure; where adopting a constraint changes the graph coverage is read from,
-submodularity is violated — constructively, and at exactly the valuable cases.
-**Commitment:** *the interesting cases are precisely the ones that violate
-submodularity.* A theory that assumed submodularity would be a theory of the
-boring cases. And three quantities are one: **γ** (composition gap, bounded by
-interface mutants, SC Thm 3.15), **d** (supermodular degree, Feige–Izsak), and
-the bridge count. So Detective #16 is the code-side instance of this crux, and
-measuring interface obligations *is* measuring d.
-**Sketch:** a bridge joining two disjoint clusters has small marginal gain alone
-and large gain once another is present — gains are **super**-additive. Target
-theorem: bounded-curvature greedy, degrading in d, recovering (1−1/e) at d = 0.
-**Do not** cite SSL's constants (`L=0.528`, the ~3 % knee, the 28× drop) for
-code: they were measured on a **dense** graph and a code obligation graph is
-likely sparse. Measure d first.
-**Read:** `SIGNIFICANCE_WEIGHTING.md` §13 · `specification_complexity_paper.md`
-Thm 3.15 · `NEGATIVE_SPECIFICATION.md` §6 · Feige–Izsak, Golovin–Krause
-(both `verified: false`).
+**Commitment:** coverage is submodular over a **fixed** ground structure; a constraint that changes the
+graph (a *bridge* joining disjoint clusters) violates submodularity — constructively, at the valuable
+cases. Three quantities coincide: γ (composition gap, SC Thm 3.15), d (supermodular degree, Feige–Izsak),
+bridge count. Target theorem: bounded-curvature greedy, degrading in d, recovering (1−1/e) at d = 0.
+**Do not** cite SSL's dense-graph constants (L=0.528, ~3% knee, 28× drop) for a likely-sparse code
+graph; measure d first.
+**Where:** §10 (Def. 10.1–10.2, Prop. 10.3, Conj. 10.4, Caveat 10.5). Read: SIGNIFICANCE_WEIGHTING §13;
+SC Thm 3.15.
 
-## κ-gated removal — the fix this theory already implies
+## κ-gated removal — the fix this theory implies (#54)
 
-**What:** `audit --remove` currently proposes deleting a test that is line- and
-mutant-redundant **for this function**. Field-observed failure: the test was
-load-bearing elsewhere.
-**Commitment:** that is the bridge counterexample — near-zero marginal gain
-inside one kill-profile, large gain over the closure. The correct invariant is
-**significance-weighted** coverage, not local coverage: *a test is safe to remove
-iff it banks zero κ-weighted coverage over the closure.* Both supporting
-theorems are already machine-checked upstream — representation independence
-(SC Thm 2.3) and redundant ⟺ zero information gain (SC Thm 3.11).
-**Sketch:** §17 already names `decompose --apply` as the same operator run
-forward on code, so the symmetry is recognized in the corpus; this is that
-operator's removal half, gated correctly.
-**Read:** `SIGNIFICANCE_WEIGHTING.md` §17 · `NEGATIVE_SPECIFICATION.md` §7.1 ·
-Detective #54.
+**Commitment:** `audit --remove` deletes a test line-and-mutant-redundant *for one function*; the field
+failure is that it was load-bearing over the closure — the bridge counterexample. Correct invariant:
+safe to remove iff it banks zero κ-weighted coverage over the closure. Supporting theorems already
+machine-checked (SC Thm 2.3, 3.11). Blocked on κ-for-code.
+**Where:** §10 (Cor. 10.6). Read: SIGNIFICANCE_WEIGHTING §17; Detective #54.
 
-## The observing set belongs on the certificate
+## Empirical grounding — measured, not argued
 
-**What:** a structural rewrite outside μ passed a `✓ COMPLETE` badge (measured,
-§2.4). The badge is honestly scoped; the scope is in a parenthetical.
-**Commitment:** completeness is relative to the substrate, **and that is the
-feature, not the flaw** — so the certificate should NAME its context set rather
-than only report a ratio. A receipt that states its own boundary is self-limiting
-in writing instead of in a footnote.
-**Sketch:** the code-side form of SSL §1.4c's field/artifact distinction: claim
-the artifact, name the field.
-**Read:** `SSL_PAPER_SKELETON.md` §1.4c · `NEGATIVE_SPECIFICATION.md` §§2.4, 7.2.
-
-## The empirical grounding — measured, not argued
-
-**What:** two results from the cold-start review of Detective 0.11.0 (2026-08-07)
-that the whole theory document rests on rather than reasons toward.
-**Commitment:** the boundary is **demonstrated**, not inferred — a behaviour-
-changing structural rewrite passes a COMPLETE contract on `slugify`, and the
-"degenerate" integer near-miss witnesses beat hand-written tests on plausible
-refactors (catching the str→bytes API break on a function with zero shipped
-tests). The second result is *predicted* by teaching theory: teaching dimension
-is defined by a teacher minimizing identification cost, not by sampling a natural
-distribution, so grading a witness by "would a person write this" applies
-learner-intuition to a teaching artifact.
-**Sketch:** every model review of this tool has raised the degenerate-witness
-objection. The objection is predicted by the framework the tool implements.
-Recorded because it will recur.
-**Read:** `NEGATIVE_SPECIFICATION.md` §§2.4, 2.5 · Goldman–Kearns 1995
-(`verified: false`).
+**Commitment:** a behaviour-changing rewrite passes a positive `SC=1` badge on `slugify` (the boundary
+is demonstrated, not inferred); the "degenerate" near-miss witnesses beat hand-written tests on
+plausible refactors, catching the str→bytes API break on a zero-shipped-tests function — predicted by
+teaching theory (a witness is a teaching artifact, not a natural sample). Plus the runnable ΔI_solve
+thesis experiment.
+**Where:** §14 (Measured), Appendix C (C1–C2 measured, C3 the ΔI_solve experiment, C4–C5 predicted).
 
 ## The generative intuition — staged error correction without a controller
 
-**What:** the biochemical framing that motivated the design, recorded because it
-predicts the architecture rather than merely decorating it.
-**Commitment:** DNA fidelity is not one accurate step; it is base selection,
-proofreading exonuclease, and mismatch repair composed — each cheap and
-individually mediocre. The information needed to repair lives **redundantly in
-the representation** (the complementary strand IS the backup), not in a
-controller that knows what the sequence means, and it is inborn rather than
-derived. **Two channels over one message let you correct; one only lets you
-detect.** Use **Landauer** for the thermodynamics — local entropy decrease is a
-demon paying its bill, not a violation. The "violates entropy" framing is
-attackable and unnecessary.
-**Sketch:** μ⁻ is proofreading (cheap, at synthesis, catches the bulk, fails open
-to the expensive stage); the mutation proof is mismatch repair (post-hoc, uses
-the existing suite as template).
-**Read:** `NEGATIVE_SPECIFICATION.md` Provenance · Landauer 1961
-(`verified: false`) · `SIGNIFICANCE_WEIGHTING.md` §17.1 (Crick–Mitchison
-reverse-learning made rigorous — the same σ run backwards).
+**Commitment:** DNA fidelity is base selection + proofreading exonuclease + mismatch repair composed,
+each cheap. The correcting information lives redundantly in the **representation** (the complementary
+strand is the backup), not in a controller, and is inborn not derived. Two channels over one message
+permit *correction*; one permits only *detection*. Landauer for the thermodynamics — local order is paid
+for globally, so the construction is a compute budget, not a violation.
+**Where:** Provenance. Read: Landauer 1961; SIGNIFICANCE_WEIGHTING §17.1.
 
 ---
 
-## Open questions, in the order they block the build
+## Open problems (formal statements in §13)
 
-1. **What is κ for code?** GSE uses genealogy PageRank over the IS-A graph. The
-   code analogue needs a graph — call graph, import graph, or the obligation graph
-   induced by interface mutants — and the choice decides whether `I_ind` is cheap
-   or a research project. **Blocks censors AND κ-gated removal.**
-2. **What is the regime key?** Regime = symmetry (T6.15); a censor keyed below the
-   semantic-equivalence class over-reaches (traps positions that merely *rhyme*,
-   `law_as_architecture` §8), keyed above it under-reaches. Working guess: typed
-   interface + purity class. Wants a derivation.
-3. **Does μ⁻ need its own equivalence notion?** Two perturbations can be
-   indistinguishable for the same reasons two mutants can — and TCE-style bytecode
-   identity (Wesker #24) does **not** apply, since there is no mutant program to
-   compile.
-4. **Ordering.** μ⁻ is buildable now and independent of κ. Censors are blocked on
-   (1) and (2). The correctness/retooling work in both repos precedes all of it.
+1. **κ for code** — the graph choice (call / import / obligation) decides whether I_ind is cheap or a
+   research project. Blocks censors and κ-gated removal.
+2. **The regime key** — keyed below the semantic-equivalence class a censor over-reaches, above it
+   under-reaches. Working guess: typed interface + purity class. Wants a derivation.
+3. **μ⁻ equivalence** — RESOLVED for Form A (Prop. 11.5: `check_equivalent` generalizes free, since a
+   return-wrap perturbation is a compilable mutant); open for Form B (no mutant program to compile).
+4. **Completeness of Π** — how much codomain a finite perturbation family fences; needs Fork 2's observed
+   type to measure.
+5. **The bounded-curvature bound** — measure d on the obligation graph; prove greedy degrading in d.
+6. **Build ordering** — Form A + Fork 1 is buildable now (the walking skeleton); Form A + Fork 2 and
+   Form B are the completeness passes; censors blocked on Q1–Q2.

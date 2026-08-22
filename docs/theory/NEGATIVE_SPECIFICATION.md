@@ -1,522 +1,789 @@
 ---
-title: "Negative Specification: the Other Half of the Teaching Set"
-subtitle: "Winston's near-miss restored to mutation testing — μ⁻ over output space, censors as I_ind, and why the interesting cases are the ones that break the guarantee"
+title: "Negative Specification: Two-Sign Mutation Testing as Complete Behavioral Characterization"
+subtitle: "The output-space mutation operator μ⁻, population-derived censors, and the specification complexity σ(P, μ ∪ μ⁻)"
 author: "Rohan Vinaik"
-date: "2026-08-08"
-status: "theory document (design-complete, pre-build; blocked on correctness/retooling in Detective + Wesker)"
-target: "internal theory doc; feeds a Detective/Wesker build and possibly a short paper"
-one_sentence_thesis: >
-  σ is a teaching dimension over LABELED examples and is parameterized by the mutation policy, so a
-  policy that enumerates only program space specifies one sign of a two-sign teaching set; restoring
-  the second sign — Winston's near-miss, as μ⁻ over output space and as censors carried in I_ind —
-  is not an addition to the theory but the completion of a homology that is already asymmetric only
-  at the code end.
+date: "2026-08-22"
+status: "formal specification (design-complete; Form A of μ⁻ grounded against the live Wesker engine)"
 priors_do_not_rederive:
-  - "σ = teaching dimension (SC Thm 2.7 / T5.17); σ is μ-parameterized (SC §2.3); Five-Field Identification"
+  - "σ = teaching dimension (Specification-Complexity [SC] Thm 2.7 / Lean T5_17); σ is μ-parameterized (SC §2.3)"
   - "Representation independence (SC Thm 2.3); redundant ⟺ zero information gain (SC Thm 3.11); composition gap (SC Thm 3.15)"
-  - "SSL completeness equation dH/dt = −(N + C(H)); bulk→tail transition; L, I_solve, H*"
+  - "Value-vs-run specification: assertion kill ≠ crash kill (Detective ARCHITECTURE §0)"
   - "I_solve = I_ind + I_ext; L_ind the self-teaching fraction (SIGNIFICANCE_WEIGHTING §12)"
-  - "The falsifiability guard: self_confirming_cannot_certify, falsifiability_pivot, retained-plurality budget"
-  - "Censors as Winston near-miss made hard (law_as_architecture §7); regime = symmetry, regime is part of the key (§8)"
-  - "Negative learning defined (SSL §3.1); Genesis IV-F censor-without-retraction, IV-G withdraw-on-does-not"
-  - "Submodularity FAILS at bridges; bounded supermodular degree is the real object (SIGNIFICANCE_WEIGHTING §13)"
-  - "Safe forgetting = σ-preserving reduction under κ (SIGNIFICANCE_WEIGHTING §17)"
-voice: >
-  measured; the finding is that a 1970 result was half-inherited, not that anything new was invented.
-  Credit Winston and Minsky by name. The negative results (§6) are load-bearing and stated as such —
-  the comfortable version of this theory would be a theory of the boring cases.
+  - "Admissibility as a well-definedness condition; falsifiability guard (SIGNIFICANCE_WEIGHTING §14; SSL §4.3)"
+  - "Submodularity fails at bridges; bounded supermodular degree is the real object (SIGNIFICANCE_WEIGHTING §13)"
 external_citation_caveat: >
-  Every EXTERNAL citation in this document was recalled during design discussion, not looked up.
-  Verify before quoting publicly. Internal references (the author's corpus, this repo's code) were
-  read directly and are cited by file and section.
+  External citations were recalled during design, not looked up; verify before public use. Internal
+  references (the author's corpus, the Wesker/Detective source) were read directly and are cited by
+  file, symbol, and section. Engine facts marked "[traced]" were obtained by symbolic trace of
+  Wesker/engine.py on 2026-08-22.
 ---
 
 # Negative Specification
 
-### The other half of the teaching set — a theory document
+## Two-Sign Mutation Testing as Complete Behavioral Characterization
 
-**One-sentence abstract.** Detective specifies a function by killing mutants, and the kill-set is
-already negative *in content* — but the enumeration runs over program space only, so the authoring
-surface has one sign where the teaching dimension it is proved equal to has two; we restore the second
-sign as Winston's near-miss in two distinct mechanisms (**μ⁻**, a mutation operator on the codomain,
-and **censors**, population-derived exclusions occupying the previously-unpriced `I_ind` region of the
-completeness map), show that the existing falsifiability guard is already the correct governance for
-both, and identify the real obstacle as the bridge/supermodularity failure that makes every inference
-worth having also the reason a clean greedy bound does not hold.
+### Abstract
 
----
-
-## The Empowerment Promise
-
-**What you can do after reading this that you could not before.**
-
-- Say of a function not only *what its tests pin* but *what its tests forbid* — and know that those
-  are different quantities, one of which is currently uncomputed.
-- Explain, with a receipt, why a `✓ COMPLETE` certificate can be passed by a behaviour-changing
-  rewrite, without that being a defect: the certificate names its observing set, and the rewrite is
-  outside it.
-- Price the region between "structure resolved it for free" and "a human must tell us" — the
-  corpus-teachable middle (`I_ind`) that Detective currently reports as though it were irreducibly
-  external.
-- Know in advance which half of this is cheap (μ⁻: one wrapper, existing kill matrix) and which half
-  is a research project (censors: blocked on κ for code), and why.
-
-**The promise is deterministic, auditable, and abstaining — unchanged.** Nothing here introduces
-inference into the engine. A negative constraint is evidence with a provenance or it is not adopted.
-
-**The humility that makes it strong.** Winston's 1970 learner had two operators. The field inherited
-one. This document does not invent the second; it observes that the author's own corpus already
-restored it twice, in two other domains, and that the code end of the homology is the only place it is
-still missing.
+Mutation-based specification, as realized by the Wesker engine and the Detective front-end, measures a
+function $f$ by generating a finite set of syntactic variants (mutants) and asking which a covering
+test suite distinguishes. The minimum suite achieving full mutation kill is the *specification
+complexity* $\sigma(P,\mu)$, and $\sigma$ is proved equal to the **teaching dimension** of $P$'s
+semantic equivalence class in the concept class induced by the mutation policy $\mu$ (SC Thm 2.7).
+Teaching dimension is defined over *labeled* examples of **both** signs. The mutation policies in use
+enumerate program space only, and therefore specify **one sign** of a two-sign teaching set. This
+document formalizes the second sign. We define an output-space mutation operator $\mu^-$ (perturbation
+of the codomain), give its two engineering realizations (Form A, a return-site AST rewrite that reuses
+the existing kill-attribution pipeline unchanged; Form B, a runtime wrapper reaching the non-return
+codomain), and study the resulting two-sign specification complexity $\sigma(P, \mu \cup \mu^-)$. We
+prove three structural results contingent on cited machine-checked lemmas: (i) the positive and
+negative channels are *information-theoretically isolated* (§5), which is exactly why the negative sign
+is non-redundant; (ii) an *automation boundary* — the specification below the two-sign teaching set is
+oracle-free, the teaching set itself is not, because $\sigma =$ teaching dimension is undefined without
+a teacher (§6); and (iii) an *unqualified correctness* certificate is available precisely on the
+finite-domain, decidable-equivalence class and is obstructed elsewhere by Rice's theorem (§8). We give
+the disposition calculus that keeps degenerate negative measurements from corrupting the score (§7),
+the admissibility condition governing population-derived censors (§9), the composition obstruction that
+makes the valuable negative constraints super-additive (§10), and the operational realization against
+the live engine (§11). §12 formalizes the authoring problem the whole construction reduces to.
 
 ---
 
-## 0. The invariant that keeps it honest
+## 1. Preliminaries
 
-Stated once, never violated below:
+We recall the mutation-system apparatus (SC §2) and fix notation.
 
-> **A negative constraint is evidence with a provenance, never an authored assumption. It may only be
-> derived from an observed near-miss, and it must remain breakable by a witness — exactly as `flag`
-> is. A censor that cannot be broken is not a specification; it is a bug with a veto.**
+**Definition 1.1 (Mutation system).** A *mutation system* is a tuple
+$\mathcal{M} = (D, R, \mathrm{sem}, \mu)$ where $D$ is a set of inputs, $R$ a set of outputs,
+$\mathrm{sem} : \mathrm{Prog}(D,R) \to (D \to R)$ a semantic function assigning to each program its
+denotation, and $\mu$ a *mutation policy* assigning to each program $P$ a finite set
+$\mathrm{Mut}_\mu(P) \subseteq \mathrm{Prog}(D,R)$ of syntactic variants.
 
-**Commitment.** This is `flag`'s governance with the sign reversed, and that symmetry is deliberate
-rather than convenient. `flag` records a human oracle about the *positive* space (this mutant is
-equivalent) and is outranked by any distinguishing input — "proof beats judgement." A censor records
-an oracle about the *negative* space (no correct implementation does this) and must be outranked by any
-*wanted behaviour* that violates it. Same hierarchy, opposite sign. Reusing it means the epistemics are
-already built and already machine-checked (§5).
+**Definition 1.2 (Kill, equivalence).** A test $t \in D$ *kills* a mutant $m$ with respect to $P$ iff
+$\mathrm{sem}(P)(t) \neq \mathrm{sem}(m)(t)$. Programs are *behaviorally equivalent*,
+$P_1 \equiv P_2$, iff $\mathrm{sem}(P_1)(x) = \mathrm{sem}(P_2)(x)$ for all $x \in D$. The
+*non-equivalent mutants* are $\mathrm{Mut}^{\neq}_\mu(P) = \{ m \in \mathrm{Mut}_\mu(P) : m \not\equiv P \}$.
+
+**Definition 1.3 (Specification completeness, specification complexity).** A suite $T \subseteq D$
+*achieves specification completeness* ($\mathrm{SC}=1$) for $P$ under $\mu$ iff $T$ kills every
+$m \in \mathrm{Mut}^{\neq}_\mu(P)$. The *specification complexity* is
+$$\sigma(P,\mu) = \min \{\, |T| : T \text{ achieves } \mathrm{SC}=1 \text{ for } P \text{ under } \mu \,\}.$$
+
+**Definition 1.4 (Value vs. run specification).** A kill by an assertion that distinguishes the
+returned value is a *value* kill; a kill by crash or timeout is a *run* kill and pins only that the
+mutant *executed differently*, not what it computes. Write $\mathrm{kill}_v$ for the assertion-kill
+relation. *Value-completeness* requires every killable mutant to be $\mathrm{kill}_v$-killed; run kills
+bank nothing toward it. (Detective ARCHITECTURE §0; the distinction is enforced, not cosmetic, and it
+recurs on the negative side in §7.)
+
+**Proposition 1.5 (σ is a two-sign teaching dimension; cited).** For finite $D$ with faithful oracles,
+$\sigma(P,\mu)$ equals the teaching dimension $\mathrm{TD}$ of the $\equiv$-class of $P$ in the concept
+class induced by $\mu$ (SC Thm 2.7, machine-checked as `T5_17_teaching_dimension_{lower,upper}_bound`).
+Teaching dimension is defined as the minimum labeled sample — labels drawn from $\{+,-\}$ — that
+uniquely identifies a target concept (Goldman–Kearns 1995; Goldman–Mathias 1996).
+
+*Remark 1.6.* Proposition 1.5 is the load-bearing inherited fact. Every subsequent claim about the
+negative sign is a consequence of $\sigma$ being equal to an object whose definition already ranges
+over two labels, instantiated at a policy that supplies one.
 
 ---
 
-## 1. The historical claim
+## 2. The Sign Asymmetry
 
-**What this section argues:** "CS ignored half the input space" is a precise statement about which half
-of a 1970 learner survived into a field, not a rhetorical flourish — and the missing half has already
-been restored twice in this corpus.
+**Definition 2.1 (Sign of a policy).** A mutation policy $\mu$ is *positive* if every
+$m \in \mathrm{Mut}_\mu(P)$ is obtained by a transformation of the *program text* of $P$ (a variant
+implementation), and the kill relation compares $\mathrm{sem}(m)$ against $\mathrm{sem}(P)$ at test
+inputs. All policies presently realized in Wesker (Def. 11.1) are positive.
 
-Winston's structural learner (*Learning Structural Descriptions from Examples*, MIT AI-TR-231, 1970;
-bundled at `ARC_AGI_3/docs/theory/external/`) had **two** operators:
+**Proposition 2.2 (One-sign adequacy).** Let $\mu$ be positive. Then a suite achieving $\mathrm{SC}=1$
+under $\mu$ certifies membership in exactly one label class of the teaching set of Prop. 1.5: it
+witnesses, for each non-equivalent variant, an input on which $P$ and the variant *differ*. It does not
+witness any *non-example* — an input/output pair that no correct implementation of the intended
+function may produce.
 
-1. **generalize** from a positive example — widen the concept;
-2. **specialize** from a **near-miss** — a non-example differing in exactly one crucial respect,
-   installing a MUST-NOT link.
+*Justification.* Immediate from Def. 2.1: a positive policy's evidence is of the form "variant $m$ is
+distinguishable from $P$", which is a positive-label discrimination among candidate implementations.
+Teaching dimension over both labels additionally admits evidence of the form "no admissible concept
+labels $(x,y)$ positive", i.e. a bound on the concept *from above*. No positive policy expresses this,
+because it has no term ranging over the codomain independently of the program text. $\square$
 
-Software testing inherited the first and dropped the second — not by argument, but because the
-test-as-example framing had no slot for the second sign.
+**Corollary 2.3 (The badge is honestly scoped and half-signed).** A certificate
+`SC = 1 (operator universe, modulo N unproven-equivalent)` is exactly as strong as it states and no
+stronger: it is adequacy over the *positive* sign of a two-sign teaching set. This is not overclaiming;
+it is single-sign completeness, correctly labeled.
 
-**Commitment (the corpus already has both halves; only the code end does not).** The restoration is
-not speculative:
+**Definition 2.4 (Two-sign policy).** Given a positive policy $\mu$ and a negative policy $\mu^-$
+(Def. 3.1), the *two-sign policy* is $\mu^{\pm} = \mu \cup \mu^-$, and the *two-sign specification
+complexity* is $\sigma(P, \mu^{\pm})$.
 
-| where | the negative operator, running |
+**Proposition 2.5 (No new theory is required).** Every result of SC that is stated over an arbitrary
+policy — Blum-measure status (SC Thm 2.5), the exponential separation (SC Thm 2.6), the five-field
+identification (SC §4), the composition gap (SC Thm 3.15) — holds for $\mu^{\pm}$ by instantiation.
+$\mu^-$ is a second policy instantiation, not an extension of the metatheory.
+
+*Justification.* The cited results quantify over $\mu$ subject only to finiteness conditions on
+$\mathrm{Mut}_\mu(P)$ (Def. 1.1), which $\mu^-$ satisfies (Def. 3.1 fixes a finite perturbation
+family). $\square$
+
+**Historical note 2.6.** The two labels are Winston's two structural-learning operators (1970):
+*generalize* from a positive example, and *specialize* from a **near-miss** — a non-example differing
+in one crucial respect, installing a MUST-NOT link. Software testing inherited the first and dropped
+the second; the drop was not argued but structural — the test-as-example framing has no slot for a
+non-example. The present construction restores the second operator to the code end of a homology
+(program identity ↔ concept identity) whose semantic end already runs both (Genesis IV-F/IV-G).
+
+---
+
+## 3. The Output-Space Mutation Operator μ⁻
+
+**Definition 3.1 (Perturbation, negative policy).** Fix a program $P$ with denotation
+$f = \mathrm{sem}(P) : D \to R$ and covering suite $T \subseteq D$. A *perturbation* is a partial map
+$p : R \rightharpoonup R$. The *perturbed denotation* is the post-composition
+$f \oplus p := p \circ f$ (defined where $p$ is defined on $f(x)$). A *negative policy* $\mu^-$ is a
+finite family $\Pi$ of perturbations together with, for each $p \in \Pi$, a *sub-mode key* naming the
+codomain invariant $p$ probes (Def. 11.4). The *negative mutants* of $P$ are $\{ f \oplus p : p \in \Pi \}$.
+
+**Definition 3.2 (Unpinned perturbation, negative kill matrix).** A perturbation $p$ is *unpinned* by
+$T$ iff every covering test passes on the perturbed denotation:
+$$\mathrm{unpinned}(p) \iff \forall t \in T:\ t\ \text{passes on}\ f \oplus p.$$
+Equivalently, $p$ is *killed* iff some $t \in T$ fails on $f \oplus p$. The *negative kill matrix* has
+one row per $p \in \Pi$, marked killed/unpinned; an unpinned $p$ is a **negative degree of freedom** —
+an output dimension no covering test constrains.
+
+*Remark 3.3 (polarity coincides with the positive matrix).* An unpinned $p$ is the exact analogue of a
+surviving positive mutant: "all covering tests pass" is survival in both matrices. Hence the value-vs-run
+precedence of Def. 1.4 transfers verbatim — a perturbation killed by an *assertion* pins the return
+value (value kill); a perturbation that only makes a covering test *crash* is a run kill and banks
+nothing. The two matrices are homogeneous in disposition, which is what permits the shared pipeline of
+§11.
+
+**Definition 3.4 (Reach of a negative policy).** The *reach* $\rho(\mu^-)$ is the set of behavioral
+distinctions in the codomain expressible as $f \oplus p$ for some $p \in \Pi$. A negative policy is
+*return-total* if every element of its reach is realizable by perturbing the *return value* of $f$, and
+*codomain-total* if its reach is all of the observable output behavior of $f$ (including outputs
+delivered by mutation of shared state, by yielding, or by exception).
+
+**Proposition 3.5 (μ⁻ reaches distinctions no positive policy can).** There exist $P$ and a
+behavior-changing rewrite $P'$ (i.e. $P' \not\equiv P$) with $P'$ *not* in $\mathrm{Mut}_\mu(P)$ for the
+operative positive $\mu$, yet a single perturbation $p \in \Pi$ is killed by a test that would witness
+$P' \not\equiv P$.
+
+*Evidence (measured, 2026-08-07).* `boltons/strutils.py::slugify` converges to
+`SC = 1 (modulo 6 unproven-equivalent)`. The rewrite
+`ret = delim.join(split_punct_ws(text)) or delim if text else ''` $\to$
+`ret = ... if text else ''` changes behavior (`slugify("!!!")`: `'_' \to ''`) and is outside the operative
+positive $\mu$, so it passes the positive badge. The perturbation $p = (\text{non-empty} \mapsto \text{empty})$
+is killed by any test asserting a non-empty result on non-empty input, and is *inexpressible* as any
+program-text mutation. Hence $\rho(\mu^-)$ properly contains distinctions outside the positive reach.
+$\square$
+
+*Corollary 3.6.* Positive completeness and negative completeness are independent axes; neither
+subsumes the other, and $\sigma(P,\mu^\pm)$ is the first quantity to bound behavioral identity over
+both.
+
+---
+
+## 4. The Intentional Semantic Space
+
+We partition the behavioral degrees of freedom of $f$ by the oracle that resolves each.
+
+**Definition 4.1 (Three regions).** Relative to a two-sign teaching set for $P$:
+$$
+\mathrm{DOF}(f) = \underbrace{\mathrm{DOF}^{+}}_{\text{positive-pinned}} \ \sqcup\ \underbrace{\mathrm{DOF}^{-}}_{\text{negative-pinned}} \ \sqcup\ \underbrace{\mathrm{DOF}^{0}}_{\text{mechanical residual}},
+$$
+where $\mathrm{DOF}^{+}$ is pinned by positive intent tests (oracle: a grounded value, "the function
+returns $y$ on $x$"), $\mathrm{DOF}^{-}$ is pinned by the negative fence (oracle: the upper bound, "no
+correct implementation produces $(x,y)$"), and $\mathrm{DOF}^{0}$ is the residual on which no intent of
+either sign has a claim — every value consistent with $\mathrm{DOF}^{+} \cup \mathrm{DOF}^{-}$ is
+admissible.
+
+**Definition 4.2 (Solve/teach decomposition; cited).** Write $I_{\mathrm{solve}}(P)$ for the
+information required to resolve $\mathrm{DOF}(f)$ after structure has done all it can, and
+$I_{\mathrm{solve}} = I_{\mathrm{ind}} + I_{\mathrm{ext}}$ (SIGNIFICANCE_WEIGHTING §12), where
+$I_{\mathrm{ind}}$ is corpus-teachable (recoverable from the population of call sites) and
+$I_{\mathrm{ext}}$ must be supplied by a teacher.
+
+**Proposition 4.3 (The `--input` residual is mostly mis-classified un-authored intent).** In the
+present tool, the interactive `--input` demand arises when positive synthesis reaches a branch behind a
+domain value the code does not hold. Each such demand is a *second-sign* teaching label paid lazily and
+per-run. Under a complete two-sign teaching set authored once, $\mathrm{DOF}^{0}$ contains no
+intent-bearing residual, so synthesis over $\mathrm{DOF}^{0}$ is oracle-free.
+
+*Justification.* A synthesis demand records that some input distinguishes a mutant only under a value
+carrying intent (Def. 2.2's non-example content). Authoring $\mathrm{DOF}^{-}$ discharges exactly that
+content at the teaching set, moving it out of the per-run residual. What remains in $\mathrm{DOF}^{0}$
+is by construction value-indifferent. $\square$
+
+---
+
+## 5. Channel Isolation
+
+The positive and negative channels measure orthogonal quantities. This is the property that makes the
+negative sign worth adding rather than a re-derivation of the first.
+
+**Definition 5.1 (Channel information).** For a construct choice $c$ realizing $f$ (a particular program
+text among value-equivalent alternatives), let $I^{+}(c)$ be its information in the positive channel —
+its effect on the value-equivalence class $[f]_{\equiv}$ — and $I^{-}(c)$ its information in the negative
+channel — its effect on the fenced region $\mathrm{DOF}^{-}$ it induces or exposes.
+
+**Theorem 5.2 (Isolation).** $I^{+}$ and $I^{-}$ are independent: there exist construct choices $c_1,
+c_2$ with $\mathrm{sem}(c_1) \equiv \mathrm{sem}(c_2)$ (so $I^{+}(c_1 \leftrightarrow c_2) = 0$) yet
+$I^{-}(c_1 \leftrightarrow c_2) > 0$.
+
+*Proof (by the canonical witness).* Take $c_1 : x,y \mapsto x + y$ and $c_2 : x,y \mapsto (3x+3y)/3$.
+Then $\mathrm{sem}(c_1) \equiv \mathrm{sem}(c_2)$ over $\mathbb{R}$, so their positive-channel
+difference is nil by Def. 1.2. But $c_2$ introduces a division whose denominator is a constant that a
+degenerate substitution can drive to $0$, exposing a codomain behavior (an `undefined`/exception at a
+point where $c_1$ is total) that $c_1$ does not have. That behavior is a nonzero element of
+$\mathrm{DOF}^{-}$ (a MUST-NOT: "must not raise on this class") visible in $c_2$'s negative channel and
+absent from $c_1$'s. Hence $I^{-}(c_1 \leftrightarrow c_2) > 0$ while $I^{+}(c_1 \leftrightarrow c_2) =
+0$. $\square$
+
+**Corollary 5.3 (Non-redundancy).** The negative sign is not derivable from the positive one. Were the
+channels coupled, $\mu^-$ would be redundant; Theorem 5.2 is the formal statement of its worth.
+
+**Definition 5.4 (Overlap coupling).** Although the channels' *content* is orthogonal, both constrain
+the same graph of $(x, y) \in D \times R$ pairs. A positive claim $f(x) = y$ and a negative claim
+$(x,y) \in C$ (fenced) *collide* at the pair $(x,y)$.
+
+**Proposition 5.5 (The consistency relation is decidable but partial).** Define the two-sign teaching
+set *inconsistent* iff $\exists (x,y): (T^{+} \vdash f(x)=y) \wedge ((x,y) \in C)$. Inconsistency is
+decidable at overlap points and its detection is the code analogue of mismatch repair (a base-pair
+contradiction between strands). But overlaps are sparse — a consequence of Theorem 5.2 — so the check is
+a *partial* verifier: it catches inconsistent mis-triage and is silent on the non-overlapping negative
+channel.
+
+**Corollary 5.6 (Two irreducible residues).** What survives the consistency check un-verifiable is
+(i) *consistently-wrong intent* at overlap points — a coherent teaching set describing the wrong
+function, the correctness-vs-completeness floor (`decompose` preserves behavior, not intent); and
+(ii) the entire *non-overlapping* negative channel, which has no positive strand to repair it and rests
+solely on the admissibility governance of §9.
+
+---
+
+## 6. The Automation Boundary
+
+**Definition 6.1 (Teaching set, mechanical residual).** Let $\Sigma^{\pm}(P)$ be a minimal two-sign
+teaching set for $P$ (the realized $\sigma(P,\mu^\pm)$-witness). The *mechanical residual* is the
+specification work over $\mathrm{DOF}^{0}$ (Def. 4.1).
+
+**Theorem 6.2 (Automation boundary).** The specification of $\mathrm{DOF}^{0}$ is computable without an
+oracle; the specification of $\Sigma^{\pm}(P)$ is not, and no refinement of tooling removes the latter
+dependency.
+
+*Proof.* Over $\mathrm{DOF}^{0}$ every admissible value is consistent by Def. 4.1, so a synthesis
+procedure may select any consistent witness mechanically (Prop. 4.3); this is the converge loop with
+the intent-bearing demands discharged. For $\Sigma^{\pm}(P)$: by Prop. 1.5, $\sigma = \mathrm{TD}$, and
+teaching dimension is *defined* by a teacher who knows the target concept and minimizes identification
+cost. Absent a teacher there is no target concept, hence no dimension — the quantity is undefined, not
+zero. Therefore the teaching set is an irreducible input; automation is total below $\Sigma^{\pm}$ and
+nil at it. $\square$
+
+*Remark 6.3.* Theorem 6.2 locates the human contribution at its information-theoretic minimum. It does
+*not* say code authorship is automated; it says verification and pinning are mechanized down to the
+teaching set, and the teaching set is the compressed formal statement of what the author uniquely holds
+— intent, of both signs. The positive half of this was already the tool's stated boundary ("the human
+belongs at intent"); the negative half — the MUST-NOTs — is the part Theorem 6.2 newly names as equally
+teacher-supplied and, until now, leaked into the synthesis loop (Prop. 4.3).
+
+---
+
+## 7. Disposition Calculus and the UNDEFINED Verdict
+
+The negative channel has its own measurement failure mode, which must not contaminate the score.
+
+**Definition 7.1 (Scored dispositions; [traced]).** Wesker assigns each mutant a disposition by the
+precedence chain `harness_error ≺ not_installed ≺ not_entered ≺ cut ≺ {killed_after_entry,
+survived_after_entry}` (`mutant_disposition`, Wesker/engine.py). Only the last pair is *scored*
+(`SCORED_DISPOSITIONS = ("killed_after_entry", "survived_after_entry")`); `cut` denotes "executed, but
+the measurement is truncated or uncontained, hence evidence of neither kill nor survival."
+
+**Definition 7.2 (Negative measure, degeneracy).** A negative policy induces a measure $\nu(p)$ on each
+perturbation — in the simplest form a ratio whose denominator is the size of the observable codomain
+universe for $f$ (Def. 3.4). $\nu(p)$ is *degenerate* when that denominator is $0$: the codomain is a
+singleton, unobservable, or the perturbation inverts a quantity a degenerate input sends to $0$
+(Theorem 5.2's mechanism). Write $\nu(p) = \bot$ in that case.
+
+**Definition 7.3 (The UNDEFINED disposition).** Extend the disposition set with `undefined`, a sibling
+of `cut`: a perturbation with $\nu(p) = \bot$, or one whose application to the observed return raises
+because it is mis-typed to the codomain (Def. 11.6), receives `undefined`. It is **not** added to
+`SCORED_DISPOSITIONS`.
+
+**Proposition 7.4 (Soundness of abstention).** Under Def. 7.3 an `undefined` perturbation is coerced to
+neither verdict: not to *unconstrained* (which would read a failed measurement as "nothing forbidden
+here", admitting the intent error of Theorem 5.2), and not into $\mathrm{SC}=1$ (which would mint a
+false badge over an unmeasured negative universe). It is reported as a measurement limit, exactly as an
+unclassified positive survivor is (`audit --check` warns and exits $0$; `--check-strict` exits $2$).
+
+*Remark 7.5.* Def. 7.3 is the negative-channel instance of two standing disciplines: value-vs-run
+(Def. 1.4 — a measurement that ran but yields no value-evidence banks nothing) and the
+cannot-determine/determined-false distinction. Over-forbidding (the degenerate controller of §9,
+$\mathrm{EIG}=0$) and $\nu=\bot$ (the collapsed denominator here) are the two arithmetics of the same
+principled-abstention requirement.
+
+---
+
+## 8. Decidability of the Unqualified Contract
+
+**Theorem 8.1 (Unqualified correctness on the decidable class).** Let $P$ have finite domain $D$ with
+decidable $\equiv$, and let $\mu^{\pm}$ be *complete* (its two-sign reach enumerates the whole behavior
+space of $f$ up to $\equiv$). Then an $\mathrm{SC}=1$ two-sign contract is a decision procedure for the
+behavioral identity of $f$, and the certificate `provably correct` carries **no** policy qualifier.
+
+*Proof sketch.* For finite $D$, $\equiv$ is decidable by exhaustion and $\sigma(P,\mu^{\pm})$ is finite
+and its witness enumerable (SC Thm 2.5, the finite-domain Blum case). A complete $\mu^{\pm}$ leaves no
+behavioral distinction unexpressed, so $\mathrm{SC}=1$ pins $[f]_{\equiv}$ to a point; there is no
+residual observing-set parenthetical because the observing set is the whole space. $\square$
+
+**Theorem 8.2 (Obstruction off the decidable class).** For $P$ over an infinite domain, $\equiv$ is
+undecidable (Rice's theorem; Budd–Angluin 1982 for mutation equivalence specifically), so no finite
+$\mu^{\pm}$ is complete and the certificate retains its qualifier `correct modulo (μ ∪ μ⁻), observing
+set named`.
+
+*Corollary 8.3 (The qualifier is decidability, not maturity).* The boundary between the unqualified and
+qualified certificate is Theorems 8.1–8.2, a decidability dichotomy — not the engineering completeness
+of $\mu^{-}$. Enlarging $\mu^{-}$ widens the reach within the qualified regime; it does not move the
+boundary. The certificate must *name which side it is on* (the observing-set requirement).
+
+---
+
+## 9. Censors: Population-Derived Negative Constraints
+
+$\mu^-$ is per-function and mechanical. A second negative mechanism is not.
+
+**Definition 9.1 (Censor).** A *censor* is a set $c \subseteq D \times R$ of forbidden input/output
+pairs, asserted as "no correct implementation of the intended function produces $(x,y)$", and derived
+from *observed near-misses across the population of call sites* rather than from $f$ alone. A censor
+occupies the $I_{\mathrm{ind}}$ region of Def. 4.2: it is latent in the corpus and unreachable per single
+function read (the statement "no caller ever passes `None`" is not a fact about $f$; it is a fact about
+$f$'s call-site population).
+
+*Remark 9.2 (one-function law preserved).* The proof stays per-function; only the censor's *derivation*
+reads the population. This is co-occurrence over call sites, not a statistical smear of per-function
+mutation scores across unrelated functions (the object ARCHITECTURE §11 forbids). The distinction is
+the license.
+
+**Definition 9.3 (Admissibility).** A censor $c$ is *admissible* iff
+(i) it is *spine-sourced* — carved from an observed near-miss (a real call site, or a witness from a
+rejected rewrite), never authored a priori, and structurally incapable of confirmation from the engine's
+own derived output; **and** (ii) $\sigma(P \mid C \cup \{c\}) > 0$ — the program space still admits
+plurality after adoption.
+
+**Proposition 9.4 (Admissibility is a well-definedness condition; cited).** Without (ii) the central
+quantity is undefined, not merely unsafe (SIGNIFICANCE_WEIGHTING §14): a censor confirmed from the
+engine's own derivations reduces the residual by construction while carrying zero information
+($L_{\mathrm{ind}} \to 1$ vacuously). Over-forbidding is the degenerate controller from the negative
+side — forbid enough and exactly one program survives, $\sigma$ collapses, $\mathrm{EIG}=0$ — detected
+by the machine-checked `self_confirming_cannot_certify` and `falsifiability_pivot` (mutual information
+$>0 \iff$ the answer channel is non-degenerate), with the retained-plurality budget (SSL §4.4;
+$\hat{R}$ not driven to $0$) as the quantitative lower bound.
+
+**Definition 9.5 (Verdict vocabulary).** A censor is `UNVERIFIED` until spine-sourced and passing
+(ii), and is never promoted to `forbidden` by assertion — mirroring `candidate-equivalent — UNPROVEN`
+never promoted to `equivalent`. An LLM- or a-priori-authored constraint is an unverified assertion and
+must not gate. Negative results occupy their own reporting channel and are never folded into the kill
+count, for the reason run kills are not (Def. 1.4): a censor is an exclusion with a different warrant,
+not a kill.
+
+---
+
+## 10. Composition and the Bridge Obstruction
+
+The negative constraints of interest are exactly the ones that break the clean greedy guarantee.
+
+**Definition 10.1 (Composition gap; cited).** For $P = A \circ B$,
+$\sigma(A \circ B, \mu) \le \sigma(A,\mu) + \sigma(B,\mu) + \gamma(A,B)$, with $\gamma \ge 0$ the
+composition gap, $\gamma \le |\mathrm{InterfaceMutants}(A,B)|$, and $\gamma = 0$ for
+specification-independent components (SC Thm 3.15, 3.16).
+
+**Definition 10.2 (Bridge, supermodular degree).** In the coverage formulation, $f(S) = |\bigcup_{v \in
+S} \mathrm{cover}(v)|$ is submodular over a *fixed* ground structure. A constraint whose adoption
+*changes the ground graph* — a *bridge* joining two previously-disjoint clusters — has small marginal
+gain alone and large gain once a second bridge is present; gains are super-additive. The *supermodular
+degree* $d$ (Feige–Izsak) counts adoptions that connect previously-disjoint components.
+
+**Proposition 10.3 (Three names, one quantity).** $\gamma$ (composition gap), $d$ (supermodular
+degree), and the bridge count coincide: $\gamma$ vanishes for independent components, $d = 0$ for no
+bridges, and independent components *are* no bridges. Measuring interface obligations measures $d$.
+
+**Conjecture 10.4 (Censors are bridges).** In a sparse obligation graph (a call graph over functions is
+plausibly sparse; Regenesis's rule graph measured branching $b \approx 0.46$–$0.56 < 1$), a censor
+spanning call sites is a bridge — super-additive with positive tests, not redundant with them. This is
+*stronger* than "negatives are valuable" and *worse* for tractability: the biggest wins and the reason a
+clean greedy bound fails are the same constraints.
+
+*Caveat 10.5 (do not import dense-graph constants).* The submodular structure (coverage, monotonicity)
+transfers; the constants ($L = 0.528$, the $\sim 3\%$ knee, the $28\times$ drop) were measured on a
+*dense* graph and say nothing about a sparse one. Measure $d$ on the obligation graph before asserting
+any bound. The target theorem is bounded-curvature greedy degrading in $d$ and recovering $(1-1/e)$ at
+$d = 0$, not submodular greedy. What survives regardless: monotonicity of forward closure (nearly free),
+and submodularity *within* a connected component.
+
+**Corollary 10.6 (κ-gated removal).** `audit --remove` currently proposes deleting a test that is
+line- and mutant-redundant *for one function*; the field failure is that the test was load-bearing over
+the closure — Def. 10.2's bridge counterexample. The correct invariant is significance-weighted:
+$\mathrm{safe\_remove}(t) \iff \kappa\text{-}\mathrm{closure}(T) = \kappa\text{-}\mathrm{closure}(T
+\setminus \{t\})$, resting on the machine-checked SC Thm 2.3 and 3.11. Blocked on §13 Q1 (κ for code).
+
+---
+
+## 11. Operational Realization (Wesker)
+
+All facts in this section marked [traced] were read from `Wesker/engine.py` on 2026-08-22.
+
+**Definition 11.1 (Mutant, categories; [traced]).** A `Mutant` is a dataclass carrying
+`category: MutationCategory`, `original_node`/`mutated_node : ast.AST` (both required), a content-addressed
+`mutant_id`, a positional `target_index`, a `mutated_line`, and a `dimension` string. The categories are
+`VALUE, SWAP, STATE, BOUNDARY, TYPE, ARITHMETIC, LOGICAL, STMT, EXCEPTION, DATAFLOW` — all *positive*
+(Def. 2.1).
+
+**Observation 11.2 (Two generation classes; [traced]).** Generation is not uniform. The record-factory
+family (`_RECORD_MUTATOR_FACTORIES`: `VALUE, BOUNDARY, ARITHMETIC, LOGICAL, SWAP, TYPE, STMT`) walks
+candidate *sites* via `_BaseMutator` and records one dimension per site. `STATE, EXCEPTION, DATAFLOW`
+are **not** in that registry: each has a bespoke `_generate_*_mutants` and `_record_*_dimensions` and
+still emits `Mutant` objects into the shared evaluate/score/cover pipeline. This second class is the
+structural precedent for $\mu^-$.
+
+**Definition 11.3 (Kill attribution reused; [traced]).** `evaluate_mutant(mutant, tests, original_func,
+…)` compiles the mutated function, monkey-patches it into each test's namespace, runs, and attributes a
+kill under VALUE-SPECIFICATION PRECEDENCE: an assertion kill pins the value and is order-independently
+final; a crash/timeout kill is provisional (the search continues for a later assertion kill). This is
+exactly the calculus Def. 3.2–3.3 require of the negative matrix.
+
+**Definition 11.4 (Form A — return-site rewrite).** Realize $\mu^-$ as a positive-shaped AST mutator:
+for each `return X` in $f$, and each $p \in \Pi$, emit the mutant `return X` $\to$ `return _perturb_p(X)`.
+Each such mutant is an ordinary `Mutant` with a genuine `mutated_node`, so it rides the entire pipeline
+of Def. 11.3 with no new type. Home: a new category `MutationCategory.OUTPUT`, generated by a bespoke
+`_generate_output_perturbations` and recorded by `_record_output_dimensions` (template: the DATAFLOW
+`return_sub` sub-mode already mutates return sites [traced]). Reach: return-total (Def. 3.4).
+
+**Proposition 11.5 (Equivalence generalizes for Form A; [traced]).** `check_equivalent(func_node, mutant)`
+compiles original and mutant and compares outputs on boundary inputs. For Form A a perturbation *is* a
+compilable mutant, so `check_equivalent` decides candidate-equivalence of perturbations with no new
+machinery. This resolves §13 Q3 for Form A. (Inherited limitation: `check_equivalent` skips methods —
+no synthesizable `self`.)
+
+**Definition 11.6 (Form B — runtime wrapper).** Realize $\mu^-$ as a wrapper on the function object that
+perturbs the return at call time with no `return`-node rewrite. This requires a sibling representation
+and a parallel evaluate path, *bespoke per sibling type* (generator, implicit-`None`, side-effect/state
+codomain). Reach: codomain-total (Def. 3.4).
+
+**Proposition 11.7 (Form B is required for the completeness guarantee).** Form A is return-total but not
+codomain-total: functions whose observable output is delivered otherwise than by the return value lie
+outside its reach. Hence the certificate of Theorem 8.1 has a hole exactly there unless Form B closes
+it. Form B is therefore not optional coverage but a load-bearing component of the completeness claim;
+Form A is the tractable walking skeleton, Form B the guarantee-completing pass.
+
+**Definition 11.8 (The perturbation family Π — a type-indexed operator set).** $\Pi$ is not flat. It is
+a family $\Pi = \bigcup_R \Pi_R$ indexed by the codomain type $R$ (Def. 11.10 selects the applicable
+$\Pi_R$ by observed/inferred type), exactly as the positive mutators are category-dispatched. Each
+perturbation $p$ fences a single codomain invariant — a MUST-NOT of the form "no correct implementation
+produces this output deviation" — and is tagged **A** (realizable as a return-site rewrite, Def. 11.4)
+or **B** (requires the runtime wrapper, Def. 11.6). We enumerate $\Pi$ by codomain structure.
+
+*(i) Universal — existence and input-dependence (apply to every $R$).*
+
+- $p_{\mathrm{none}}: v \mapsto \texttt{None}$ (or a typed sentinel) — **the output must exist.** [A]
+- $p_{\mathrm{const}[c]}: v \mapsto c$ for a fixed $c$ (drawn from an observed return) — **the output must
+  depend on the input.** [A] The single most load-bearing perturbation (Remark 11.9).
+- $p_{\mathrm{id}[i]}: v \mapsto x_i$ (return the $i$-th argument unchanged) — **the output must be a
+  non-trivial transform of its input, not a passthrough.** [A] (arity $\ge 1$)
+- $p_{\mathrm{zero\text{-}of}}: v \mapsto \mathbf{0}_R$ (the canonical inhabitant: $0$, `""`, `[]`, `{}`)
+  — **the output is not trivially the type's zero.** [A]
+- $p_{\mathrm{type}}: v \mapsto \tau(v)$ (coerce to a distinct type) — **the output type is load-bearing.**
+  [A] Subsumes the measured `str`$\to$`bytes` API-break (§Prop. 3.5's sibling witness).
+- $p_{\mathrm{stale}}: v \mapsto v_{\mathrm{prev}}$ (the previous call's return) — **the output is a pure
+  function of *this* call, carrying no leaked state / accidental memoization.** [B]
+
+*(ii) Boolean $R$.*
+
+- $p_{\lnot}: b \mapsto \lnot b$ — the boolean is load-bearing. [A] (near-redundant with a positive
+  LOGICAL mutant on the return expression; see the orthogonality criterion, Remark 11.9.)
+- $p_{\top}, p_{\bot}: b \mapsto \texttt{True}/\texttt{False}$ — **the predicate must not be constant.**
+  [A] The two truth constants are *distinct* fences — the always-true and always-false degenerate
+  classifiers are different failures and must not collapse into one.
+
+*(iii) Numeric $R$ (int / float).*
+
+- $p_{\mathrm{neg}}: v \mapsto -v$ — the sign is load-bearing. [A]
+- $p_{\mathrm{abs}}: v \mapsto |v|$ — **the output may legitimately be negative** (distinct from
+  $p_{\mathrm{neg}}$: fences sign-*presence*, not sign-*flip*). [A]
+- $p_{\pm 1}: v \mapsto v \pm 1$ — the exact integer / boundary value. [A]
+- $p_{\pm\varepsilon}: v \mapsto v \pm \varepsilon$ — the exact real value (the continuous boundary
+  analogue). [A]
+- $p_{\mathrm{scale}[k]}: v \mapsto k v$ — magnitude / units load-bearing. [A]
+- $p_{\mathrm{round}}: v \mapsto \lfloor v \rceil$ — precision load-bearing. [A]
+- $p_{\mathrm{NaN}}: v \mapsto \mathrm{NaN}$, $p_{\infty}: v \mapsto \pm\infty$ — **the output must be a
+  finite number.** [A] (float)
+- $p_{0}: v \mapsto 0$ — **the output must be non-zero** where that is an invariant (denominators,
+  normalizers). [A]
+
+*(iv) String $R$.*
+
+- $p_{\mathrm{empty}}: s \mapsto \texttt{""}$ — **non-empty on non-empty input** (the measured slugify
+  fence). [A]
+- $p_{\mathrm{trunc}}: s \mapsto s[{:}k]$ — full content load-bearing. [A]
+- $p_{\mathrm{case}}: s \mapsto \mathrm{swapcase}(s)$ — case load-bearing. [A]
+- $p_{\mathrm{ws}}: s \mapsto \mathrm{strip/pad}(s)$ — whitespace load-bearing. [A]
+- $p_{\mathrm{rev}}: s \mapsto \mathrm{reverse}(s)$ — character order load-bearing. [A]
+
+*(v) Container $R$ (list / tuple / set / dict).*
+
+- $p_{\mathrm{empty}}: xs \mapsto \varnothing$ — non-empty invariant. [A]
+- $p_{\mathrm{perm}}: xs \mapsto \pi(xs)$ — **order load-bearing** (a no-op under set/dict-key semantics,
+  which is itself the signal that order is *not* load-bearing there). [A]
+- $p_{\mathrm{drop}}: xs \mapsto xs \setminus \{e\}$ — cardinality / element completeness. [A]
+- $p_{\mathrm{dup}}: xs \mapsto xs + [e]$ — multiplicity load-bearing (list- vs set-semantics). [A]
+- $p_{\mathrm{singleton}}: xs \mapsto [e]$ — cardinality load-bearing. [A]
+- $p_{\mathrm{ctype}}: \texttt{list} \leftrightarrow \texttt{tuple} \leftrightarrow \texttt{set}$ — the
+  container's mutability / order / uniqueness contract is load-bearing. [A]
+- $p_{\mathrm{dict}}: $ key$\leftrightarrow$value swap, drop-field, default-field — the key/value binding
+  and per-field presence are load-bearing. [A]
+
+*(vi) Structured / object $R$ (dataclass, namedtuple, custom).*
+
+- $p_{\mathrm{field}[k]}$: perturb one field recursively (apply $\Pi_{R_k}$ to field $k$) — per-field
+  load-bearingness. [A]
+- $p_{\mathrm{class}}$: return a super- or sub-type instance — the exact class is load-bearing (a
+  Liskov-style fence). [A/B]
+
+*(vii) Ordered / comparable $R$ (beyond numeric).*
+
+- $p_{\mathrm{adj}}: v \mapsto \mathrm{succ}/\mathrm{pred}(v)$ in the order — the exact position in the
+  order is load-bearing. [A]
+- $p_{\mathrm{clamp}}: v \mapsto \mathrm{clip}(v, \ell, u)$ — a range invariant. [A]
+- $p_{\mathrm{sortbreak}}$: for a sequence expected sorted, transpose two elements — sortedness
+  load-bearing. [A]
+
+*(viii) Effect / non-return codomain $R$ (Form B only).*
+
+- $p_{\mathrm{yield}}$: suppress or inject a yielded element (generators) — the yielded sequence is the
+  output. [B]
+- $p_{\mathrm{raise}}$: swallow a raise, or inject one — the raise-vs-return contract (the *should-raise*
+  side, complementary to the positive EXCEPTION category). [B]
+- $p_{\mathrm{state\text{-}noop}}$: omit the documented side effect — the side effect is the output. [B]
+- $p_{\mathrm{state\text{-}extra}}$: perform an extra mutation — **no unintended side effects.** [B]
+
+**Remark 11.9 (the load-bearing core, and the orthogonality criterion).** Two design facts govern $\Pi$.
+*(a) The independence pair.* $p_{\mathrm{const}}$ and $p_{\mathrm{id}}$ are the value-space analogues of
+the MC/DC independence conditions — "the output is a function of the input" ($\lnot$ const) and "the
+output is not its input" ($\lnot$ id). A function silently ignoring its arguments, or acting as a no-op,
+is caught by *no other* perturbation and by no positive operator; these two are non-negotiable. *(b)
+Orthogonality to the positive reach.* By Prop. 3.5 the *worth* of $\mu^-$ is the region the positive
+policy cannot express. Perturbations that duplicate a positive operator ($p_{\lnot}$ ≈ a LOGICAL mutant
+on the return; $p_{\pm 1}$ ≈ a BOUNDARY/ARITHMETIC mutant) are admissible but low-value for **A**; the
+high-value members are those that perturb the *value independently of how it was computed*
+($p_{\mathrm{const}}, p_{\mathrm{id}}, p_{\mathrm{empty}}$ on a computed string, $p_{\mathrm{NaN}}$,
+$p_{\mathrm{perm}}$). Design criterion: **populate $\Pi_R$ preferentially with perturbations orthogonal
+to $\rho(\mu)$**, retaining the redundant ones only where the codomain-total guarantee (Prop. 11.7)
+requires them.
+
+**Definition 11.8b (Π-completeness).** $\Pi$ is *complete for codomain $R$* iff its reach $\rho(\mu^-)$
+separates every pair of behaviors distinguishable at the codomain: for admissible $f$ and any
+inadmissible near-miss $f'$ with $f \not\equiv f'$ observable at the output, some $p \in \Pi_R$ realizes
+the crossing (some covering test fails on $f \oplus p$ exactly when it would witness $f \ne f'$). For
+*finite* $R$ this is achievable by one perturbation per codomain deviation (the negative analogue of SC
+Thm 2.2's one-test-per-mutant); for structured $R$, $\Pi_R$ must *generate*, under composition, enough of
+the deviation monoid on $R$ to separate the intended concept from its near-misses. Whether a *finite*
+$\Pi_R$ is complete for a given structured $R$ is the negative analogue of SC §2.3's open
+operator-basis question (§13 Q4), and its measurement requires Fork 2's observed codomain type (Def.
+11.10).
+
+**Definition 11.10 (Typing Π — two forks).** A perturbation must be typed to the codomain to be valid,
+and the engine holds **no return-type model** [traced: `run_function_profiling` takes `func_node`,
+`test_functions`, `original_func`, `is_pure` — no return type and no return-value capture; only
+`check_equivalent` calls $f$ directly, gated on numeric boundary inputs].
+
+* **Fork 1 (static / AST-typed).** Type $\Pi$ from the AST alone: universal perturbations
+  unconditionally; conditional ones from return-node literal/annotation evidence. A mis-typed
+  perturbation raises on application and receives `undefined` (Def. 7.3), so Fork 1 **over-generates and
+  lets the disposition calculus prune the ill-typed rows** — sound but noisy. *Partial self-correction:*
+  it catches mismatches that raise ($\to$ negate on `str`) and misses those that silently coerce
+  ($\to$ negate on `bool`, since `bool <: int` in Python), which corrupt signal rather than abstain.
+* **Fork 2 (sample-typed).** Observe $f$'s returns during a baseline pass (a return-capturing probe on
+  `original_func`, the return-value sibling of Detective's input capture-harvest `capture_call_inputs`),
+  yielding the observed codomain type; type $\Pi$ from it. Closes the silent-coercion hole; `undefined`
+  then fires only for genuinely unobservable returns. Cost: crosses the Detective/Wesker boundary
+  (return capture + observed-type threaded into generation).
+
+**Proposition 11.11 (Fork 1 is sound; Fork 2 is precise).** Fork 1 never emits false signal (Prop. 7.4
+routes every ill-typed row to `undefined`), but its self-correction is partial (silent coercion). Fork 2
+removes the coercion hole at the cost of a runtime observation step. They compose as Form A/Form B do:
+Fork 1 the sound skeleton, Fork 2 the precision-completing pass.
+
+---
+
+## 12. The Authoring Problem
+
+Theorem 6.2 reduces the human contribution to authoring $\Sigma^{\pm}(P)$. This section formalizes that
+act so it is tractable.
+
+**Definition 12.1 (Triage).** Present the operator triages the *finite* enumerated survivor set
+$S(f, \mu^{\pm})$ and supplies a partition into: `equivalent/valid` (the survivor computes the intended
+function — this is `flag`, positive-space judgement, outranked by any distinguishing input) and
+`invalid` (its survival is a bug — a $\mu^-$/censor fence, governed by Def. 9.3). Survivors killed by the
+positive intent tests are already discharged. Thus "author a complete negative specification" (unbounded)
+reduces to "partition this finite list" (closed).
+
+**Proposition 12.2 (μ⁻ widens the triage universe to make it a contract).** $S$ is $\mu$-relative;
+out-of-$\mu$ behaviors (Prop. 3.5's slugify witness) never appear in it, so the operator cannot fence
+what is not shown. $\mu^-$ (Def. 3.1) drags codomain behaviors into $S$, which is what makes "partition
+the list" equal "specify the intent" rather than "specify the syntactically-reachable subset." Without
+$\mu^-$ the triage universe is provably too narrow to be a contract.
+
+**Definition 12.3 (Elicitation of missing information).** The enumerated-but-un-triaged region of $S$ is
+a high-entropy signal — missing information in the Shannon sense — that *asks* the operator rather than
+waiting to be told (the absent-expected-signal-is-signal principle). This is the mechanism that surfaces
+the type $\mu^-$ needs (Def. 11.10) as a question posed by a structural hole, without an active oracle.
+
+**Proposition 12.4 (Idiom partially auto-fills the triage).** By Theorem 5.2, construct choice carries
+negative-channel information. Idiom (operator/type/form choice) is therefore a lens *of* the contract —
+it may *pre-populate* the `equivalent/valid` partition ranked by lens agreement (the parsimony
+consensus) — but never *derive* it: a wrong implementation written fluently produces fluent idiom for the
+wrong intent, so an idiom-proposed entry remains `candidate-equivalent — UNPROVEN` until a distinguishing
+input or human `flag` disposes. Idiom proposes; it never gates.
+
+**Definition 12.5 (Two feed points).** The construction has one artifact (the two-sign certificate: a
+positive suite, a negative fence, and the triage record persisted with $f$) and two entry points: the
+*greenfield* line, where the contract is authored when $f$ is first written (the native workflow), and
+the *ingestion* line, where the same stations retrofit a triage onto pre-existing code (the present
+brownfield behavior, reframed as the legacy path). Same artifact, same stations
+($\mu^- \to$ triage $\to$ elicitation), two feeds.
+
+---
+
+## 13. Open Problems
+
+1. **κ for code (blocks censors and Cor. 10.6).** In the semantic setting κ is genealogy PageRank over
+   an IS-A graph. The code analogue needs a graph — call graph, import graph, or the obligation graph
+   induced by interface mutants — and the choice decides whether $I_{\mathrm{ind}}$ is cheap or a
+   research project.
+2. **The regime key (Def. 9.1 keying).** Regime = symmetry; a censor keyed below the semantic-equivalence
+   class over-reaches (traps positions that merely rhyme), keyed above it under-reaches. Working guess:
+   typed interface + purity class. Wants a derivation.
+3. **μ⁻ equivalence — resolved for Form A (Prop. 11.5), open for Form B.** Form B has no compilable
+   mutant, so TCE-style bytecode identity (Wesker #24) does not apply; a negative mirror of
+   `candidate-equivalent — UNPROVEN` may be required per sibling type.
+4. **Completeness of Π (Def. 11.8).** How much of the codomain a finite perturbation family fences — the
+   negative analogue of the positive operator-basis question SC §2.3 leaves open. Bounds require measuring
+   reach against a codomain model, i.e. Fork 2's observed type (Def. 11.10).
+5. **The bounded-curvature bound (Conj. 10.4, Caveat 10.5).** Measure $d$ on the obligation graph; prove
+   greedy degrading in $d$, recovering $(1-1/e)$ at $d=0$.
+6. **Build ordering.** Form A + Fork 1 is buildable now, κ-free, reuses the whole pipeline (the walking
+   skeleton). Form A + Fork 2 and Form B are the completeness passes. Censors are blocked on Q1–Q2.
+
+---
+
+## 14. Status Ledger
+
+**Proved (inherited, machine-checked — cite, do not re-derive).** σ = teaching dimension (SC Thm 2.7);
+σ μ-parameterized (SC §2.3); representation independence (SC Thm 2.3); redundant ⟺ zero information gain
+(SC Thm 3.11); composition gap (SC Thm 3.15); finite-domain Blum status and decidability (SC Thm 2.5);
+`self_confirming_cannot_certify`, `falsifiability_pivot`; `coverage_submodular`, `marginal_antitone`,
+`greedy_coverage_bound` — **the last three over a fixed ground structure only (Def. 10.2).**
+
+**Transported (argued here from cited priors, not re-proved).** Prop. 2.2 (positive policies are
+one-sign); Prop. 2.5 (μ⁻ is a second instantiation, no new metatheory); Theorem 5.2 (channel isolation);
+Theorem 6.2 (automation boundary from σ = TD); Cor. 8.3 (the qualifier is decidability); Prop. 9.4
+(admissibility as well-definedness); Prop. 10.3 (γ = d = bridge count); Cor. 10.6 (κ-gated removal).
+
+**Asserted / grounded but unbuilt.** μ⁻ Form A (Def. 11.4) and Form B (Def. 11.6); the perturbation
+family Π (Def. 11.8); the UNDEFINED disposition (Def. 7.3); Fork 1/Fork 2 typing (Def. 11.10); censor
+derivation from call-site populations; κ for code (Q1). Form A's pipeline reuse is grounded against the
+live engine (§11, [traced] 2026-08-22); everything in §11 remains code-unwritten.
+
+**Conjectured.** Censors are bridges, not bulk (Conj. 10.4); bounded-curvature greedy for the obligation
+graph (Q5).
+
+**Measured (this repo, 2026-08-07).** The out-of-universe rewrite passing a positive SC=1 badge (Prop.
+3.5, slugify); the "degenerate" near-miss witnesses outperforming hand-written tests on plausible
+refactors — predicted by teaching theory, since teaching dimension is defined by a teacher minimizing
+identification cost, not by sampling a natural distribution, so grading a witness by "would a person
+write this" applies learner-intuition to a teaching artifact.
+
+---
+
+## Appendix A — Notation
+
+| symbol | meaning |
 |---|---|
-| `law_as_architecture.md` §7 | "The censors — **forbidding what no real instance does**." Near-misses carved into Minsky censors; the response to an almost-valid-but-impossible candidate is *"not to score them down but to forbid them"* — "a hard veto, an `−∞` in the dynamic program, not a penalty." |
-| `SSL_PAPER_SKELETON.md` §3.1 | "**Negative learning, defined.** The informative constraints are exactly the ones that kill a candidate you did not know was alive — you learn at the **residual**." |
-| Genesis IV-F (SSL §7.3) | a censor recorded to explain an exception **with no retraction** — annotated in the corpus as *"the dual of version-space widening."* |
-| Genesis IV-G (SSL §7.3) | a sub-threshold candidate meeting a contradicting *does-not* is withdrawn before it ever fires — *"negative learning made literal."* |
-| Detective / Wesker | **absent.** |
-
-**The gap is in the homology, not the theory.** `SSL_PAPER_SKELETON.md` §6.1's table maps program
-identity ↔ a text's meaning, surviving mutant ↔ candidate reading, killing test ↔ context constraint.
-Every row is symmetric *except* that the semantic side runs both version-space operators and the
-program side runs one. Detective is the asymmetric end of an otherwise symmetric homology.
-
-**Read:** Winston 1970 · Minsky, *A Framework for Representing Knowledge* (1974) and *K-lines* (1980) ·
-`law_as_architecture.md` §7 · `SSL_PAPER_SKELETON.md` §§3.1, 6.1, 7.3.
-
----
-
-## 2. The formal statement
-
-**What this section argues:** three facts already in the corpus give the result with no new theory, and
-the Lean does not need rewriting.
-
-### 2.1 σ is a teaching dimension over LABELED examples
-
-`specification_complexity_paper.md` Thm 2.7 (`T5_17_teaching_dimension_lower_bound` /
-`_upper_bound`): σ(P, μ) equals the teaching dimension of P's semantic equivalence class in the concept
-space induced by μ.
-
-**Commitment.** Teaching dimension (Goldman–Mathias 1996; Goldman–Kearns 1995) is defined over labeled
-examples of *both signs*. There is no positive-only teaching dimension: for most concept classes
-nothing bounds the concept from above without negatives. The quantity σ is proved equal to therefore
-*already* has two signs in its definition.
-
-### 2.2 σ is parameterized by μ, and the paper owns this
-
-`specification_complexity_paper.md` §2.3, "The role of the mutation policy." The completeness claim is
-relative to μ. `✓ COMPLETE (operator universe · modulo N unproven-equivalent)` is correctly scoped and
-always was.
-
-**Commitment.** The claim here is *not* that the badge overclaims. It is that the badge is honestly
-scoped to a universe which enumerates **one label**. Adequacy over one sign of a two-sign teaching set
-is exactly as complete as it says and no more.
-
-### 2.3 Therefore negative operators are a second policy, not a repair
-
-The object is **σ(P, μ ∪ μ⁻)**. Blum axiom satisfaction, the exponential separation, and the
-Five-Field Identification are all stated over an arbitrary μ and do not change.
-
-> **The Lean formalization does not need rewriting. It needs a second policy instantiation.**
-
-This is the formal content of "the same engine, with negative operators."
-
-### 2.4 ★ The demonstrated boundary (measured, this repo, 2026-08-07)
-
-`boltons/strutils.py::slugify`, converged to `✓ COMPLETE (operator universe · modulo 6
-unproven-equivalent) · 9/15 killed`. A hand-authored structural rewrite —
-
-```diff
-- ret = delim.join(split_punct_ws(text)) or delim if text else ''
-+ ret = delim.join(split_punct_ws(text)) if text else ''
-```
-
-— **changes behaviour** (`slugify("!!!")`: `'_'` → `''`) and **passes the COMPLETE contract**.
-
-**Commitment.** This is not a defect and must not be reported as one. The transformation is outside μ —
-a *context outside the observing set* the certificate names. It is the grounded demonstration that the
-boundary is real and locates it exactly. A negative constraint — *"never returns empty for non-empty
-input"* — catches it immediately and **is not expressible as any operator mutation**.
-
-> **Semantic negatives cover exactly the region the syntactic universe cannot reach.**
-
-That is the strongest single argument in this document, and it is measured rather than argued.
-
-### 2.5 Corollary: "degenerate witness" is a category error, and it will recur
-
-Converge's witnesses for `slugify` — `slugify(text=0, delim=0, lower=0, ascii=0) == ""`,
-`slugify(0, 1, 2, 3) == b""`, an `AttributeError` capture — were called *degenerate* by a reviewing
-model (Opus 5, session 2026-08-07/08).
-
-Tested against four plausible refactors, those three tests caught the **str→bytes API break** (the most
-likely real-world "modernization" of that function), caught an early-return guard change, correctly
-stayed green on a behaviour-preserving reorder, and missed only §2.4's out-of-universe rewrite.
-`boltons` ships **zero** tests for `slugify`; absent `slugify(0,1,2,3) == b""`, nothing in the repo pins
-the return type.
-
-**Commitment.** Teaching dimension is defined by a **teacher choosing examples to minimize
-identification cost**, explicitly not by sampling a natural distribution — which is the whole reason TD
-and VC are incomparable. Grading a witness by "does this look like a test a person would write" applies
-*learner*-intuition to a *teaching* artifact. The framework predicts the computed near-miss wins. It
-did.
-
-*Recorded because it recurs: every model review of this tool has raised this objection, and the
-objection is predicted by the framework the tool implements.*
-
-**Read:** `specification_complexity_paper.md` §§2.3, 2.4 · Goldman–Kearns 1995 · Zilles et al. 2011 (RTD).
-
----
-
-## 3. Two mechanisms, and they are not the same design
-
-**What this section argues:** conflating μ⁻ with censors is the way this gets muddy; they occupy
-different regions, carry different provenance, and belong to different repos.
-
-| | **μ⁻ — output perturbation** | **Censors** |
-|---|---|---|
-| what | a mutation operator on the **codomain**: perturb the return value, re-run covering tests | a learned exclusion: "no correct implementation does X" |
-| enumerates | output space | nothing — it *forbids* a region |
-| provenance | mechanical, per-function, deterministic | derived from observed near-misses across call sites |
-| region (§4) | extends μ — known-knowns | `I_ind` — unknown-knowns |
-| home | **Wesker** (it is an operator) | **Detective** (it needs judgement + governance) |
-| may it gate? | yes, same status as any operator | only under §5 admissibility |
-| blocked on | nothing | κ for code (§8 Q1), regime key (§8 Q2) |
-
-**Commitment (μ⁻ is the cheap symmetric half).** Wrap the target, return a perturbed value, run the
-covering tests; green means that output dimension is unpinned. It is **indifferent to syntax**, which is
-why it reaches §2.4's case. It reuses the existing kill matrix, trace, and minimal-cover machinery, and
-it is the obvious first build.
-
-**Commitment (censors are the deep half, and they are `I_ind`).** They are population-derived, not
-per-function, which puts them in a region Detective does not currently compute at all.
-
----
-
-## 4. Where each sits: the three-region completeness map
-
-**What this section argues:** Detective already reports two of the three regions and already prints
-`I_solve` by name; censors are the missing middle.
-
-`SSL_PAPER_SKELETON.md` §2.5 gives the two-region map; `SIGNIFICANCE_WEIGHTING.md` §12 splits the
-residual:
-
-$$I_{\text{solve}}(D) = \underbrace{I_{\text{ind}}(D)}_{\text{the corpus can teach itself}} + \underbrace{I_{\text{ext}}(D)}_{\text{must be told}}, \qquad L_{\text{ind}} = \frac{I_{\text{ind}}}{I_{\text{solve}}}$$
-
-| region | quantity | who resolves it | in Detective today |
-|---|---|---|---|
-| known-knowns | `L(D)` | structure, for free | **reported** — "% resolved by structure for free" |
-| unknown-knowns | `L_ind(D)` | the corpus, by induction | **not computed** |
-| known-unknowns | `I_ext(D)` | a teacher, irreducibly | **reported as `I_solve`** — the `--input` residual |
-
-The `converge` report already prints *"structure exhausted — N killable residual(s) = I_solve"*, so the
-SSL equation is wired into the output under its own variable name. What is missing is the middle.
-
-**Commitment (censors ARE `I_ind` for code).** §12's characterization transports exactly:
-
-> $I_{\text{ind}}$ is latent in the corpus and unreachable *per read*: story A alone does not support
-> the law; A…N together do.
-
-*"No caller ever passes `None`"* is not derivable from the function. It is derivable from the
-**population of call sites**, and is invisible to any single read. That is `I_ind`; it is
-`law_as_architecture.md` §7's *forbidding what no real instance does*; and the mechanism is SSL's **H6**
-— a distorted or absent expected signal is itself a signal. The absence in the observed distribution
-is the datum.
-
-### 4.1 Commitment: this does not violate the one-function law
-
-`ARCHITECTURE.md` §11 forbids repo-scale aggregation — *"There is no such object as 'the mutant profile
-of a codebase' worth computing"* — and removed `diagnose --learn` for exactly that.
-
-That law targets the **statistical smear**: per-category survival accumulated across unrelated
-functions into a project-wide weakness report. `I_ind` is a different object: **co-occurrence over call
-sites**, computing a fact about how *this* function is used, not an average over functions that have
-nothing to do with each other. The proof stays one function at a time; only the censor's *derivation*
-reads the population.
-
-State this explicitly in any issue. The two shapes look similar, and the distinction is the entire
-license.
-
-**Read:** `SSL_PAPER_SKELETON.md` §§1.4b, 1.4c, 2.5 · `SIGNIFICANCE_WEIGHTING.md` §12 ·
-`law_as_architecture.md` §7.
-
----
-
-## 5. Governance — the guard is load-bearing on the math, not on safety
-
-**What this section argues:** the obvious objection (negatives introduce false refusal) is not a new
-failure mode, and the guard that handles it is already proved.
-
-`SIGNIFICANCE_WEIGHTING.md` §14 is unambiguous:
-
-> **Without the guard, the extension's central quantity is not merely unsafe; it is undefined.**
-
-A censor confirmed from the engine's own derivations reduces the residual *by construction* while
-carrying zero information: the descent looks fast and means nothing, and `L_ind → 1` vacuously.
-
-> **Admissibility (censor form).** Adopt censor `c` only if
-> **(i) spine-sourced** — carved from an *observed* near-miss (a real call site; a rejected rewrite's
-> witness), never authored a priori, and structurally incapable of confirmation from derived output;
-> **and (ii) σ(P | C ∪ {c}) > 0** — the program space still admits plurality after adoption.
-
-**Commitment (over-censoring is the degenerate controller, from the other side).** Forbid enough and
-exactly one program survives: σ collapses, EIG = 0. The formal detectors already exist and are
-machine-checked — `self_confirming_cannot_certify`, `falsifiability_pivot` (MI > 0 ⇔ the answer channel
-is non-degenerate) — with SSL §4.4's retained-plurality budget (R̂ must not be driven to 0) as the
-quantified lower bound. **This is the principled-abstention design for the negative side, and it is
-not new work.**
-
-**Commitment (verdict vocabulary mirrors the existing discipline exactly).**
-`candidate-equivalent — UNPROVEN` is never promoted to `equivalent`; likewise a negative constraint is
-**`UNVERIFIED`** until spine-sourced and passing (ii), and is never promoted to **`forbidden`** by
-assertion. An LLM-authored constraint is an unverified assertion and **must not gate**.
-
-**Commitment (reporting channel).** Negative results get their own channel and are **never folded into
-the kill count** — for the same reason crash kills are not (`ARCHITECTURE.md` §0: value-specification
-vs run-specification). A censor is not a kill; it is an exclusion with a different warrant.
-
-**Read:** `SIGNIFICANCE_WEIGHTING.md` §14 · `SSL_PAPER_SKELETON.md` §§4.3, 4.4.
-
----
-
-## 6. ★ THE CRUX: the bridge problem, and it is quantitative
-
-**What this section argues:** the real obstacle is negative, it is the same finding as
-`SIGNIFICANCE_WEIGHTING.md` §13, and the comfortable version of this theory would be a theory of the
-boring cases.
-
-Coverage is submodular over a **fixed** ground structure. Where adopting a constraint *changes the
-graph coverage is read from*, submodularity is violated — and constructively: a **bridge** connecting
-two previously-disjoint clusters has small marginal gain alone and large marginal gain once another
-bridge is present. Gains are **super**-additive.
-
-> **And this is not an edge case — it is the target.** Every deep inference worth having is a bridge.
-
-### 6.1 Three names, one quantity
-
-- **γ** — composition gap: σ(A∘B) ≤ σ(A) + σ(B) + γ(A,B), bounded by the number of **interface
-  mutants**, vanishing for independent components (`specification_complexity_paper.md` Thm 3.15).
-- **d** — supermodular degree (Feige–Izsak): the number of adoptions connecting previously-disjoint
-  components; greedy recovers (1−1/e) exactly at d = 0 (§13).
-- **the bridge count.**
-
-**Commitment.** These are the same number: γ vanishes for independent components, d = 0 for no bridges,
-and independent components *are* no bridges. Detective #16 ("model the decomposition composition gap as
-explicit interface obligations") is therefore the code-side instance of §13's crux, and **measuring
-interface obligations is measuring d.** One quantity to measure, not two to reconcile.
-
-### 6.2 Prediction, and an explicit correction
-
-Censors span call sites. In a **sparse** obligation graph with genuinely disconnected clusters — which
-a call graph over functions most likely resembles, and which Regenesis's rule graph measured as
-(b ≈ 0.46–0.56 < 1) — a censor **is a bridge**: super-additive with positive tests, not redundant with
-them.
-
-That is *stronger* than "negatives are valuable early," and *worse* for tractability: negative operators
-would be the biggest wins **and** the reason a clean greedy bound does not hold.
-
-**Correction, recorded so it is not re-made.** During design discussion it was predicted that censors
-would land in the **bulk** regime and produce a sharp knee, by analogy with SSL's measured ~3 % knee and
-28× drop. That imports constants from the wrong regime. §13 is explicit:
-
-> the *structure* (coverage, monotonicity) transfers; the *constants* (`L=0.528`, the ~3 % knee, the 28×
-> drop) were measured on a dense graph and say nothing about a sparse one. They must be measured on the
-> rule graph or not cited.
-
-> **Measure d on the obligation graph before claiming any bound. Do not cite SSL's constants for code.**
-
-### 6.3 What survives regardless
-
-- **Monotonicity.** Adoption is a forward closure; adding a constraint can only grow the excluded set.
-  Nearly free in Lean.
-- **Submodularity away from bridges.** Within a connected component the classic argument goes through;
-  the violation is localized to bridge events.
-
-So the target theorem is **bounded-curvature greedy**, degrading in d — not submodular greedy.
-Golovin–Krause adaptive submodularity is the other candidate frame and fails in the same place.
-
-**Read:** `SIGNIFICANCE_WEIGHTING.md` §13 · `specification_complexity_paper.md` Thm 3.15 ·
-Feige–Izsak (bounded supermodular degree) · Golovin–Krause 2011.
-
----
-
-## 7. What this theory already fixes
-
-**What this section argues:** two live issues are instances of this theory rather than separate bugs,
-and one of them has a machine-checked fix waiting upstream.
-
-### 7.1 `audit --remove` measures the wrong invariant (#54)
-
-Field-observed: Detective proposes deleting a test as line- and mutant-redundant; the test turns out to
-encode behaviour load-bearing elsewhere.
-
-**Commitment.** That is §13's bridge counterexample exactly — **near-zero marginal gain inside one
-function's kill-profile, large gain over the closure.** `audit --remove` measures the local quantity,
-which §13 proves is the wrong one precisely at the cases that matter.
-
-`SIGNIFICANCE_WEIGHTING.md` §17 gives the correct gate from theorems already machine-checked upstream —
-representation independence (SC Thm 2.3) and redundant ⟺ zero information gain (SC Thm 3.11) — with
-**κ** as the invariant rather than local coverage:
-
-> A test is safe to remove iff it banks zero **significance-weighted** coverage over the closure — not
-> iff it is redundant for this function's kills and lines.
-
-§17 already names Detective's `decompose --apply` as the same operator run forward on code
-("consolidation is that same operator run OFFLINE over accumulated MEANING"), so the symmetry is
-recognized in the corpus. Blocked on §8 Q1 (κ for code).
-
-### 7.2 The observing set should appear on the certificate
-
-§2.4's rewrite passes a COMPLETE badge. The badge is honestly scoped, but a reader takes "COMPLETE"
-from the headline and the scope from a parenthetical.
-
-**Commitment.** Once μ⁻ exists, the certificate should name its **context set** — the observing set the
-claim is made over — not only a ratio. A receipt that states its own boundary is a stronger artifact,
-and it makes the claim self-limiting in writing rather than in a footnote. This is the code-side form of
-SSL §1.4c ("completeness is relative to the substrate — and that is the feature, not the flaw").
-
----
-
-## 8. Open questions, in the order they block the build
-
-1. **What is κ for code, and is it computable from what we already hold?** In GSE it is genealogy
-   PageRank over the IS-A graph. The code analogue needs a graph — call graph? import graph? the
-   obligation graph induced by interface mutants? — and the choice decides whether `I_ind` is cheap or a
-   research project. **Blocks censors AND §7.1.**
-2. **What is the regime key?** T6.15: regime = symmetry; admissible resolutions are lawful
-   symmetry-breakings indexed by the constraint frame's invariance group. For meaning, GSE's paraphrase
-   operators are *proved* to generate that group (`gse_paraphrase_complete`). For code the analogue is
-   the semantic-equivalence class — and a censor keyed *below* it over-reaches (traps positions that
-   merely rhyme, `law_as_architecture` §8), keyed *above* it under-reaches. Working guess: typed
-   interface + purity class. **Wants a derivation, not an intuition.**
-3. **Does μ⁻ need its own equivalence notion?** Two output perturbations can be indistinguishable for
-   the same reasons two mutants can. If so, `candidate-equivalent — UNPROVEN` needs a mirror on the
-   negative side — and TCE-style bytecode identity (Wesker #24) does **not** apply, since there is no
-   mutant program to compile.
-4. **Ordering.** μ⁻ is buildable now and independent of κ. Censors are blocked on Q1 + Q2. The
-   correctness/retooling work in both repos precedes all of it.
-
----
-
-## 9. Status ledger — proved / transported / asserted / conjectured / measured
-
-**PROVED (inherited, machine-checked — cite, do not re-derive).**
-σ = teaching dimension (SC Thm 2.7 / T5.17); σ μ-parameterized (SC §2.3); representation independence
-(SC Thm 2.3); redundant ⟺ zero information gain (SC Thm 3.11); composition gap (SC Thm 3.15);
-`self_confirming_cannot_certify`; `falsifiability_pivot`; `coverage_submodular`, `marginal_antitone`,
-`greedy_coverage_bound` — **the last three over a *fixed* ground structure only; see §6.**
-
-**TRANSPORTED (argued here, not re-proved).**
-That teaching dimension's two-label definition makes positive-only enumeration one-sign (§2); that
-§14's admissibility applies to censors with the sign reversed (§5); that §12's `I_ind` is the region
-censors occupy (§4); that §17's κ-gate is the correct `audit --remove` invariant (§7.1); that γ = d =
-bridge count (§6.1).
-
-**ASSERTED / UNBUILT.**
-μ⁻ as an operator family; censor derivation from call-site populations; κ for code (§8 Q1).
-
-**CONJECTURED.**
-Bounded-bridge greedy for the obligation graph (§6, following §13's conjecture); that censors are
-bridges rather than bulk (§6.2 — a prediction, explicitly not a result).
-
-**MEASURED (this repo, 2026-08-07).**
-The out-of-universe rewrite passing a COMPLETE contract (§2.4); the near-miss witnesses outperforming
-hand-written tests on plausible refactors (§2.5).
-
----
-
-## Appendix A — Equation entry points (to be developed into Definitions/Theorems)
-
-- **The object.** σ(P, μ ∪ μ⁻) — specification complexity under a two-sign policy. All SC results are
-  stated over arbitrary μ; this is an instantiation, not an extension.
-- **μ⁻ (output perturbation).** For target f with covering tests T: for each perturbation p in a
-  policy-defined family over f's codomain, `unpinned(p) ⇔ ∀t ∈ T : t(f ⊕ p) passes`. The kill matrix
-  gains rows keyed by perturbation instead of mutant.
-- **Censor.** c ⊆ (input × output) forbidden pairs, derived from call-site population evidence;
-  `admissible(c) ⇔ spine_sourced(c) ∧ σ(P | C ∪ {c}) > 0`.
-- **Three-region map.** `I_solve = I_ind + I_ext`; `L_ind = I_ind / I_solve`; extended completeness
-  tuple `(H₀, L, L_ind, H*, I_ext)`.
-- **Bridge degree.** d = |{adoptions connecting previously-disjoint components}| = γ's interface-mutant
-  bound. Target: greedy guarantee degrading in d, recovering (1−1/e) at d = 0.
-- **κ-gated removal.** `safe_remove(t) ⇔ κ_closure(T) = κ_closure(T \ {t})` — significance-weighted,
-  not local.
-
-## Appendix B — Citation ledger (priors to cite, not re-derive)
-
-**Author's corpus (read directly; cite by file + section).**
-`specification_complexity_paper.md` §§2.3, 2.4, Thm 2.3, Thm 2.7, Thm 3.11, Thm 3.15 ·
-`SSL_PAPER_SKELETON.md` §§1.4b, 1.4c, 2.5, 3.1, 4.3, 4.4, 6.1, 7.3 ·
-`SIGNIFICANCE_WEIGHTING.md` §§12, 13, 14, 17 · `law_as_architecture.md` §§7, 8 ·
-`ARC_AGI_3/docs/GLOSSARY.md` · this repo: `ARCHITECTURE.md` §§0, 11; `docs/PARSIMONY_ADVISORY.md`.
-
-**External priors (RECALLED, NOT VERIFIED — check before quoting).**
-Winston 1970 (near-miss / structural descriptions) · Minsky 1974 (frames), 1980 (K-lines), 1986
-(censors) · Mitchell 1982 (version spaces / candidate elimination) · Goldman–Kearns 1995,
+| $\mathcal{M} = (D,R,\mathrm{sem},\mu)$ | mutation system (Def. 1.1) |
+| $\mathrm{Mut}^{\neq}_\mu(P)$ | non-equivalent mutants of $P$ under $\mu$ |
+| $\sigma(P,\mu)$ | specification complexity = min SC=1 suite size (Def. 1.3) |
+| $\mathrm{TD}$ | teaching dimension (Prop. 1.5) |
+| $\mathrm{kill}_v$ | value (assertion) kill relation (Def. 1.4) |
+| $p : R \rightharpoonup R$, $f \oplus p = p \circ f$ | perturbation and perturbed denotation (Def. 3.1) |
+| $\mu^- , \ \Pi$ | negative policy and its perturbation family (Def. 3.1, 11.8) |
+| $\mu^{\pm} = \mu \cup \mu^-$ | two-sign policy (Def. 2.4) |
+| $\rho(\mu^-)$ | reach of a negative policy (Def. 3.4) |
+| $\mathrm{DOF}^{+}, \mathrm{DOF}^{-}, \mathrm{DOF}^{0}$ | positive / negative / mechanical regions (Def. 4.1) |
+| $I_{\mathrm{solve}} = I_{\mathrm{ind}} + I_{\mathrm{ext}}$ | solve/teach decomposition (Def. 4.2) |
+| $I^{+}, I^{-}$ | positive / negative channel information (Def. 5.1) |
+| $\Sigma^{\pm}(P)$ | minimal two-sign teaching set (Def. 6.1) |
+| $\nu(p), \ \bot$ | negative measure and its degenerate value (Def. 7.2) |
+| $c \subseteq D \times R$ | censor (Def. 9.1) |
+| $\gamma, d$ | composition gap, supermodular degree (Def. 10.1–10.2) |
+
+## Appendix B — Citation ledger (priors read directly; cite, do not re-derive)
+
+**Author's corpus.** `specification_complexity_paper.md` §§2.1, 2.3, 2.4, Thm 2.3, 2.5, 2.7, 3.11, 3.15 ·
+`SSL_PAPER_SKELETON.md` §§2.5, 3.1, 4.3, 4.4 · `SIGNIFICANCE_WEIGHTING.md` §§12, 13, 14, 17 ·
+`law_as_architecture.md` §§7, 8 · this repo: `ARCHITECTURE.md` §§0, 11; `docs/PARSIMONY_ADVISORY.md`.
+
+**Live source (traced 2026-08-22).** `Wesker/engine.py`: `Mutant`, `MutationCategory`,
+`_RECORD_MUTATOR_FACTORIES`, `_BaseMutator`, `mutant_disposition`, `SCORED_DISPOSITIONS`,
+`generate_mutants`, `evaluate_mutant`, `check_equivalent`, `extract_boundary_inputs`, `BoundaryInput`,
+`run_function_profiling`, `_DataflowMutator` (`return_sub`).
+
+**External (RECALLED, NOT VERIFIED — check before public use).** Winston 1970 (near-miss) · Minsky 1974/
+1980/1986 (frames, K-lines, censors) · Mitchell 1982 (version spaces) · Goldman–Kearns 1995,
 Goldman–Mathias 1996 (teaching dimension) · Angluin 1987/1988 (exact learning) · Zilles et al. 2011,
-Doliwa et al. 2014 (RTD) · Ammann & Offutt (RIPR; minimal mutant sets with Delamaro) · Budd & Angluin
-1982 (equivalence undecidable) · Papadakis et al. (Trivial Compiler Equivalence) · Feige–Izsak (bounded
-supermodular degree) · Nemhauser–Wolsey–Fisher (greedy (1−1/e)) · Golovin–Krause 2011 (adaptive
-submodularity) · Hindle et al. (naturalness of software) · Landauer 1961 (erasure cost — the correct
-frame for the DNA-repair analogy; local entropy decrease is a demon paying its bill, not a violation).
+Doliwa et al. 2014 (RTD) · Budd & Angluin 1982 (mutation equivalence undecidable) · Papadakis et al. (TCE)
+· Feige–Izsak (bounded supermodular degree) · Nemhauser–Wolsey–Fisher (greedy $(1-1/e)$) · Rice 1953 ·
+Landauer 1961 (erasure cost — the frame for the redundancy-in-representation intuition below).
 
-## Appendix C — Related issues
+## Appendix C — Empirical Predictions and Falsifiable Tests
 
-Wesker#23 (theory index: RIPR / equivalence / subsumption) · Wesker#24 (TCE) · Wesker#25 (subsumption /
-dominator sets) · Wesker#15 (routing vs proof; static vs dynamic selection) · Wesker#16 (nodeid
-identity) · Wesker#18 (RIPR's R as verified phase) · Detective#64 (theory index: observational
-equivalence, behaviour-preserving transformation, evidence provenance) · Detective#16 (composition gap =
-d) · Detective#54 (κ-gated removal) · Detective#63 (state boundary for oracles).
+The construction makes measurable predictions; two are already measured, three are runnable with
+instrumentation the tool already exposes (`converge` reports the killable residual = $I_{\mathrm{solve}}$).
 
----
+**C1 (measured, 2026-08-07).** *An out-of-$\mu$ behavior change passes a positive $\mathrm{SC}=1$ badge,
+and $\mu^-$ catches it.* Confirmed on `slugify` (Prop. 3.5). Falsifier: a codomain-changing rewrite that
+no admissible $\Pi_R$ perturbation distinguishes — would bound $\rho(\mu^-)$ from below.
+
+**C2 (measured, 2026-08-07).** *Computed near-miss witnesses outperform hand-written tests on plausible
+refactors.* On `slugify`'s zero-shipped-tests function, the "degenerate" witnesses caught the
+`str`$\to$`bytes` API break that hand-written tests missed. Predicted by teaching theory (a witness is a
+teaching artifact, not a natural sample). Falsifier: a refactor corpus on which hand-written tests
+strictly dominate the synthesized witnesses.
+
+**C3 (the thesis-deciding experiment — $\Delta I_{\mathrm{solve}}$).** *Authoring the negative sign
+reduces the external-teaching residual by a measurable factor.* Converge a corpus of pure functions
+under $\mu$ and under $\mu^{\pm}$; record $I_{\mathrm{solve}}^{\mu}$ (the killable/`--input` residual) and
+$I_{\mathrm{solve}}^{\mu^{\pm}}$. Prediction (Prop. 4.3): $I_{\mathrm{solve}}^{\mu^{\pm}} <
+I_{\mathrm{solve}}^{\mu}$, and the gap is the second sign's information content. Runnable now with the
+existing residual instrumentation. Falsifier: no significant residual reduction — would refute Prop. 4.3
+and the automation-relocation claim of Theorem 6.2.
+
+**C4 (isolation, predicted).** *The negative survivors are largely disjoint from the positive survivors.*
+By Theorem 5.2 the channels are orthogonal, so on a corpus the overlap between $\mu$-survivors and
+$\mu^-$-survivors (as $(x,y)$-distinguishable dimensions) should be small. Falsifier: high overlap —
+would refute isolation and reduce $\mu^-$ toward redundancy (Cor. 5.3).
+
+**C5 (independence pair, predicted).** *A measurable fraction of green functions fail $p_{\mathrm{const}}$
+or $p_{\mathrm{id}}$.* On functions whose shipped suites pass, some nonzero fraction leaves input-
+dependence or non-triviality unpinned (Remark 11.9). This fraction is a direct measurement of what
+positive-only completeness misses. Falsifier: the fraction is ~0 across a broad corpus — would show the
+independence pair is redundant with existing positive coverage in practice.
 
 ## Provenance
 
-Designed with Rohan in session 2026-08-07/08, out of a cold-start review of Detective 0.11.0 that
-produced §2.4 and §2.5 as measurements rather than arguments. The theory grounding is the ARC_AGI_3
-corpus, reached via `docs/GLOSSARY.md` — the near-miss/censor half of the design is that corpus's, not
-this document's; the contribution here is the observation that the code end of the homology never
-received it, plus the three-names-one-quantity identification in §6.1 and the falsifiable ΔL / ΔI_solve
-experiment implied by §4.
-
-The biochemical framing that motivated the design — DNA repair as staged error correction whose
-redundancy lives in the *representation* rather than in a controller, inborn rather than derived — is
-recorded here because it is the generative intuition, and because it predicts the architecture: two
-channels over one message let you *correct*, where one only lets you *detect*.
+The near-miss/censor half of this design is the ARC_AGI_3 corpus's (Winston's second operator, restored
+in the semantic domain by Genesis IV-F/IV-G); the contribution here is the observation that the code end
+of the σ = teaching-dimension homology never received it, the two-sign construction $\sigma(P,\mu^\pm)$,
+and the operational realization grounded against the live engine (§11). The generative intuition is
+biochemical: DNA fidelity is staged error correction — base selection, proofreading exonuclease, mismatch
+repair — whose correcting information is inborn and redundant in the *representation* (the complementary
+strand is the backup), not derived by a controller. Two channels over one message permit *correction*;
+one permits only *detection*. μ⁻ is the second strand; the consistency relation of §5 is mismatch repair;
+the thermodynamic accounting is Landauer's (local order paid for globally), which is why the construction
+is a compute budget rather than a violation.

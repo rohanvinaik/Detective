@@ -114,21 +114,21 @@ priors:
     path: docs/theory/NEGATIVE_SPECIFICATION.md
     root: local
     role: the theory document this manifest serves
-    sha256: 9a978387d06fff2ee286e113aab378ca9aa66322902c6dab6ba6d99a3a792d30
+    sha256: 35ac799fdb5c55984253cbe71040d7f7ddfaaed505fd582f59b01532450f4ce7
     cited_by: [docs/theory/GLOSSARY.md, docs/theory/CONSTRAINT_BLOCK.md]
 
   - id: negative-spec-glossary
     path: docs/theory/GLOSSARY.md
     root: local
     role: the theory librarian for this work — stage, commitment, reading
-    sha256: 54b8d176213998fd6385d1bb5ad009e56dbacec4b8801f8c45b0f7c93a5ff1a0
+    sha256: 0e97df71c5cfc1074cbc68e1ee73d8ad8d96965dd8c4025cd8df706839fc42e0
     cited_by: [docs/theory/CONSTRAINT_BLOCK.md]
 
   - id: negative-spec-constraint-block
     path: docs/theory/CONSTRAINT_BLOCK.md
     root: local
     role: the handoff artifact — carry verbatim into any summary; passes the remove-X check
-    sha256: 4cb5a227df907c00c39bab555653dbb19ef9464fdb6e155436703c9e9594ebbc
+    sha256: 03906910b6a165e8d58aa7db98fbaede0557d1c3f8f60219b9f18f0ae28168c0
     cited_by: [docs/theory/GLOSSARY.md]
 
 # ─── External citations: RECALLED, NOT VERIFIED. Do not quote until checked. ───
