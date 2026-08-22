@@ -808,7 +808,13 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str | None:
                 ast.literal_eval(repr(contents))
             except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
                 return None
-            return f"assert iter(result) is result and list(result) == {contents!r}"
+            # `result is not None and …` first, so a mutant that collapses the generator to a
+            # NON-iterable (the dominant one: yield deleted / bare `return` → None) fails by VALUE
+            # via short-circuit, never by `iter(None)` CRASH. This is μ⁻'s existence fence p_none
+            # ("the output must exist", NEGATIVE_SPECIFICATION §11.8) written into the golden: a
+            # crash kill banks nothing (ARCHITECTURE §0), a value kill pins that the output exists.
+            # A non-None non-iterable stays a crash kill — exotic, and still killed, just not pinned.
+            return f"assert result is not None and iter(result) is result and list(result) == {contents!r}"
     # THE ONE PLACE that decides whether a captured value may be pinned by equality at all.
     # None means "not pinnable", and every producer must handle it — which is the point of
     # putting it here rather than in each of them. There are two producers (a capture, and a

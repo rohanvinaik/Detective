@@ -84,7 +84,36 @@ def test_the_generated_test_pins_iterator_shape_and_contents():
 
     marker = _observe(map(lambda m: m["a"], [{"a": 1}, {"a": 10}]))
     line = golden_assert_line(marker, map(lambda m: m["a"], [{"a": 1}, {"a": 10}]))
-    # A CONTENT-differing iterator mutant is a real value kill: the generated test pins SHAPE (still a
-    # live iterator, not a materialized list — a mutant returning a list fails `iter(result) is
-    # result`) AND CONTENTS, in one line.
-    assert line == "assert iter(result) is result and list(result) == [1, 10]"
+    # A CONTENT-differing iterator mutant is a real value kill: the generated test pins EXISTENCE
+    # (`result is not None` — the μ⁻ p_none fence, so a mutant collapsing the generator to None
+    # fails by VALUE, not by an `iter(None)` crash), SHAPE (still a live iterator, not a
+    # materialized list — a mutant returning a list fails `iter(result) is result`), AND CONTENTS,
+    # in one line.
+    assert line == "assert result is not None and iter(result) is result and list(result) == [1, 10]"
+
+
+def test_a_generator_golden_value_kills_a_none_mutant_not_by_crash():
+    # THE DEFECT (grounded 2026-08-22): the dominant generator mutant deletes `yield` (or bares a
+    # `return`), so the function collapses to returning None. The old iterator golden
+    # `assert iter(result) is result and …` KILLED that mutant by CRASH — `iter(None)` raises
+    # TypeError — which banks nothing toward the value specification (ARCHITECTURE §0). The kill
+    # then read as a redundant crash-kill, minimize dropped the witness golden, and converge
+    # reported the mutant "still killable · unsound" though its golden was sound. Prepending the
+    # μ⁻ existence fence `result is not None` makes the SAME mutant fail by VALUE, via short-circuit.
+    from Detective.synthesis.characterization import golden_assert_line
+
+    marker = _observe(x for x in range(3))  # a real generator: <iter generator exhausted [0, 1, 2]>
+    line = golden_assert_line(marker, (x for x in range(3)))
+    assert line == "assert result is not None and iter(result) is result and list(result) == [0, 1, 2]"
+
+    # The original passes; the None mutant fails by ASSERTION (value), never TypeError (crash).
+    def _run(result):
+        exec(line, {"result": result})  # noqa: S102 — exercising the exact emitted assertion
+
+    _run(x for x in range(3))  # original generator -> passes, no raise
+    try:
+        _run(None)  # yield-deleted mutant returns None
+    except AssertionError:
+        pass  # value kill — the intended, banked distinction
+    except TypeError as e:  # pragma: no cover - the pre-fix crash-kill this test exists to forbid
+        raise AssertionError(f"None mutant crash-killed, not value-killed: {e}") from e
