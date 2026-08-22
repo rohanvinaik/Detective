@@ -1288,6 +1288,7 @@ def converge(
     fast: bool = False,
     deadline_s: float | None = 300.0,
     include_shaped: bool = True,
+    two_sign: bool = False,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
@@ -1317,6 +1318,7 @@ def converge(
             fast=fast,
             deadline_s=deadline_s,
             include_shaped=include_shaped,
+            two_sign=two_sign,
             progress=progress,
             notify=notify,
         )
@@ -1338,6 +1340,7 @@ def _converge_impl(
     fast: bool = False,
     deadline_s: float | None = 300.0,
     include_shaped: bool = True,
+    two_sign: bool = False,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
@@ -1529,6 +1532,7 @@ def _converge_impl(
             extra_test_dirs=extra_test_dirs,
             progress=progress,
             include_shaped=include_shaped,
+            two_sign=two_sign,
         )
         if result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "mutant profiling"
@@ -1651,6 +1655,7 @@ def _converge_impl(
             deadline_s=_budget_s(),
             receiver_factory=_rf,
             include_shaped=include_shaped,
+            two_sign=two_sign,
         )
         witnessed = False
         n_witnessed = 0
@@ -1733,6 +1738,7 @@ def _converge_impl(
         extra_test_dirs=extra_test_dirs,
         progress=progress,
         include_shaped=include_shaped,
+        two_sign=two_sign,
     )
     if final_result.budget_exhausted and not budget_cut:
         budget_cut, cut_phase = True, "finalization"
@@ -1817,6 +1823,7 @@ def _converge_impl(
                 extra_test_dirs=extra_test_dirs,
                 progress=progress,
                 include_shaped=include_shaped,
+                two_sign=two_sign,
             )
             if final_result.budget_exhausted and not budget_cut:
                 budget_cut, cut_phase = True, "minimization"
@@ -1887,6 +1894,7 @@ def _converge_impl(
             extra_test_dirs=extra_test_dirs,
             progress=progress,
             include_shaped=include_shaped,
+            two_sign=two_sign,
         )
         if final_result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "regression-check"
@@ -1920,6 +1928,7 @@ def _converge_impl(
                 extra_test_dirs=extra_test_dirs,
                 deadline_s=_budget_s(),
                 include_shaped=include_shaped,
+                two_sign=two_sign,
             )
         except Exception:  # noqa: BLE001 — classification is advisory; never fail the run
             survivor_report = None
@@ -2103,7 +2112,7 @@ def _converge_impl(
         ),
         function_basis=_basis,
         synthesized_only=synthesized_only,
-        policy_id=wesker_policy_id(),
+        policy_id=wesker_policy_id(two_sign=two_sign),
         stale_target=stale,
         # Consumed from the profile, never re-derived (#60). `getattr` with a True default is the
         # release-skew guard the issue names: an older Wesker without the field must not be read

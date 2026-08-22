@@ -108,19 +108,24 @@ def engine_fingerprint() -> str:
     return f"{base}+p{pid}" if pid else base
 
 
-def wesker_policy_id() -> str | None:
+def wesker_policy_id(two_sign: bool = False) -> str | None:
     """The engine's versioned mutation-policy id, when the installed Wesker
     publishes one (``mutation_policy()``, Wesker > 0.11). ``None`` on older
     engines — callers must treat that as "policy unversioned", never as
     "policy unchanged". Lazily imported for the same circularity reason as
-    ``engine_fingerprint``."""
+    ``engine_fingerprint``.
+
+    ``two_sign`` requests the σ(P, μ ∪ μ⁻) policy, which carries its own ``+neg`` id — so a
+    two-sign certificate honestly names the universe it was measured over."""
     try:
         # Feature detection, not a hard import: the checker resolves against
         # the FLOOR Wesker (0.11.0, pre-policy), the runtime may see newer.
         from Wesker import mutation_policy  # type: ignore[attr-defined]
     except ImportError:
         return None
-    return mutation_policy().policy_id
+    # Only pass the kwarg when set, so the default one-sign path still resolves against a
+    # pre-two-sign Wesker (mutation_policy() with no args); two_sign requires the newer engine.
+    return (mutation_policy(two_sign=True) if two_sign else mutation_policy()).policy_id
 
 
 def regime_keyed(base_key: str, regime_digest: str) -> str:

@@ -11,7 +11,7 @@ Pinned from intent, not from current output.
 
 from __future__ import annotations
 
-from Detective.verdict_cache import cache_key, regime_keyed
+from Detective.verdict_cache import cache_key, regime_keyed, wesker_policy_id
 
 
 def _t():  # a throwaway test callable — cache_key fingerprints the list, not what it asserts
@@ -66,3 +66,20 @@ def test_a_two_sign_run_keys_apart_from_a_one_sign_run():
     # A two-sign run is a DIFFERENT (larger) universe — keyed apart, never served across.
     assert cache_key(*args, "", two_sign=True) != cache_key(*args, "", two_sign=False)
     assert cache_key(*args, "", two_sign=True) == cache_key(*args) + ":two_sign"
+
+
+def test_wesker_policy_id_names_the_two_sign_policy():
+    """A two-sign converge/certify must stamp the σ(P, μ ∪ μ⁻) policy id, not the one-sign default —
+    else the certificate names the wrong universe it was measured over. Skipped on a Wesker that
+    predates the two-sign policy (the same version-skew guard the cross-repo tests use)."""
+    import inspect
+
+    from Wesker import mutation_policy
+
+    if "two_sign" not in inspect.signature(mutation_policy).parameters:
+        import pytest
+
+        pytest.skip("installed Wesker predates the two-sign policy")
+    one, two = wesker_policy_id(), wesker_policy_id(two_sign=True)
+    assert one and two and two != one
+    assert "+neg" in two and "+neg" not in one
