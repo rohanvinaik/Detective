@@ -304,9 +304,20 @@ singleton, unobservable, or the perturbation inverts a quantity a degenerate inp
 (Theorem 5.2's mechanism). Write $\nu(p) = \bot$ in that case.
 
 **Definition 7.3 (The UNDEFINED disposition).** Extend the disposition set with `undefined`, a sibling
-of `cut`: a perturbation with $\nu(p) = \bot$, or one whose application to the observed return raises
-because it is mis-typed to the codomain (Def. 11.6), receives `undefined`. It is **not** added to
-`SCORED_DISPOSITIONS`.
+of `cut`: a perturbation with $\nu(p) = \bot$ (Def. 7.2 — a degenerate/collapsed negative measure)
+receives `undefined`. It is **not** added to `SCORED_DISPOSITIONS`.
+
+*Note (two sources of inapplicability; only the collapsed-measure one is `undefined` for free —
+grounded, 2026-08-22).* A perturbation can also be inapplicable because it is *mis-typed* to the
+codomain (→negate on a `str`). Such a perturbation **raises when the mutant runs, and the engine
+attributes a raise as a crash kill** (`evaluate_mutant`), not `undefined` — a run kill (ARCHITECTURE
+§0). So routing a mis-typed perturbation to `undefined` is a wiring obligation the engine does *not*
+satisfy for free, and leaving it as a crash kill is *unsound*: it marks the output dimension **pinned**
+when the perturbation was merely inapplicable. The Form-A skeleton (Def. 11.10, Fork 1) therefore admits
+only *always-applicable* perturbations — which never raise on any value — so it produces no source-(b)
+`undefined` at all and its soundness (Prop. 7.4) is trivial. The type-conditional perturbations that can
+raise are generated only under Fork 2's observed typing (where they are applicable by construction), or
+behind a distinguished-inapplicability signal; both are deferred with the type-conditional family.
 
 **Proposition 7.4 (Soundness of abstention).** Under Def. 7.3 an `undefined` perturbation is coerced to
 neither verdict: not to *unconstrained* (which would read a failed measurement as "nothing forbidden
@@ -593,22 +604,31 @@ and the engine holds **no return-type model** [traced: `run_function_profiling` 
 `test_functions`, `original_func`, `is_pure` — no return type and no return-value capture; only
 `check_equivalent` calls $f$ directly, gated on numeric boundary inputs].
 
-* **Fork 1 (static / AST-typed).** Type $\Pi$ from the AST alone: universal perturbations
-  unconditionally; conditional ones from return-node literal/annotation evidence. A mis-typed
-  perturbation raises on application and receives `undefined` (Def. 7.3), so Fork 1 **over-generates and
-  lets the disposition calculus prune the ill-typed rows** — sound but noisy. *Partial self-correction:*
-  it catches mismatches that raise ($\to$ negate on `str`) and misses those that silently coerce
-  ($\to$ negate on `bool`, since `bool <: int` in Python), which corrupt signal rather than abstain.
-* **Fork 2 (sample-typed).** Observe $f$'s returns during a baseline pass (a return-capturing probe on
-  `original_func`, the return-value sibling of Detective's input capture-harvest `capture_call_inputs`),
-  yielding the observed codomain type; type $\Pi$ from it. Closes the silent-coercion hole; `undefined`
-  then fires only for genuinely unobservable returns. Cost: crosses the Detective/Wesker boundary
-  (return capture + observed-type threaded into generation).
+* **Fork 1 (always-applicable only — the shipped skeleton).** Admit only perturbations that are *total
+  on any value* and therefore cannot be mis-typed: $p_{\mathrm{none}}$ (`return None`), $p_{\mathrm{const}}$
+  (`return 0`), $p_{\mathrm{id}}$ (`return <arg>`) — the independence pair plus existence (Def. 11.8, the
+  load-bearing core). None of these can raise on application, so Fork 1 produces **no source-(b)
+  `undefined`** (Def. 7.3) and is **sound by construction**, not sound-but-noisy: every kill is by
+  assertion (a value distinction), every survivor a real negative DOF. It types nothing from the AST
+  because it needs no type; the type-conditional perturbations are simply *out of scope* here — they are
+  not over-generated and pruned. The earlier "over-generate and let `undefined` prune the ill-typed rows"
+  framing was wrong (grounding, 2026-08-22): a mis-typed perturbation is a *crash kill*, not `undefined`
+  (Def. 7.3 note), so pruning by `undefined` was never free. [Built 2026-08-22 as
+  `MutationCategory.OUTPUT`, opt-in two-sign policy; Wesker `dfce857`.]
+* **Fork 2 (sample-typed — the type-conditional completion).** Observe $f$'s returns during a baseline
+  pass (a return-capturing probe on `original_func`, the return sibling of Detective's input
+  capture-harvest `capture_call_inputs`), yielding the observed codomain type; generate the
+  type-conditional perturbations ($p_{\mathrm{neg}}, p_{\mathrm{empty}}, p_{\mathrm{NaN}}, p_{\mathrm{perm}},
+  \dots$) **only where the observed type makes them applicable**, so they never raise and never
+  mis-attribute. This adds the reach Fork 1 omits without reintroducing the crash-vs-`undefined` hazard.
+  Cost: crosses the Detective/Wesker boundary (return capture + observed type threaded into generation).
 
-**Proposition 11.11 (Fork 1 is sound; Fork 2 is precise).** Fork 1 never emits false signal (Prop. 7.4
-routes every ill-typed row to `undefined`), but its self-correction is partial (silent coercion). Fork 2
-removes the coercion hole at the cost of a runtime observation step. They compose as Form A/Form B do:
-Fork 1 the sound skeleton, Fork 2 the precision-completing pass.
+**Proposition 11.11 (Fork 1 is sound by restriction; Fork 2 adds typed reach).** Fork 1 emits no false
+signal because it admits only always-applicable perturbations — nothing raises, so nothing is
+mis-attributed, and Prop. 7.4's abstention obligation is *vacuous* for it (no source-(b) `undefined`
+arises). Fork 2 extends $\Pi$ to the type-conditional family under observed types, where applicability is
+guaranteed by construction, so it too never mis-attributes. They compose as Form A/Form B do: Fork 1 the
+always-applicable skeleton, Fork 2 the typed-reach completion.
 
 ---
 
@@ -686,10 +706,18 @@ one-sign); Prop. 2.5 (μ⁻ is a second instantiation, no new metatheory); Theor
 Theorem 6.2 (automation boundary from σ = TD); Cor. 8.3 (the qualifier is decidability); Prop. 9.4
 (admissibility as well-definedness); Prop. 10.3 (γ = d = bridge count); Cor. 10.6 (κ-gated removal).
 
-**Asserted / grounded but unbuilt.** μ⁻ Form A (Def. 11.4) and Form B (Def. 11.6); the perturbation
-family Π (Def. 11.8); the UNDEFINED disposition (Def. 7.3); Fork 1/Fork 2 typing (Def. 11.10); censor
-derivation from call-site populations; κ for code (Q1). Form A's pipeline reuse is grounded against the
-live engine (§11, [traced] 2026-08-22); everything in §11 remains code-unwritten.
+**Built (Wesker `dfce857`, 2026-08-22).** μ⁻ **Form A + Fork 1** (Def. 11.4, 11.10) — the
+`MutationCategory.OUTPUT` operator with the always-applicable sub-modes (the independence pair
+$p_{\mathrm{const}}, p_{\mathrm{id}}$ plus $p_{\mathrm{none}}$), realized as return-site AST rewrites
+reusing the evaluate/score/cover pipeline; the **two-sign policy** σ(P, μ ∪ μ⁻) as an opt-in
+`mutation_policy(two_sign=True)` with its own id, the default one-sign id byte-identical. Hand-written
+intent tests confirm the independence pair catches an under-specified suite (→const survives `f(0)==0`,
+dies on `f(3)==6`) and that every kill is by assertion, never a perturbation crash (Prop. 11.11).
+
+**Asserted / grounded but unbuilt.** μ⁻ **Form B** (Def. 11.6, the non-return codomain); **Fork 2** and
+the type-conditional perturbation family (Def. 11.8, 11.10); the `UNDEFINED` disposition (Def. 7.3 —
+needed only once Fork 2 / the degenerate-measure case lands); Detective's consumption of the two-sign
+policy (no CLI/converge wiring yet); censor derivation from call-site populations; κ for code (Q1).
 
 **Conjectured.** Censors are bridges, not bulk (Conj. 10.4); bounded-curvature greedy for the obligation
 graph (Q5).
