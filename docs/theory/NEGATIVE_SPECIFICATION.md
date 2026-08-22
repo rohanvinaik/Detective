@@ -59,10 +59,12 @@ positioning: μ⁻ is the *unification*, under $\sigma =$ teaching dimension, of
 lines — extreme mutation (whose operators and `effects`/`detect` calculus it adopts wholesale), checked
 coverage (the value/run axis), oracle assessment (the deficiency-as-false-negative reading), and
 metamorphic testing (the value-agnostic codomain oracle) — with $\sigma =$ TD grounded in the
-exact-learning teaching-dimension line (Hegedűs; Hellerstein) and co-characterized *dynamically* as the
-recursive teaching dimension, whence consolidation is a sample-compression scheme. The novelty is the
-two-sign construction, the isolation theorem, Form B, and the censor layer — not the operators, which the
-field already built.
+exact-learning teaching-dimension line (Hegedűs; Hellerstein — a characterization *up to a log factor*) and
+co-characterized *dynamically* as recursive-teaching (the batch suite) / self-directed-learning (the
+adaptive `converge` trajectory). The reading of consolidation as a *bounded* sample-compression scheme is
+retracted to a conjecture fenced by the multiclass compression impossibilities (§15, Prop. 15.6). The
+novelty is the two-sign construction, the isolation theorem, Form B, and the censor layer — not the
+operators, which the field already built.
 
 ---
 
@@ -86,6 +88,28 @@ $P_1 \equiv P_2$, iff $\mathrm{sem}(P_1)(x) = \mathrm{sem}(P_2)(x)$ for all $x \
 $m \in \mathrm{Mut}^{\neq}_\mu(P)$. The *specification complexity* is
 $$\sigma(P,\mu) = \min \{\, |T| : T \text{ achieves } \mathrm{SC}=1 \text{ for } P \text{ under } \mu \,\}.$$
 
+**Remark 1.3b (σ intrinsic vs $\hat\sigma$ observed; the decidability caveat and the bounded range).**
+Definition 1.3's $\sigma$ is the *intrinsic* object — the minimum over all suites separating every
+**non-equivalent** mutant — and non-equivalence is where undecidability enters. The *policy* $\mu$ is
+decidable: Python has a closed operator dictionary, so $\mathrm{Mut}_\mu(P)$ is a finite, enumerable set.
+But *behavioral equivalence over those mutants* is not — deciding $m \equiv P$ reduces to program
+equivalence, undecidable on an infinite domain (Rice 1953; Budd & Angluin 1982 for mutation equivalence
+specifically) — and the two facts must not be conflated (μ-decidable $\neq$ equivalence-decidable). So the
+engine never computes $\sigma$ directly: it reports $\hat\sigma$, the **test-set-relative** estimate (the
+*dynamic subsumption* quantity, as against *true subsumption over all tests*; Kurtz, Ammann & Offutt 2015),
+and names the undischarged residual explicitly — `candidate-equivalent — UNPROVEN`, never promoted to
+`equivalent` (Def. 12.4). The Blum-measure status inherited in Prop. 2.5 is accordingly relativized to a
+decidable $\mu$ with an equivalence oracle (SC Thm 2.5's finite-domain case; Thm 8.1 here), not asserted
+for the intrinsic object off the decidable class. Between its endpoints $\sigma$ is a *range*, not a single
+number: the **floor** is the intent minimum — the happy-path suite witnessing only that the function does
+what it is meant to — and the **ceiling** is the exact specification — the suite separating every
+non-equivalent element of the full operator space; the closure between them is the learning-theoretic
+content of §13. Even given the finite kill matrix, computing the *exact* minimum in that range is the Test
+Cover / Set Cover problem — NP-hard, inapproximable below $(1-o(1))\ln n$ (Feige 1998; Dinur–Steurer 2014),
+double-exponentially hard in the solution parameter (Chakraborty, Foucaud, Majumdar & Tale, ISAAC 2024) —
+so $\hat\sigma$ is reached greedily with the $\Theta(\log n)$ set-cover gap (Moret–Shapiro 1985; Prop. 15.6),
+never as a poly-time exact object.
+
 **Definition 1.4 (Value vs. run specification).** A kill by an assertion that distinguishes the
 returned value is a *value* kill; a kill by crash or timeout is a *run* kill and pins only that the
 mutant *executed differently*, not what it computes. Write $\mathrm{kill}_v$ for the assertion-kill
@@ -98,7 +122,18 @@ The distinction is *measured*, not cosmetic: Vera-Pérez et al. (2018/19) found 
 *traditional* mutation score is never $0$ — but only because "all [surviving-effect] mutations made the
 program crash with an exception, and are thus trivially detected," i.e. run-kills inflate the score while
 the value stays unpinned. Extreme mutation (μ⁻) is the more honest measure precisely because it does not
-count the crash.
+count the crash. *Monitorability scope (grounded 2026-08-23).* The value-kill / survivor / run-kill
+trichotomy is, term for term, the three-valued **LTL₃** verdict $\top$/?/$\bot$ (Bauer, Leucker &
+Schallhart 2011): a value kill is a finite *bad prefix* witnessing a violated **safety** (or co-safety)
+property, a survivor is the inconclusive `?`, a run kill is an execution difference carrying no value
+verdict. This *scopes* the guarantee rather than weakening it — value-completeness fences precisely the
+safety/co-safety invariants, those with a finite bad prefix (Alpern & Schneider 1985/1987); a perturbation
+whose only manifestation is a *liveness* violation (eventually-returns, terminates) has no finite witness
+and is therefore *run-only*, banking nothing toward the value specification exactly as Def. 1.4 already
+requires of a crash. The pseudo-tested / unpinned condition (§3, Rem. 11.9b) is the testing twin of
+**vacuity** — a specification that passes while never constraining the system (Kupferman & Vardi 2003) —
+and a value kill is its constructive non-vacuity witness (the RIP/PIE *propagation* step of Offutt–Untch
+and Voas 1992, caught by the oracle; the run kill is *reachability + infection* without one).
 
 **Proposition 1.5 (σ is a two-sign teaching dimension; cited).** For finite $D$ with faithful oracles,
 $\sigma(P,\mu)$ equals the teaching dimension $\mathrm{TD}$ of the $\equiv$-class of $P$ in the concept
@@ -110,32 +145,44 @@ uniquely identifies a target concept (Goldman–Kearns 1995; Goldman–Mathias 1
 dimension; this is the precise PAC↔exact bridge).** Two learning-theoretic characterizations of $\sigma$
 hold simultaneously, and the complete reading keeps both.
 
-*Static.* $\sigma(P,\mu) = \mathrm{TD}$ is the minimum teaching set (Prop. 1.5). The
-**extended/generalized teaching dimension tightly characterizes the query complexity of exact
-(membership-query) learning** (Hegedűs 1995; Hellerstein, Pillaipakkamnatt, Raghavan & Wilkins 1996) — so
-SC Thm 4.3's "$\sigma =$ Angluin query complexity" is not an analogy but that theorem, and the
-$\sigma\leftrightarrow$exact-learning edge is grounded at its origin.
+*Static.* $\sigma(P,\mu) = \mathrm{TD}$ is the minimum teaching set (Prop. 1.5), and the static object that
+carries to exact learning is the **extended** teaching dimension $\mathrm{XTD}$ (targets permitted outside
+the class; $\mathrm{TD}\le\mathrm{XTD}$, separately and strictly). $\mathrm{XTD}$ characterizes the query
+complexity of exact (membership-query) learning **up to a logarithmic factor** — a *two-sided* bound
+$\mathrm{XTD} \le \mathrm{MQ} \le \mathrm{XTD}\cdot O(\log|C|)$, not an equality (Hegedűs 1995; Hellerstein,
+Pillaipakkamnatt, Raghavan & Wilkins 1996). So SC Thm 4.3's "$\sigma =$ Angluin query complexity" holds as
+a characterization *up to that log factor*, and the $\sigma\leftrightarrow$exact-learning edge is grounded
+at its origin with the factor named rather than elided.
 
 *Dynamic.* The greedy specification **trajectory** (SC §3 — proportional progress, exponential decay, the
-bulk→tail phase transition) peels the highest-marginal mutants first, *recursively*: it is the recursive
-teaching sequence that defines the **recursive teaching dimension** $\mathrm{RTD}$ (Zilles, Lange, Holte &
-Zinkevich 2011). So $\sigma$ has two faces — $\sigma_{\text{static}} = \mathrm{TD}$ (the min suite) and
-$\sigma_{\text{dyn}} = \mathrm{RTD}$ (the trajectory's shape) — and the bulk/tail transition (§3.4-analogue)
-and the composition gap (§10) are RTD-flavoured, not flat-TD.
+bulk→tail phase transition) peels the highest-marginal mutants first, *recursively*. Which teaching object
+this is depends on **who chooses the order**, and the two cases must not be conflated. Under a *batch*,
+benevolent-teacher ordering the trajectory is the recursive teaching sequence defining the **recursive
+teaching dimension** $\mathrm{RTD}$ (Zilles, Lange, Holte & Zinkevich 2011). But when `converge` picks the
+next kill **adaptively, from the residual it is itself building** — no benevolent teacher, the *process*
+chooses the order — the correct object is *self-directed* learning, whose exact measure is the
+**self-directed learning dimension** $\mathrm{SDdim}$ (Devulapalli & Hanneke, ALT 2024), a distinct
+quantity from teacher-directed $\mathrm{RTD}$. So $\sigma$ has a static face $\sigma_{\text{static}} =
+\mathrm{XTD}$ (the min identifying set) and a dynamic face that is $\mathrm{RTD}$ for the consolidated batch
+suite and $\mathrm{SDdim}$ for the adaptive `converge` trajectory; the bulk/tail transition (§3.4-analogue)
+and the composition gap (§10) are dynamic-flavoured, not flat-TD.
 
-*The bridge.* RTD is the formal link between the *statistical* pole (VC dimension, PAC) and the *exact*
-pole (TD, query complexity): $\mathrm{RTD} \le \mathrm{VCD}$ for many natural classes (VC-dim 1,
-intersection-closed, finite maximum; Doliwa, Fan, Simon & Zilles 2014); $\mathrm{RTD}(C) \le d\cdot
-2^{d+1}$ for $\mathrm{VCD}(C)=d$ (Chen, Cheng & Tang 2016); and **whether RTD is linearly bounded by VCD
-carries directly to the sample-compression conjecture** (every VCD-$d$ class compresses to size $\le d$).
-This is what makes "$\sigma$ = the gap between statistical and exact learning" *precise* rather than
-suggestive — $\sigma$ sits on the RTD–VC–compression axis — and it has an operational payoff:
-**consolidation (§15), safe σ-preserving reduction to the minimal witness, IS a sample-compression
-scheme**, placing Detective's `decompose` inside that open problem. [Status: static TD = exact-learning
-query complexity is PROVED prior art (Hegedűs; Hellerstein); the RTD–VC–compression results are CITED
-prior art (Doliwa; Chen); the identification of $\sigma$'s *dynamics* with RTD and of consolidation with
-sample compression is this document's ASSERTED move, argued from the recursive structure of the greedy
-trajectory, not separately proved.]
+*The bridge (an open axis, not a proved equivalence).* The dynamic dimensions link the *statistical* pole
+(VC, PAC) to the *exact* pole (TD, query complexity), but the linkage is a set of open bounds, not an
+identity: $\mathrm{RTD} \le \mathrm{VCD}$ holds for several natural classes (VC-dim 1, intersection-closed,
+finite maximum; Doliwa, Fan, Simon & Zilles 2014) and $\mathrm{RTD}(C) \le d\cdot 2^{d+1}$ for
+$\mathrm{VCD}(C)=d$ (Chen, Cheng & Tang 2016), but whether $\mathrm{RTD}$ — or the collusion-free
+$\mathrm{NCTD}$ (Kirkpatrick, Simon & Zilles 2019), the parameter a *legitimate* compression scheme needs —
+is *linearly* bounded by VCD, the statement that would carry to the sample-compression conjecture, is
+**open** (Simon 2015; the 2026 Liu–Li $\mathrm{NCTD}\le\mathrm{VCD}$ preprint was withdrawn with a flawed
+lemma). So "$\sigma$ = the gap between statistical and exact learning" names a real *axis* — $\sigma$ sits
+on the RTD/SDdim–VC–compression line — but is not a computed identity, and the compression *reading* of
+consolidation is a conjecture fenced by the multiclass impossibilities of Prop. 15.6, not an operational
+payoff. [Status: static $\mathrm{XTD} =$ exact-learning query complexity *up to a log factor* is PROVED
+prior art (Hegedűs; Hellerstein); the RTD/SDdim characterizations and the partial $\mathrm{RTD}\le\mathrm{VCD}$
+results are CITED prior art (Zilles; Doliwa; Chen; Devulapalli–Hanneke); the identification of $\sigma$'s
+*adaptive* dynamics with $\mathrm{SDdim}$ is this document's ASSERTED move, and the earlier
+consolidation-*is*-compression identification is retracted to a fenced conjecture (Prop. 15.6).]
 
 *Remark 1.6.* Proposition 1.5 is the load-bearing inherited fact. Every subsequent claim about the
 negative sign is a consequence of $\sigma$ being equal to an object whose definition already ranges
@@ -314,8 +361,12 @@ is by construction value-indifferent. $\square$
 
 ## 5. Channel Isolation
 
-The positive and negative channels measure orthogonal quantities. This is the property that makes the
-negative sign worth adding rather than a re-derivation of the first.
+The positive and negative channels measure *non-redundant* quantities: the negative sign carries
+information the positive one cannot derive. We say **non-redundant** rather than "orthogonal / independent"
+deliberately — Theorem 5.2 is an *existence* witness of a distinction present in one channel and absent
+from the other, which is exactly non-redundancy: a strictly weaker and provable claim than statistical
+independence of the two channels over all constructs. This is the property that makes the negative sign
+worth adding rather than a re-derivation of the first.
 
 **Definition 5.1 (Channel information).** For a construct choice $c$ realizing $f$ (a particular program
 text among value-equivalent alternatives), let $I^{+}(c)$ be its information in the positive channel —
@@ -338,7 +389,18 @@ absent from $c_1$'s. Hence $I^{-}(c_1 \leftrightarrow c_2) > 0$ while $I^{+}(c_1
 **Corollary 5.3 (Non-redundancy).** The negative sign is not derivable from the positive one. Were the
 channels coupled, $\mu^-$ would be redundant; Theorem 5.2 is the formal statement of its worth.
 
-**Definition 5.4 (Overlap coupling).** Although the channels' *content* is orthogonal, both constrain
+**Remark 5.3b (the two-sign object is may/must testing; the incomparability corroborates, the cost is
+bounded).** The positive sign ("some test distinguishes $m$ from $P$") and the negative sign ("no
+admissible implementation produces $(x,y)$") are the two polarities of **may/must testing** (De Nicola &
+Hennessy 1984): may-testing succeeds if *some* context does, must-testing if *every* context does (a
+refusal is observable). Their preorders are provably **incomparable** — neither refines the other — which
+is the process-calculus form of Theorem 5.2's non-redundancy, established forty years prior; μ⁻ inherits it
+rather than asserts it. The same literature bounds the negative channel's *cost*: extreme / stub mutations
+(μ⁻'s universal family) are a leading empirical source of value-*equivalent* mutants (Kushigian et al.,
+ISSTA 2024), so Fork 1 over-produces exactly the value-equivalences the two-sign object must then discharge
+— handled by `candidate-equivalent — UNPROVEN` and `flag` (Def. 9.5, 12.4), not by a soundness exception.
+
+**Definition 5.4 (Overlap coupling).** Although the channels' *content* is non-redundant, both constrain
 the same graph of $(x, y) \in D \times R$ pairs. A positive claim $f(x) = y$ and a negative claim
 $(x,y) \in C$ (fenced) *collide* at the pair $(x,y)$.
 
@@ -1061,19 +1123,37 @@ spurious structure *is* a zero-κ derivation). Parts §1–§14 GENERATE the two
 makes it CANONICAL. [Cited *Significance Weighting* §17.1; the "consolidation minimizes a specification
 free energy" reading (SC Thm 3.10) is CONJECTURE, needing the σ free-energy machinery wired here.]
 
-**Proposition 15.6 (Consolidation is a sample-compression scheme — the RTD–VC bridge, operationalized).**
-By Prop. 1.5b, $\sigma$'s dynamics are the recursive teaching dimension $\mathrm{RTD}$, which is
-strongly connected to **sample compression** (Doliwa, Fan, Simon & Zilles 2014): whether $\mathrm{RTD}$ is
-linearly bounded by $\mathrm{VCD}$ bears directly on the sample-compression conjecture (every VCD-$d$ class
-compresses to a witness of size $\le d$). Consolidation (Thm. 15.4) is exactly such a scheme in the code
-domain: it reduces the two-sign teaching set to its **minimal σ-witness** (the value pins AND the negative
-fences that no smaller set preserves), which is a compression of the concept's identifying sample to the
-recursive-teaching core. So `decompose` is not merely a refactor operator; it is a *sample-compression
-scheme for the mutation-induced concept class*, and its size is $\sigma_{\text{dyn}} = \mathrm{RTD}$. This
-places Detective inside a named open problem: a linear compression bound for the rule/mutation class would
-be a linear-in-VCD RTD bound, and vice versa. [Status: the RTD–compression connection is CITED prior art
-(Doliwa; the RTD-vs-VCD linearity is OPEN, Simon 2015); the identification of consolidation *with* a
-compression scheme is this document's ASSERTED move (Prop. 1.5b's dynamics claim, applied), not proved.]
+**Proposition 15.6 (Consolidation is a σ-preserving greedy reduction; whether it is a *bounded*
+sample-compression scheme is open — and obstructed from dimension alone).** Consolidation (Thm. 15.4)
+reduces the two-sign teaching set to a **minimal σ-witness** — the value pins AND the negative fences that
+no smaller set preserves. Two facts about it are settled; one reading the earlier draft asserted is open,
+and is retracted here.
+
+*Settled (the hardness, hence the greedy form).* Computing the exact minimal witness is the Test Cover /
+Minimum Set Cover problem: NP-hard and inapproximable below $(1-o(1))\ln n$ unless P $=$ NP (Feige 1998;
+Dinur–Steurer 2014), and — even given the finite kill matrix — double-exponentially hard in the solution
+parameter $k$, resisting kernelization (Chakraborty, Foucaud, Majumdar & Tale, ISAAC 2024). So `decompose`'s
+reduction to the minimal witness is *greedy by necessity, not by design*, and its worst-case ratio is the
+known $\Theta(\log n)$ set-cover gap (Moret–Shapiro 1985), not a novel compression guarantee. The minimal
+σ-witness is a well-defined **lower bound**, not a poly-time-computed object.
+
+*Retracted (the compression reading).* The earlier claim — that `decompose` *is* a sample-compression
+scheme of size $\sigma_{\text{dyn}} = \mathrm{RTD}$ — over-reached, and grounding the cited results (2026-08-23)
+shows the over-reach is not repairable by the obvious fix. The two-sign object is genuinely **multiclass**
+(a positive which-implementation label and a negative must-not label), and for multiclass classes finite
+dimension does **not** imply a compression scheme bounded by any function of that dimension (Pabbaraju,
+*Multiclass Learnability Does Not Imply Sample Compression*, ALT 2024); the natural repair — recast it as a
+*list* sample-compression scheme — also fails in general, since there are list-learnable classes that admit
+no bounded list compression (Hanneke, Moran & Waknine, *List Sample Compression and Uniform Convergence*,
+COLT 2024). The collusion-free parameter that *would* legitimize a compression reading is the no-clash
+teaching dimension $\mathrm{NCTD}$ (Kirkpatrick, Simon & Zilles, ALT 2019); but $\mathrm{NCTD} \le
+\mathrm{VCD}$ is **open** (the 2026 Liu–Li preprint asserting it was withdrawn with an acknowledged flawed
+lemma), and $\mathrm{RTD}$ itself can exceed VC. We therefore keep consolidation as a σ-preserving greedy
+reduction (Thm. 15.4) and record the compression *reading* as a conjecture fenced by these impossibilities,
+not as an operationalized RTD–VC bridge. [Status: the set-cover / Test-Cover hardness and the greedy
+$\Theta(\log n)$ gap are PROVED prior art (Feige; Dinur–Steurer; Chakraborty 2024; Moret–Shapiro); the
+identification of consolidation *with* a bounded compression scheme is **WITHDRAWN** as a claim of this
+document — it is open, and obstructed for multiclass classes from dimension alone (Pabbaraju; Hanneke–Moran–Waknine).]
 
 ---
 
@@ -1128,13 +1208,14 @@ set. Stating the map is what makes the contribution honest and, thereby, stronge
 | unpinned perturbation (Def. 3.2) | **oracle assessment** (Jahangirova, Clark, Harman & Tonella 2016) | an oracle *false-negative* (accepts a wrong output) + improvement loop | the fence as authored intent (§12); κ-scored censors (§14) |
 | codomain relation $f \oplus p$ (Def. 3.1) | **metamorphic testing** (Chen–Cheung–Yiu 1998; Segura et al. 2016) | value-agnostic output-space oracle | its negative-perturbation dual; the teaching-dimension placement |
 | σ = TD (Prop. 1.5) | **teaching dimension / exact learning** (Goldman–Kearns/Mathias; Hegedűs 1995; Hellerstein et al. 1996) | TD = query complexity of exact identification | the two-label instantiation over a mutation-induced class |
-| σ dynamics; consolidation (§15) | **RTD–VC–compression** (Zilles 2011; Doliwa 2014; Chen 2016) | recursive teaching; sample compression | the code-domain realization; `decompose` as a compression scheme |
+| σ dynamics; consolidation (§15) | **RTD/SDdim–VC–compression** (Zilles 2011; Doliwa 2014; Chen 2016; Devulapalli–Hanneke 2024) | recursive / self-directed teaching; sample compression | the code-domain realization; `decompose` as a σ-preserving reduction (the compression *reading* fenced open, Prop. 15.6) |
 
 **§17.2 The one-line reading.** Extreme mutation lent the *operators* and the effects/detect *formalism*;
 checked coverage the *value/run axis*; oracle assessment the *deficiency = false-negative* reading;
 metamorphic testing the *value-agnostic codomain oracle*; teaching dimension the *unit* (σ = min evidence
-to identity = query complexity of exact learning); RTD–VC–compression the *bridge between statistical and
-exact* and the *compression view of consolidation*. μ⁻ supplies what none has alone: the recognition that
+to identity = query complexity of exact learning, *up to a log factor*, Hegedűs); RTD/SDdim–VC–compression
+the *open axis between statistical and exact* and the (fenced, Prop. 15.6) *compression reading of
+consolidation*. μ⁻ supplies what none has alone: the recognition that
 these are *one quantity* — the negative label of a two-sign teaching set — plus the isolation theorem
 (Thm 5.2), the codomain-total extension (Form B, the effects the field addressed ad hoc), the corpus/κ
 censor layer (§14), and the operational realization against a live engine (§11).
@@ -1143,12 +1224,16 @@ censor layer (§14), and the operational realization against a live engine (§11
 oracle framing (checked coverage / oracle assessment / metamorphic), *not* σ = TD (Hegedűs; the SC paper).
 New here: (i) the **two-sign** specification complexity $\sigma(P, \mu \cup \mu^-)$ as the first quantity
 bounding behavioral identity over both labels (§2, §8); (ii) **channel isolation** (Thm 5.2) — the negative
-sign is information-theoretically independent of the positive, which is why extreme mutation is not
-redundant with traditional mutation (empirically correlated-but-distinct, Appendix C); (iii) the
-codomain-total realization (**Form B**) reaching the non-return effects; (iv) the population-derived
-**censor** layer with its κ / bounded-curvature theory (§9, §14); and (v) the co-characterization
-$\sigma_{\text{static}} = \mathrm{TD}$, $\sigma_{\text{dyn}} = \mathrm{RTD}$, with **consolidation = sample
-compression** (Prop. 1.5b, 15.6). Everything else is assembly, cited as such.
+sign is *non-redundant* with the positive (an existence witness of a one-channel distinction, not a claim
+of statistical independence; the may/must incomparability of De Nicola–Hennessy 1984 is its process-calculus
+form), which is why extreme mutation is not redundant with traditional mutation (empirically
+correlated-but-distinct, Appendix C); (iii) the codomain-total realization (**Form B**) reaching the
+non-return effects; (iv) the population-derived **censor** layer with its κ / bounded-curvature theory
+(§9, §14); and (v) the co-characterization of $\sigma$'s dynamics — $\mathrm{XTD}$ static, $\mathrm{RTD}$
+(batch) / $\mathrm{SDdim}$ (adaptive `converge`) dynamic (Prop. 1.5b). The *consolidation = sample
+compression* reading is claimed neither as new nor as established: it is **retracted to a conjecture**
+fenced by the multiclass compression impossibilities (Prop. 15.6). Everything else is assembly, cited as
+such.
 
 ---
 
@@ -1270,10 +1355,23 @@ backward pass is unrun and no trained two-sign learner exists. The greenfield pe
 statistical/exact gap with intelligence (György et al. + the parent conjecture, promising-not-established,
 Def. 13.6). The reading of the corpus self-teaching term as SSL's unknown-knowns regime (Def. 14.3;
 *Significance Weighting* §11's own asserted move). The sign as *probed axis* not mechanism (Rem. 2.2b —
-extreme mutation is a positive-mechanism, negative-sign policy). The co-characterization
-$\sigma_{\text{dyn}} = \mathrm{RTD}$ and **consolidation $=$ sample compression** (Prop. 1.5b, 15.6 —
-argued from the recursive greedy trajectory, not proved; the RTD-vs-VCD linearity is itself open,
-Simon 2015).
+extreme mutation is a positive-mechanism, negative-sign policy). The co-characterization of
+$\sigma$'s dynamics — $\mathrm{RTD}$ for the batch suite, $\mathrm{SDdim}$ for the adaptive `converge`
+trajectory (Prop. 1.5b; Devulapalli–Hanneke 2024) — is argued from the greedy trajectory's structure, not
+proved.
+
+**Retracted (this pass, 2026-08-23 — grounding the cited results overrode an earlier over-claim).**
+*Consolidation $=$ a bounded sample-compression scheme* (former Prop. 15.6). Directly grounding the recent
+literature showed the identification is open and, worse, obstructed: multiclass finite dimension does not
+imply a dimension-bounded compression scheme (Pabbaraju, ALT 2024), the *list* relaxation can also fail to
+compress (Hanneke–Moran–Waknine, COLT 2024), and the collusion-free route $\mathrm{NCTD}\le\mathrm{VCD}$ is
+unproven (the 2026 Liu–Li preprint was withdrawn with a flawed lemma). Prop. 15.6 is now the conservative
+statement: consolidation is a σ-preserving *greedy set-cover reduction* with the known $\Theta(\log n)$ gap
+over an NP-hard / double-exponential-hard exact problem (Feige; Dinur–Steurer; Chakraborty 2024;
+Moret–Shapiro), the compression *reading* a fenced conjecture. Two smaller phrasings were corrected the
+same pass: Hegedűs to a two-sided (up-to-log) bound (Prop. 1.5b), and "orthogonal / independent channels"
+to "non-redundant" (Thm 5.2 is an existence witness; the De Nicola–Hennessy may/must incomparability
+corroborates).
 
 ---
 
@@ -1339,6 +1437,23 @@ Rem. 3.2b; prevalence $1$–$46\%$ over 28K+ methods; the crash-kill/value findi
 triage, C5) · Schuler & Zeller 2011, *Assessing Oracle Quality with Checked Coverage* (ICST — value/run
 $=$ checked/ordinary coverage; read via publisher record + the dynamic-slice definition).
 
+**Prior art VERIFIED THIS SESSION (2026-08-23, via arXiv abstract fetch — existence, title, authors, and
+central claim confirmed against the source; cite as grounded).** Pabbaraju, *Multiclass Learnability Does
+Not Imply Sample Compression* (arXiv:2308.06424, ALT 2024 — multiclass finite DS-dim ⇏ a dimension-bounded
+compression scheme; the Prop. 15.6 obstruction) · Hanneke, Moran & Waknine, *List Sample Compression and
+Uniform Convergence* (arXiv:2403.10889, COLT 2024 — there exist list-learnable classes with **no** bounded
+list compression; the *list* relaxation does not rescue Prop. 15.6) · Devulapalli & Hanneke, *The Dimension
+of Self-Directed Learning* (arXiv:2402.13400, ALT 2024 — SDdim characterizes self-directed learning,
+distinct from teacher-directed RTD; Prop. 1.5b's adaptive dynamics) · Chakraborty, Foucaud, Majumdar & Tale,
+*Tight (Double) Exponential Bounds for Identification Problems: Locating-Dominating Set and Test Cover*
+(arXiv:2402.08346, ISAAC 2024 — Test Cover is double-exponentially hard in the solution parameter; Rem. 1.3b,
+Prop. 15.6) · Yue, Chen, Lu, Zhao, Wang, Song & Huang, *Does Reinforcement Learning Really Incentivize
+Reasoning Capacity in LLMs Beyond the Base Model?* (arXiv:2504.13837, NeurIPS 2025 — RLVR sharpens within
+base-model sampling support; the ESL backward-pass caveat, Def. 13.6). **Verified as WITHDRAWN — cited only
+as an OPEN problem, never as a result:** Liu & Li, *The No-Clash Teaching Dimension is Bounded by VC
+Dimension* (arXiv:2603.23561, 2026 — withdrawn, author comment "the proof of Lemma 2 is wrong"); so
+$\mathrm{NCTD}\le\mathrm{VCD}$ is open here (Prop. 1.5b, 15.6).
+
 **External (RECALLED / from search records, NOT full-read — check before public use).** Winston 1970
 (near-miss) · Minsky 1974/1980/1986 (frames, K-lines, censors) · Mitchell 1982 (version spaces) ·
 Goldman–Kearns 1995, Goldman–Mathias 1996 (teaching dimension) · Angluin 1987/1988 (exact learning) ·
@@ -1353,6 +1468,20 @@ degree) · Golovin–Krause 2011 (adaptive submodularity) · Nemhauser–Wolsey�
 Blais et al. 2012 (identity testing) · György et al. 2025 (exact learning for general intelligence) ·
 Crick–Mitchison 1983 (reverse learning) · Rice 1953 · Landauer 1961 (erasure cost) · Abelson & Sussman
 (SICP — the aesthetic §15 makes computable).
+
+**Foundational, newly cited this pass (2026-08-23; classical results entering the text at Rem. 1.3b, Def. 1.4,
+Rem. 5.3b, Prop. 15.6 — safe to cite, not full-read).** De Nicola & Hennessy 1984 (may/must testing;
+incomparable preorders — Rem. 5.3b) · Alpern & Schneider 1985/1987 (safety/liveness; finite bad prefixes —
+Def. 1.4) · Bauer, Leucker & Schallhart 2011 (LTL₃ ⊤/?/⊥ runtime verdict — Def. 1.4) · Kupferman & Vardi
+2003 (vacuity detection — Def. 1.4, §3) · Offutt–Untch RIP / Voas PIE 1992 (reachability–infection–
+propagation = run-kill vs value-kill — Def. 1.4) · Meyer 1992 (Design by Contract; blame assignment) ·
+Kurtz, Ammann & Offutt 2015 (true vs dynamic subsumption = σ vs $\hat\sigma$ — Rem. 1.3b) ·
+Ammann–Delamaro–Offutt ICST 2014 (Thm 2: minimal mutant sets share one cardinality — well-definedness) ·
+Moret & Shapiro 1985 (minimum distinguishing test set; the greedy $\Theta(\log n)$ gap — Rem. 1.3b, Prop. 15.6) ·
+Feige 1998 / Dinur–Steurer 2014 (set-cover inapproximability — Rem. 1.3b, Prop. 15.6) ·
+Kirkpatrick, Simon & Zilles 2019 (no-clash teaching dimension NCTD — the collusion-free parameter, Prop. 1.5b/15.6) ·
+Maton, Kapfhammer & McMinn ICSME 2024 (statement-level pseudo-testedness — the method-granularity qualifier;
+RECALLED, not full-read).
 
 ## Appendix C — Empirical Predictions and Falsifiable Tests
 
@@ -1379,14 +1508,16 @@ I_{\mathrm{solve}}^{\mu}$, and the gap is the second sign's information content.
 existing residual instrumentation. Falsifier: no significant residual reduction — would refute Prop. 4.3
 and the automation-relocation claim of Theorem 6.2.
 
-**C4 (isolation — CORRELATED BUT DISTINCT, partially measured; refined from "largely disjoint").** By
-Theorem 5.2 the channels are orthogonal in *content*, so the negative ($\mu^-$/extreme-mutation) survivors
-are not a re-derivation of the positive ($\mu$/traditional) survivors. The prior art *measures* this and
-it is more nuanced than disjointness: Vera-Pérez et al. (2018/19) found the traditional mutation score of
-pseudo-tested (extreme-survivor) methods is *significantly lower* than that of required methods (Wilcoxon
-$p<0.01$, effect size $1.5$) yet **nonzero and moderately correlated** (Spearman $\approx 0.6$, Descartes
-vs. Gregor). So the two channels are correlated-but-distinct, not disjoint — as Thm 5.2 predicts (the
-graph of $(x,y)$ pairs overlaps, Def. 5.4, but the *content* is independent). Falsifier: *identity* of the
+**C4 (non-redundancy — CORRELATED BUT DISTINCT, partially measured; refined from "largely disjoint").** By
+Theorem 5.2 the channels are *non-redundant* in content (Thm 5.2 witnesses a distinction present in one and
+absent from the other — not a claim of statistical independence), so the negative ($\mu^-$/extreme-mutation)
+survivors are not a re-derivation of the positive ($\mu$/traditional) survivors. The prior art *measures*
+this and it is more nuanced than disjointness: Vera-Pérez et al. (2018/19) found the traditional mutation
+score of pseudo-tested (extreme-survivor) methods is *significantly lower* than that of required methods
+(Wilcoxon $p<0.01$, effect size $1.5$) yet **nonzero and moderately correlated** (Spearman $\approx 0.6$,
+Descartes vs. Gregor) — precisely the may/must *incomparability* (De Nicola–Hennessy 1984) rather than
+independence. So the two channels are correlated-but-distinct, not disjoint — as Thm 5.2 predicts (the
+graph of $(x,y)$ pairs overlaps, Def. 5.4, but the *content* is non-redundant). Falsifier: *identity* of the
 two survivor sets (perfect correlation) — would collapse $\mu^-$ into redundancy (Cor. 5.3); *this is
 refuted by the measured gap*.
 

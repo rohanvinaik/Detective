@@ -66,7 +66,36 @@ Verification-Modulo-Tested-Contracts 2026); contrastive ILP as the censor mechan
 near-miss Rabold–Siebers–Schmid 2022); two-regime biological consolidation (Iatropoulos–Brea–Gerstner PNAS
 2025; Tononi–Cirelli SHY); PU-learning lower bounds for the must-not boundary.
 
-## THE EDIT PLAN for NEGATIVE_SPECIFICATION.md (execute post-compact)
+## ✅ EXECUTED 2026-08-23 — with TWO grounding overrides (read before re-using this plan)
+
+The edit plan below was applied to NEGATIVE_SPECIFICATION.md this pass. Before applying, the seven
+recalled arXiv items were grounded by direct abstract fetch, and **grounding overrode the plan in two
+load-bearing places** — do NOT re-apply the original wording:
+
+1. **List compression does NOT rescue the compression claim.** The plan said to recast consolidation as a
+   *list* sample-compression scheme "where compression↔learnability is restored." Hanneke–Moran–Waknine
+   (COLT 2024, arXiv:2403.10889 — *List Sample Compression and Uniform Convergence*, verified) proves the
+   OPPOSITE: there are list-learnable classes with no bounded list compression. So the retraction of
+   Prop. 15.6 does **not** swap in a list-compression guarantee — it goes fully conservative (greedy
+   set-cover reduction; compression reading = fenced conjecture).
+2. **NCTD ≤ VCD is UNPROVEN.** The plan said to "re-anchor the compression claim on NCTD (proven ≤ VC)."
+   The only paper claiming it (Liu–Li, arXiv:2603.23561, 2026) is **WITHDRAWN** with an acknowledged flaw
+   ("the proof of Lemma 2 is wrong"). NCTD ≤ VCD is cited in the paper as OPEN, never as established.
+
+Also confirmed by grounding: Pabbaraju 2308.06424, Devulapalli–Hanneke 2402.13400 (SDdim; the "incomparable
+to VC" sub-claim was NOT confirmed, so it is not asserted in the paper), Chakraborty 2402.08346 (Test Cover
+double-exp), Yue 2504.13837 (RLVR within base support). Maton ICSME 2024 has no locatable arXiv id
+(WebSearch budget exhausted by the fleet) → RECALLED bucket, granularity note kept soft; 2606.01066 did not
+support the specific __eq__/sys.exit claim → not cited for it.
+
+The applied edits: retract Prop. 15.6 (conservative form) · refine Prop. 1.5b (XTD up-to-log Hegedűs;
+RTD-batch / SDdim-adaptive; compression axis stated open) · new Rem. 1.3b (σ vs σ̂ + bounded range +
+Test-Cover hardness) · Def. 1.4 safety-scoping (LTL₃/Alpern–Schneider/vacuity/RIP) · §5 "orthogonal"→
+"non-redundant" + Rem. 5.3b (may/must) · propagated to Abstract, §17.1/.2/.3, §19 (new Retracted block),
+App B (verified-this-session + foundational-newly-cited blocks), App C (C4). Manifest re-pinned
+(negative-specification sha256 → 2cc59795…) and checked (11/12; arc-glossary drift pre-existing).
+
+## THE EDIT PLAN for NEGATIVE_SPECIFICATION.md (execute post-compact) — ORIGINAL (see overrides above)
 
 **RETRACT (Claude's over-claim):** Prop 15.6 — "consolidation IS a clean sample-compression scheme."
 Replace with: a compression of the teaching set that is formally a **list** sample-compression scheme

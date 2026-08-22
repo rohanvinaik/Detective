@@ -114,7 +114,7 @@ priors:
     path: docs/theory/NEGATIVE_SPECIFICATION.md
     root: local
     role: the theory document this manifest serves
-    sha256: 39452273999a593f0e75e1170cf70d77a4ad366e98b6e7ea3fb8bb43d37c88bb
+    sha256: 2cc597956a9cdf84f0e45b42aba7b824ece4d617fbe2d33fa5b77d42a8fc6965
     cited_by: [docs/theory/GLOSSARY.md, docs/theory/CONSTRAINT_BLOCK.md]
 
   - id: negative-spec-glossary
@@ -257,7 +257,7 @@ external_citations:
     verified: false
   - key: doliwa-2014
     cite: "Doliwa, Fan, Simon & Zilles, Recursive Teaching Dimension, VC-Dimension and Sample Compression, JMLR 2014"
-    lends: "RTD <-> VCD <-> sample compression — the PAC<->exact bridge; consolidation = compression (Prop. 1.5b, 15.6)"
+    lends: "RTD <-> VCD <-> sample compression — the PAC<->exact bridge; the RTD<=VCD partial results (Prop. 1.5b). NOTE: the consolidation=compression identification is RETRACTED to a fenced conjecture (Prop. 15.6, 2026-08-23)"
     load_bearing: true
     verified: false  # search record only
   - key: chen-cheng-tang-2016
@@ -267,6 +267,101 @@ external_citations:
     verified: false
   - key: simon-2015
     cite: "Simon, Open Problem: Recursive Teaching Dimension Versus VC Dimension, COLT 2015"
-    lends: "the RTD-vs-VCD linearity open problem that consolidation-as-compression sits inside (Prop. 15.6)"
+    lends: "the RTD-vs-VCD linearity open problem the compression reading sits inside (Prop. 15.6)"
     load_bearing: false
     verified: false
+
+  # ─── Recent items GROUNDED 2026-08-23 via arXiv abstract fetch (existence + title + authors +
+  #     central claim confirmed against the source). These OVERRODE the fleet's recalled framing in
+  #     two load-bearing places: list compression does NOT restore compression (Hanneke-Moran-Waknine),
+  #     and NCTD<=VCD is UNPROVEN (Liu-Li withdrawn). See docs/theory/LITERATURE_REVIEW.md. ───
+  - key: pabbaraju-2024
+    cite: "Pabbaraju, Multiclass Learnability Does Not Imply Sample Compression, ALT 2024 (arXiv:2308.06424)"
+    lends: "multiclass finite DS-dim does NOT imply a dimension-bounded compression scheme — the Prop. 15.6 obstruction"
+    load_bearing: true
+    verified: true   # arXiv abstract fetched + claim confirmed 2026-08-23
+  - key: hanneke-moran-waknine-2024
+    cite: "Hanneke, Moran & Waknine, List Sample Compression and Uniform Convergence, COLT 2024 (arXiv:2403.10889)"
+    lends: "there exist list-learnable classes with NO bounded list compression — the *list* relaxation does not rescue Prop. 15.6"
+    load_bearing: true
+    verified: true   # arXiv abstract fetched; CORRECTED the fleet's 'list compression restores it' framing 2026-08-23
+  - key: devulapalli-hanneke-2024
+    cite: "Devulapalli & Hanneke, The Dimension of Self-Directed Learning, ALT 2024 (arXiv:2402.13400)"
+    lends: "SDdim characterizes self-directed learning, distinct from teacher-directed RTD — Prop. 1.5b adaptive dynamics"
+    load_bearing: true
+    verified: true   # arXiv abstract fetched 2026-08-23 (VC-incomparability sub-claim NOT confirmed, so not asserted)
+  - key: chakraborty-foucaud-2024
+    cite: "Chakraborty, Foucaud, Majumdar & Tale, Tight (Double) Exponential Bounds for Identification Problems: Locating-Dominating Set and Test Cover, ISAAC 2024 (arXiv:2402.08346)"
+    lends: "Test Cover is double-exponentially hard in the solution parameter — Rem. 1.3b, Prop. 15.6"
+    load_bearing: true
+    verified: true   # arXiv abstract fetched + title/authors/claim confirmed 2026-08-23
+  - key: yue-2025
+    cite: "Yue, Chen, Lu, Zhao, Wang, Song & Huang, Does RL Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model?, NeurIPS 2025 (arXiv:2504.13837)"
+    lends: "RLVR sharpens within base-model sampling support — the ESL backward-pass caveat (Def. 13.6)"
+    load_bearing: false
+    verified: true   # arXiv abstract fetched 2026-08-23
+  - key: liu-li-2026-WITHDRAWN
+    cite: "Liu & Li, The No-Clash Teaching Dimension is Bounded by VC Dimension, arXiv:2603.23561 (2026) — WITHDRAWN"
+    lends: "claimed NCTD<=VCD; WITHDRAWN twice with author comment 'the proof of Lemma 2 is wrong'. Cited ONLY as: NCTD<=VCD is OPEN (Prop. 1.5b, 15.6). NEVER cite as an established result."
+    load_bearing: true
+    verified: true   # arXiv page fetched 2026-08-23 — confirmed WITHDRAWN + flawed
+  - key: kirkpatrick-simon-zilles-2019
+    cite: "Kirkpatrick, Simon & Zilles, Optimal Collusion-Free Teaching (No-Clash Teaching Dimension), ALT 2019"
+    lends: "NCTD — the collusion-free parameter a legitimate compression scheme needs (Prop. 1.5b, 15.6)"
+    load_bearing: false
+    verified: false  # search record only
+  - key: de-nicola-hennessy-1984
+    cite: "De Nicola & Hennessy, Testing Equivalences for Processes, TCS 34, 1984"
+    lends: "may/must testing = the two-sign object; the incomparable preorders corroborate non-redundancy (Rem. 5.3b, §5)"
+    load_bearing: true
+    verified: false  # foundational, cited from standing knowledge; not re-read this pass
+  - key: alpern-schneider-1985
+    cite: "Alpern & Schneider, Recognizing Safety and Liveness, Distributed Computing 2(3) 1987 / IPL 1985"
+    lends: "only safety/co-safety have finite bad prefixes — value-kill is safety-scoped (Def. 1.4)"
+    load_bearing: false
+    verified: false
+  - key: bauer-leucker-schallhart-2011
+    cite: "Bauer, Leucker & Schallhart, Runtime Verification for LTL and TLTL, TOSEM 20(4) 2011"
+    lends: "LTL3 top/?/bottom = value-kill / survivor / run-kill (Def. 1.4)"
+    load_bearing: false
+    verified: false
+  - key: kupferman-vardi-2003
+    cite: "Kupferman & Vardi, Vacuity Detection in Temporal Model Checking, STTT 4(2) 2003"
+    lends: "vacuity = pseudo-tested; a value kill is its non-vacuity witness (Def. 1.4, §3)"
+    load_bearing: false
+    verified: false
+  - key: offutt-untch-voas-1992
+    cite: "Offutt & Untch, RIP model; Voas, PIE (IEEE TSE 1992)"
+    lends: "reachability-infection (run-kill) vs propagation-to-oracle (value-kill) — Def. 1.4"
+    load_bearing: false
+    verified: false
+  - key: meyer-dbc-1992
+    cite: "Meyer, Applying Design by Contract, IEEE Computer 25(10) 1992"
+    lends: "precondition=client/boundary-crash, postcondition=supplier/value-kill (Def. 1.4)"
+    load_bearing: false
+    verified: false
+  - key: kurtz-ammann-offutt-2015
+    cite: "Kurtz, Ammann & Offutt, Static Analysis of Mutant Subsumption, ICSTW/Mutation 2015"
+    lends: "true subsumption (all tests = sigma) vs dynamic subsumption (test-relative = sigma-hat) — Rem. 1.3b"
+    load_bearing: false
+    verified: false
+  - key: ammann-delamaro-offutt-2014
+    cite: "Ammann, Delamaro & Offutt, Establishing Theoretical Minimal Sets of Mutants, ICST 2014"
+    lends: "Thm 2: all minimal mutant sets share one cardinality — the well-definedness sigma needs"
+    load_bearing: false
+    verified: false
+  - key: moret-shapiro-1985
+    cite: "Moret & Shapiro, On Minimizing a Set of Tests, SIAM JSSC 6(4) 1985"
+    lends: "minimum distinguishing test set; the greedy Theta(log n) set-cover gap (Rem. 1.3b, Prop. 15.6)"
+    load_bearing: false
+    verified: false
+  - key: feige-setcover-1998
+    cite: "Feige, A Threshold of ln n for Approximating Set Cover, JACM 1998; Dinur & Steurer, STOC 2014"
+    lends: "set-cover inapproximability below (1-o(1))ln n — Rem. 1.3b, Prop. 15.6"
+    load_bearing: false
+    verified: false
+  - key: maton-2024
+    cite: "Maton, Kapfhammer & McMinn, Exploring Pseudo-Testedness at the Statement Level, ICSME 2024"
+    lends: "48% of pseudo-tested STATEMENTS lie outside pseudo-tested methods — the method-granularity qualifier"
+    load_bearing: false
+    verified: false  # RECALLED — no arXiv id located (WebSearch budget exhausted); NOT quoted, only noted
