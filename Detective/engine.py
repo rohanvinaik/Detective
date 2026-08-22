@@ -1254,7 +1254,17 @@ def diagnose(
 
 def _compile_mutant(mutant: Any, original: Callable[..., Any]) -> Callable[..., Any] | None:
     """Compile a mutant's AST into a callable, seeded with the original's globals so
-    it resolves sibling helpers/constants/imports. None if it won't build."""
+    it resolves sibling helpers/constants/imports. None if it won't build.
+
+    A μ⁻ Form-B wrapper mutant has no compilable AST — its codomain is delivered otherwise than by
+    the return value (a generator's yields), so it is a RUNTIME wrapper of the original. Build it by
+    calling the factory, exactly as Wesker's ``evaluate_mutant`` does, so its survivors are
+    witness-searched here too rather than dropped as un-buildable."""
+    if getattr(mutant, "wrapper_factory", None) is not None:
+        try:
+            return mutant.wrapper_factory(original) if original is not None else None
+        except Exception:  # noqa: BLE001 — a wrapper that won't build simply cannot be witnessed
+            return None
     try:
         module_ast = ast.Module(body=[mutant.mutated_node], type_ignores=[])
         ast.fix_missing_locations(module_ast)
