@@ -80,3 +80,50 @@ def capture_call_inputs(
         finally:
             sys.setprofile(prev)
     return captured[:max_samples]
+
+
+def capture_return_types(
+    original: Callable[..., Any],
+    tests: list[Callable[..., Any]],
+    *,
+    max_samples: int = 24,
+) -> frozenset[str]:
+    """The set of type NAMES of values the target RETURNS while ``tests`` run — the observed
+    codomain for μ⁻ Fork 2 (the two-sign contract's type-conditional output perturbations).
+
+    Sibling of :func:`capture_call_inputs`: the same ``sys.setprofile`` hook keyed on the target's
+    code object, but harvesting on the ``return`` event, where the hook's ``arg`` is the returned
+    object. Keying on the exact ``type(x).__name__`` is deliberate — a ``bool`` return reads as
+    ``"bool"``, not ``"int"``, so a numeric perturbation (``-x``) is never emitted for it (the
+    silent-coercion hole Fork 1 could not close, closed here by observation).
+
+    Empty when the tests never reach the function or it only ever returns ``None`` — the honest
+    'codomain unobserved', in which case only the always-applicable Fork-1 perturbations apply and
+    the type-conditional dimensions are simply not generated.
+    """
+    code = getattr(original, "__code__", None)
+    if code is None or not tests:
+        return frozenset()
+    names: set[str] = set()
+
+    def _hook(frame: Any, event: str, arg: Any) -> None:
+        # `arg` is the returned value on a 'return' event; a raise or a bare `return` gives None,
+        # which carries no codomain type to condition on (existence is Fork 1's return_none).
+        if event != "return" or frame.f_code is not code or arg is None:
+            return
+        names.add(type(arg).__name__)
+
+    prev = sys.getprofile()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        sys.setprofile(_hook)
+        try:
+            for t in tests:
+                if len(names) >= max_samples:
+                    break
+                try:
+                    t()
+                except BaseException:  # noqa: BLE001 — harvest the return type, not the verdict
+                    pass
+        finally:
+            sys.setprofile(prev)
+    return frozenset(names)

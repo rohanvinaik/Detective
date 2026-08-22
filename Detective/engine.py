@@ -1030,6 +1030,16 @@ def profile(
             _seed_token = None
             _widen_tests = None
     _prof_kwargs = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
+    if two_sign:
+        # μ⁻ Fork 2: observe the codomain — harvest the ORIGINAL's return types under the covering
+        # tests — so the two-sign profile emits the type-conditional output perturbations only where
+        # they apply (→negate on a numeric return, →empty on a sized one). Guarded on two_sign so the
+        # one-sign default never passes this newer kwarg to a pre-two-sign Wesker.
+        from .capture import capture_return_types
+
+        _prof_kwargs["observed_return_types"] = capture_return_types(
+            original, [t for t in tests if id(t) not in _impossible_ids]
+        )
     try:
         result = run_function_profiling(  # type: ignore[arg-type]
             node,
@@ -1053,6 +1063,12 @@ def profile(
             _session_baseline.reset(_seed_token)
     if _routing_counts:
         result.test_routing = _routing_counts
+    if two_sign:
+        # Carry the observed codomain (μ⁻ Fork 2) as a Detective-side attribute — the same
+        # convention as test_routing / function_basis — so classify_survivors can regenerate the
+        # SAME content-addressed OUTPUT mutants (its by_id) that it must witness-search. Absent on a
+        # cache hit (which returns before the capture above); classify re-captures as the fallback.
+        result.observed_return_types = _prof_kwargs.get("observed_return_types")  # type: ignore[attr-defined]
     # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
     # later as if it were the whole profile.
     # Admit on the engine's OWN validity verdict, not a correlate of it (#60). `not
@@ -2132,7 +2148,41 @@ def classify_survivors(
         )
 
     pure = _is_pure(node, is_method="." in (qualname or ""))
-    by_id = {m.mutant_id: m for m in generate_mutants(node, filter_categories(node, pure))}  # type: ignore[arg-type]
+    # by_id maps a survivor's content-addressed id to its mutant object, so it MUST regenerate under
+    # the same policy the profile used — else an OUTPUT (μ⁻) survivor's id is absent, it reads as
+    # "un-buildable", and falls to `unclassified` instead of being witness-searched (the Fork-2 →abs
+    # gap this closes). Under the two-sign contract, regenerate WITH two_sign and the profile's observed
+    # codomain (carried on the result, re-captured on a cache hit that returned before the capture), so
+    # the OUTPUT mutant ids match. The one-sign default stays byte-identical and passes no newer kwarg,
+    # so it still resolves against a pre-two-sign Wesker.
+    if two_sign:
+        from .capture import capture_return_types
+
+        _observed = getattr(result, "observed_return_types", None)
+        if _observed is None:
+            _obs_names = [qn for qn, _ in walk_functions(tree)]
+            _observed = capture_return_types(
+                original,
+                discover_test_callables(
+                    root,
+                    os.path.relpath(full, root),
+                    _obs_names,
+                    extra_dirs=list(extra_test_dirs) or None,
+                ),
+            )
+        by_id = {
+            m.mutant_id: m
+            for m in generate_mutants(
+                node,
+                filter_categories(node, pure, two_sign=True),  # type: ignore[arg-type]
+                observed_return_types=_observed,
+            )
+        }
+    else:
+        by_id = {
+            m.mutant_id: m
+            for m in generate_mutants(node, filter_categories(node, pure))  # type: ignore[arg-type]
+        }
 
     def _classify_pool(pool: list[tuple]) -> tuple[list[MutantVerdict], list[str], list[str]]:
         _verdicts: list[MutantVerdict] = []
