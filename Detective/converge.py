@@ -696,7 +696,16 @@ def _witness_property(
     if assert_line is None:
         return None
     lines = [call_line, assert_line]
-    pins = distinction_pin_lines(witness.original_value, witness.mutant)
+    # Pass the mutant's LIVE value when the witness captured one, so an object / dataclass
+    # distinction ``==`` cannot see is pinned by type at the leaf (its repr is not literal_eval-able).
+    # ``is not None`` is the boundary: a genuine None-return reproduces identically through the
+    # repr path (``literal_eval("None") is None``), and a test-built witness with no value keeps
+    # the existing repr behaviour.
+    pins = (
+        distinction_pin_lines(witness.original_value, witness.mutant, witness.mutant_value)
+        if witness.mutant_value is not None
+        else distinction_pin_lines(witness.original_value, witness.mutant)
+    )
     lines += pins
     preconditions = ["distinguishing witness (equivalence search)"]
     if pins:

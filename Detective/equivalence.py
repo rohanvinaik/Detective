@@ -652,6 +652,15 @@ class Witness:
     # a payload for rendering, not identity, and it is already summarised by ``original``.
     # Including it would also hand __eq__ a value that may not compare cleanly (an array).
     original_value: Any = field(default=None, compare=False)
+    # The MUTANT's outcome value itself (None when it raised or the search did not capture it) —
+    # symmetric to ``original_value``. A repr cannot answer "is this a frozenset or a set", and
+    # that leaf type distinction is what ``distinction_pin_lines`` must pin when ``==`` cannot see
+    # it: the channel-isolation case (value-``==``-equal, type-distinct — μ⁻'s p_type/p_ctype
+    # surfacing in the positive path). Without the live value, an object/dataclass mutant repr is
+    # not ``literal_eval``-able, the pin silently degrades to empty, and the distinction is
+    # mis-reported as a sound-but-non-killing witness. Carried, never rendered; ``compare=False``
+    # for the same reason as ``original_value``.
+    mutant_value: Any = field(default=None, compare=False)
 
 
 # A memory address inside an exception message ("<Foo object at 0x10a3f2b50>") differs every
@@ -969,7 +978,18 @@ def _search_witness(
                 )
             continue
         return (
-            Witness(tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)),
+            # Capture the MUTANT's live value too (symmetric to the original), so an object /
+            # dataclass distinction that ``==`` cannot see is pinnable by type at the leaf rather
+            # than silently dropped (its repr is not ``literal_eval``-able). Re-runs the mutant
+            # once at construction — the same one-extra-call the original already pays here, and
+            # only when a value-witness is actually built, never per candidate input.
+            Witness(
+                tuple(args),
+                original_outcome,
+                mutant_outcome,
+                _outcome_value(original, args),
+                _outcome_value(mutant, args),
+            ),
             None,
             blocked,
         )

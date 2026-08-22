@@ -279,6 +279,36 @@ def test_golden_assert_set_of_opaque_objects_still_falls_back_to_repr():
     assert line.startswith("assert repr(result) == ")
 
 
+def test_distinction_pin_lines_walks_a_dataclass_to_the_type_distinct_field():
+    # THE DEFECT (grounded 2026-08-22): a SWAP mutant stripped `frozenset(...)` from a returned
+    # dataclass field. The outcomes are ==-equal (frozenset({1,2}) == {1,2}, dataclass __eq__
+    # agrees) yet type-distinct — the channel-isolation case (I+ = 0, I- > 0; μ⁻'s p_ctype
+    # container-mutability fence surfacing in the positive path). The old code could not pin it:
+    # distinction_pin_lines relied on ast.literal_eval(mutant_repr), which RAISES on a dataclass
+    # repr `_FlowLike(uses={1, 2}, ...)`, so it returned [] and the witness read sound-but-non-
+    # killing. Threading the live mutant VALUE walks to the leaf and pins it by type.
+    orig = _FlowLike(uses=frozenset({1, 2}), must=frozenset())
+    mut = _FlowLike(uses={1, 2}, must=frozenset())  # frozenset -> set: == but type-distinct
+    assert orig == mut  # the positive channel is blind to the distinction
+    # Without the value the dataclass repr is not literal_eval-able -> no pin (the old bug).
+    assert distinction_pin_lines(orig, repr(mut)) == []
+    # With the value threaded the leaf type distinction is pinned, and it KILLS the mutant.
+    pins = distinction_pin_lines(orig, repr(mut), mut)
+    assert pins == ["assert type(result.uses) is frozenset"]
+    assert eval(pins[0].removeprefix("assert "), {"result": orig})  # passes on the original
+    assert not eval(pins[0].removeprefix("assert "), {"result": mut})  # fails on the mutant (kill)
+
+
+def test_distinction_pin_lines_does_not_repr_pin_a_set_leaf():
+    # Soundness guard for the dataclass descent: a same-type set field differs only by element
+    # ORDER, whose repr is hash-seed-unstable. Emitting `assert repr(result.uses) == '{1, 2}'`
+    # would ship a flaky test. Two ==-equal sets must yield NO pin, not a seed-dependent one.
+    a = _FlowLike(uses={1, 2, 3}, must=frozenset())
+    b = _FlowLike(uses={3, 2, 1}, must=frozenset())  # same set, possibly different repr order
+    assert a == b
+    assert distinction_pin_lines(a, repr(b), b) == []
+
+
 def test_stable_expr_abstains_on_machine_specific_value():
     """A captured value carrying THIS machine's paths (a Path.resolve()/getcwd()/__file__ result
     baked into a return) must not be pinned — green here, red on any other checkout (#30). Portable

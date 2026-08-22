@@ -861,7 +861,12 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str | None:
     return f"assert result == {output_repr}"
 
 
-def distinction_pin_lines(original_value: Any, mutant_repr: str) -> list[str]:
+# Distinguishes "the caller threaded no mutant value" from "the mutant value is None" (a real
+# outcome). Only the former falls back to parsing the repr; None is used as the value it is.
+_UNSET = object()
+
+
+def distinction_pin_lines(original_value: Any, mutant_repr: str, mutant_value: Any = _UNSET) -> list[str]:
     """Assertion lines pinning a distinction ``==`` cannot see — type first, repr second.
 
     The classifier's distinguishability relation is repr-based (``_outcome``); the golden
@@ -879,10 +884,16 @@ def distinction_pin_lines(original_value: Any, mutant_repr: str) -> list[str]:
     ``repr``. Empty when the mutant outcome is not a parseable literal (a raised-marker,
     an object repr) — those paths have their own forms and owe nothing here.
     """
-    try:
-        mutant_value = ast.literal_eval(mutant_repr)
-    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
-        return []
+    # The live mutant value when the witness carried it (``mutant_value``); else parse the repr.
+    # An object / dataclass mutant repr is not ``literal_eval``-able, so the repr-only path silently
+    # dropped every such distinction (returned no pin) and the witness read sound-but-non-killing —
+    # a value-``==``-equal, type-distinct pair mis-reported as unpinnable. The threaded value walks
+    # to the leaf and pins it by type.
+    if mutant_value is _UNSET:
+        try:
+            mutant_value = ast.literal_eval(mutant_repr)
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            return []
     try:
         if original_value != mutant_value:
             return []
@@ -906,6 +917,18 @@ def _walk_distinction(orig: Any, mut: Any, path: str, pins: list[str]) -> None:
     if isinstance(orig, (list, tuple)):
         for i, (a, b) in enumerate(zip(orig, mut, strict=False)):  # == already proved equal length
             _walk_distinction(a, b, f"{path}[{i}]", pins)
+        return
+    if is_dataclass(orig) and not isinstance(orig, type):
+        # A dataclass leaf (== compares field-wise): descend to each field, so a per-field type
+        # distinction (frozenset vs set — μ⁻'s p_ctype container-mutability fence) pins the exact
+        # field by type, not the whole object by a hash-order-flaky repr.
+        for fld in dataclass_fields(orig):
+            _walk_distinction(getattr(orig, fld.name), getattr(mut, fld.name), f"{path}.{fld.name}", pins)
+        return
+    if isinstance(orig, (set, frozenset)):
+        # A same-type set leaf differs only by element order, whose repr is hash-seed-unstable (the
+        # reason golden_assert_line refuses to repr-pin a set) — a repr pin here would ship a flaky
+        # assert. A type distinction was already caught above; there is nothing sound to add.
         return
     if repr(orig) != repr(mut):
         pins.append(f"assert repr({path}) == {repr(orig)!r}")
