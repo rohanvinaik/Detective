@@ -797,6 +797,7 @@ def profile(
     trace_progress: Callable[[int, int, float], None] | None = None,
     trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
     include_shaped: bool = True,
+    two_sign: bool = False,
 ) -> ProfilingResult:
     """Profile one function with Wesker and return the raw ``ProfilingResult``.
 
@@ -824,8 +825,10 @@ def profile(
         raise LookupError(f"function {function!r} not found in {file}")
 
     pure = _is_pure(node, is_method="." in (qualname or "")) if is_pure is None else is_pure
-    # AsyncFunctionDef has the same shape Wesker's mutators walk.
-    categories = filter_categories(node, pure)  # type: ignore[arg-type]
+    # AsyncFunctionDef has the same shape Wesker's mutators walk. two_sign opts the codomain
+    # operator μ⁻ (MutationCategory.OUTPUT) into the universe — the two-sign contract
+    # σ(P, μ ∪ μ⁻); off by default, so the one-sign universe and its policy id are unchanged.
+    categories = filter_categories(node, pure, two_sign=two_sign)  # type: ignore[arg-type]
     rel = os.path.relpath(full, root)
     func_key = f"{rel}::{qualname}"
 
@@ -907,6 +910,7 @@ def profile(
         _measured_under if _measured_under is not None else (trace_budget_s, trace_session_budget_s),
         _regime,
         include_shaped=include_shaped,
+        two_sign=two_sign,
     )
     if _cache_allowed:
         hit = verdict_cache.get(root, ck)
@@ -1201,6 +1205,7 @@ def diagnose(
     trace_progress: Callable[[int, int, float], None] | None = None,
     trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
     include_shaped: bool = True,
+    two_sign: bool = False,
 ) -> ScopeMap:
     """Profile ``function`` and reshape the result into a behavioral-scope map.
 
@@ -1219,6 +1224,7 @@ def diagnose(
         trace_progress=trace_progress,
         trace_session_budget_s=trace_session_budget_s,
         include_shaped=include_shaped,
+        two_sign=two_sign,
     )
     scope = scope_from_profiling(result)
 

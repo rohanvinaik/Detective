@@ -148,6 +148,7 @@ def cache_key(
     trace_budgets: tuple[float | None, float | None] = (None, None),
     regime_digest: str = "",
     include_shaped: bool = True,
+    two_sign: bool = False,
 ) -> str:
     """The content-addressed key: engine + identity + fn-hash + tests-hash + sampling + budgets.
 
@@ -175,6 +176,11 @@ def cache_key(
     # leaves the key byte-identical, so no existing entry is invalidated; only a deferred run marks it.
     if not include_shaped:
         base += ":defer_shaped"
+    # The two-sign contract σ(P, μ ∪ μ⁻) profiles a strictly LARGER universe (the μ⁻ OUTPUT
+    # operator) than the one-sign default, so it is a different result and must never be served
+    # across. two_sign=False (default) leaves the key byte-identical; only a two-sign run marks it.
+    if two_sign:
+        base += ":two_sign"
     # Bind the pytest regime the verdict was measured under (#63) — empty leaves the key unchanged.
     return regime_keyed(base, regime_digest)
 

@@ -3472,6 +3472,20 @@ def _build_parser() -> argparse.ArgumentParser:
                 "mutant, so the widen skips them and the report discloses how many. Pass this when a "
                 "residual may be killable ONLY by such a test and you want to pay to trace them.",
             )
+        if name == "diagnose":
+            # μ⁻ (negative specification). Opt into the two-sign contract σ(P, μ ∪ μ⁻): add the
+            # codomain operator that perturbs the RETURN VALUE, so a surviving perturbation is a
+            # NEGATIVE degree of freedom — an output invariant no test pins. Off by default; the
+            # one-sign universe and its policy id are unchanged when this is absent.
+            p.add_argument(
+                "--two-sign",
+                action="store_true",
+                help="opt into the two-sign contract σ(P, μ ∪ μ⁻): also run the codomain operator "
+                "μ⁻, which perturbs the RETURN VALUE. A surviving μ⁻ perturbation is a negative "
+                "degree of freedom — an output invariant your suite does not pin (→None: the "
+                "output must exist; →const: it must depend on the input; →identity: it must "
+                "transform its input). Off by default.",
+            )
         if name == "converge":
             # The workflow note renders after the options on `converge --help` (this loop set
             # RawDescriptionHelpFormatter, so the epilog is shown verbatim).
@@ -4988,6 +5002,7 @@ def _run(args) -> int:
             trace_budget_s=_trace_budget(args),
             trace_session_budget_s=_trace_session_budget(args),
             include_shaped=args.include_shaped,
+            two_sign=args.two_sign,
         )
         print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
         return 0

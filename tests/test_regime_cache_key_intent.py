@@ -53,3 +53,16 @@ def test_a_shaped_deferred_run_keys_apart_from_a_full_run():
     # A deferred run is a DIFFERENT result — keyed apart, never served to the full request.
     assert cache_key(*args, "", include_shaped=False) != cache_key(*args, "", include_shaped=True)
     assert cache_key(*args, "", include_shaped=False) == cache_key(*args) + ":defer_shaped"
+
+
+def test_a_two_sign_run_keys_apart_from_a_one_sign_run():
+    """The two-sign contract σ(P, μ ∪ μ⁻) profiles a strictly LARGER universe (the μ⁻ OUTPUT
+    operator) than the one-sign default, so it is a different result and must key apart — else a
+    two-sign verdict is served to a one-sign request, or the reverse. The default (False) leaves the
+    key byte-identical, so no warm one-sign entry is invalidated."""
+    args = ("mod.py::g", "def g(): ...", [_t], 3, 0, (None, None))
+    # Default (one-sign) == the pre-two-sign key: nothing invalidated.
+    assert cache_key(*args, "", two_sign=False) == cache_key(*args)
+    # A two-sign run is a DIFFERENT (larger) universe — keyed apart, never served across.
+    assert cache_key(*args, "", two_sign=True) != cache_key(*args, "", two_sign=False)
+    assert cache_key(*args, "", two_sign=True) == cache_key(*args) + ":two_sign"
