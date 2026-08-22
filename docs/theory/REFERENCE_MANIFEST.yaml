@@ -114,7 +114,7 @@ priors:
     path: docs/theory/NEGATIVE_SPECIFICATION.md
     root: local
     role: the theory document this manifest serves
-    sha256: b77c031ffcdae73100a46549b09ab87884c64081f7e399d0c385d4402b7f2335
+    sha256: 39452273999a593f0e75e1170cf70d77a4ad366e98b6e7ea3fb8bb43d37c88bb
     cited_by: [docs/theory/GLOSSARY.md, docs/theory/CONSTRAINT_BLOCK.md]
 
   - id: negative-spec-glossary
@@ -210,5 +210,63 @@ external_citations:
   - key: crick-mitchison-1983
     cite: "Crick & Mitchison, The function of dream sleep, 1983"
     lends: "reverse-learning; the prior SIGNIFICANCE_WEIGHTING §17.1 makes rigorous"
+    load_bearing: false
+    verified: false
+
+  # ─── Prior art surfaced 2026-08-23 (§17 cross-tradition map). verified:true = full PDF read this
+  #     session; verified:false = from search record / publisher summary, NOT the paper itself. ───
+  - key: vera-perez-descartes-2018
+    cite: "Vera-Pérez, Monperrus & Baudry, Descartes: A PITest Engine to Detect Pseudo-Tested Methods, ASE 2018 (arXiv:1811.03045)"
+    lends: "the extreme-mutation operator table = μ⁻'s universal + Fork-2 pieces (Rem. 11.9b)"
+    load_bearing: true
+    verified: true   # read full PDF 2026-08-23
+  - key: vera-perez-comprehensive-2018
+    cite: "Vera-Pérez, Danglot, Monperrus & Baudry, A Comprehensive Study of Pseudo-tested Methods, EMSE 2019 (arXiv:1807.05030)"
+    lends: "the effects/detect calculus (Rem. 3.2b, Defs. 3-4); prevalence 1-46% over 28K+ methods; crash-kill vs value (Def. 1.4); the <30% triage (C5)"
+    load_bearing: true
+    verified: true   # read full PDF 2026-08-23
+  - key: niedermayr-2016
+    cite: "Niedermayr, Juergens & Wagner, Will my tests tell me if I break this code?, 2016"
+    lends: "extreme mutation / pseudo-tested methods — the origin (Rem. 2.2b, 11.9b)"
+    load_bearing: true
+    verified: false  # via Descartes' account + search, not the paper itself
+  - key: schuler-zeller-2011
+    cite: "Schuler & Zeller, Assessing Oracle Quality with Checked Coverage, ICST 2011"
+    lends: "checked coverage = value-kill vs run-kill (Def. 1.4); the dynamic-slice mechanism"
+    load_bearing: true
+    verified: false  # definition confirmed via publisher record; full paper not read
+  - key: jahangirova-2016
+    cite: "Jahangirova, Clark, Harman & Tonella, Test Oracle Assessment and Improvement, ISSTA 2016"
+    lends: "oracle false-negative (accepts a wrong output) = the unpinned perturbation (Def. 3.2)"
+    load_bearing: true
+    verified: false  # PDF host down; from search record
+  - key: metamorphic-testing
+    cite: "Chen, Cheung & Yiu 1998 (origin); Segura et al., A Survey on Metamorphic Testing, IEEE TSE 2016"
+    lends: "value-agnostic output-space relations as oracles = the negative channel's positive-relational dual (Def. 3.2)"
+    load_bearing: false
+    verified: false  # survey record only
+  - key: hegedus-1995
+    cite: "Hegedűs, Generalized teaching dimension and the query complexity of learning, COLT 1995"
+    lends: "TD = query complexity of exact learning — grounds σ = TD at its source (Prop. 1.5b)"
+    load_bearing: true
+    verified: false  # search record only
+  - key: hellerstein-1996
+    cite: "Hellerstein, Pillaipakkamnatt, Raghavan & Wilkins, How many queries are needed to learn?, JACM 1996"
+    lends: "query complexity / certificate size for exact learning (Prop. 1.5b)"
+    load_bearing: false
+    verified: false
+  - key: doliwa-2014
+    cite: "Doliwa, Fan, Simon & Zilles, Recursive Teaching Dimension, VC-Dimension and Sample Compression, JMLR 2014"
+    lends: "RTD <-> VCD <-> sample compression — the PAC<->exact bridge; consolidation = compression (Prop. 1.5b, 15.6)"
+    load_bearing: true
+    verified: false  # search record only
+  - key: chen-cheng-tang-2016
+    cite: "Chen, Cheng & Tang, On the Recursive Teaching Dimension of VC Classes, 2016"
+    lends: "RTD(C) <= d*2^(d+1) for VCD d (Prop. 1.5b)"
+    load_bearing: false
+    verified: false
+  - key: simon-2015
+    cite: "Simon, Open Problem: Recursive Teaching Dimension Versus VC Dimension, COLT 2015"
+    lends: "the RTD-vs-VCD linearity open problem that consolidation-as-compression sits inside (Prop. 15.6)"
     load_bearing: false
     verified: false

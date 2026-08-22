@@ -54,7 +54,15 @@ the $\kappa$ machinery that scores a population-derived censor and states the lo
 result — the censor loop's tractability is bounded-curvature, not submodular, because the valuable censors
 are *bridges* (measured, not conjectured); §15 makes the canonical implementation computable as the
 $\sigma + \gamma$ minimizer and identifies it with consolidation, the σ-invariant run backward; and §16
-states the resulting paradigm and its honest, decidability-bounded register.
+states the resulting paradigm and its honest, decidability-bounded register. §17 is the honest
+positioning: μ⁻ is the *unification*, under $\sigma =$ teaching dimension, of four established testing
+lines — extreme mutation (whose operators and `effects`/`detect` calculus it adopts wholesale), checked
+coverage (the value/run axis), oracle assessment (the deficiency-as-false-negative reading), and
+metamorphic testing (the value-agnostic codomain oracle) — with $\sigma =$ TD grounded in the
+exact-learning teaching-dimension line (Hegedűs; Hellerstein) and co-characterized *dynamically* as the
+recursive teaching dimension, whence consolidation is a sample-compression scheme. The novelty is the
+two-sign construction, the isolation theorem, Form B, and the censor layer — not the operators, which the
+field already built.
 
 ---
 
@@ -83,13 +91,51 @@ returned value is a *value* kill; a kill by crash or timeout is a *run* kill and
 mutant *executed differently*, not what it computes. Write $\mathrm{kill}_v$ for the assertion-kill
 relation. *Value-completeness* requires every killable mutant to be $\mathrm{kill}_v$-killed; run kills
 bank nothing toward it. (Detective ARCHITECTURE §0; the distinction is enforced, not cosmetic, and it
-recurs on the negative side in §7.)
+recurs on the negative side in §7.) *Prior art:* this is exactly Schuler & Zeller's **checked coverage**
+(2011) — coverage that additionally requires an assertion to *constrain the computed value*, separating
+"the line executed" from "the value was checked"; $\mathrm{kill}_v$ is checked-coverage's kill relation.
+The distinction is *measured*, not cosmetic: Vera-Pérez et al. (2018/19) found a pseudo-tested method's
+*traditional* mutation score is never $0$ — but only because "all [surviving-effect] mutations made the
+program crash with an exception, and are thus trivially detected," i.e. run-kills inflate the score while
+the value stays unpinned. Extreme mutation (μ⁻) is the more honest measure precisely because it does not
+count the crash.
 
 **Proposition 1.5 (σ is a two-sign teaching dimension; cited).** For finite $D$ with faithful oracles,
 $\sigma(P,\mu)$ equals the teaching dimension $\mathrm{TD}$ of the $\equiv$-class of $P$ in the concept
 class induced by $\mu$ (SC Thm 2.7, machine-checked as `T5_17_teaching_dimension_{lower,upper}_bound`).
 Teaching dimension is defined as the minimum labeled sample — labels drawn from $\{+,-\}$ — that
 uniquely identifies a target concept (Goldman–Kearns 1995; Goldman–Mathias 1996).
+
+**Proposition 1.5b (σ is co-characterized — static teaching dimension AND dynamic recursive teaching
+dimension; this is the precise PAC↔exact bridge).** Two learning-theoretic characterizations of $\sigma$
+hold simultaneously, and the complete reading keeps both.
+
+*Static.* $\sigma(P,\mu) = \mathrm{TD}$ is the minimum teaching set (Prop. 1.5). The
+**extended/generalized teaching dimension tightly characterizes the query complexity of exact
+(membership-query) learning** (Hegedűs 1995; Hellerstein, Pillaipakkamnatt, Raghavan & Wilkins 1996) — so
+SC Thm 4.3's "$\sigma =$ Angluin query complexity" is not an analogy but that theorem, and the
+$\sigma\leftrightarrow$exact-learning edge is grounded at its origin.
+
+*Dynamic.* The greedy specification **trajectory** (SC §3 — proportional progress, exponential decay, the
+bulk→tail phase transition) peels the highest-marginal mutants first, *recursively*: it is the recursive
+teaching sequence that defines the **recursive teaching dimension** $\mathrm{RTD}$ (Zilles, Lange, Holte &
+Zinkevich 2011). So $\sigma$ has two faces — $\sigma_{\text{static}} = \mathrm{TD}$ (the min suite) and
+$\sigma_{\text{dyn}} = \mathrm{RTD}$ (the trajectory's shape) — and the bulk/tail transition (§3.4-analogue)
+and the composition gap (§10) are RTD-flavoured, not flat-TD.
+
+*The bridge.* RTD is the formal link between the *statistical* pole (VC dimension, PAC) and the *exact*
+pole (TD, query complexity): $\mathrm{RTD} \le \mathrm{VCD}$ for many natural classes (VC-dim 1,
+intersection-closed, finite maximum; Doliwa, Fan, Simon & Zilles 2014); $\mathrm{RTD}(C) \le d\cdot
+2^{d+1}$ for $\mathrm{VCD}(C)=d$ (Chen, Cheng & Tang 2016); and **whether RTD is linearly bounded by VCD
+carries directly to the sample-compression conjecture** (every VCD-$d$ class compresses to size $\le d$).
+This is what makes "$\sigma$ = the gap between statistical and exact learning" *precise* rather than
+suggestive — $\sigma$ sits on the RTD–VC–compression axis — and it has an operational payoff:
+**consolidation (§15), safe σ-preserving reduction to the minimal witness, IS a sample-compression
+scheme**, placing Detective's `decompose` inside that open problem. [Status: static TD = exact-learning
+query complexity is PROVED prior art (Hegedűs; Hellerstein); the RTD–VC–compression results are CITED
+prior art (Doliwa; Chen); the identification of $\sigma$'s *dynamics* with RTD and of consolidation with
+sample compression is this document's ASSERTED move, argued from the recursive structure of the greedy
+trajectory, not separately proved.]
 
 *Remark 1.6.* Proposition 1.5 is the load-bearing inherited fact. Every subsequent claim about the
 negative sign is a consequence of $\sigma$ being equal to an object whose definition already ranges
@@ -115,6 +161,23 @@ distinguishable from $P$", which is a positive-label discrimination among candid
 Teaching dimension over both labels additionally admits evidence of the form "no admissible concept
 labels $(x,y)$ positive", i.e. a bound on the concept *from above*. No positive policy expresses this,
 because it has no term ranging over the codomain independently of the program text. $\square$
+
+**Remark 2.2b (The sign is the probed AXIS, not the mechanism — extreme mutation is the negative sign
+under a positive mechanism).** Definition 2.1 identifies the positive sign with *program-text*
+transformation, but the boundary is subtler, and the literature already crossed it. **Extreme mutation**
+(Niedermayr, Juergens & Wagner 2016; Vera-Pérez, Danglot, Monperrus & Baudry 2018/19) replaces a method
+body with `return <constant>` — a program-text transformation, hence *positive* by Def. 2.1 — yet its
+unpinned survivor, a **pseudo-tested method** (covered but no effect assessed), *is* a witnessed
+non-example: the suite admits the pair $(x, \text{const})$ that Prop. 2.2 says a positive policy cannot
+expose. Both cannot hold as stated. The resolution recasts the sign: **it is the *axis the mutant probes*
+— the *computation / domain* (traditional mutation: swap an operator, shift a boundary) versus the
+*codomain / output* (extreme mutation: collapse the return) — not the mechanism (program-text vs
+post-composition).** For a pure single-return $f$, replacing the body with `return c` (a positive-mechanism
+program-text mutation) *equals* the post-composition $f \oplus \mathrm{const}_c$ (a negative-sign codomain
+perturbation, Def. 3.1) — the same object on two axes. So μ⁻ Form A (Def. 11.4, "a positive-shaped AST
+mutator") is exactly extreme mutation, and Prop. 2.2 sharpens to: a *computation-probing* policy cannot
+witness a non-example; a *codomain-probing* one (extreme mutation $=$ μ⁻) can, and does, though it is
+program-text. The teaching-set sign is the probed axis; the mechanism is free.
 
 **Corollary 2.3 (The badge is honestly scoped and half-signed).** A certificate
 `SC = 1 (operator universe, modulo N unproven-equivalent)` is exactly as strong as it states and no
@@ -157,7 +220,31 @@ $T$ iff every covering test passes on the perturbed denotation:
 $$\mathrm{unpinned}(p) \iff \forall t \in T:\ t\ \text{passes on}\ f \oplus p.$$
 Equivalently, $p$ is *killed* iff some $t \in T$ fails on $f \oplus p$. The *negative kill matrix* has
 one row per $p \in \Pi$, marked killed/unpinned; an unpinned $p$ is a **negative degree of freedom** —
-an output dimension no covering test constrains.
+an output dimension no covering test constrains. *Prior art:* this is an **oracle deficiency** in the
+sense of Jahangirova, Clark, Harman & Tonella (ISSTA 2016), who assess a test oracle by searching for
+inputs on which it *accepts a wrong output*; an unpinned $p$ is precisely such a wrong output the suite's
+oracle admits without objection. The output-space perturbation $f \oplus p$ (Def. 3.1) is a codomain
+relation used as an oracle — the standing framework for which is **metamorphic testing** (Chen, Cheung &
+Yiu 1998; Segura et al. survey 2016), a *value-agnostic* output-space oracle (a metamorphic relation
+constrains outputs across executions without knowing the correct value — Thm 5.2's channel isolation, in
+the field's own terms). μ⁻ is its negative-perturbation dual: a metamorphic relation is a *positive*
+codomain constraint; $f \oplus p$ is a *negative* one ("the output must not survive $p$ undetected").
+
+**Remark 3.2b (The `effects`/`detect` formalism — the established form of the negative kill matrix, and it
+already spans Form B).** The negative kill matrix is, in the vocabulary of Vera-Pérez, Danglot, Monperrus &
+Baudry (2018/19), the $\mathrm{detect}$ predicate over a method's $\mathrm{effects}$. They fix
+$\mathrm{effects}(m)$ = the observable effects a method produces — **(i) the returned value, (ii) a state
+change on the receiver, (iii) a state change on other objects** — and $\mathrm{detect}: TS \times S \to
+\{\top,\bot\}$ = whether a covering suite pins effect $s$. A method is **pseudo-tested** iff
+$\forall s \in \mathrm{effects}(m):\ \nexists t:\ \mathrm{detect}(t,s)$ (every effect unpinned — all
+negative DOF survive) and **required** iff $\exists s:\ \mathrm{detect}(t,s)$. The identification is exact:
+a perturbation $p$ targets one effect $s$, and $p$ is *killed* iff $\mathrm{detect}(t,s)$. Two consequences.
+First, the established formalism **already spans Form B**: its three effect types are precisely μ⁻'s return
+codomain plus the non-return (self-state, other-state) codomain (Def. 11.6), so codomain-totality (Def.
+3.4) is not a new object but effects-over-all-three-types the field defined. Second, μ⁻ adopts this
+vocabulary: $\mathrm{effects}(f)$ for the codomain degrees of freedom, $\mathrm{detect}$ for the negative
+kill relation — the negative matrix is the $\mathrm{effects}\times TS$ detection table, and "pseudo-tested"
+is its all-zero row.
 
 *Remark 3.3 (polarity coincides with the positive matrix).* An unpinned $p$ is the exact analogue of a
 surviving positive mutant: "all covering tests pass" is survival in both matrices. Hence the value-vs-run
@@ -445,7 +532,7 @@ the closure — Def. 10.2's bridge counterexample. The correct invariant is sign
 $\mathrm{safe\_remove}(t) \iff \kappa\text{-}\mathrm{closure}(T) = \kappa\text{-}\mathrm{closure}(T
 \setminus \{t\})$, resting on the machine-checked SC Thm 2.3 and 3.11. Now grounded: κ, its dynamics, and the
 admissibility guard are supplied in §14 (built for the rule graph); the residual is the code-graph choice
-of §17 Q1.
+of §18 Q1.
 
 ---
 
@@ -482,7 +569,7 @@ of Def. 11.3 with no new type. Home: a new category `MutationCategory.OUTPUT`, g
 **Proposition 11.5 (Equivalence generalizes for Form A; [traced]).** `check_equivalent(func_node, mutant)`
 compiles original and mutant and compares outputs on boundary inputs. For Form A a perturbation *is* a
 compilable mutant, so `check_equivalent` decides candidate-equivalence of perturbations with no new
-machinery. This resolves §17 Q3 for Form A. (Inherited limitation: `check_equivalent` skips methods —
+machinery. This resolves §18 Q3 for Form A. (Inherited limitation: `check_equivalent` skips methods —
 no synthesizable `self`.)
 
 **Definition 11.6 (Form B — runtime wrapper).** Realize $\mu^-$ as a wrapper on the function object that
@@ -600,6 +687,31 @@ $p_{\mathrm{perm}}$). Design criterion: **populate $\Pi_R$ preferentially with p
 to $\rho(\mu)$**, retaining the redundant ones only where the codomain-total guarantee (Prop. 11.7)
 requires them.
 
+**Remark 11.9b (Prior art: the universal family *is* extreme mutation; the contribution is its sign).**
+The universal sub-family (Def. 11.8(i): $p_{\mathrm{none}}$, $p_{\mathrm{const}}$, $p_{\mathrm{zero\text{-}of}}$,
+$p_{\mathrm{id}}$ — return `None` / a constant / the type's zero / an argument unchanged) is **extreme
+mutation** (Niedermayr, Juergens & Wagner 2016; Vera-Pérez, Danglot, Monperrus & Baudry 2018/19, the
+*Descartes* PIT plugin), and an unpinned $p_{\mathrm{const}}$ is exactly their **pseudo-tested method** — a
+method exercised by passing tests that do not constrain what it returns. $p_{\mathrm{const}}$, this
+document's "single most load-bearing perturbation," is *Descartes' central operator* (replace the body
+with `return <constant>`). We therefore do **not** claim the universal perturbations as new; they are
+established practice, and the honesty sharpens rather than weakens the contribution, which is orthogonal
+to the operators: (i) recognizing them as the **negative sign** of the two-sign teaching set (Prop. 2.2),
+so that "pseudo-tested method," "checked-coverage gap" (Def. 1.4; Schuler & Zeller 2011), "oracle
+deficiency" (Def. 3.2; Jahangirova et al. 2016), and "unpinned negative degree of freedom" are *one*
+quantity that $\sigma =$ teaching dimension already ranges over; (ii) the **channel-isolation** theorem
+(Thm 5.2) that says why the sign is non-redundant with the positive policy; and (iii) the extension of the
+same family to structured and non-return codomains (Def. 11.8(iv)–(viii), Form B — the region metamorphic
+testing addresses ad hoc). Extreme mutation supplied the operators; the two-sign construction supplies
+their place in the learning theory. Descartes' *exact* operator table (return `null`; `boolean→true/false`;
+numeric`→0/1`; `String→""`/`"A"`; `T[]→∅`) spans not only Fork 1 but Fork-2 pieces — the boolean fences
+$p_\top/p_\bot$ (Def. 11.8(ii)), the string $p_{\mathrm{empty}}$, the container $p_{\mathrm{empty}}$ — so
+Wesker's built two-sign engine and Descartes largely coincide on the shared codomain types, differing where
+μ⁻ reaches structured/ordered/effect codomains (Def. 11.8(v)–(viii)) that extreme mutation does not. The
+prior art is measured at scale: pseudo-tested methods appear in **all of 21 projects over 28K+ methods**,
+prevalence $1$–$46\%$, and developers judged **$<30\%$ "worth an additional testing action"** — the
+$\mathrm{DOF}^-$/$\mathrm{DOF}^0$ triage (Def. 12.1) confirmed. The full cross-tradition map is §17.
+
 **Definition 11.8b (Π-completeness).** $\Pi$ is *complete for codomain $R$* iff its reach $\rho(\mu^-)$
 separates every pair of behaviors distinguishable at the codomain: for admissible $f$ and any
 inadmissible near-miss $f'$ with $f \not\equiv f'$ observable at the output, some $p \in \Pi_R$ realizes
@@ -608,7 +720,7 @@ the crossing (some covering test fails on $f \oplus p$ exactly when it would wit
 Thm 2.2's one-test-per-mutant); for structured $R$, $\Pi_R$ must *generate*, under composition, enough of
 the deviation monoid on $R$ to separate the intended concept from its near-misses. Whether a *finite*
 $\Pi_R$ is complete for a given structured $R$ is the negative analogue of SC §2.3's open
-operator-basis question (§17 Q4), and its measurement requires Fork 2's observed codomain type (Def.
+operator-basis question (§18 Q4), and its measurement requires Fork 2's observed codomain type (Def.
 11.10).
 
 **Definition 11.10 (Typing Π — two forks).** A perturbation must be typed to the codomain to be valid,
@@ -886,7 +998,7 @@ positive promotion requires a corpus authored so the strengthened rule bridges d
 *Remark 14.8 (what is code-specific, and what transports).* Everything above is proved-or-built for the
 semantic *rule* graph. What is code-specific is a single unmade choice: the graph over which $\kappa$ is
 computed for programs — the call graph, the import graph, or the obligation graph induced by interface
-mutants (Def. 10.1) — and the measurement of $d$ on it (§17 Q1). The mechanism (κ = marginal coverage),
+mutants (Def. 10.1) — and the measurement of $d$ on it (§18 Q1). The mechanism (κ = marginal coverage),
 the dynamics (κ re-flows), the tractability object (bounded curvature), and the guard (spine-sourced +
 retained plurality) all transport unchanged; only the graph and its $d$ are to be measured.
 
@@ -949,6 +1061,20 @@ spurious structure *is* a zero-κ derivation). Parts §1–§14 GENERATE the two
 makes it CANONICAL. [Cited *Significance Weighting* §17.1; the "consolidation minimizes a specification
 free energy" reading (SC Thm 3.10) is CONJECTURE, needing the σ free-energy machinery wired here.]
 
+**Proposition 15.6 (Consolidation is a sample-compression scheme — the RTD–VC bridge, operationalized).**
+By Prop. 1.5b, $\sigma$'s dynamics are the recursive teaching dimension $\mathrm{RTD}$, which is
+strongly connected to **sample compression** (Doliwa, Fan, Simon & Zilles 2014): whether $\mathrm{RTD}$ is
+linearly bounded by $\mathrm{VCD}$ bears directly on the sample-compression conjecture (every VCD-$d$ class
+compresses to a witness of size $\le d$). Consolidation (Thm. 15.4) is exactly such a scheme in the code
+domain: it reduces the two-sign teaching set to its **minimal σ-witness** (the value pins AND the negative
+fences that no smaller set preserves), which is a compression of the concept's identifying sample to the
+recursive-teaching core. So `decompose` is not merely a refactor operator; it is a *sample-compression
+scheme for the mutation-induced concept class*, and its size is $\sigma_{\text{dyn}} = \mathrm{RTD}$. This
+places Detective inside a named open problem: a linear compression bound for the rule/mutation class would
+be a linear-in-VCD RTD bound, and vice versa. [Status: the RTD–compression connection is CITED prior art
+(Doliwa; the RTD-vs-VCD linearity is OPEN, Simon 2015); the identification of consolidation *with* a
+compression scheme is this document's ASSERTED move (Prop. 1.5b's dynamics claim, applied), not proved.]
+
 ---
 
 ## 16. The Paradigm: From Handicraft to Assembly Line
@@ -986,7 +1112,47 @@ a definition — the σ+γ+I⁻-minimal member of the two-sign identity class �
 
 ---
 
-## 17. Open Problems
+## 17. Prior Art: μ⁻ as the Unification of Four Testing Traditions
+
+The two-sign construction is best read not as a novel operator set but as the *unification*, under
+$\sigma =$ teaching dimension, of four established testing-research lines and one learning-theory line —
+each of which measured a facet of the negative sign without naming it as the second label of a teaching
+set. Stating the map is what makes the contribution honest and, thereby, stronger.
+
+**§17.1 The cross-tradition map.**
+
+| μ⁻ construct (this document) | Established line | What it is there | The gap μ⁻ crosses |
+|---|---|---|---|
+| universal family (Def. 11.8(i)); Form A | **extreme mutation** (Niedermayr, Juergens & Wagner 2016; Vera-Pérez et al. 2018/19, Descartes) | the operators; the `effects`/`detect` calculus (Rem. 3.2b) | recognizing them as the negative *sign*; isolation; the non-return codomain (Form B) |
+| value-kill vs run-kill (Def. 1.4) | **checked coverage** (Schuler & Zeller 2011) | oracle-constrained value via dynamic slice; more sensitive than coverage | making it the load-bearing axis of a *two-sign* σ |
+| unpinned perturbation (Def. 3.2) | **oracle assessment** (Jahangirova, Clark, Harman & Tonella 2016) | an oracle *false-negative* (accepts a wrong output) + improvement loop | the fence as authored intent (§12); κ-scored censors (§14) |
+| codomain relation $f \oplus p$ (Def. 3.1) | **metamorphic testing** (Chen–Cheung–Yiu 1998; Segura et al. 2016) | value-agnostic output-space oracle | its negative-perturbation dual; the teaching-dimension placement |
+| σ = TD (Prop. 1.5) | **teaching dimension / exact learning** (Goldman–Kearns/Mathias; Hegedűs 1995; Hellerstein et al. 1996) | TD = query complexity of exact identification | the two-label instantiation over a mutation-induced class |
+| σ dynamics; consolidation (§15) | **RTD–VC–compression** (Zilles 2011; Doliwa 2014; Chen 2016) | recursive teaching; sample compression | the code-domain realization; `decompose` as a compression scheme |
+
+**§17.2 The one-line reading.** Extreme mutation lent the *operators* and the effects/detect *formalism*;
+checked coverage the *value/run axis*; oracle assessment the *deficiency = false-negative* reading;
+metamorphic testing the *value-agnostic codomain oracle*; teaching dimension the *unit* (σ = min evidence
+to identity = query complexity of exact learning); RTD–VC–compression the *bridge between statistical and
+exact* and the *compression view of consolidation*. μ⁻ supplies what none has alone: the recognition that
+these are *one quantity* — the negative label of a two-sign teaching set — plus the isolation theorem
+(Thm 5.2), the codomain-total extension (Form B, the effects the field addressed ad hoc), the corpus/κ
+censor layer (§14), and the operational realization against a live engine (§11).
+
+**§17.3 What is genuinely new, stated conservatively.** *Not* the operators (extreme mutation), *not* the
+oracle framing (checked coverage / oracle assessment / metamorphic), *not* σ = TD (Hegedűs; the SC paper).
+New here: (i) the **two-sign** specification complexity $\sigma(P, \mu \cup \mu^-)$ as the first quantity
+bounding behavioral identity over both labels (§2, §8); (ii) **channel isolation** (Thm 5.2) — the negative
+sign is information-theoretically independent of the positive, which is why extreme mutation is not
+redundant with traditional mutation (empirically correlated-but-distinct, Appendix C); (iii) the
+codomain-total realization (**Form B**) reaching the non-return effects; (iv) the population-derived
+**censor** layer with its κ / bounded-curvature theory (§9, §14); and (v) the co-characterization
+$\sigma_{\text{static}} = \mathrm{TD}$, $\sigma_{\text{dyn}} = \mathrm{RTD}$, with **consolidation = sample
+compression** (Prop. 1.5b, 15.6). Everything else is assembly, cited as such.
+
+---
+
+## 18. Open Problems
 
 The frontier is now four *named, scoped* items (Q1, Q5, Q7, Q8) plus three standing theory questions
 (Q2–Q4) and one build-through target (Q6). None is a fog; §§13–16 turned the earlier open ground into
@@ -1036,7 +1202,7 @@ these.
 
 ---
 
-## 18. Status Ledger
+## 19. Status Ledger
 
 *The smoothness of a document is not evidence of its truth; this ledger keeps proved / transported /
 built / measured / conjectured separate for every claim the added sections make.*
@@ -1078,21 +1244,36 @@ the "degenerate" near-miss witnesses outperforming hand-written tests (2026-08-0
 not a natural sample). The two channel-propagation closures end-to-end (`gen` 6/6, `flow` 8/8,
 2026-08-22). The bridge/bounded-curvature regime (Thm 14.4): $d \le 14$–$25$ over six real pulls, the
 sparse rule graph kneeing 3–12× later with a 3.5–8× softer drop than the dense IS-A graph, the Macbeth
-antitonicity-violation witness (all *Significance Weighting* §16.1a, 2026-07-15).
+antitonicity-violation witness (all *Significance Weighting* §16.1a, 2026-07-15). *Prior art measured*
+(read 2026-08-23): pseudo-tested methods in **all 21 projects over 28K+ Java methods**, prevalence
+$1$–$46\%$, MS_pseudo significantly below MS_required yet nonzero and Spearman $\approx 0.6$ (Vera-Pérez et
+al. — C4/C5), with $<30\%$ developer-judged worth fixing (the triage).
+
+**Grounded in prior art (§17; the unification is an assembly, not new machinery — cite, do not re-derive).**
+The universal μ⁻ operators $=$ extreme mutation (Niedermayr; Vera-Pérez/Descartes); the
+$\mathrm{effects}$/$\mathrm{detect}$ calculus (Rem. 3.2b) $=$ Vera-Pérez's Defs. 3–4; value-kill $=$ checked
+coverage (Schuler–Zeller); the unpinned perturbation $=$ an oracle false-negative (Jahangirova); the
+codomain relation $=$ metamorphic testing (Segura); σ $=$ TD $=$ exact-learning query complexity (Hegedűs;
+Hellerstein); the RTD–VC–compression bridge (Doliwa; Chen). The contribution is orthogonal: the two-sign
+σ, channel isolation, Form B, the censor layer, and the TD/RTD co-characterization.
 
 **Conjectured / unbuilt (the Lean targets and the code ports).** `bridge_curvature_bound` — the positive
 degrading guarantee (Def. 14.6; the negative `promotion_not_submodular` is measured, the positive bound
-is not). κ for code — the graph choice (§17 Q1). Two-sign ESL and Uroboros (Def. 13.6) — designed; the
+is not). κ for code — the graph choice (§18 Q1). Two-sign ESL and Uroboros (Def. 13.6) — designed; the
 backward pass is unrun and no trained two-sign learner exists. The greenfield persisted contract
-(Def. 12.5, §17 Q8). The entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5,
-§17 Q9); `safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition
+(Def. 12.5, §18 Q8). The entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5,
+§18 Q9); `safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition
 (Def. 7.3), needed only once a degenerate-measure case lands.
 
 **Asserted (interpretations, argued not proved).** "σ makes SICP computable" as a *phrasing*
 (`thesis_vision.md`, not read; the *mechanism* is proved, Prop. 15.3). The identification of ESL's
 statistical/exact gap with intelligence (György et al. + the parent conjecture, promising-not-established,
 Def. 13.6). The reading of the corpus self-teaching term as SSL's unknown-knowns regime (Def. 14.3;
-*Significance Weighting* §11's own asserted move).
+*Significance Weighting* §11's own asserted move). The sign as *probed axis* not mechanism (Rem. 2.2b —
+extreme mutation is a positive-mechanism, negative-sign policy). The co-characterization
+$\sigma_{\text{dyn}} = \mathrm{RTD}$ and **consolidation $=$ sample compression** (Prop. 1.5b, 15.6 —
+argued from the recursive greedy trajectory, not proved; the RTD-vs-VCD linearity is itself open,
+Simon 2015).
 
 ---
 
@@ -1150,15 +1331,28 @@ is proved here from SC Thm 3.15/3.16, the naming is carried ASSERTED).
 (`marginal_kappa`/`rank_candidates`/`is_spine_confirmed`/`retains_plurality`/`admissible`/`corpus_fixpoint`/
 `_demotion_keys`) — the built corpus censor loop of §14.
 
-**External (RECALLED, NOT VERIFIED — check before public use).** Winston 1970 (near-miss) · Minsky 1974/
-1980/1986 (frames, K-lines, censors) · Mitchell 1982 (version spaces) · Goldman–Kearns 1995,
-Goldman–Mathias 1996 (teaching dimension) · Angluin 1987/1988 (exact learning) · Zilles et al. 2011,
-Doliwa et al. 2014 (RTD) · Budd & Angluin 1982 (mutation equivalence undecidable) · Papadakis et al. (TCE)
-· Feige–Izsak (bounded supermodular degree) · Golovin–Krause 2011 (adaptive submodularity) ·
-Nemhauser–Wolsey–Fisher 1978 (greedy $(1-1/e)$) · Blais et al. 2012 (identity testing) · György et al.
-2025 (exact learning for general intelligence) · Crick–Mitchison 1983 (reverse learning) · Rice 1953 ·
-Landauer 1961 (erasure cost — the frame for the redundancy-in-representation intuition below) · Abelson &
-Sussman (SICP — the aesthetic §15 makes computable).
+**Prior art READ DIRECTLY (2026-08-23; verified against the paper, §17).** Vera-Pérez, Monperrus & Baudry
+2018, *Descartes: A PITest Engine to Detect Pseudo-Tested Methods* (arXiv:1811.03045 — the extreme-mutation
+operator table, Rem. 11.9b) · Vera-Pérez, Danglot, Monperrus & Baudry 2018/19, *A Comprehensive Study of
+Pseudo-tested Methods* (arXiv:1807.05030 — the $\mathrm{effects}$/$\mathrm{detect}$ calculus Defs. 3–4,
+Rem. 3.2b; prevalence $1$–$46\%$ over 28K+ methods; the crash-kill/value finding, Def. 1.4; the $<30\%$
+triage, C5) · Schuler & Zeller 2011, *Assessing Oracle Quality with Checked Coverage* (ICST — value/run
+$=$ checked/ordinary coverage; read via publisher record + the dynamic-slice definition).
+
+**External (RECALLED / from search records, NOT full-read — check before public use).** Winston 1970
+(near-miss) · Minsky 1974/1980/1986 (frames, K-lines, censors) · Mitchell 1982 (version spaces) ·
+Goldman–Kearns 1995, Goldman–Mathias 1996 (teaching dimension) · Angluin 1987/1988 (exact learning) ·
+**Hegedűs 1995 (generalized TD = query complexity of exact learning)** · **Hellerstein, Pillaipakkamnatt,
+Raghavan & Wilkins 1996 (query complexity / certificates)** · Zilles et al. 2011, Doliwa et al. 2014 (RTD;
+RTD–VCD–compression) · **Chen, Cheng & Tang 2016 ($\mathrm{RTD}\le d\,2^{d+1}$)** · **Simon 2015 (RTD-vs-VCD,
+open problem)** · **Niedermayr, Juergens & Wagner 2016 (extreme mutation / pseudo-tested, origin)** ·
+**Jahangirova, Clark, Harman & Tonella 2016 (oracle assessment; +48.6% fault detection — PDF host down,
+from record)** · **Chen, Cheung & Yiu 1998; Segura et al. 2016 (metamorphic testing)** · Budd & Angluin
+1982 (mutation equivalence undecidable) · Papadakis et al. (TCE) · Feige–Izsak (bounded supermodular
+degree) · Golovin–Krause 2011 (adaptive submodularity) · Nemhauser–Wolsey–Fisher 1978 (greedy $(1-1/e)$) ·
+Blais et al. 2012 (identity testing) · György et al. 2025 (exact learning for general intelligence) ·
+Crick–Mitchison 1983 (reverse learning) · Rice 1953 · Landauer 1961 (erasure cost) · Abelson & Sussman
+(SICP — the aesthetic §15 makes computable).
 
 ## Appendix C — Empirical Predictions and Falsifiable Tests
 
@@ -1185,16 +1379,27 @@ I_{\mathrm{solve}}^{\mu}$, and the gap is the second sign's information content.
 existing residual instrumentation. Falsifier: no significant residual reduction — would refute Prop. 4.3
 and the automation-relocation claim of Theorem 6.2.
 
-**C4 (isolation, predicted).** *The negative survivors are largely disjoint from the positive survivors.*
-By Theorem 5.2 the channels are orthogonal, so on a corpus the overlap between $\mu$-survivors and
-$\mu^-$-survivors (as $(x,y)$-distinguishable dimensions) should be small. Falsifier: high overlap —
-would refute isolation and reduce $\mu^-$ toward redundancy (Cor. 5.3).
+**C4 (isolation — CORRELATED BUT DISTINCT, partially measured; refined from "largely disjoint").** By
+Theorem 5.2 the channels are orthogonal in *content*, so the negative ($\mu^-$/extreme-mutation) survivors
+are not a re-derivation of the positive ($\mu$/traditional) survivors. The prior art *measures* this and
+it is more nuanced than disjointness: Vera-Pérez et al. (2018/19) found the traditional mutation score of
+pseudo-tested (extreme-survivor) methods is *significantly lower* than that of required methods (Wilcoxon
+$p<0.01$, effect size $1.5$) yet **nonzero and moderately correlated** (Spearman $\approx 0.6$, Descartes
+vs. Gregor). So the two channels are correlated-but-distinct, not disjoint — as Thm 5.2 predicts (the
+graph of $(x,y)$ pairs overlaps, Def. 5.4, but the *content* is independent). Falsifier: *identity* of the
+two survivor sets (perfect correlation) — would collapse $\mu^-$ into redundancy (Cor. 5.3); *this is
+refuted by the measured gap*.
 
-**C5 (independence pair, predicted).** *A measurable fraction of green functions fail $p_{\mathrm{const}}$
-or $p_{\mathrm{id}}$.* On functions whose shipped suites pass, some nonzero fraction leaves input-
-dependence or non-triviality unpinned (Remark 11.9). This fraction is a direct measurement of what
-positive-only completeness misses. Falsifier: the fraction is ~0 across a broad corpus — would show the
-independence pair is redundant with existing positive coverage in practice.
+**C5 (independence pair / pseudo-tested prevalence — CONFIRMED at scale).** *A measurable fraction of
+green functions fail $p_{\mathrm{const}}$ or $p_{\mathrm{id}}$.* This is the pseudo-tested-method
+phenomenon, and it is measured: pseudo-tested methods (all effects unpinned — the $p_{\mathrm{const}}$
+survivor, Rem. 11.9b) appear in **all of 21 open-source Java projects across 28K+ methods**, at prevalence
+$1$–$46\%$ (Vera-Pérez et al. 2018/19; Niedermayr et al. 2016 reported $6$–$53\%$). The fraction is a
+direct measurement of what positive-only completeness misses, and it is far from $0$. Refined addendum:
+developers judged **$<30\%$ of these worth a testing action** — the $\mathrm{DOF}^-$ (real fence) vs
+$\mathrm{DOF}^0$ (admissible) triage (Def. 12.1) measured, confirming that most unpinned negative DOF are
+admissible mechanical residual, a minority intent-bearing fences. Falsifier: prevalence $\approx 0$ on a
+broad corpus — *refuted*.
 
 **C6 (two-sign ESL residual, predicted — §13).** *A learner driving specification against $\sigma(P,
 \mu^{\pm})$ has a strictly smaller external-teaching residual $I_{\mathrm{ext}}$ than one driving against
@@ -1203,7 +1408,7 @@ intent (Prop. 4.3) out of the per-run query loop. Run the ESL forward pass under
 $\mu^{\pm}$ on the same held-out functions; the gap in query count is the second sign's information
 content. Falsifier: no reduction — would refute Prop. 13.5 and, with C3, the automation-relocation claim.
 
-**C7 (bounded curvature on the code graph, predicted — §14, §17 Q1/Q5).** *The code obligation graph is
+**C7 (bounded curvature on the code graph, predicted — §14, §18 Q1/Q5).** *The code obligation graph is
 fragmented, so its supermodular degree $d$ is large and the borrowed $(1-1/e)$ greedy bound is far from
 holding; and $d$ falls as induced censors bridge components.* Measured on the *rule* graph, $d \le 14$–$25$
 across six pulls (Thm 14.4); the prediction is that a call/import/obligation graph over a real package is
@@ -1244,7 +1449,7 @@ result *measured*, on a running symbolic engine (Regenesis), before it was assum
 canonical form and identify it with consolidation, the σ-invariant run in reverse — Detective's own
 `decompose`, and the Crick–Mitchison wake/sleep dynamics (§15). The result is one paradigm (§16): intent →
 implementation → the auto-fillable two-sign contract → mutation-as-selection to the canonical form. The
-integration is an *assembly*, not new machinery — every load-bearing claim carries the status (§18) of the
+integration is an *assembly*, not new machinery — every load-bearing claim carries the status (§19) of the
 document it came from, and the interpretive moves (the SICP naming, the intelligence bridge, the
 unknown-knowns reading) are marked ASSERTED, not proved. Nothing here is deterministic-AI dressed as a
 model: the architecture is the theorem-checked σ-engine throughout; any learner is a schema-constrained,
