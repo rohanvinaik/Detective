@@ -116,3 +116,48 @@ def score_censor(censor: Censor, marginal_kappa: int, sigma_hat_after: int) -> s
     """
     admissible = censor_admissible(censor.source, sigma_hat_after)
     return censor_disposition(marginal_kappa, admissible)
+
+
+def call_site_absent_censors(func_key: str, observed_inputs: list, arity: int) -> list[Censor]:
+    """Candidate censors from CALL-SITE ABSENCE — Def. 9.1's OWN example, "no caller ever passes None"
+    (§18 Q1 sourcing, pure — pinned).
+
+    For each argument position that the call-site POPULATION actually exercises, if ``None`` is never
+    observed there, that is a near-miss → a candidate ``input_absent`` censor. A CANDIDATE generator
+    only: it PROPOSES broadly (Prop. 12.4 — propose, never gate); :func:`score_censor`'s admissibility
+    guard + κ-gate + human triage dispose, so over-generation is SAFE, not a false fence.
+
+    Empty ``observed_inputs`` yields NOTHING — a function with no observed call sites has no population,
+    so there is no near-miss to fence (a censor is a fact about the population, not about f alone,
+    Rem 9.2). A position the population never exercises yields nothing either (no population there). v1
+    fences the universal ``None`` only; type-specific degenerates (0, ``""``, ``[]``) are a later
+    refinement. Membership is by identity (``is None``) so an unhashable observed arg (a list) is safe.
+    """
+    if not observed_inputs:
+        return []
+    out: list[Censor] = []
+    for i in range(arity):
+        seen_at_i = [t[i] for t in observed_inputs if len(t) > i]
+        if seen_at_i and not any(v is None for v in seen_at_i):
+            out.append(
+                Censor(
+                    func_key=func_key,
+                    kind="input_absent",
+                    subject=f"arg{i}=None",
+                    source="call_site_absence",
+                    note="no observed caller passes None at this position",
+                )
+            )
+    return out
+
+
+def harvest_call_site_censors(func_key: str, project_root: str, arity: int) -> list[Censor]:
+    """Impure adapter: harvest the observed call-site inputs (``discover_call_site_inputs``) and run the
+    pure :func:`call_site_absent_censors` over them. ``func_key`` is ``path::qualname``; the bare
+    qualname drives the call-site scan. A thin shell — the near-miss DECISION is the pure function it
+    calls; this only supplies the observed population."""
+    from .call_sites import discover_call_site_inputs
+
+    qualname = func_key.split("::")[-1]
+    observed = discover_call_site_inputs(qualname, project_root)
+    return call_site_absent_censors(func_key, observed, arity)

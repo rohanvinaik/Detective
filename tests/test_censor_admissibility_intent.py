@@ -10,10 +10,12 @@ from __future__ import annotations
 
 from Detective.censor import (
     Censor,
+    call_site_absent_censors,
     censor_admissible,
     censor_disposition,
     censor_retains_plurality,
     censor_spine_confirmed,
+    harvest_call_site_censors,
     score_censor,
 )
 
@@ -66,3 +68,32 @@ def test_score_censor_composes_the_guard_then_the_kappa_gate():
     assert score_censor(admissible, 8, sigma_hat_after=0) == "refuse_inadmissible"
     # engine-derived provenance → inadmissible regardless of κ
     assert score_censor(unsourced, 99, sigma_hat_after=5) == "refuse_inadmissible"
+
+
+# ─── the call-site-absence source (Def 9.1's "no caller ever passes None") ───
+def test_call_site_absent_censors_fences_none_absence_where_the_population_exists():
+    cands = call_site_absent_censors("m.py::f", [(1, "x"), (2, "y")], arity=2)
+    subjects = {c.subject for c in cands}
+    assert "arg0=None" in subjects  # None never observed at arg0 → near-miss
+    assert "arg1=None" in subjects
+    assert all(c.source == "call_site_absence" and c.kind == "input_absent" for c in cands)
+
+
+def test_call_site_absent_censors_skips_a_position_where_none_is_observed():
+    # a caller DOES pass None at arg0 → not a near-miss there; arg1 (never None) still fenced
+    subjects = {c.subject for c in call_site_absent_censors("m.py::f", [(None, "x"), (2, "y")], 2)}
+    assert "arg0=None" not in subjects
+    assert "arg1=None" in subjects
+
+
+def test_call_site_absent_censors_needs_a_population():
+    assert call_site_absent_censors("m.py::f", [], arity=2) == []  # no call sites → no censor
+    # a position the population never exercises (arity 3, tuples len 2) yields nothing there
+    assert "arg2=None" not in {c.subject for c in call_site_absent_censors("m.py::f", [(1, 2)], 3)}
+
+
+def test_harvest_call_site_censors_reads_the_real_call_sites(tmp_path):
+    (tmp_path / "m.py").write_text("def f(a, b):\n    return a + b\n\n\ndef caller():\n    return f(1, 2)\n")
+    subjects = {c.subject for c in harvest_call_site_censors("m.py::f", str(tmp_path), arity=2)}
+    assert "arg0=None" in subjects  # the only caller passes (1, 2) — never None → both fenced
+    assert "arg1=None" in subjects
