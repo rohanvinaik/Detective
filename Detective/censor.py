@@ -191,3 +191,40 @@ def censors_from_verification(func_key: str, verification) -> list[Censor]:
     (its ``verdict`` + ``differences``). The near-miss DECISION is the pure :func:`rejected_rewrite_censors`;
     this only unpacks the verification object."""
     return rejected_rewrite_censors(func_key, verification.verdict, verification.differences)
+
+
+def harvest_corpus_censors(project_root: str, scan_path: str) -> list[Censor]:
+    """Harvest call-site-absence censors across a CORPUS — every function under ``scan_path`` (a ``.py``
+    file or a directory), each fed to the pure :func:`call_site_absent_censors` via
+    :func:`harvest_call_site_censors`'s observed call-site population. This is the corpus SOURCING side of
+    §14: it PROPOSES broadly (Prop. 12.4 — propose, never gate), and the promotion ledger's guard + κ-gate
+    + human triage dispose. ``scan_path`` is relative to ``project_root`` or absolute; non-Python and
+    unparseable files are skipped. O(functions × files) — an advisory static pass, not a hot path."""
+    import ast
+    import os
+
+    from Wesker.ci import walk_functions
+
+    from .kappa import _SKIP_DIRS
+
+    root = os.path.abspath(project_root)
+    base = scan_path if os.path.isabs(scan_path) else os.path.join(root, scan_path)
+    files: list[str] = []
+    if os.path.isdir(base):
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+            files.extend(os.path.join(dirpath, f) for f in filenames if f.endswith(".py"))
+    elif base.endswith(".py"):
+        files = [base]
+    out: list[Censor] = []
+    for path in files:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        rel = os.path.relpath(path, root)
+        for qual, node in walk_functions(tree):
+            arity = len(node.args.posonlyargs) + len(node.args.args)
+            out.extend(harvest_call_site_censors(f"{rel}::{qual}", project_root, arity))
+    return out

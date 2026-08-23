@@ -416,6 +416,75 @@ def _format_parsimony_plan(score, top: int = 10) -> str:
     return "\n".join(lines)
 
 
+def _format_censor_proposal(rows: list, total: int, top: int) -> str:
+    """The ranked censor PROPOSAL render (read-only): each near-miss with its marginal-κ and the
+    per-censor disposition (propose / abstain_low_kappa / refuse_inadmissible). Advisory — nothing
+    written; a censor is UNVERIFIED until promoted or triaged (Def. 9.5)."""
+    lines = [
+        f"censor — {total} proposed near-miss(es), ranked by marginal-κ over the call graph",
+        "        (advisory · static · nothing written)",
+        "",
+    ]
+    if not rows:
+        lines.append("  (none — no observed near-miss across the call-site population)")
+        return "\n".join(lines)
+    for _key, censor, kappa, disp in rows[:top]:
+        k = kappa if kappa is not None else "?"
+        lines.append(f"  κ={k:<4} {disp:<18} {censor.func_key} · {censor.subject} ({censor.source})")
+    if total > top:
+        lines.append(f"  … and {total - top} more (raise --top)")
+    lines += [
+        "",
+        "DONE:  proposals only — a censor is UNVERIFIED until promoted or triaged (Def. 9.5).",
+        "       Re-run with --promote to adopt the admissible, high-κ ones into the ledger.",
+    ]
+    return "\n".join(lines)
+
+
+def _format_censor_promote(result: dict, proposed: int) -> str:
+    """The --promote render: the corpus fixpoint's promotions, demotions, and L_ind (§16.5). Conservative-
+    empty on clean data is the honest outcome ('the spine is the bottleneck'), not a failure."""
+    promoted = result["promoted"]
+    lines = [
+        f"censor --promote — corpus fixpoint reached in {result['generations']} generation(s)",
+        f"        {proposed} proposed · {len(promoted)} promoted · {result['n_demoted']} demoted "
+        f"· L_ind={result['self_teaching']:.2f}",
+        "",
+    ]
+    if not promoted:
+        lines += [
+            "  (nothing promoted — conservative-empty on this corpus)",
+            "  A censor promotes only when it is spine-sourced, admissible, AND adds real κ (bridges",
+            "  otherwise-disjoint call clusters). The honest 'the spine is the bottleneck' (§15).",
+        ]
+        return "\n".join(lines)
+    for e in promoted:
+        lines.append(
+            f"  κ={e.kappa} gen{e.generation}  {e.censor.func_key} · {e.censor.subject} ({e.censor.source})"
+        )
+    lines += [
+        "",
+        "DONE:  the promoted censors are persisted to .detective/censors.json (--list to review).",
+        "       They are proposals for human triage, never a gate — proof/triage disposes (Def. 9.5).",
+    ]
+    return "\n".join(lines)
+
+
+def _format_censor_list(entries: dict) -> str:
+    """The --list render of the persisted ledger (.detective/censors.json), state-annotated."""
+    lines = [f"censor --list — {len(entries)} persisted entry(ies) in .detective/censors.json", ""]
+    if not entries:
+        lines.append("  (empty — run `detective censor <path> --promote` to populate it)")
+        return "\n".join(lines)
+    for e in entries.values():
+        k = e.kappa if e.kappa is not None else "?"
+        lines.append(
+            f"  [{e.state:<8}] κ={k} gen{e.generation}  {e.censor.func_key} · "
+            f"{e.censor.subject} ({e.censor.source})"
+        )
+    return "\n".join(lines)
+
+
 def _trace_cut_rows(scope) -> list[str]:
     """The cut-trace warning, or nothing.
 
@@ -3371,6 +3440,25 @@ def _engine_version() -> str:
     return f"Wesker {version}" if version else "Wesker version UNKNOWN"
 
 
+# The path-based / advisory verbs: each carries `path` or no target (never `target::function`), runs a
+# STATIC pass (no mutant, no live pytest session), and is dispatched in `_run` ABOVE `_split_target`. One
+# named set so `_run_live`'s session bypass and `_run`'s pre-split dispatch cannot silently drift as verbs
+# are added (the dispatch-ordering fragility of the flat `_run` ladder — patched by naming the contract).
+_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor")
+
+# The exit-code contract, one place. Each verb's result IS its exit status (CI branches on the code, a
+# `--json` consumer on the field) — this consolidates the per-handler semantics into one discoverable map.
+_EXIT_CODES = (
+    "EXIT CODES (a verdict is also the exit status — CI branches on the code, --json on the field):\n"
+    "  0  clean / success\n"
+    "  1  a real gap or typed REFUSAL — audit --check spec gap; verify-rewrite not PRESERVED; a\n"
+    "     collision/accounting refusal; flag: no such surviving mutant\n"
+    "  2  a conflict / precondition — regime conflict, wrong interpreter, a bad --env, or\n"
+    "     audit --check-strict measurement-incomplete\n"
+    "  3  INVALID MEASUREMENT, re-run — converge/decompose CUT or stale target; a weak receipt baseline"
+)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="detective",
@@ -3395,6 +3483,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "    detective diagnose path/to/file.py::function"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_EXIT_CODES,
     )
     # BOTH versions, because a verdict is a joint product. Detective decides what to ask; the
     # ENGINE decides what the answer is — a kill it classifies `crash` rather than `exception`
@@ -3746,6 +3835,37 @@ def _build_parser() -> argparse.ArgumentParser:
         "nothing. Pair with --json for an agent/MCP-consumable queue; --top bounds the groups shown.",
     )
     parsimony_p.add_argument("--json", action="store_true", help="emit JSON")
+
+    censor_p = sub.add_parser(
+        "censor",
+        help="propose population-derived CENSORS (forbidden I/O regions) ranked by κ — the §14 corpus loop",
+        description=(
+            "Harvest population-derived censors across a corpus. A censor is a forbidden input/output "
+            'region ("no correct implementation produces (x, y)") carved from an OBSERVED near-miss '
+            "across the call-site population, NEVER from one function alone (Def. 9.1, Rem. 9.2); v1 "
+            "fences the systematically-absent None. Rank them by marginal coverage κ over the call graph "
+            "and report the promotion PRIORITY.\n\n"
+            "ADVISORY / static — an AST call-site + call-graph pass, no mutant. Read-only by default "
+            "(proposes, prints, writes nothing). --promote runs the κ→0 corpus fixpoint and PERSISTS the "
+            "promoted censors to .detective/censors.json; --list shows that ledger. On clean data the loop "
+            "is conservative-empty by construction — the honest 'the spine is the bottleneck' outcome, a "
+            "censor is UNVERIFIED until promoted or triaged (Def. 9.5), never a gate."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    censor_p.add_argument("path", help="a .py file or a directory to scan for near-misses")
+    censor_p.add_argument("--project-root", default=".", help="project root the path is relative to")
+    censor_p.add_argument("--top", type=int, default=20, help="ranked censors to show (default 20)")
+    censor_p.add_argument(
+        "--promote",
+        action="store_true",
+        help="run the corpus fixpoint and PERSIST the promoted censors to .detective/censors.json "
+        "(default: propose + rank only, writing nothing)",
+    )
+    censor_p.add_argument(
+        "--list", action="store_true", help="show the persisted censor ledger (.detective/censors.json)"
+    )
+    censor_p.add_argument("--json", action="store_true", help="emit JSON")
 
     # Arbitrary-rewrite old-vs-new preservation gate (issue #37). `decompose` proves its OWN
     # transform; these two commands bracket an EXTERNAL/model rewrite: snapshot before, verify after.
@@ -4191,7 +4311,7 @@ def _run_live(args) -> int:
     # `purge` runs no tests; `regime` READS the setup and must answer even when that setup is
     # what is broken — opening a live session to report that a live session cannot open would
     # be the one command guaranteed to fail exactly when it is needed.
-    if getattr(args, "command", None) in ("purge", "regime", "parsimony") or not root:
+    if getattr(args, "command", None) in _STATIC_COMMANDS or not root:
         return _run(args)
     context = _execution_context()
     if context.disposition == "wrong_interpreter":
@@ -4767,6 +4887,109 @@ def _run(args) -> int:
             print(json.dumps(asdict(score), indent=2, default=str))
         else:
             print(_format_parsimony_map(score, top=args.top))
+        return 0
+
+    if args.command == "censor":
+        # Path-based + static (an AST call-site + call-graph pass), so it lands with the other advisory
+        # verbs ABOVE _split_target — it carries `path`, not `target`, and never opens a live session.
+        from .censor import harvest_corpus_censors, score_censor
+        from .promotion_ledger import (
+            build_ledger,
+            corpus_fixpoint,
+            ledger_key,
+            load_ledger,
+            save_ledger,
+        )
+
+        if args.list:
+            entries = load_ledger(args.project_root)
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "kind": "censor-ledger",
+                            "count": len(entries),
+                            "entries": {
+                                k: {
+                                    "censor": asdict(e.censor),
+                                    "kappa": e.kappa,
+                                    "state": e.state,
+                                    "generation": e.generation,
+                                }
+                                for k, e in entries.items()
+                            },
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(_format_censor_list(entries))
+            return 0
+
+        censors = harvest_corpus_censors(args.project_root, args.path)
+        if args.promote:
+            result = corpus_fixpoint(args.project_root, censors)
+            # Persist the promoted censors into the ledger (merge with any existing entries).
+            store = load_ledger(args.project_root)
+            for e in result["promoted"]:
+                store[ledger_key(e.censor)] = e
+            save_ledger(args.project_root, store)
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "kind": "censor-promote",
+                            "proposed": len(censors),
+                            "generations": result["generations"],
+                            "n_demoted": result["n_demoted"],
+                            "self_teaching": result["self_teaching"],
+                            "promoted": [
+                                {
+                                    "key": ledger_key(e.censor),
+                                    "censor": asdict(e.censor),
+                                    "kappa": e.kappa,
+                                    "generation": e.generation,
+                                }
+                                for e in result["promoted"]
+                            ],
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(_format_censor_promote(result, len(censors)))
+            return 0
+
+        ledger = build_ledger(args.project_root, censors)
+        # Per-censor disposition at the conservative σ̂ default (retains plurality): propose / abstain /
+        # refuse — the same score_censor the fixpoint gates on, shown so a reader sees WHY each ranks.
+        rows = [
+            (ledger_key(e.censor), e.censor, e.kappa, score_censor(e.censor, e.kappa or 0, 1)) for e in ledger
+        ]
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "kind": "censor-proposal",
+                        "proposed": len(censors),
+                        "censors": [
+                            {
+                                "key": k,
+                                "func_key": c.func_key,
+                                "kind": c.kind,
+                                "subject": c.subject,
+                                "source": c.source,
+                                "kappa": kap,
+                                "disposition": disp,
+                            }
+                            for k, c, kap, disp in rows[: args.top]
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(_format_censor_proposal(rows, total=len(censors), top=args.top))
         return 0
 
     file, function = _split_target(args.target, getattr(args, "project_root", None))
