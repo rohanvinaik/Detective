@@ -3567,7 +3567,7 @@ def _build_parser() -> argparse.ArgumentParser:
                 "mutant, so the widen skips them and the report discloses how many. Pass this when a "
                 "residual may be killable ONLY by such a test and you want to pay to trace them.",
             )
-        if name in ("diagnose", "converge"):
+        if name in ("diagnose", "converge", "decompose"):
             # μ⁻ (negative specification). Opt into the two-sign contract σ(P, μ ∪ μ⁻): add the
             # codomain operator that perturbs the RETURN VALUE, so a surviving perturbation is a
             # NEGATIVE degree of freedom — an output invariant no test pins. diagnose reports them;
@@ -3580,7 +3580,9 @@ def _build_parser() -> argparse.ArgumentParser:
                 "μ⁻, which perturbs the RETURN VALUE. A surviving μ⁻ perturbation is a negative "
                 "degree of freedom — an output invariant your suite does not pin (→None: the "
                 "output must exist; →const: it must depend on the input; →identity: it must "
-                "transform its input). Off by default.",
+                "transform its input). On `decompose`, the preservation proof is then over σ(P, μ ∪ "
+                "μ⁻), so an applied extraction is certified to have preserved the value pins AND the "
+                "negative fences (Thm 15.4). Off by default.",
             )
         if name == "converge":
             # The workflow note renders after the options on `converge --help` (this loop set
@@ -5521,6 +5523,7 @@ def _run(args) -> int:
             write=args.apply,
             supplied_inputs=supplied,
             deadline_s=args.deadline,
+            two_sign=getattr(args, "two_sign", False),
             # decompose's work IS a converge plus a trial-apply per candidate — the slowest
             # command in the CLI, and until now the only one that printed nothing while it ran.
             notify=None if args.json else _notify_stderr,

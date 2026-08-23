@@ -632,6 +632,7 @@ def apply_decomposition(
     supplied_inputs: list[tuple] | None = None,
     deadline_s: float | None = 300.0,
     notify: Callable[[str], None] | None = None,
+    two_sign: bool = False,
 ) -> DecompositionApply:
     """Decompose, with the consumer target's stdout contained off the report channel.
 
@@ -652,6 +653,7 @@ def apply_decomposition(
             supplied_inputs=supplied_inputs,
             deadline_s=deadline_s,
             notify=notify,
+            two_sign=two_sign,
         )
     return replace(result, stdout_bytes=_sink.bytes_written) if _sink.bytes_written else result
 
@@ -666,6 +668,7 @@ def _apply_decomposition_impl(
     supplied_inputs: list[tuple] | None = None,
     deadline_s: float | None = 300.0,
     notify: Callable[[str], None] | None = None,
+    two_sign: bool = False,
 ) -> DecompositionApply:
     """The full decomposition loop — a decomposition is applied only when PROVED
     behavior-preserving by a mutant-complete test suite.
@@ -730,6 +733,11 @@ def _apply_decomposition_impl(
             # harmlessly inside ours (idempotent stdout redirect).
             deadline_s=_budget_s(),
             notify=notify,
+            # C8 / Thm 15.4: under a two-sign profile the PROOF is over σ(P, μ ∪ μ⁻), so a green
+            # before/after trial certifies preservation of the value pins AND the μ⁻ negative fences
+            # — not just the positive sign. functionally_complete then already folds in the Q8
+            # authored-fence block, so an unenforced must-not correctly withholds the auto-apply.
+            two_sign=two_sign,
         )
         report = conv.survivor_report
         if report is not None:
@@ -742,7 +750,7 @@ def _apply_decomposition_impl(
         from .engine import profile
 
         try:
-            _prof = profile(file, function, project_root, budget_ms=_budget_ms())
+            _prof = profile(file, function, project_root, budget_ms=_budget_ms(), two_sign=two_sign)
             surviving_categories = tuple(
                 sorted({r.get("category", "") for r in _prof.value_survivor_records})
             )
