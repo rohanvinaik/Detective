@@ -14,7 +14,8 @@ and its `total == sum` arithmetic is exhaustively pinnable from intent.
 
 from __future__ import annotations
 
-from Detective.audit import audit_partition_sums
+from Detective.audit import SuiteAudit, audit_check_failed, audit_partition_sums
+from Detective.cli import _format_audit, main
 from Detective.engine import classify_survivors, profile
 from Detective.equivalents import add_flag, contract_disposition, flag_verdict, load_flags
 
@@ -114,3 +115,69 @@ def test_an_equivalent_flag_still_suppresses_into_manual_equivalent(tmp_path):
     report = classify_survivors("m.py", "f", root, profile_result=r)
     assert not report.authored_fence
     assert report.manual_equivalent
+
+
+# ── the CLI verb + render + CI gate (task #13) ───────────────────────────────
+def test_audit_check_failed_treats_a_fence_as_a_spec_gap():
+    # A fence is an actionable claim about the suite ("you said this is forbidden, nothing catches
+    # it") — a spec gap like killable/missing/failing, NOT a measurement limit. Each term fails alone.
+    assert audit_check_failed(0, 0, 0, 0) is False
+    assert audit_check_failed(1, 0, 0, 0) is True  # killable
+    assert audit_check_failed(0, 1, 0, 0) is True  # missing line
+    assert audit_check_failed(0, 0, 1, 0) is True  # failing test
+    assert audit_check_failed(0, 0, 0, 1) is True  # authored fence — the Q8 term
+
+
+def _audit_with_fence(n_fence):
+    return SuiteAudit(
+        function="m.py::f",
+        test_count=1,
+        kill_pct=60.0,
+        mutant_complete=False,  # an unenforced fence blocks completeness
+        line_complete=True,
+        redundant_tests=(),
+        failing_tests=(),
+        killable_gaps=(),
+        missing_lines=(),
+        minimal_test_count=1,
+        authored_fence=n_fence,
+        value_killed=3,
+        total_mutants=5,
+    )
+
+
+def test_format_audit_renders_a_fence_as_a_gap_and_reads_incomplete():
+    out = _format_audit(_audit_with_fence(2))
+    assert "authored fence" in out  # shown as a ✗ gap line
+    assert "2 must-not" in out
+    assert "incomplete" in out  # a fence is never a "complete" verdict
+
+
+def _repo_for_cli(tmp_path):
+    # Uniquely-named source + test file: `main()` opens a nested live pytest session, and a shared
+    # `test_m.py` module name across sibling tmpdirs triggers pytest's import-file-mismatch. A name
+    # no other test uses keeps the nested collection clean.
+    (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
+    (tmp_path / "cli_mod.py").write_text("def f(x):\n    return abs(x) if x < 0 else abs(x)\n")
+    tdir = tmp_path / "tests"
+    tdir.mkdir()
+    (tdir / "test_cli_fence_repo.py").write_text(
+        "from cli_mod import f\n\n\ndef test_f():\n    assert f(-3) == 3\n    assert f(3) == 3\n"
+    )
+    return str(tmp_path)
+
+
+def test_flag_fence_records_a_fence_and_fails_audit_check(tmp_path, capsys):
+    root = _repo_for_cli(tmp_path)
+    r = profile("cli_mod.py", "f", root, use_cache=False)
+    surv = next((rec for rec in r.value_survivor_records if rec.get("mutant_id") or rec.get("mutant")), None)
+    assert surv is not None, "the value-dead branch must leave a survivor to fence"
+    mid = surv.get("mutant_id") or surv.get("mutant")
+    rc = main(["flag", "cli_mod.py::f", mid, "--fence", "--project-root", root])
+    assert rc == 0
+    # persisted as a FENCE, not an equivalent (the CLI verb wrote the right verdict)
+    flags = load_flags(root)
+    assert flag_verdict(flags, r.function_key, surv.get("diff_summary", "")) == "fence"
+    assert "fence" in capsys.readouterr().out
+    # and the unenforced must-not now FAILS the CI ratchet (exit 1)
+    assert main(["audit", "cli_mod.py::f", "--check", "--project-root", root]) == 1

@@ -146,21 +146,25 @@ class SuiteAudit:
         return max(0, self.test_count - self.minimal_test_count)
 
 
-def audit_check_failed(killable_gaps: int, missing_lines: int, failing_tests: int) -> bool:
-    """Whether ``detective audit --check`` should FAIL the CI ratchet on a SPECIFICATION gap (#35, #50).
+def audit_check_failed(killable_gaps: int, missing_lines: int, failing_tests: int, fence: int = 0) -> bool:
+    """Whether ``detective audit --check`` should FAIL the CI ratchet on a SPECIFICATION gap (#35, #50, Q8).
 
     True ONLY for a real, actionable claim about the USER's code or suite: a KILLABLE mutant it does
-    not kill (a spec hole), a reachable line no test covers, or a currently-FAILING test. This is the
-    default gate; it must fail only when the code got WORSE, never when Detective's own measurement got
-    shorter. An UNCLASSIFIED survivor is a MEASUREMENT limit — the equivalence search could not run on
-    it, which is the tool's uncertainty, not the developer's regression — so it is EXCLUDED here (issue
-    #50, the over-gating direction; #35 fixed the under-gating one) and handled by
-    :func:`audit_measurement_incomplete`, fatal only under ``--check-strict``. Candidate-equivalent and
-    crash-only survivors are likewise excluded: unproven-equivalent, resolved by ``flag`` or a killing
-    input, never a spec hole a green-field edit introduced. A ratchet that reddens on tool-internal
-    conditions gets deleted from the pipeline, taking the real gate with it.
+    not kill (a spec hole), a reachable line no test covers, a currently-FAILING test, or an authored
+    ``fence`` — a MUST-NOT the human declared that no test enforces (Q8). The fence is a spec gap for
+    exactly the reason the others are: a definite, actionable claim about the suite ("you said this
+    output is forbidden and nothing catches it"), resolved by writing the test, not by the tool
+    measuring longer. This is the default gate; it must fail only when the code/contract got WORSE,
+    never when Detective's own measurement got shorter. An UNCLASSIFIED survivor is a MEASUREMENT limit
+    — the equivalence search could not run on it, the tool's uncertainty, not the developer's
+    regression — so it is EXCLUDED here (issue #50, the over-gating direction; #35 fixed the
+    under-gating one) and handled by :func:`audit_measurement_incomplete`, fatal only under
+    ``--check-strict``. Candidate-equivalent and crash-only survivors are likewise excluded:
+    unproven-equivalent, resolved by ``flag`` or a killing input, never a spec hole a green-field edit
+    introduced. A ratchet that reddens on tool-internal conditions gets deleted from the pipeline,
+    taking the real gate with it.
     """
-    return bool(killable_gaps) or bool(missing_lines) or bool(failing_tests)
+    return bool(killable_gaps) or bool(missing_lines) or bool(failing_tests) or bool(fence)
 
 
 def audit_measurement_incomplete(unclassified: int) -> bool:

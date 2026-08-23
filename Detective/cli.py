@@ -3107,6 +3107,12 @@ def _format_audit(a, removing: bool = False) -> str:
         lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
     if a.missing_lines:
         lines.append(_row("✗ uncovered", f"{len(a.missing_lines)} line(s): {_first_n(a.missing_lines, 8)}"))
+    if getattr(a, "authored_fence", 0):
+        # A FENCE is a GAP, not an equivalent (Q8): an authored must-not the suite does not enforce.
+        # Shown with the ✗ gaps and above the flagged-equivalent line so the two are never conflated.
+        lines.append(
+            _row("✗ authored fence", f"{a.authored_fence} must-not(s) you flagged that no test enforces")
+        )
     if a.manually_unreachable:
         lines.append(
             _row("· line oracle", f"{a.manually_unreachable} statement(s) flagged unreachable (modulo)")
@@ -3677,10 +3683,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "deletes a file you wrote. Without this flag the plan is printed and nothing changes",
     )
     regime_p.add_argument("--json", action="store_true", help="emit JSON")
-    flag_p = sub.add_parser("flag", help="mark a surviving mutant as truly equivalent (manual oracle)")
+    flag_p = sub.add_parser(
+        "flag", help="mark a surviving mutant equivalent (default) or a FENCE — an authored must-not"
+    )
     flag_p.add_argument("target", help="file.py::function")
     flag_p.add_argument("mutant_id", help="the surviving mutant id (from `audit`/`diagnose`)")
-    flag_p.add_argument("--note", default="", help="why it is equivalent")
+    flag_p.add_argument("--note", default="", help="why it is equivalent, or why it must not survive")
+    flag_p.add_argument(
+        "--fence",
+        action="store_true",
+        help="record a FENCE, not an equivalent: this survival is a BUG — an authored MUST-NOT (a "
+        "two-sign negative degree of freedom) the suite does not yet enforce. Reported as an "
+        "unenforced gap that fails `audit --check` and blocks ✓COMPLETE, never suppressed as valid.",
+    )
     flag_p.add_argument("--project-root", default=".")
     flag_p.add_argument("--json", action="store_true", help="emit JSON")
 
@@ -4851,16 +4866,35 @@ def _run(args) -> int:
             )
             print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
             return 1
-        add_flag(args.project_root, result.function_key, rec.get("diff_summary", ""), note=args.note)
+        _verdict = "fence" if args.fence else "equivalent"
+        add_flag(
+            args.project_root,
+            result.function_key,
+            rec.get("diff_summary", ""),
+            note=args.note,
+            verdict=_verdict,
+        )
         suffix = f" ({args.note})" if args.note else ""
         print(f"{result.function_key} — flag · {args.mutant_id}")
         print("")
-        print(_row("✓ recorded", f"equivalent{suffix}"))
-        print(_row("", "keyed to this exact code — an edit un-flags it."))
-        print("")
+        if args.fence:
+            # A FENCE is the OPPOSITE claim to equivalent: this survival is a BUG, an authored
+            # must-not the suite does not enforce. It is a GAP (fails `audit --check`, blocks
+            # ✓COMPLETE), never suppressed — so a witness that KILLS it SATISFIES the fence, it does
+            # not override a mistaken judgement.
+            print(_row("✓ recorded", f"fence — an unenforced must-not{suffix}"))
+            print(_row("", "keyed to this exact code — an edit un-flags it."))
+            print("")
+            print("DONE:  future audit/converge runs report it as an UNENFORCED must-not — a gap")
+            print("       that fails `audit --check` and blocks ✓COMPLETE until a test kills it.")
+            print(f"       Next: detective converge '{result.function_key}'   # write the test it needs")
+            return 0
         # A flag is a CLAIM, and the one place a human overrides the engine. Say what it does
         # and what still outranks it: a real distinguishing witness. Otherwise it reads as a
         # way to silence a survivor, which is how a green board gets flagged into existence.
+        print(_row("✓ recorded", f"equivalent{suffix}"))
+        print(_row("", "keyed to this exact code — an edit un-flags it."))
+        print("")
         print("DONE:  future audit/converge runs treat it as equivalent — unless a witness")
         print("       is found, which outranks your flag. Proof beats judgement.")
         # `function_key`, not `function`: the bare name does not resolve as a target, so the
@@ -5151,7 +5185,10 @@ def _run(args) -> int:
             from .audit import audit_check_failed, audit_gate_exit, audit_measurement_incomplete
 
             spec_gap = audit_check_failed(
-                len(report.killable_gaps), len(report.missing_lines), len(report.failing_tests)
+                len(report.killable_gaps),
+                len(report.missing_lines),
+                len(report.failing_tests),
+                getattr(report, "authored_fence", 0),  # Q8: an unenforced must-not is a spec gap
             )
             meas_incomplete = audit_measurement_incomplete(report.unclassified)
             gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
