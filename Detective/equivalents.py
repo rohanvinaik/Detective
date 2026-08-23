@@ -86,5 +86,69 @@ def add_flag(project_root: str, func_key: str, diff: str, note: str = "") -> Equ
 
 
 def is_flagged_equivalent(flags: dict[str, EquivalenceFlag], func_key: str, diff: str) -> bool:
-    """True when a user has flagged this exact mutation equivalent."""
+    """True when a user has flagged this exact mutation equivalent.
+
+    Verdict-BLIND on purpose (back-compat): ``True`` for ANY flag whose key matches. The
+    two-sign contract must instead branch on the flag's ``verdict`` — use :func:`flag_verdict`
+    and :func:`contract_disposition`, which do not collapse ``fence`` into ``equivalent``.
+    """
     return flag_key(func_key, diff) in flags
+
+
+def flag_verdict(flags: dict[str, EquivalenceFlag], func_key: str, diff: str) -> str:
+    """The verdict a user recorded for this exact mutation, or ``""`` when unflagged.
+
+    The verdict-AWARE accessor :func:`contract_disposition` consumes: ``"equivalent"`` (the
+    survivor computes the intended function) or ``"fence"`` (an authored MUST-NOT — this
+    survival is a bug, Def. 12.1 ``invalid``). Object handling only; it holds no decision.
+    """
+    flag = flags.get(flag_key(func_key, diff))
+    return flag.verdict if flag is not None else ""
+
+
+def contract_disposition(
+    buildable: bool,
+    killable: bool,
+    blocked: bool,
+    flag_verdict: str,
+) -> str:
+    """The two-sign contract's per-survivor disposition (§18 Q8, pure — pinned).
+
+    ``classify_survivors`` combines a mutant's execution verdict with any manual flag. The
+    one-sign predecessor, :func:`is_flagged_equivalent`, was verdict-BLIND: it read a flag as
+    "equivalent" regardless of its ``verdict`` field. A two-sign contract also carries
+    ``fence`` flags (an authored MUST-NOT), and collapsing the two into one truthy check would
+    route a fenced bug into the ``equivalent`` bucket — silently marking a must-not as valid,
+    the exact soundness inversion Def. 9.5 forbids. This is that split, made total over the
+    states the classifier actually distinguishes.
+
+    ``flag_verdict`` is ``""`` (no flag), ``"equivalent"``, or ``"fence"``. Returns a named
+    code, never a bool (two conditions that mean different things must not fuse):
+
+    * ``"killable"``     — a distinguishing witness exists; PROOF outranks any flag.
+    * ``"unclassified"`` — no verdict to trust (the search was ``blocked``/timed out, or the
+      mutant was un-buildable and no flag speaks for it): honest uncertainty.
+    * ``"equivalent"``   — flagged valid, no witness: the survivor computes the intended
+      function; suppress it (the ``manual_equivalent`` bucket).
+    * ``"fence"``        — flagged a must-not, no witness: the authored negative fence is
+      UNENFORCED by the suite — report it as an unpinned negative degree of freedom, never
+      suppress it as equivalent.
+    * ``"candidate"``    — no flag, no witness, buildable, not blocked: the plain
+      candidate-equivalent / crash-only verdict stands.
+    """
+    if not buildable:
+        # No execution verdict exists; the flag is the only signal we have.
+        if flag_verdict == "equivalent":
+            return "equivalent"
+        if flag_verdict == "fence":
+            return "fence"
+        return "unclassified"
+    if killable:
+        return "killable"  # a real witness — proof outranks the flag
+    if blocked:
+        return "unclassified"  # the witness search timed out: honest uncertainty, not equivalence
+    if flag_verdict == "equivalent":
+        return "equivalent"
+    if flag_verdict == "fence":
+        return "fence"
+    return "candidate"
