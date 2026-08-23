@@ -3567,7 +3567,7 @@ def _build_parser() -> argparse.ArgumentParser:
                 "mutant, so the widen skips them and the report discloses how many. Pass this when a "
                 "residual may be killable ONLY by such a test and you want to pay to trace them.",
             )
-        if name in ("diagnose", "converge", "decompose"):
+        if name in ("diagnose", "converge", "decompose", "audit"):
             # μ⁻ (negative specification). Opt into the two-sign contract σ(P, μ ∪ μ⁻): add the
             # codomain operator that perturbs the RETURN VALUE, so a surviving perturbation is a
             # NEGATIVE degree of freedom — an output invariant no test pins. diagnose reports them;
@@ -3580,7 +3580,9 @@ def _build_parser() -> argparse.ArgumentParser:
                 "μ⁻, which perturbs the RETURN VALUE. A surviving μ⁻ perturbation is a negative "
                 "degree of freedom — an output invariant your suite does not pin (→None: the "
                 "output must exist; →const: it must depend on the input; →identity: it must "
-                "transform its input). On `decompose`, the preservation proof is then over σ(P, μ ∪ "
+                "transform its input). On `audit`, such a survivor is a killable gap, so `audit "
+                "--two-sign --check` gates CI on an engine-found negative DOF (extending the authored "
+                "`flag --fence`). On `decompose`, the preservation proof is then over σ(P, μ ∪ "
                 "μ⁻), so an applied extraction is certified to have preserved the value pins AND the "
                 "negative fences (Thm 15.4). Off by default.",
             )
@@ -5398,6 +5400,7 @@ def _run(args) -> int:
             args.project_root,
             progress=_stream_progress(function),
             trace_progress=_stream_trace_progress(function),
+            two_sign=getattr(args, "two_sign", False),
         )
         # CI ratchet (issues #35, #50): --check makes a SPECIFICATION gap an enforceable process
         # result (exit 1), but a MEASUREMENT limit (an unclassified survivor the search could not
@@ -5479,7 +5482,9 @@ def _run(args) -> int:
                 )
             if result.removed:
                 # Re-audit so the user sees the suite is still complete after pruning.
-                after = audit_suite(file, function, args.project_root)
+                after = audit_suite(
+                    file, function, args.project_root, two_sign=getattr(args, "two_sign", False)
+                )
                 print(
                     f"  after removal: {after.test_count} test(s), "
                     f"complete={after.complete}, minimal cover={after.minimal_test_count}"

@@ -253,6 +253,7 @@ def audit_suite(
     *,
     progress: Callable[[int, int, float], None] | None = None,
     trace_progress: Callable[[int, int, float], None] | None = None,
+    two_sign: bool = False,
 ) -> SuiteAudit:
     """Assess the function's existing suite on both completeness axes.
 
@@ -263,7 +264,13 @@ def audit_suite(
     ``trace_progress`` reports the BASELINE-TRACE phase, which dominates a large suite's wall clock
     and, unreported, made audit look hung for minutes before the first byte (issue #53).
     """
-    result = profile(file, function, project_root, progress=progress, trace_progress=trace_progress)
+    # two_sign (§16 CI-gate view of the negative sign): under the two-sign policy the profile adds the
+    # μ⁻ OUTPUT perturbations, so a surviving negative DOF surfaces in killable_gaps and — via the
+    # unchanged audit_check_failed — makes `audit --two-sign --check` fail on an ENGINE-found unpinned
+    # output invariant, extending Q8's authored-fence gate to the perturbations the engine finds.
+    result = profile(
+        file, function, project_root, progress=progress, trace_progress=trace_progress, two_sign=two_sign
+    )
     # A test belongs to THIS function's suite only if it discharges an obligation for
     # it — kills one of its mutants OR covers one of its lines. The baseline pass runs
     # every discovered test against the original, so tests for OTHER functions appear
