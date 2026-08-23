@@ -161,3 +161,33 @@ def harvest_call_site_censors(func_key: str, project_root: str, arity: int) -> l
     qualname = func_key.split("::")[-1]
     observed = discover_call_site_inputs(qualname, project_root)
     return call_site_absent_censors(func_key, observed, arity)
+
+
+def rejected_rewrite_censors(func_key: str, verdict: str, differences: tuple) -> list[Censor]:
+    """Candidate censors from a REJECTED REWRITE (§9's second spine source; §18 Q1 sourcing, pure —
+    pinned). A rewrite whose behaviour ``CHANGED`` from its receipt is REJECTED, and each input where the
+    old (correct) and new implementations differed is a near-miss — the new (bad-rewrite) behaviour there
+    is forbidden. Only a ``CHANGED`` verdict sources censors: a ``PRESERVED`` rewrite introduced no
+    near-miss, and any other verdict (``ABSTAIN``/``STALE_RECEIPT``/…) is not a rejection to learn from.
+
+    A CANDIDATE generator (Prop. 12.4 — propose, never gate): the guard/κ-gate/human triage dispose. The
+    ``differences`` are the ``RewriteVerification.differences`` descriptors (inputs where old ≠ new)."""
+    if verdict != "CHANGED":
+        return []
+    return [
+        Censor(
+            func_key=func_key,
+            kind="output_forbidden",
+            subject=diff,
+            source="rejected_rewrite",
+            note="a rejected rewrite produced a different result on this input",
+        )
+        for diff in differences
+    ]
+
+
+def censors_from_verification(func_key: str, verification) -> list[Censor]:
+    """Thin adapter: source rejected-rewrite censors from a :class:`Detective.rewrite.RewriteVerification`
+    (its ``verdict`` + ``differences``). The near-miss DECISION is the pure :func:`rejected_rewrite_censors`;
+    this only unpacks the verification object."""
+    return rejected_rewrite_censors(func_key, verification.verdict, verification.differences)

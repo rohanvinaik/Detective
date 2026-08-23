@@ -8,6 +8,8 @@ from intent, so a re-merge (e.g. dropping the source check, letting the engine c
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from Detective.censor import (
     Censor,
     call_site_absent_censors,
@@ -15,7 +17,9 @@ from Detective.censor import (
     censor_disposition,
     censor_retains_plurality,
     censor_spine_confirmed,
+    censors_from_verification,
     harvest_call_site_censors,
+    rejected_rewrite_censors,
     score_censor,
 )
 
@@ -97,3 +101,21 @@ def test_harvest_call_site_censors_reads_the_real_call_sites(tmp_path):
     subjects = {c.subject for c in harvest_call_site_censors("m.py::f", str(tmp_path), arity=2)}
     assert "arg0=None" in subjects  # the only caller passes (1, 2) — never None → both fenced
     assert "arg1=None" in subjects
+
+
+# ─── the rejected-rewrite source (a CHANGED rewrite's differences are near-misses) ───
+def test_rejected_rewrite_censors_only_on_a_changed_verdict():
+    cands = rejected_rewrite_censors("m.py::f", "CHANGED", ("f(1)->old2 new3", "f(0)->old0 new9"))
+    assert {c.subject for c in cands} == {"f(1)->old2 new3", "f(0)->old0 new9"}
+    assert all(c.source == "rejected_rewrite" and c.kind == "output_forbidden" for c in cands)
+    assert rejected_rewrite_censors("m.py::f", "PRESERVED", ("x",)) == []  # no near-miss
+    assert rejected_rewrite_censors("m.py::f", "ABSTAIN", ("x",)) == []  # not a rejection to learn from
+    assert rejected_rewrite_censors("m.py::f", "CHANGED", ()) == []  # changed but nothing differed
+
+
+def test_censors_from_verification_unpacks_the_outcome():
+    v = SimpleNamespace(verdict="CHANGED", differences=("f(None)->old_raise new0",))
+    cands = censors_from_verification("m.py::f", v)
+    assert len(cands) == 1
+    assert cands[0].subject == "f(None)->old_raise new0"
+    assert cands[0].source == "rejected_rewrite"
