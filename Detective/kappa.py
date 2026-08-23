@@ -169,3 +169,39 @@ def call_graph_shape(adj: dict) -> dict:
         "max_kappa": max(cov.values(), default=0),
         "mean_kappa": round(sum(cov.values()) / len(cov), 2) if cov else 0.0,
     }
+
+
+def call_graph_neighbors(adj: dict, name) -> set:
+    """The DIRECT call-graph neighbors of ``name`` — its callees (``adj[name]``) plus its callers (every
+    node ``n`` with ``name in adj[n]``), excluding ``name`` itself. This is the BOUNDED κ-neighborhood
+    Cor. 10.6's cross-file safe-removal reads over (§18 Q1 realization): a test redundant for a function
+    can still be the sole killer of a mutant of its immediate caller or callee — a BRIDGE (Def. 10.2) —
+    and those neighbors may live in OTHER files. Pure over ``adj``; a node absent from the graph has no
+    neighbors. Local by construction (one hop), so the evidence set stays per-function-bounded, never
+    codebase-scale (the sandwich thesis: the unit is ONE function's neighborhood)."""
+    callees = set(adj.get(name, ()))
+    callers = {n for n, outs in adj.items() if name in outs}
+    return (callees | callers) - {name}
+
+
+def function_locations(project_root: str) -> dict[str, list[tuple[str, str]]]:
+    """Map each bare function name to the ``(rel_file, qualname)`` locations that DEFINE it across the
+    package — the resolver Cor. 10.6's κ-neighborhood needs to profile a neighbor that lives in another
+    file. The call graph is bare-name-keyed (Rem. 14.8), so one name may resolve to several definitions;
+    all are returned. Same walk/skip rules as :func:`build_call_graph`; reads the repo, writes nothing."""
+    root = os.path.abspath(project_root)
+    out: dict[str, list[tuple[str, str]]] = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+        for filename in filenames:
+            if not filename.endswith(".py"):
+                continue
+            try:
+                with open(os.path.join(dirpath, filename), encoding="utf-8") as fh:
+                    tree = ast.parse(fh.read())
+            except (OSError, SyntaxError, UnicodeDecodeError):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, filename), root)
+            for qual, _node in walk_functions(tree):
+                out.setdefault(qual.split(".")[-1], []).append((rel, qual))
+    return out

@@ -466,6 +466,29 @@ def audit_suite(
     )
 
 
+def _candidate_test_files(candidates) -> set[str]:
+    """The distinct test FILES a set of candidate test ids point at (Cor. 10.6). A candidate id is a
+    nodeid — ``[legacy:]path::name[::case]`` — so the file is the segment before the first ``::`` with any
+    ``legacy:`` routing prefix stripped. These files are force-loaded into a neighbor's profile so a
+    cross-file bridge test is not hidden by Detective's import-reachability discovery."""
+    files: set[str] = set()
+    for cid in candidates:
+        head = cid.split("::", 1)[0]
+        if head.startswith("legacy:"):
+            head = head[len("legacy:") :]
+        if head:
+            files.add(head)
+    return files
+
+
+def _is_test_file(rel_path: str) -> bool:
+    """A pytest test file by default convention (``test_*.py`` / ``*_test.py``). Cor. 10.6 profiles a
+    call-graph neighbor AS A TARGET, so a test-function neighbor (a test that CALLS the target — hence a
+    caller in the graph) must be filtered out: profiling a test function as a target is meaningless."""
+    base = os.path.basename(rel_path)
+    return base.startswith("test_") or base.endswith("_test.py")
+
+
 def module_safe_removals(
     file: str,
     function: str,
@@ -486,9 +509,18 @@ def module_safe_removals(
     (kills none of its mutants, covers none of its lines) or redundant there
     too. Anything else is retained, mapped to the sibling that needs it.
 
-    The evidence boundary is THIS FILE: a test serving a function in another
-    module is outside every kill matrix audit has, so the caller's report must
-    scope its claim to the file — not "nothing else changes".
+    The evidence boundary (Cor. 10.6, bounded κ-neighborhood) is this file's
+    functions PLUS the target's DIRECT call-graph neighbors — callers and callees
+    (``kappa.call_graph_neighbors``) — which reach across file boundaries: a
+    candidate redundant here and for every file-sibling can still be a BRIDGE
+    (Def. 10.2), the sole killer of an immediate caller/callee's mutant in another
+    module. Because Detective's import-reachability discovery would HIDE such a
+    bridge test when profiling the neighbor (it imports the caller's module, not
+    the neighbor's), the candidate's test files are force-included via profile's
+    explicit ``tests=``. One hop only, so the set stays per-function-bounded (the
+    sandwich thesis), never the whole transitive closure. A test serving a function
+    OUTSIDE that neighborhood is still beyond audit's evidence, so the caller's
+    report scopes its claim accordingly — not "nothing else changes".
     """
     wanted = set(candidates)
     if not wanted:
@@ -508,4 +540,40 @@ def module_safe_removals(
         for name in sorted(wanted & needed):
             retained[name] = qn
         wanted -= needed
+    # Cor. 10.6 — the cross-file BRIDGE check over the κ-neighborhood. A candidate redundant for
+    # `function` AND every file-sibling can still be the sole killer of a mutant of an immediate
+    # caller/callee in ANOTHER file (Def. 10.2). Detective's import-reachability discovery HIDES such a
+    # bridge test when profiling the neighbor (it imports the caller's module, not the neighbor's), so the
+    # candidate's test files are FORCE-INCLUDED via profile's explicit `tests=`, bypassing the filter. One
+    # hop only, so the neighbor set stays per-function-bounded (the sandwich thesis), never the closure.
+    if wanted:
+        from Wesker.ci import discover_test_callables, load_test_callables
+
+        from .kappa import build_call_graph, call_graph_neighbors, function_locations
+
+        rel_target = os.path.relpath(full, root)
+        cand_files = [f for f in _candidate_test_files(wanted) if os.path.exists(f)]
+        cand_callables = load_test_callables(cand_files, root) if cand_files else []
+        if cand_callables:
+            locs = function_locations(root)
+            for nb in sorted(call_graph_neighbors(build_call_graph(root), function.split(".")[-1])):
+                if not wanted:
+                    break
+                for nb_file, nb_qn in locs.get(nb, ()):
+                    if not wanted:
+                        break
+                    if (nb_file, nb_qn) == (rel_target, function) or _is_test_file(nb_file):
+                        continue
+                    # Judge the candidate's uniqueness for the neighbor by the SAME `needed` rule the
+                    # file-sibling loop uses — the neighbor's own reachable tests PLUS the force-included
+                    # candidates — so a bridge is caught but a candidate the neighbor's own suite already
+                    # covers is not spuriously retained.
+                    nb_own = list(discover_test_callables(root, nb_file, [nb_qn]))
+                    nb_result = profile(nb_file, nb_qn, root, tests=nb_own + cand_callables)
+                    nb_needed = set(
+                        _obligations_by_test(nb_result.kill_matrix, nb_result.line_coverage)
+                    ) - redundant_2axis(nb_result.kill_matrix, nb_result.line_coverage)
+                    for name in sorted(wanted & nb_needed):
+                        retained[name] = nb_qn
+                    wanted -= nb_needed
     return tuple(sorted(wanted)), retained
