@@ -1943,9 +1943,14 @@ def _converge_impl(
             survivor_report = None
     # Functionally complete = every KILLABLE mutant killed. Equivalent survivors do
     # not count against it (no test can kill them); an uncertain survivor does, since
-    # we can't prove it unkillable.
+    # we can't prove it unkillable. An AUTHORED FENCE also counts against it (Q8): the
+    # human declared this survival a must-not, and the suite does not enforce it — an
+    # unpinned negative DOF is a gap, never silently COMPLETE.
     functionally_complete = final == 0 or (
-        survivor_report is not None and not survivor_report.killable and not survivor_report.unclassified
+        survivor_report is not None
+        and not survivor_report.killable
+        and not survivor_report.unclassified
+        and not survivor_report.authored_fence
     )
     # A CUT run measured only PART of the universe (issue #31): its "every killable mutant
     # killed" is a claim about mutants that never ran. The wall makes the measurement

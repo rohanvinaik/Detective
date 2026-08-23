@@ -1995,20 +1995,32 @@ def classify_survivors(
     # mutation diff, which embeds the code, so a flag applies only to the exact
     # version it was made on. A flagged survivor is treated as equivalent UNLESS a
     # real distinguishing witness is found (proof outranks the flag).
-    from .equivalents import is_flagged_equivalent, load_flags
+    from .equivalents import contract_disposition, flag_verdict, load_flags
 
     flags = load_flags(root)
     func_key = f"{os.path.relpath(full, root)}::{qualname}"
 
-    def _flagged(rec: dict) -> bool:
-        return bool(flags) and is_flagged_equivalent(flags, func_key, rec.get("diff_summary", ""))
+    def _fv(rec: dict) -> str:
+        # The recorded flag verdict ("" / "equivalent" / "fence") for this exact mutation. A `fence`
+        # is an authored MUST-NOT (Def. 12.1 `invalid`), NEVER collapsed into "equivalent" (Q8).
+        return flag_verdict(flags, func_key, rec.get("diff_summary", "")) if flags else ""
 
-    def _split(recs: list[dict]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        """(descriptions still unclassified, diffs manually flagged equivalent)."""
-        return (
-            tuple(r.get("mutant", r.get("mutant_id", "?")) for r in recs if not _flagged(r)),
-            tuple(r.get("diff_summary", "") for r in recs if _flagged(r)),
-        )
+    def _split(recs: list[dict]) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+        """(still unclassified, flagged-equivalent diffs, flagged-fence diffs) — the NO-VERDICT
+        partition (execution could not run at all), routed by the flag alone. contract_disposition
+        with buildable=killable=blocked=False decides, so a fence is never suppressed as equivalent."""
+        _u: list[str] = []
+        _e: list[str] = []
+        _f: list[str] = []
+        for r in recs:
+            disp = contract_disposition(False, False, False, _fv(r))
+            if disp == "equivalent":
+                _e.append(r.get("diff_summary", ""))
+            elif disp == "fence":
+                _f.append(r.get("diff_summary", ""))
+            else:  # "unclassified" — no flag speaks for it
+                _u.append(r.get("mutant", r.get("mutant_id", "?")))
+        return tuple(_u), tuple(_e), tuple(_f)
 
     # Count survivors against the SAME test set the caller's headline profile used (#65). audit_suite
     # computes ONE profile for its `total`/`value_killed` counts and passes it here as
@@ -2040,9 +2052,11 @@ def classify_survivors(
 
     original = _load_original(full, qualname or function)
     if original is None:
-        unclassified_descs, manual_eq = _split(survivors)
+        unclassified_descs, manual_eq, fence_eq = _split(survivors)
         note = "the live original could not be loaded" if unclassified_descs else None
-        return SurvivorReport((), unclassified_descs, note=note, manual_equivalent=manual_eq)
+        return SurvivorReport(
+            (), unclassified_descs, note=note, manual_equivalent=manual_eq, authored_fence=fence_eq
+        )
 
     # METHOD BINDING (issue #25): `_load_original` returns the UNBOUND method, so the witness search
     # would call it with `self`/`cls` fed a grid value — `_search_witness` correctly SKIPS that via
@@ -2052,9 +2066,11 @@ def classify_survivors(
     # arguments is a NAMED refusal here, not a silent all-survive.
     exb = resolve_execution(node, qualname or function, original, factory=receiver_factory)
     if exb.refusal is not None:
-        unclassified_descs, manual_eq = _split(survivors)
+        unclassified_descs, manual_eq, fence_eq = _split(survivors)
         note = exb.refusal if unclassified_descs else None
-        return SurvivorReport((), unclassified_descs, note=note, manual_equivalent=manual_eq)
+        return SurvivorReport(
+            (), unclassified_descs, note=note, manual_equivalent=manual_eq, authored_fence=fence_eq
+        )
     original_call = wrap_callable(exb.underlying, exb.make_receiver)
 
     # Typed + dataclass-synthesized inputs from annotations, so a str/typed/object
@@ -2142,7 +2158,7 @@ def classify_survivors(
     # inputs don't fit this function — any "equivalent" verdict would be spurious.
     if exercising is None:
         # Execution can't run here — but a manual flag stands regardless.
-        unclassified_descs, manual_eq = _split(survivors)
+        unclassified_descs, manual_eq, fence_eq = _split(survivors)
         note = (
             _unreachable_inputs_note(node, qualname or function, inferred_types, effects)
             if unclassified_descs
@@ -2153,6 +2169,7 @@ def classify_survivors(
             unclassified_descs,
             note=note,
             manual_equivalent=manual_eq,
+            authored_fence=fence_eq,
             inputs_expressible=None,  # nothing exercised it; `note` carries the reason
             deferred_shaped=_deferred_shaped_capture,
         )
@@ -2194,10 +2211,26 @@ def classify_survivors(
             for m in generate_mutants(node, filter_categories(node, pure))  # type: ignore[arg-type]
         }
 
-    def _classify_pool(pool: list[tuple]) -> tuple[list[MutantVerdict], list[str], list[str]]:
+    def _classify_pool(
+        pool: list[tuple],
+    ) -> tuple[list[MutantVerdict], list[str], list[str], list[str]]:
         _verdicts: list[MutantVerdict] = []
         _unclassified: list[str] = []
         _manual: list[str] = []
+        _fence: list[str] = []
+
+        def _route(disp: str, rec: dict, verdict: MutantVerdict | None) -> None:
+            # contract_disposition's named code → the terminal bucket. `killable`/`candidate` only
+            # arise on the buildable path, where `verdict` is never None (the guard is type-honesty).
+            if disp in ("killable", "candidate") and verdict is not None:
+                _verdicts.append(verdict)
+            elif disp == "equivalent":
+                _manual.append(rec.get("diff_summary", ""))
+            elif disp == "fence":
+                _fence.append(rec.get("diff_summary", ""))
+            else:  # "unclassified" — no verdict to trust and no flag speaks for it
+                _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
+
         for rec in survivors:
             # Aggregate wall exhausted (issue #31): stop starting new witness searches. Every
             # survivor not yet classified is UNCLASSIFIED — honest uncertainty, the same bucket
@@ -2213,12 +2246,9 @@ def classify_survivors(
             if mutant_fn is not None:
                 mutant_fn = wrap_callable(mutant_fn, exb.make_receiver)
             if mutant_fn is None:
-                # Un-buildable: the manual flag is the only signal we have.
-                (_manual if _flagged(rec) else _unclassified).append(
-                    rec.get("diff_summary", "")
-                    if _flagged(rec)
-                    else rec.get("mutant", rec.get("mutant_id", "?"))
-                )
+                # Un-buildable: no execution verdict; the flag alone decides (a fence stays a fence,
+                # never suppressed as equivalent — the Q8 soundness split).
+                _route(contract_disposition(False, False, False, _fv(rec)), rec, None)
                 continue
             verdict = classify_survivor(
                 rec.get("mutant_id", ""),
@@ -2234,21 +2264,13 @@ def classify_survivors(
                 suite_detected=bool(rec.get("killed_by")),
                 deadline=_cls_abs_deadline,
             )
-            # A real witness is PROOF of killability and outranks the flag (keep the
-            # killable verdict); a flag on a no-witness survivor confirms equivalence.
-            if verdict.killable:
-                _verdicts.append(verdict)
-            elif verdict.blocked:
-                # #42: the witness search TIMED OUT on this mutant — honest uncertainty, not a false
-                # "equivalent". Route it to unclassified with the rest of the un-searchable.
-                _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
-            elif _flagged(rec):
-                _manual.append(rec.get("diff_summary", ""))
-            else:
-                _verdicts.append(verdict)
-        return _verdicts, _unclassified, _manual
+            # A real witness is PROOF of killability and outranks the flag (contract_disposition
+            # returns "killable"); a flag on a no-witness survivor is honored by its verdict —
+            # "equivalent" suppressed, "fence" reported as an unenforced must-not, "blocked" → unclassified.
+            _route(contract_disposition(True, verdict.killable, verdict.blocked, _fv(rec)), rec, verdict)
+        return _verdicts, _unclassified, _manual, _fence
 
-    verdicts, unclassified, manual_equivalent = _classify_pool(inputs)
+    verdicts, unclassified, manual_equivalent, fence = _classify_pool(inputs)
     note: str | None = None
 
     # POOL-POVERTY RESCUE. The capture fallback above triggers on "every candidate
@@ -2306,7 +2328,7 @@ def classify_survivors(
                 < sum(1 for v in verdicts if _inexpressible_witness(v))
             )
             if improved:
-                verdicts, unclassified, manual_equivalent = retry
+                verdicts, unclassified, manual_equivalent, fence = retry
                 # Expressibility must be judged on the WITNESS inputs, not the first
                 # input that merely exercised the function: a captured function object
                 # discriminates but cannot be typed, and the renderer's contract is
@@ -2345,7 +2367,7 @@ def classify_survivors(
         if fresh:
             retry = _classify_pool(supplied + fresh + inputs)
             if sum(1 for v in retry[0] if v.killable) > sum(1 for v in verdicts if v.killable):
-                verdicts, unclassified, manual_equivalent = retry
+                verdicts, unclassified, manual_equivalent, fence = retry
                 # A "no input discriminates / equivalence is about the pool" note set above is
                 # falsified by the new kill — clear it rather than ship a stale claim.
                 note = None
@@ -2360,6 +2382,7 @@ def classify_survivors(
         tuple(unclassified),
         note,
         manual_equivalent=tuple(manual_equivalent),
+        authored_fence=tuple(fence),
         inputs_expressible=expressible,
         deferred_shaped=_deferred_shaped_capture,
     )

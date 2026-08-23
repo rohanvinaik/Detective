@@ -76,6 +76,10 @@ class SuiteAudit:
     manually_unreachable: int = 0  # lines closed by a manual unreachability flag (issue #9)
     contradicted_line_flags: tuple[str, ...] = ()  # flags overridden by observed execution
     manual_equivalent: int = 0  # survivors manually flagged equivalent (oracle)
+    # Survivors manually flagged a FENCE (Q8) — an authored MUST-NOT the suite does not enforce. A GAP
+    # (it blocks `mutant_complete`), never an equivalent; exposed so `audit --json` explains an
+    # incompleteness a fence, not a killable/unclassified survivor, caused.
+    authored_fence: int = 0
     candidate_equivalent: int = 0  # survivors with no distinguishing input found (UNPROVEN — flag to confirm)
     unclassified: int = 0  # survivors the search could not classify (may be killable OR equivalent)
     # The candidate-equivalents' actual ids. `flag` takes an id, so a count alone cannot
@@ -92,7 +96,8 @@ class SuiteAudit:
     crash_only_equivalent: int = 0
     # Mutants a test pins by VALUE (assertion kills). Exposed so the whole universe partitions,
     # derivably and provably: `total_mutants = value_killed + len(killable_gaps) + candidate_equivalent
-    # + manual_equivalent + unclassified` (asserted in `audit_suite` via `audit_partition_sums`).
+    # + manual_equivalent + authored_fence + unclassified` (asserted in `audit_suite` via
+    # `audit_partition_sums`).
     # `crash_only_equivalent` is a SUB-COUNT of `candidate_equivalent`, not a separate term — a JSON
     # consumer must not add the two. `kill_pct` counts value AND crash kills, so it is `>= value_killed
     # / total` and reconciles with this partition only once the crash overlap is named (issue #55).
@@ -195,19 +200,26 @@ def mutation_estimate_seconds(mutant_count: int, per_mutant_ms: float | None) ->
 
 
 def audit_partition_sums(
-    total: int, value_killed: int, killable: int, candidate_equivalent: int, manual: int, unclassified: int
+    total: int,
+    value_killed: int,
+    killable: int,
+    candidate_equivalent: int,
+    manual: int,
+    fence: int,
+    unclassified: int,
 ) -> bool:
     """Whether every mutant lands in EXACTLY one terminal value-bucket (issue #55, pure — pinned).
 
     The universe partitions by VALUE specification, mutually exclusive and exhaustive:
-    ``total == value_killed + killable + candidate_equivalent + manual + unclassified``. Each mutant is
-    value-pinned, a killable-unkilled gap, value-equivalent (candidate), manually-flagged equivalent, or
-    unclassifiable. When this is False the headline % cannot be reconstructed from the classification
-    beneath it — a Detective ACCOUNTING bug, not a fact about the suite — so :func:`audit_suite` raises
-    rather than print a number that does not reconcile. ``crash_only_equivalent`` is a sub-count of
-    ``candidate_equivalent`` and never a term here; ``kill_pct`` counts crash kills too and is a
-    different (detection) lens that does not enter this partition."""
-    return total == value_killed + killable + candidate_equivalent + manual + unclassified
+    ``total == value_killed + killable + candidate_equivalent + manual + fence + unclassified``. Each
+    mutant is value-pinned, a killable-unkilled gap, value-equivalent (candidate), manually-flagged
+    equivalent, an authored FENCE (a must-not the suite does not enforce — Q8), or unclassifiable. When
+    this is False the headline % cannot be reconstructed from the classification beneath it — a Detective
+    ACCOUNTING bug, not a fact about the suite — so :func:`audit_suite` raises rather than print a number
+    that does not reconcile. ``crash_only_equivalent`` is a sub-count of ``candidate_equivalent`` and
+    never a term here; ``kill_pct`` counts crash kills too and is a different (detection) lens that does
+    not enter this partition."""
+    return total == value_killed + killable + candidate_equivalent + manual + fence + unclassified
 
 
 def _gap_desc(verdict: Any, expressible: bool) -> str:
@@ -327,6 +339,7 @@ def audit_suite(
     # survivor is a gap" so the audit never understates the work.
     killable_gaps: tuple[str, ...]
     manual_equivalent = 0
+    fence = 0  # authored must-nots the suite does not enforce (Q8) — a gap, not an equivalent
     candidate_equivalent = 0
     candidate_equivalent_ids: tuple[str, ...] = ()
     crash_only_equivalent = 0
@@ -341,11 +354,14 @@ def audit_suite(
         expressible = bool(report.inputs_expressible)
         killable_gaps = tuple(_gap_desc(v, expressible) for v in report.killable)
         manual_equivalent = len(report.manual_equivalent)
+        fence = len(report.authored_fence)
         candidate_equivalent = len(report.equivalent)
         candidate_equivalent_ids = tuple(v.mutant_id for v in report.equivalent)
         crash_only_equivalent = sum(1 for v in report.equivalent if v.crash_only)
         unclassified = len(report.unclassified)
-        mutant_complete = not report.killable and not report.unclassified
+        # An authored fence is an UNENFORCED must-not (Q8) — a gap like killable/unclassified, so it
+        # blocks mutant-completeness exactly as they do; never treated as a discharged equivalent.
+        mutant_complete = not report.killable and not report.unclassified and not report.authored_fence
         classified = True
     except Exception:  # noqa: BLE001 — classification is advisory, never fails the audit
         killable_gaps = tuple(
@@ -359,7 +375,13 @@ def audit_suite(
     # instead of shipped as a wrong percentage. Only when classification actually ran (the advisory
     # fallback above does not produce the terminal buckets).
     if classified and not audit_partition_sums(
-        total, result.value_killed, len(killable_gaps), candidate_equivalent, manual_equivalent, unclassified
+        total,
+        result.value_killed,
+        len(killable_gaps),
+        candidate_equivalent,
+        manual_equivalent,
+        fence,
+        unclassified,
     ):
         # With the single-profile reuse above this cannot arise from two divergent measurements — it
         # is now a genuine defensive last resort for an internal accounting inconsistency. Typed (not a
@@ -369,7 +391,7 @@ def audit_suite(
             f"audit partition does not sum for {result.function_key}: total={total} "
             f"value_killed={result.value_killed} killable={len(killable_gaps)} "
             f"candidate_equivalent={candidate_equivalent} manual={manual_equivalent} "
-            f"unclassified={unclassified}"
+            f"fence={fence} unclassified={unclassified}"
         )
     # The FunctionBasis this audit earned (#X4 tail, review-reconciled): the undischargeable residue
     # U_t is every VALUE-undischargeable survivor — candidate-equivalent, crash-only, AND manual-
@@ -419,6 +441,7 @@ def audit_suite(
         contradicted_line_flags=contradicted_flags,
         minimal_test_count=len(minimal),
         manual_equivalent=manual_equivalent,
+        authored_fence=fence,
         candidate_equivalent=candidate_equivalent,
         candidate_equivalent_ids=candidate_equivalent_ids,
         crash_only_equivalent=crash_only_equivalent,

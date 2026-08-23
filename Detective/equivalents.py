@@ -76,10 +76,17 @@ def save_flags(project_root: str, flags: dict[str, EquivalenceFlag]) -> None:
     atomic_write_text(path, json.dumps(payload, indent=2))
 
 
-def add_flag(project_root: str, func_key: str, diff: str, note: str = "") -> EquivalenceFlag:
-    """Record (or replace) a manual equivalence flag for one mutation and persist it."""
+def add_flag(
+    project_root: str, func_key: str, diff: str, note: str = "", verdict: str = "equivalent"
+) -> EquivalenceFlag:
+    """Record (or replace) a manual flag for one mutation and persist it.
+
+    ``verdict`` is ``"equivalent"`` (the survivor computes the intended function — suppress it) or
+    ``"fence"`` (an authored MUST-NOT: this survival is a bug, Def. 12.1 ``invalid`` — reported as an
+    unenforced negative DOF, never suppressed). Default stays ``"equivalent"`` for back-compat.
+    """
     flags = load_flags(project_root)
-    flag = EquivalenceFlag(func_key=func_key, diff=diff, verdict="equivalent", note=note)
+    flag = EquivalenceFlag(func_key=func_key, diff=diff, verdict=verdict, note=note)
     flags[flag_key(func_key, diff)] = flag
     save_flags(project_root, flags)
     return flag

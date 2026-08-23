@@ -1092,6 +1092,11 @@ class SurvivorReport:
     unclassified: tuple[str, ...]  # survivor descriptions with no verdict
     note: str | None = None  # function-level reason when the search could not run at all
     manual_equivalent: tuple[str, ...] = ()  # mutations manually flagged equivalent (the oracle)
+    # Mutations manually flagged a FENCE — an authored MUST-NOT (Def. 12.1 `invalid`: this survival
+    # is a bug). A fence with no distinguishing witness is an UNENFORCED negative degree of freedom,
+    # a GAP like `killable`/`unclassified` — never suppressed as `manual_equivalent`, never folded
+    # into the modulo-equivalent count (Q8, the two-sign contract; verdict split by contract_disposition).
+    authored_fence: tuple[str, ...] = ()
     # Can a HUMAN type the input that exercises this function, as `--input`?
     #
     # This is the difference between a next action that works and one that cannot. `--input`

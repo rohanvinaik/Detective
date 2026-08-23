@@ -55,6 +55,7 @@ def _trivial_report():
         inputs_expressible=True,
         killable=(),
         manual_equivalent=(),
+        authored_fence=(),  # Q8: the real SurvivorReport carries this; the double must too
         equivalent=(),
         unclassified=(),
     )
