@@ -1251,10 +1251,12 @@ these.
    (the spine-sourced + retained-plurality guard and BOTH censor sources — call-site-absence and
    rejected-rewrite), and `promotion_ledger.py` + the `detective censor` verb (rank by marginal-κ,
    promote/demote to the κ→0 fixpoint, L_ind), conservative-empty on clean data by construction. What
-   REMAINS is **Cor. 10.6** — the κ-gated `audit --remove` (a locally-redundant test can be a call-graph
-   BRIDGE): the bounded-κ-neighborhood realization is blocked on Detective's import-reachability test-file
-   collection (profiling a callee omits a bridge test that imports the *caller's* module), so it needs a
-   scoping-aware design, not a bounded threading (grounded + reverted 2026-08-23).
+   REMAINS is only the out-of-core items below; even **Cor. 10.6** — the κ-gated `audit --remove` (a
+   locally-redundant test can be a call-graph BRIDGE) — is now BUILT (`067c0e4`). The bounded-κ-neighborhood
+   realization was blocked on Detective's import-reachability test-file collection (profiling a callee omits
+   a bridge test importing the *caller's* module); the seam that resolves it is `profile(tests=)`, which
+   bypasses `relevant_test_files` — the candidate's test files are force-included into the neighbor's profile
+   and the mutant propagates through Wesker's module-qualified patch (measured on a cross-file wrapper).
 2. **The regime key (Def. 9.1 keying).** Regime = symmetry; a censor keyed below the semantic-equivalence
    class over-reaches (traps positions that merely rhyme), keyed above it under-reaches. Working guess:
    typed interface + purity class. Wants a derivation.
@@ -1276,8 +1278,9 @@ these.
    (`diagnose`/`converge --two-sign`) and the two channel-propagation leaks closed (Props. 11.13–11.14,
    `f5e0efc`/`3ba2387`). The corpus censor loop's *code* port (Q1) is now BUILT (Detective `be5f6b2`,
    2026-08-23), and the read/write surface is two-sign end-to-end (`decompose`/`audit --two-sign`,
-   `4a502f3`/`73e609b`). What remains under build is the `UNDEFINED` disposition (Def. 7.3, needed only
-   once a degenerate-measure case lands) and Cor. 10.6's scoping-aware κ-gated removal (item 1).
+   `4a502f3`/`73e609b`), and Cor. 10.6's κ-gated `audit --remove` is BUILT (`067c0e4`, item 1). What remains
+   under build is only the `UNDEFINED` disposition (Def. 7.3, needed only once a degenerate-measure case
+   lands).
 7. **Unify ESL's DOF universe with μ⁻ (§13).** ESL (forward prototype) drives a learner against the
    ONE-SIGN σ; two-sign ESL (Prop. 13.5) requires the DOF universe the learner descends to be
    $\mu \cup \mu^-$. The unification is the concrete next build toward Uroboros (Def. 13.6), and its
@@ -1344,7 +1347,13 @@ the proof policy id shifts to the `+neg.` two-sign policy), so an applied consol
 preserve the value pins AND the negative fences (Thm 15.4 transported; §16's canonical-form station is now
 two-sign-aware). **`audit --two-sign`** — the CI gate runs the μ⁻ perturbations (measured: `total_mutants`
 widens), extending Q8's authored `flag --fence` gate to engine-found negative DOF. The read/write surface
-(diagnose/converge/decompose/audit) is now two-sign end-to-end.
+(diagnose/converge/decompose/audit) is now two-sign end-to-end. **Cor. 10.6 / κ-gated `audit --remove`**
+(`067c0e4`) — safe-removal's evidence extended from file-siblings to the bounded κ-neighborhood
+(`kappa.call_graph_neighbors`), so a locally-redundant test that is the sole killer of a call-graph
+caller/callee's mutant in another file (a BRIDGE, Def. 10.2) is retained; the bridge test is force-included
+into the neighbor's profile via `profile(tests=)` (bypassing the import-reachability discovery that would
+hide it), and the mutant propagates through Wesker's module-qualified patch (measured on a cross-file
+wrapper). One hop — per-function-bounded, never the transitive closure (the sandwich thesis).
 
 **Measured.** The out-of-universe rewrite passing a positive SC=1 badge (Prop. 3.5, slugify, 2026-08-07);
 the "degenerate" near-miss witnesses outperforming hand-written tests (2026-08-07; a teaching artifact,
@@ -1366,10 +1375,7 @@ Hellerstein); the RTD–VC–compression bridge (Doliwa; Chen). The contribution
 
 **Conjectured / unbuilt (the Lean targets and the code ports).** `bridge_curvature_bound` — the positive
 degrading guarantee (Def. 14.6; the negative `promotion_not_submodular` is measured, the positive bound
-is not). **Cor. 10.6's κ-gated `audit --remove`** — the call-graph-bridge-aware safe removal: the κ engine
-is in code (`kappa.py`), but the bounded-κ-neighborhood realization is blocked on Detective's
-import-reachability test-file collection (profiling a callee omits a bridge test that imports the caller's
-module) — a scoping-aware design, not a threading (grounded + reverted 2026-08-23). Two-sign ESL and
+is not). Two-sign ESL and
 Uroboros (Def. 13.6) — designed; the backward pass is unrun and no trained two-sign learner exists. The
 entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5, §18 Q9);
 `safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition (Def. 7.3), needed
