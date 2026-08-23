@@ -1243,13 +1243,18 @@ The frontier is now four *named, scoped* items (Q1, Q5, Q7, Q8) plus three stand
 (Q2–Q4) and one build-through target (Q6). None is a fog; §§13–16 turned the earlier open ground into
 these.
 
-1. **κ for code — the graph choice (was "blocks censors"; now the sole code-specific residual).** §14
-   supplies κ's definition (marginal coverage = PageRank), its re-flow dynamics, the bounded-curvature
-   tractability object, and the machine-checked admissibility guard — all built for the semantic *rule*
-   graph (Regenesis). What remains code-specific is which graph κ is computed over: call graph, import
-   graph, or the obligation graph induced by interface mutants (Def. 10.1). The choice decides whether
-   $I_{\mathrm{ind}}$ is cheap or a research project; it is a decision plus a measurement (Q5), not an
-   invention.
+1. **κ for code — BUILT (2026-08-23): the graph chosen, the corpus loop ported; the residual is Cor. 10.6.**
+   §14 supplies κ's definition, re-flow dynamics, the bounded-curvature object, and the machine-checked
+   admissibility guard (Regenesis). The code-specific graph choice is now MADE — the **call graph** (Def.
+   9.1: censors span call sites) — and the corpus loop is ported to Detective and shipped (`be5f6b2`):
+   `kappa.py` (the significance engine + `build_call_graph` + the C7 fragmentation measurement), `censor.py`
+   (the spine-sourced + retained-plurality guard and BOTH censor sources — call-site-absence and
+   rejected-rewrite), and `promotion_ledger.py` + the `detective censor` verb (rank by marginal-κ,
+   promote/demote to the κ→0 fixpoint, L_ind), conservative-empty on clean data by construction. What
+   REMAINS is **Cor. 10.6** — the κ-gated `audit --remove` (a locally-redundant test can be a call-graph
+   BRIDGE): the bounded-κ-neighborhood realization is blocked on Detective's import-reachability test-file
+   collection (profiling a callee omits a bridge test that imports the *caller's* module), so it needs a
+   scoping-aware design, not a bounded threading (grounded + reverted 2026-08-23).
 2. **The regime key (Def. 9.1 keying).** Regime = symmetry; a censor keyed below the semantic-equivalence
    class over-reaches (traps positions that merely rhyme), keyed above it under-reaches. Working guess:
    typed interface + purity class. Wants a derivation.
@@ -1269,8 +1274,10 @@ these.
 6. **Build ordering (μ⁻ realizations — largely closed).** Form A + Fork 1, Fork 2, and Form B are all
    built (Wesker `dfce857`/`bdefe56`/`bf0f179`), with Detective's two-sign consumption wired
    (`diagnose`/`converge --two-sign`) and the two channel-propagation leaks closed (Props. 11.13–11.14,
-   `f5e0efc`/`3ba2387`). What remains under build is the corpus censor loop's *code* port (Q1) and the
-   `UNDEFINED` disposition (Def. 7.3), needed only once a degenerate-measure case lands.
+   `f5e0efc`/`3ba2387`). The corpus censor loop's *code* port (Q1) is now BUILT (Detective `be5f6b2`,
+   2026-08-23), and the read/write surface is two-sign end-to-end (`decompose`/`audit --two-sign`,
+   `4a502f3`/`73e609b`). What remains under build is the `UNDEFINED` disposition (Def. 7.3, needed only
+   once a degenerate-measure case lands) and Cor. 10.6's scoping-aware κ-gated removal (item 1).
 7. **Unify ESL's DOF universe with μ⁻ (§13).** ESL (forward prototype) drives a learner against the
    ONE-SIGN σ; two-sign ESL (Prop. 13.5) requires the DOF universe the learner descends to be
    $\mu \cup \mu^-$. The unification is the concrete next build toward Uroboros (Def. 13.6), and its
@@ -1324,6 +1331,21 @@ specialize, the corpus fixpoint with demotion — built and tested *in Regenesis
 (`significance.py`/`promotion_ledger.py`), conservative-empty on clean data by construction. **ESL forward
 pass** — a running prototype (2026-07-17), the CLI-as-harness (Def. 13.4).
 
+**The Q1 code port + the two-sign command surface (Detective `be5f6b2`/`4a502f3`/`73e609b`, 2026-08-23,
+pushed).** The §14 corpus censor loop ported to Detective, mirroring Regenesis over CENSORS: `kappa.py`
+(the significance engine — reachability/marginal-coverage/bridge — + the `build_call_graph` adapter + the
+C7 fragmentation measurement), `censor.py` (the admissibility guard `censor_spine_confirmed` /
+`censor_retains_plurality` + the κ-gated `score_censor`, and both spine sources — call-site-absence and
+rejected-rewrite), `promotion_ledger.py` (the greedy marginal-κ ranking, the promote/demote/κ→0 fixpoint
+with cross-run demotion, `self_teaching_fraction` = L_ind) and the `detective censor` verb — the three pure
+decisions converge-pinned in isolation, the corpus loop conservative-empty on clean data by construction.
+**C8 / two-sign `decompose`** — the preservation proof runs over σ(P, μ ∪ μ⁻) under `--two-sign` (measured:
+the proof policy id shifts to the `+neg.` two-sign policy), so an applied consolidation is certified to
+preserve the value pins AND the negative fences (Thm 15.4 transported; §16's canonical-form station is now
+two-sign-aware). **`audit --two-sign`** — the CI gate runs the μ⁻ perturbations (measured: `total_mutants`
+widens), extending Q8's authored `flag --fence` gate to engine-found negative DOF. The read/write surface
+(diagnose/converge/decompose/audit) is now two-sign end-to-end.
+
 **Measured.** The out-of-universe rewrite passing a positive SC=1 badge (Prop. 3.5, slugify, 2026-08-07);
 the "degenerate" near-miss witnesses outperforming hand-written tests (2026-08-07; a teaching artifact,
 not a natural sample). The two channel-propagation closures end-to-end (`gen` 6/6, `flow` 8/8,
@@ -1344,11 +1366,15 @@ Hellerstein); the RTD–VC–compression bridge (Doliwa; Chen). The contribution
 
 **Conjectured / unbuilt (the Lean targets and the code ports).** `bridge_curvature_bound` — the positive
 degrading guarantee (Def. 14.6; the negative `promotion_not_submodular` is measured, the positive bound
-is not). κ for code — the graph choice (§18 Q1). Two-sign ESL and Uroboros (Def. 13.6) — designed; the
-backward pass is unrun and no trained two-sign learner exists. The greenfield persisted contract
-(Def. 12.5, §18 Q8). The entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5,
-§18 Q9); `safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition
-(Def. 7.3), needed only once a degenerate-measure case lands.
+is not). **Cor. 10.6's κ-gated `audit --remove`** — the call-graph-bridge-aware safe removal: the κ engine
+is in code (`kappa.py`), but the bounded-κ-neighborhood realization is blocked on Detective's
+import-reachability test-file collection (profiling a callee omits a bridge test that imports the caller's
+module) — a scoping-aware design, not a threading (grounded + reverted 2026-08-23). Two-sign ESL and
+Uroboros (Def. 13.6) — designed; the backward pass is unrun and no trained two-sign learner exists. The
+entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5, §18 Q9);
+`safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition (Def. 7.3), needed
+only once a degenerate-measure case lands. [κ-for-code (Q1) and the greenfield persisted contract (Q8) are
+now BUILT — see the 2026-08-23 Built block above.]
 
 **Asserted (interpretations, argued not proved).** "σ makes SICP computable" as a *phrasing*
 (`thesis_vision.md`, not read; the *mechanism* is proved, Prop. 15.3). The identification of ESL's
