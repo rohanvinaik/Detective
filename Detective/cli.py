@@ -3910,6 +3910,15 @@ def _build_parser() -> argparse.ArgumentParser:
     verify_p.add_argument("target", help="file.py::function — the rewritten source to check")
     verify_p.add_argument("--project-root", default=".", help="project root the target is relative to")
     verify_p.add_argument("--json", action="store_true", help="emit the verification as JSON")
+    verify_p.add_argument(
+        "--learn",
+        action="store_true",
+        help="on a CHANGED verdict, SOURCE censors from the rejected rewrite (§9's second spine "
+        "source): each input where the old (correct) and new (bad) implementations differed is "
+        "a near-miss whose new output is forbidden. The candidates are κ-scored over the call graph "
+        "and the promoted ones persisted to .detective/censors.json (`censor --list` shows them). "
+        "Off by default — verify-rewrite stays a pure verdict command and writes nothing.",
+    )
     return parser
 
 
@@ -5067,6 +5076,28 @@ def _run(args) -> int:
             print(result.to_json())
         else:
             print(_format_rewrite(result))
+        # --learn (#17): a CHANGED rewrite is §9's SECOND spine source. `learn_disposition` is the
+        # pure gate (flag off → skip_disabled; not CHANGED → skip_unchanged); only "learn" harvests
+        # the near-misses, κ-scores them over the call graph via the SAME corpus fixpoint `censor
+        # --promote` uses, and persists the promoted ones. Reported on stderr so the --json verdict
+        # on stdout stays a clean RewriteVerification.
+        from .censor import learn_disposition
+
+        if learn_disposition(result.verdict, args.learn) == "learn":
+            from .censor import censors_from_verification
+            from .promotion_ledger import corpus_fixpoint, ledger_key, load_ledger, save_ledger
+
+            censors = censors_from_verification(f"{file}::{function}", result)
+            promoted = corpus_fixpoint(args.project_root, censors)["promoted"] if censors else []
+            store = load_ledger(args.project_root)
+            for e in promoted:
+                store[ledger_key(e.censor)] = e
+            save_ledger(args.project_root, store)
+            if not args.json:
+                _notify_stderr(
+                    f"learned {len(promoted)} censor(s) from the rejected rewrite "
+                    f"({len(censors)} near-miss candidate(s)) → .detective/censors.json"
+                )
         # Only PRESERVED is a pass; every other verdict (CHANGED / UNREVIEWED / ABSTAIN / STALE) is a
         # refusal CI must catch, so it exits non-zero.
         return 0 if result.verdict == "PRESERVED" else 1

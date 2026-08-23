@@ -193,6 +193,21 @@ def censors_from_verification(func_key: str, verification) -> list[Censor]:
     return rejected_rewrite_censors(func_key, verification.verdict, verification.differences)
 
 
+def learn_disposition(verdict: str, learn_enabled: bool) -> str:
+    """Whether a ``verify-rewrite`` result should SOURCE rejected-rewrite censors into the ledger
+    (#17, pure — pinned). ``--learn`` is the primary gate: without it, verify-rewrite stays a pure
+    verdict command (``skip_disabled``) and writes nothing. With it, only a ``CHANGED`` verdict
+    carries near-misses (Def. 9.3's rejected-rewrite spine source) — every other verdict
+    (``PRESERVED``/``ABSTAIN``/``STALE_RECEIPT``/…) introduced no forbidden pair (``skip_unchanged``).
+    Only ``learn`` harvests, κ-scores, and persists; the two skips are distinct so a reader sees WHY
+    nothing was learned (flag off vs. rewrite clean)."""
+    if not learn_enabled:
+        return "skip_disabled"
+    if verdict != "CHANGED":
+        return "skip_unchanged"
+    return "learn"
+
+
 def harvest_corpus_censors(project_root: str, scan_path: str) -> list[Censor]:
     """Harvest call-site-absence censors across a CORPUS — every function under ``scan_path`` (a ``.py``
     file or a directory), each fed to the pure :func:`call_site_absent_censors` via
