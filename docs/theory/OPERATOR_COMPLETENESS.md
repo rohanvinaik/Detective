@@ -3,7 +3,7 @@ title: "The Completeness of Mutation Operators"
 subtitle: "A transformation-monoid decidability dichotomy for behavioral specification, and why a dimension-bounded minimal complete basis cannot exist"
 author: "Rohan Vinaik"
 date: "2026-08-25"
-status: "DRAFT — proofs WRITTEN. The finite constructive fragment (Thm A, base cases n=2,3) is machine-checked by Aristotle (0 sorries; #print axioms audit owed — see §11). Thm B (undecidability), C (dichotomy), D (foreclosure), E (ASDL) are PAPER PROOFS citing the classical undecidability/impossibility results (Post/Markov, Rice, Pabbaraju, HMW). Not peer-reviewed or fully audited; two steps are flagged for tightening (B.1 completeness-oracle ⇒ word-equality-oracle; D fault-space-is-multiclass). Do not cite as fully proven."
+status: "DRAFT — proofs WRITTEN. The finite constructive fragment (Thm A, base cases n=2,3) is machine-checked by Aristotle (0 sorries; #print axioms audit owed — see §11). Thm B (undecidability), C (dichotomy), D (foreclosure), E (ASDL) are PAPER PROOFS citing the classical undecidability/impossibility results (Post/Markov, Rice, Pabbaraju, HMW). Not peer-reviewed or fully audited; the two previously-flagged steps are now tightened into Lemmas B.1a (word-problem ≤ submonoid-membership ≤ completeness) and D.a (label space = codomain ⇒ multiclass; set-fence ⇒ list), leaving one optional submission-time item (a concrete List A word-problem embedding). Do not cite as fully proven."
 priors_do_not_rederive:
   - "σ = teaching dimension (SC Thm 2.7, machine-checked); σ is μ-parameterized (SC §2.3)"
   - "The two-sign policy σ(P, μ ∪ μ⁻) and the negative operator family Π (NEGATIVE_SPECIFICATION Def 3.1, 11.8, 11.8b)"
@@ -19,10 +19,11 @@ bibliography: "LITERATURE_PI_COMPLETENESS.md (42 sources, workflow-verified 2026
 > from Gomes–Howie; **Thm B/C/D/E** are *paper proofs* citing the classical undecidability (Post/Markov, Rice)
 > and impossibility (Pabbaraju, HMW) results — by design, since those dependencies are not in Mathlib and
 > should not be re-formalized (the undecidability is recorded as the Lean axiom
-> `pi_completeness_undecidable_infinite`, corpus style). Two obligations are flagged inline for tightening
-> before submission (B.1's completeness-oracle ⇒ word-equality-oracle step; D's multiclass-class step), and
-> the `#print axioms` audit on the two Aristotle proofs is owed (§11). Not peer-reviewed; do not cite as fully
-> proven.
+> `pi_completeness_undecidable_infinite`, corpus style). The two previously-flagged steps are now discharged
+> as **Lemma B.1a** (word-problem ≤ submonoid-membership ≤ completeness) and **Lemma D.a** (label space =
+> codomain ⇒ multiclass; set-fence ⇒ list); the only remaining submission-time item is an optional concrete
+> `List A` word-problem embedding. The `#print axioms` audit on the two Aristotle proofs is owed (§11). Not
+> peer-reviewed; do not cite as fully proven.
 
 ## Abstract
 
@@ -221,12 +222,24 @@ equality of composites $p_u, p_v$ in $\langle \Pi \rangle$ — hence decide $u =
 Post/Markov. So $\Pi$-completeness on a structured codomain is undecidable. The construction is uniform in
 $P$, which gives (3). $\square$
 
-*[Paper proof. The undecidability invoked is Post 1947 / Markov 1947, cited not re-proven; its Lean form is
+**Lemma B.1a (the clean form — submonoid membership).** The flagged step ("a completeness oracle yields a
+word-equality oracle") is discharged by routing through the standard undecidable problem rather than the
+informal "by which composite." Define the **submonoid-membership problem** for $\langle \Pi \rangle$: given a
+target perturbation $g$ (a word over $\Pi$'s generators) and $\Pi$, decide $g \in \langle \Pi \rangle$. Then:
+(i) membership is undecidable — the map $x \mapsto p_x$ embeds $P$ into $T_R$ (injective, above), so
+$p_u \in \langle \{p_v\} \cup \Pi' \rangle$ decides the *generalized word problem* of $P$, undecidable
+whenever the word problem is (Post/Markov 1947); (ii) **$\Pi$-completeness is a finite conjunction of
+membership queries** — by Def 2.3, $\Pi$ is complete iff $\langle \Pi \rangle = \mathcal{S}_R$, i.e. iff each
+of the finitely many generators $g_1, \dots, g_m$ of the target $\mathcal{S}_R$ satisfies
+$g_i \in \langle \Pi \rangle$; so a completeness oracle answers each membership query, and by (i) decides the
+generalized word problem — contradiction. This replaces the "by which composite" phrasing with the exact
+reduction (word problem $\le$ generalized word problem / membership $\le$ completeness). $\square$
+
+*[Paper proof. The undecidability invoked is Post 1947 / Markov 1947, cited not re-proven; the Lean form is
 the axiom `pi_completeness_undecidable_infinite` (corpus style, cf. `bridge_B09.undecidability_infinite`).
-The one obligation to tighten before submission is the "by which composite" step — i.e. that a completeness
-oracle yields a *word-equality* oracle; the clean statement is that the **subsemigroup-membership /
-uniform-word problem** for $\langle \Pi \rangle$ is undecidable, of which the above is the canonical
-instance.]*
+The remaining submission-time formalization is a clean `List A`-codomain embedding of a *specific* semigroup
+presentation with unsolvable word problem — a candidate for a small Aristotle pass on the embedding lemma,
+not required for the paper proof.]*
 
 *Proof of B.2 (equivalence reduction).* The predicate "the deviation $(x, r')$ is realizable by some
 $p \in \langle \Pi_R \rangle$" is a non-trivial semantic property of the perturbed-denotation family
@@ -302,10 +315,24 @@ Pabbaraju (2024) shows a learnable multiclass class (finite DS-dimension) need a
 bounded by any function of DS-dimension; Hanneke, Moran & Waknine (2024) show list compression can fail
 outright while uniform convergence persists. Therefore no bound on the minimal complete basis as a function of
 a VC-like capacity dimension can hold in general; by (a) the basis inherits this impossibility. Completeness
-must be stated basis-relative (Thm C), not dimension-bounded. $\square$ *[No new impossibility is proven; the
-result is the faithful transport of Pabbaraju 2024 / Hanneke–Moran–Waknine 2024 into the negative-spec
-setting via the Doliwa 2014 bridge. The obligation before submission is only to confirm the fault-space class
-is multiclass/list in the precise sense those theorems require.]*
+must be stated basis-relative (Thm C), not dimension-bounded. $\square$
+
+**Lemma D.a (the fault-space class is multiclass, and list-valued under set-fences — the clean form).** The
+flagged "in the precise sense those theorems require" is discharged by identifying the concept class exactly.
+For a function under specification, the object to identify is its behavioral class $[f]_{\equiv} \subseteq
+R^{D}$: a concept is a map $D \to R$, so the **label space is the codomain $R$**, not $\{0,1\}$. Hence the
+class is a *multiclass* concept class with $|R|$ labels ($|R| \ge 3$ generically; infinite for structured
+$R$) — precisely Pabbaraju (2024)'s setting, whose DS-dimension is the multiclass analogue of VCD and for
+which no dimension-bounded compression need exist. When the negative fence forbids a *set* of outputs at an
+input (a $\mu^-$ censor admitting several correct values, *Negative Specification* §9), the target is a
+*list* concept — precisely Hanneke–Moran–Waknine (2024)'s setting, where list compression can fail while
+uniform convergence holds. So the fault-space class sits in exactly the two regimes the cited impossibilities
+foreclose; the binary VC regime (where a dimension bound might survive) is *not* where code specification
+lives. $\square$
+
+*[No new impossibility is proven; D is the faithful transport of Pabbaraju 2024 / Hanneke–Moran–Waknine 2024
+via the Doliwa 2014 teaching$\Leftrightarrow$compression bridge, and Lemma D.a pins the class-membership the
+transport needs.]*
 
 **Remark 6.1 (this confirms the μ⁻ retraction).** Theorem D is the same wall *Negative Specification* Prop 15.6
 hit when it **retracted** consolidation = sample compression to a conjecture. That retraction was correct;
@@ -408,10 +435,10 @@ citing Turing/Rado).*
 | **Thm A.2 (n=3, rank 3): `T3_generated_rank3`** | concrete constructive witness | **Lean → Aristotle** | ✅ **CLOSED by Aristotle, 0 sorries** (`932252e6…`); `#print axioms` audit owed |
 | Thm A.2 (general $\operatorname{rank}T_n=3$) | inherited (Gomes–Howie 1987) | paper §3 (cite) | ✍ written; n=2,3 are the machine-checked instances |
 | Thm A.3 (finite decidability) | finite-iteration + Kozen (PSPACE) | paper §3 proof + Lean `instance` | ✍ written (proof of A.3) |
-| Thm B.1 (word-problem reduction) | **NEW, load-bearing** | **paper proof §4** (reduce to Post/Markov 1947) | ✍ written; step flagged: completeness-oracle ⇒ word-equality-oracle. Lean axiom `pi_completeness_undecidable_infinite` records it |
+| Thm B.1 (word-problem reduction) | **NEW, load-bearing** | **paper proof §4** (reduce to Post/Markov 1947) | ✍ written + **tightened (Lemma B.1a: word-problem ≤ membership ≤ completeness)**; remaining = concrete `List A` embedding (optional Aristotle pass). Lean axiom `pi_completeness_undecidable_infinite` records it |
 | Thm B.2 (equivalence reduction) | inherited (Rice 1953 / Budd–Angluin 1982) | paper §4 (cite) | ✍ written |
 | Thm C (dichotomy) | corollary of A+B | paper §5 | ✍ written |
-| Thm D (compression foreclosure) | assembly of proved impossibilities | paper §6 (transport Pabbaraju / HMW) | ✍ written; step flagged: fault-space is multiclass/list |
+| Thm D (compression foreclosure) | assembly of proved impossibilities | paper §6 (transport Pabbaraju / HMW) | ✍ written + **tightened (Lemma D.a: label space = codomain ⇒ multiclass; set-fence ⇒ list)** |
 | Thm E (ASDL syntactic criterion) | decidable + empirical caveat | paper §7 + empirical citation | ✍ written |
 | Rem 3.3 (minimal separating set) | conjecture | — | open |
 
