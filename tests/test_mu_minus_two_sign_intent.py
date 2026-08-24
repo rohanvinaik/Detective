@@ -57,13 +57,9 @@ def test_fork2_abs_survivor_is_killable_with_a_negative_witness(tmp_path):
     root, f = _repo(tmp_path, "muabs")
     rep = classify_survivors(f, "scale", root, two_sign=True)
     abs_killable = [
-        v
-        for v in rep.killable
-        if v.category == "OUTPUT" and "abs(" in (v.diff_summary or "") and v.killable
+        v for v in rep.killable if v.category == "OUTPUT" and "abs(" in (v.diff_summary or "") and v.killable
     ]
-    assert abs_killable, [
-        (v.diff_summary, v.killable) for v in rep.killable if v.category == "OUTPUT"
-    ]
+    assert abs_killable, [(v.diff_summary, v.killable) for v in rep.killable if v.category == "OUTPUT"]
     assert abs_killable[0].witness is not None
 
 

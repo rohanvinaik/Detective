@@ -186,9 +186,7 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
     # as the others: an older engine that does not report it is flagged absent, never a fabricated
     # "collection was complete".
     collection_errors_raw = getattr(result, "collection_errors", _ABSENT)
-    collection_incomplete = (
-        bool(collection_errors_raw) if collection_errors_raw is not _ABSENT else False
-    )
+    collection_incomplete = bool(collection_errors_raw) if collection_errors_raw is not _ABSENT else False
 
     # The engine's own execution mode (in_process / isolated). The field defaults to "in_process",
     # so an UNREAD isolated run is silently mislabeled as in-process — a false description of how the
