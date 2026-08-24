@@ -878,9 +878,18 @@ and the engine holds **no return-type model** [traced: `run_function_profiling` 
   pass (a return-capturing probe on `original_func`, the return sibling of Detective's input
   capture-harvest `capture_call_inputs`), yielding the observed codomain type; generate the
   type-conditional perturbations ($p_{\mathrm{neg}}, p_{\mathrm{empty}}, p_{\mathrm{NaN}}, p_{\mathrm{perm}},
-  \dots$) **only where the observed type makes them applicable**, so they never raise and never
-  mis-attribute. This adds the reach Fork 1 omits without reintroducing the crash-vs-`undefined` hazard.
-  Cost: crosses the Detective/Wesker boundary (return capture + observed type threaded into generation).
+  \dots$) **only where EVERY observed return type is applicable** — the applicability condition is
+  $\mathrm{observed} \subseteq \mathrm{types}(p)$, not mere intersection, because Form A rewrites the return
+  *site statically* (`return X` $\to$ `return -X` fires on every branch), so a perturbation applicable to
+  one observed type but not another (a heterogeneous `int | str` return) would still fire on the wrong
+  branch and raise. Under the subset condition they never raise and never mis-attribute; a heterogeneous
+  return simply forgoes the type-conditional perturbation (the honest Fork-1-style restriction). This adds
+  the reach Fork 1 omits without reintroducing the crash-vs-`undefined` hazard. Cost: crosses the
+  Detective/Wesker boundary (return capture + observed type threaded into generation). [The engine first
+  shipped the *intersection* condition (`observed & types`), which generated the mis-typed perturbation for
+  a heterogeneous return — a phantom crash-only value gap; corrected to the subset condition
+  `output_mode_applies` (`observed <= types`, truth-table pinned, isolation ✓ COMPLETE 8/8), so Prop. 11.11
+  holds as stated and no source-(b) `undefined` arises.]
 
 **Proposition 11.11 (Fork 1 is sound by restriction; Fork 2 adds typed reach).** Fork 1 emits no false
 signal because it admits only always-applicable perturbations — nothing raises, so nothing is
@@ -1361,9 +1370,16 @@ these.
    (`diagnose`/`converge --two-sign`) and the two channel-propagation leaks closed (Props. 11.13–11.14,
    `f5e0efc`/`3ba2387`). The corpus censor loop's *code* port (Q1) is now BUILT (Detective `be5f6b2`,
    2026-08-23), and the read/write surface is two-sign end-to-end (`decompose`/`audit --two-sign`,
-   `4a502f3`/`73e609b`), and Cor. 10.6's κ-gated `audit --remove` is BUILT (`067c0e4`, item 1). What remains
-   under build is only the `UNDEFINED` disposition (Def. 7.3, needed only once a degenerate-measure case
-   lands).
+   `4a502f3`/`73e609b`), and Cor. 10.6's κ-gated `audit --remove` is BUILT (`067c0e4`, item 1). The
+   `UNDEFINED` disposition (Def. 7.3) is **not built and now grounded as not needed**: its only live
+   producer would be a source-(b) mis-typed perturbation, and that was a Fork-2 *generation* defect (the
+   intersection condition `observed & types` emitted a numeric perturbation for a heterogeneous `int | str`
+   return, which the static return-site rewrite then fired on the `str` branch and raised — a phantom
+   crash-only value gap). Corrected at generation to the subset condition `output_mode_applies`
+   (`observed <= types`, isolation ✓ COMPLETE 8/8), so Fork 2 is *sound by restriction* exactly as Fork 1
+   is (Prop. 11.11) and no `undefined` ever arises; source-(a) collapsed-measure ($\nu = \bot$) has no
+   producer either (no shipped perturbation computes a $\nu$). The disposition stays a documented sibling of
+   `cut` to be wired *if* a degenerate-measure operator is ever added, not a standing gap.
 7. **Unify ESL's DOF universe with μ⁻ (§13).** ESL (forward prototype) drives a learner against the
    ONE-SIGN σ; two-sign ESL (Prop. 13.5) requires the DOF universe the learner descends to be
    $\mu \cup \mu^-$. The unification is the concrete next build toward Uroboros (Def. 13.6), and its
