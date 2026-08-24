@@ -330,21 +330,36 @@ theory supplies the foreclosure (Doliwa 2014; Moran–Yehudayoff 2015; Pabbaraju
 
 ## 11. Status ledger
 
-*Nothing here is machine-checked yet. This ledger is the proof-engine work list.*
+*Proof strategy (decided 2026-08-25). The FINITE constructive fragment (Thm A) is machine-checked via
+Wayfinder→Aristotle on concrete generation witnesses; everything undecidability- or ML-dependent (Thm B/C/D)
+is a PAPER PROOF citing already-proven classical results — its dependencies (word-problem undecidability,
+sample-compression impossibilities) are not in Mathlib and should not be re-formalized. This mirrors the
+corpus pattern `bridge_B09_decidability.lean` (finite decidability a Lean theorem; undecidability an axiom
+citing Turing/Rado).*
 
-| Result | Kind | Status | Target |
+| Result | Kind | Proof form | Status |
 |---|---|---|---|
-| Thm A.1 (characterization) | definitional (strong Def 2.3) | — no obligation | — |
-| Thm A.2 ($\operatorname{rank} T_n = 3$) | inherited (Gomes–Howie) | ▢ transcribe + check | T_A2 |
-| Thm A.3 (PSPACE decidable) | inherited (Kozen) | ▢ cite + assemble | T_A3 |
-| Thm B.1 (word-problem reduction) | **NEW, load-bearing** | ▢ to prove | T_B1 |
-| Thm B.2 (equivalence reduction) | inherited (Rice / Budd–Angluin) | ▢ cite + instantiate | T_B2 |
-| Thm C (dichotomy) | corollary of A+B | ▢ to prove | T_C1 |
-| Thm D (compression foreclosure) | assembly of proved impossibilities | ▢ transport + verify | T_D1 |
-| Thm E (ASDL syntactic criterion) | decidable + empirical caveat | ▢ to prove | T_E1 |
-| Rem 3.3 (minimal separating set) | conjecture | open | — |
+| Thm A.1 (characterization) | definitional (strong Def 2.3) | — | no obligation |
+| **Thm A.2 (n=2): `T2_generated`** | concrete constructive witness | **Lean → Aristotle** | elaborates ✓; Wayfinder-local 133 attempts, residual; **fired to Aristotle** (`0946336c…`) |
+| **Thm A.2 (n=3, rank 3): `T3_generated_rank3`** | concrete constructive witness | **Lean → Aristotle** | elaborates ✓; Wayfinder-local 133 attempts, residual; **fired to Aristotle** (`932252e6…`) |
+| Thm A.2 (general $\operatorname{rank}T_n=3$) | inherited (Gomes–Howie 1987) | paper (cite) | cited; n=2,3 are the machine-checked instances |
+| Thm A.3 (finite decidability) | instance-level (`Decidable` is `Type`, not `Prop`) | Lean `instance` (sorry) + paper | not a theorem/Wayfinder target; witnessed by A.2 |
+| Thm B.1 (word-problem reduction) | **NEW, load-bearing** | **paper proof** (reduce to Post/Markov 1947) | to write; not Lean (word-problem undecidability not in Mathlib) — axiom `pi_completeness_undecidable_infinite` records it |
+| Thm B.2 (equivalence reduction) | inherited (Rice 1953 / Budd–Angluin 1982) | paper (cite) | to write |
+| Thm C (dichotomy) | corollary of A+B | paper | to write |
+| Thm D (compression foreclosure) | assembly of proved impossibilities | paper (transport Pabbaraju / HMW) | to write; not Lean (ML results not formalized) |
+| Thm E (ASDL syntactic criterion) | decidable + empirical caveat | paper + empirical citation | to write |
+| Rem 3.3 (minimal separating set) | conjecture | — | open |
+
+**Lean artifacts.** `Wayfinder/data/lean_project/operator_completeness.lean` (the finite witnesses + the
+undecidability axiom, corpus style); manifest `Wayfinder/data/operator_completeness_manifest.jsonl`. Both
+`T2_generated` and `T3_generated_rank3` **elaborate against Mathlib** and were searched by Wayfinder-local
+(133 attempts each, 4 sub-goals closed, residual open) then fired to Aristotle — collection pending.
 
 **Provenance.** The gap this paper fills was confirmed by a source-verified literature workflow (42/42
 sources, 2026-08-25; `LITERATURE_PI_COMPLETENESS.md`). The algebraic and computability results are classical
-and cited; the reduction of the finiteness dichotomy to $\Pi$-completeness (Thm B.1, the dichotomy Thm C) is
-this paper's contribution and is **unproven pending the Wayfinder/Aristotle pass**. Do not cite as proven.
+and cited; the reduction of the finiteness dichotomy to $\Pi$-completeness (Thm B.1) and the dichotomy
+(Thm C) are this paper's contribution, delivered as **paper proofs citing the classical undecidability
+results** (not Lean, by design — see the strategy note). The finite constructive fragment (Thm A, n=2/3) is
+the machine-checked slice. Nothing is proven until the Aristotle results are collected and audited; do not
+cite as proven.
