@@ -472,12 +472,24 @@ which needs a teacher:
 
 $\mathrm{expr}_L$ is the **decidable separator** between (2) and (3). The resolution differs by regime:
 (1) is automatic; (2) is a *search* problem (more, and smarter, synthesis); (3) is a *representation*
-problem — closed only by supplying a value outside $L$ **by hand** (a *fixture*) or by *re-expressing the
-decision over $L$-terms* (the standard "extract the pure decision" move) so its witnesses re-enter $L$.
-Throwing synthesis at a regime-(3) residual is a category error. So Theorem 6.2's "computable" is not one
-thing: it is *total automation* on (1), a *tractability frontier* on (2), and a *representation obligation*
-on (3) — an inner boundary inside $\mathrm{DOF}^{0}$ the tool already computes but the two-region picture
-had not named.
+problem — closed by supplying a value outside $L$ (a *fixture*) or by *re-expressing the decision over
+$L$-terms* (the standard "extract the pure decision" move) so its witnesses re-enter $L$. Regime (3) is
+itself not uniform, and grounding the wiring split it further (the same natural-philosophy move that
+produced this section): for an **introspectable** domain object — a dataclass whose fields are themselves
+$L$-terms — the fixture need not be hand-built. Synthesis already *reaches* the object (`_synth_value`
+constructs a `Relation`); the differential increment B2 *varies one value-bearing field* per candidate
+(`distinct_field_value`, the differential $p_{\mathrm{field}}$ of Def. 11.8(vi)) and carries it as a
+`SourceExpr` **constructor** — a term in a language $L^{+}$ that extends $L$ with dataclass constructors
+(the same extension that already admits `ast.parse(...)` for AST parameters), so the witness renders as a
+runnable `Cls(field=…)` while remaining outside the `--input` literal allowlist (never a paste-able
+literal, never a flag). What stays genuinely representation-bound — the *irreducible* regime (3) — is the
+**cross-field-invariant** object (a `Relation` whose `args` must reference declared entities, so a blind
+field variant builds an instance the function rejects) and the **non-introspectable** object (no
+`dataclasses.fields`: an opaque / C-extension / factory-built state). So Theorem 6.2's "computable" is not
+one thing: *total automation* on (1), a *tractability frontier* on (2), an *automatable constructor
+fixture* on the introspectable part of (3), and a *representation obligation* only on its
+cross-field-invariant / non-introspectable core — an inner boundary inside $\mathrm{DOF}^{0}$ the tool now
+computes across all four bands.
 
 **Remark 6.6 (The false-equivalence hazard has two doors; only one is a synthesis problem).** A survivor
 with no witness found and no genuine equivalence is the hazard the negative sign fences: shown as
@@ -490,10 +502,15 @@ whose 6 residuals sit behind `isinstance(fact, Relation)`, so no literal `--inpu
 guarded *only if the disposition consumes* $\mathrm{expr}_L$: `genuine_equivalent` (flag appropriate) must
 require flat $\wedge$ no-witness $\wedge$ *the witness would be expressible*, routing an inexpressible
 residual to a `fixture` / decision-extraction hand-back instead of a flag. This is the same
-false-equivalence bug B0 closed for door (2), closed for door (3). [Status: Prop. 6.5's stratification is
-ASSERTED — argued from the $L$/`is_expressible` boundary the tool already computes decidably; the door-(2)
-detector + B0 retry are BUILT (Detective `c898e0e`/`49b6ae0`); the door-(3) expressibility gate in
-`residual_disposition` is the identified, not-yet-built integrity increment (§18 Q10).]
+false-equivalence bug B0 closed for door (2), closed for door (3). And once the gate routes an
+inexpressible residual to a `fixture`, B2 (Def. 6.5's regime-2 differential increment) can *auto-build*
+that fixture for the introspectable-dataclass case — `distinct_field_value` varies a value-bearing field
+and carries it as a `SourceExpr` constructor, so the hand-back becomes a synthesized `Cls(field=…)` kill.
+[Status: Prop. 6.5's stratification is ASSERTED — argued from the $L$/`is_expressible` boundary the tool
+computes decidably; the door-(2) detector + B0 retry are BUILT (Detective `c898e0e`/`49b6ae0`); the
+door-(3) expressibility gate in `residual_disposition` is BUILT (`1dc579b`); the differential fixture
+synthesis (B2) is BUILT (`distinct_field_value` / `_domain_object_variant_inputs`), leaving only the
+cross-field-invariant and non-introspectable objects as the fixture residual (§18 Q10).]
 
 ---
 
@@ -1355,9 +1372,9 @@ these.
    the consolidation-as-free-energy reading (Prop. 15.5) are CONJECTURE pending the entropy-bit machinery
    ($H_0$, $L(D)$, $I_{\mathrm{solve}}$ in bits); the built quantities are coverage analogs. And
    `safe_forget_preserves_sigma_sem` (Thm 15.4's transport) is an unproved Lean target.
-10. **The expressibility boundary inside DOF⁰ (Prop. 6.5) — both bounded increments now BUILT.** The
+10. **The expressibility boundary inside DOF⁰ (Prop. 6.5) — all three bounded increments now BUILT.** The
     refinement of §6 names an inner, *decidable* boundary in the mechanical residual: reachable /
-    expressible-but-hard / $L$-inexpressible. Two build items fell out, of different sizes. (a) **The
+    expressible-but-hard / $L$-inexpressible. Three build items fell out, of different sizes. (a) **The
     integrity increment — door-(3) fixture gate, BUILT (Detective `1dc579b`):** `residual_disposition`
     consumes $\mathrm{expr}_L$ AND the reachability signal (RIP-R), so a *flat, $L$-inexpressible* residual
     routes to a `fixture` hand-back, never `genuine_equivalent`/flag — the honest closure of the
@@ -1367,10 +1384,21 @@ these.
     comparison guard (`len(x) > 5`, `x == 42`) is reached by an input synthesized off the branch's OWN AST
     (`guard_comparison_target` / `_guard_directed_inputs`, truth-table pinned, positive-only), turning it
     from candidate-equivalent to a KILL — the generalization of B0 from a fixed topology library to the
-    guard the branch declares (measured on a `len(items) > 5` target). **Still open — the differential /
-    domain-object reach:** a `serialize_rule` residual needs a *differentiating* `Relation` (inexpressible),
-    which no guard names and no synthesis over $L$ reaches; it routes to (a)'s fixture caveat, not a kill.
-    B0 + B1 are bounded down-payments; the differential domain-object synthesis is the residual open problem.
+    guard the branch declares (measured on a `len(items) > 5` target). (c) **The differential
+    domain-object band — B2, BUILT:** grounding the wiring showed the "differential domain-object reach"
+    was NOT the monolithic research problem this ledger once called it — synthesis already REACHES an
+    introspectable dataclass parameter (`_synth_value` builds the `Relation`), and the residual was only
+    the *differential*: no candidate VARIED a value-bearing field. B2 supplies it — `distinct_field_value`
+    (the differential $p_{\mathrm{field}}$ of Def. 11.8(vi), truth-table pinned, isolation ✓ COMPLETE
+    36/38) varies one str/int/list field per candidate, carried as a `SourceExpr` **constructor**
+    (`_domain_object_variant_inputs` / `_as_domain_source`), positive-only, so a fixed-point survivor an
+    `--input` can never express (measured: `power(c)` with `c.base**2`, whose exponent mutants all agree at
+    the sample `base=1`) becomes a KILL rendered as a runnable `Cls(field=…)` — never a flag. **Still open —
+    the irreducible representation core:** a **cross-field-invariant** object (a `Relation` whose `args`
+    must reference declared entities, so a blind field variant builds an instance the function rejects) and
+    a **non-introspectable** object (no `dataclasses.fields`) still route to the fixture hand-back. B0/B1/B2
+    are the three bounded down-payments on Prop. 6.5's bands; the cross-field-invariant + opaque residual is
+    what genuinely remains — a materially smaller open problem than the whole differential reach.
 
 ---
 

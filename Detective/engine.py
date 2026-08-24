@@ -1360,6 +1360,40 @@ def _dataclass_field_variants(value: Any, cap: int = 4) -> list:
     return variants
 
 
+def distinct_field_value(current: Any) -> Any:
+    """A value guaranteed ``!= current`` and of a compatible shape, or ``None`` when none can
+    be synthesized from the value alone (#67 B2, pure — pinned).
+
+    The DIFFERENTIAL half of domain-object synthesis. B0 (topology) and B1 (guard) get a survivor
+    REACHED; this VARIES a synthesized dataclass field so a mutation that READS that field is
+    distinguished. ``_dataclass_field_variants`` already flips bool fields and nulls Optionals — this
+    extends the same idea to the VALUE-bearing fields (str / int / float / list / tuple) whose specific
+    content a ``serialize_rule``-style mutation reads and which the bool/None grid never moves: the §6
+    band-2 (expressible-but-hard) increment, the differential ``p_field`` of Def. 11.8(vi).
+
+    ``bool`` is tested BEFORE ``int`` because it is an ``int`` subclass and the two mean different
+    fences (a flipped flag vs a boundary step); collapsing them was the recurring conflation bug. The
+    string prefix and the list/tuple length change are chosen only to GUARANTEE distinctness from
+    ``current`` — the down-payment B0/B1 also make (a fixed candidate that may or may not distinguish;
+    the search adopts it only on a NEW kill). ``None`` return is the honest limit: a dict / set /
+    nested-object field, or a ``None`` current (which the annotation-driven Optional path already
+    covers), yields no value-only variant, so such a residual stays a fixture hand-back rather than a
+    fabricated — and possibly cross-field-invalid — object.
+    """
+    if isinstance(current, bool):
+        return not current
+    if isinstance(current, int):
+        return current + 1
+    if isinstance(current, float):
+        return current + 1.0
+    if isinstance(current, str):
+        return "x" + current
+    if isinstance(current, (list, tuple)):
+        rest = list(current)[1:] if current else ["x"]
+        return type(current)(rest)
+    return None
+
+
 def _synth_from_ann(ann, namespace: dict, depth: int = 0) -> Any:
     """One representative value for an annotation NODE, recursing into container
     element types (``list[str]`` -> ``['x']``, ``dict[str, int]`` -> ``{'x': 1}``)
@@ -1919,6 +1953,29 @@ def guard_retry_gate(has_candidate_equivalent: bool, has_effects: bool, wall_exh
     return "run"
 
 
+def domain_variant_retry_gate(has_candidate_equivalent: bool, has_effects: bool, wall_exhausted: bool) -> str:
+    """Whether to run the B2 domain-object differential retry after B0/B1 left a candidate-equivalent
+    (#67, pure — pinned). A named code, never a bool.
+
+    Same three gates every fabricated-pool retry obeys, kept a SEPARATE symbol from B1's
+    ``guard_retry_gate`` so the B2 stage is independently tunable and independently disablable in a
+    test (the B0/B1 precedent: each active-search stage owns its gate). The synthesized dataclass
+    variants CALL the target, so never on an effectful one (damage, not a guess); never once the
+    aggregate wall is gone (#31: a cut run keeps its first-pass verdicts); nothing to gain when no
+    candidate-equivalent remains to upgrade.
+
+      "run"   a candidate-equivalent remains and the search is safe
+      "skip"  nothing left to upgrade, effectful, or wall exhausted
+    """
+    if not has_candidate_equivalent:
+        return "skip"
+    if has_effects:
+        return "skip"
+    if wall_exhausted:
+        return "skip"
+    return "run"
+
+
 _GUARD_OPS: dict[type, str] = {
     ast.Gt: ">",
     ast.Lt: "<",
@@ -2016,6 +2073,100 @@ def _guard_directed_inputs(
             seen.add(key)
         out.append(tuple(args))
     return out
+
+
+def _as_domain_source(instance: Any) -> SourceExpr | None:
+    """A synthesized dataclass INSTANCE as a :class:`SourceExpr` — the live value plus the constructor
+    ``repr`` and the import that names its class — so a B2 witness renders as ``Cls(field=...)`` (#67 B2).
+
+    ``None`` when any field value is not itself expressible (a nested object / built state). A standard
+    dataclass ``repr`` IS its own constructor source, but only the instance's OWN class import is
+    emitted, so a nested-object field would render an unresolvable name. That case is the honest
+    residual — a fixture hand-back — not something to fabricate an incomplete render for.
+    """
+    if not (dataclasses.is_dataclass(instance) and not isinstance(instance, type)):
+        return None
+    if not all(is_expressible(getattr(instance, f.name)) for f in dataclasses.fields(instance)):
+        return None
+    cls = type(instance)
+    top = cls.__qualname__.split(".")[0]  # dataclass repr uses __qualname__; import its head name
+    imports = () if cls.__module__ in ("builtins", None) else (f"from {cls.__module__} import {top}",)
+    return SourceExpr(value=instance, expr=repr(instance), imports=imports)
+
+
+def _domain_variants(value: Any, cap: int = 4) -> list | None:
+    """SourceExpr variants of a synthesized dataclass instance that differ in ONE value-bearing field
+    each (via :func:`distinct_field_value`), plus the base — or ``None`` when ``value`` is not a
+    renderable dataclass instance (#67 B2). This is the differential grid B0's topologies and B1's
+    scalar guards do not build: the field a ``serialize_rule``-style mutation reads is varied so the
+    mutation is distinguished. Capped, like ``_dataclass_field_variants`` (which varies only bool /
+    Optional fields — this extends the same idea to str / int / float / list / tuple content).
+    """
+    base = _as_domain_source(value)
+    if base is None:
+        return None
+    out = [base]
+    for f in dataclasses.fields(value):
+        if len(out) >= cap:
+            break
+        alt = distinct_field_value(getattr(value, f.name))
+        if alt is None:
+            continue
+        try:
+            varied = _as_domain_source(dataclasses.replace(value, **{f.name: alt}))
+        except Exception:  # noqa: BLE001 — a replace a field validator rejects just yields no variant
+            varied = None
+        if varied is not None:
+            out.append(varied)
+    return out
+
+
+def _domain_object_variant_inputs(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    namespace: dict,
+    qualname: str,
+    project_root: str,
+) -> list[tuple]:
+    """B2 (#67): full positional-arg tuples that place FIELD-VARIED dataclass instances in every
+    domain-object slot and the ordinary grid elsewhere, so a candidate-equivalent behind a
+    domain-object parameter — one whose VALUE-bearing field a mutation reads — is distinguished.
+
+    The differential generalization of B0 (nested-int topologies) and B1 (scalar guards): synthesis
+    already REACHES the object (``_synth_from_ann`` from an annotation, or ``_synth_value`` from a
+    call-site-inferred type — the ``serialize_rule`` case is unannotated), so this VARIES one field
+    per variant and lets the search find the differentiator. Each variant is a SourceExpr constructor,
+    so a kill renders as ``Cls(field=...)`` — never an ``--input`` literal (a constructor is outside
+    the allowlist), never a flag. Empty when no parameter resolves to a renderable dataclass — the
+    honest limit (a non-introspectable or cross-field-invariant object stays a fixture hand-back).
+
+    OUR fabrications, so the caller applies the same world-effects gate the fabricated pool obeys;
+    positive-only, so a variant that distinguishes a survivor upgrades it to a proven KILL and one
+    that does not leaves the residual exactly as it was.
+    """
+    args = [a for a in getattr(getattr(node, "args", None), "args", []) or [] if a.arg not in ("self", "cls")]
+    if not args:
+        return []
+    grids = _input_grids(node, namespace)
+    inferred = infer_param_types(qualname, project_root, [a.arg for a in args])
+    replaced = False
+    for i, a in enumerate(args):
+        if i >= len(grids):
+            continue
+        if a.annotation is not None:
+            value = _synth_from_ann(a.annotation, namespace)
+        elif a.arg in inferred:
+            cls = _resolve_class(inferred[a.arg], project_root)
+            mod = sys.modules.get(cls.__module__) if cls is not None else None
+            value = _synth_value(cls.__name__, vars(mod)) if (cls is not None and mod is not None) else None
+        else:
+            value = None
+        variants = _domain_variants(value) if value is not None else None
+        if variants is not None:
+            grids[i] = variants
+            replaced = True
+    if not replaced:
+        return []
+    return bounded_product(grids)
 
 
 def search_pool_admission(is_hermetic: bool, include_shaped: bool) -> str:
@@ -2562,6 +2713,32 @@ def classify_survivors(
                 verdicts, unclassified, manual_equivalent, fence = retry
                 final_pool = supplied + fresh + inputs
                 note = None
+                witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
+                if witness_args:
+                    expressible = all(is_expressible(a) for args in witness_args for a in args)
+
+    # B2 (#67): domain-object differential search — the generalization of B0/B1 from nested-int
+    # topologies and scalar guards to a DATACLASS parameter whose VALUE-bearing field a mutation reads.
+    # Synthesis already REACHES the object (a Relation is constructed); the differential grid VARIES one
+    # field per variant (distinct_field_value) so the mutation is distinguished, each carried as a
+    # SourceExpr constructor so a kill renders as `Cls(field=...)` — never an --input, never a flag.
+    # Retry positive-only through _classify_pool (adopt only a NEW kill, so never a false COMPLETE). The
+    # cross-field-invariant and non-introspectable objects stay a fixture hand-back — the honest residual.
+    _domain = domain_variant_retry_gate(
+        any(not v.killable and not v.crash_only for v in verdicts), bool(effects), _cls_exhausted()
+    )
+    if _domain == "run":
+        domain_inputs = _domain_object_variant_inputs(node, ns, qualname or function, project_root)
+        fresh = [t for t in domain_inputs if _safely_fresh(t, inputs)]
+        if fresh:
+            retry = _classify_pool(supplied + fresh + inputs)
+            if sum(1 for v in retry[0] if v.killable) > sum(1 for v in verdicts if v.killable):
+                verdicts, unclassified, manual_equivalent, fence = retry
+                final_pool = supplied + fresh + inputs
+                note = None
+                # A domain-object witness is a SourceExpr constructor (is_expressible False by design —
+                # a constructor is not an --input literal), so expressibility stays False; the kill
+                # renders via the SourceExpr source, not a paste-able literal. Recompute on witnesses.
                 witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
                 if witness_args:
                     expressible = all(is_expressible(a) for args in witness_args for a in args)

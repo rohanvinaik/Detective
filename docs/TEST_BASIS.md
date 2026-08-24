@@ -1061,11 +1061,24 @@ B1 reaches it by the branch's OWN guard: a survivor behind a SIMPLE comparison g
 candidate-equivalent to KILLED, leaving only the reached-but-not-propagated residual. The generalization of
 B0 from a fixed topology library to the guard the branch itself declares.
 
-**Still open — the intractable core.** GENERAL cross-referential / DIFFERENTIAL domain-object synthesis:
-`serialize_rule`'s residuals need a *differentiating* `Relation` (a domain object, `--input`-inexpressible)
-that no guard names and no synthesis over the input LANGUAGE reaches — it routes to the door-3 fixture
-caveat (§6), NOT a kill. B0 + B1 are bounded down-payments; the differential domain-object reach is the open
-synthesis problem, deliberately NOT claimed.
+**[B2 DOMAIN-OBJECT DIFFERENTIAL LANDED — the THIRD tractable increment.]** Grounding the wiring showed the
+"differential domain-object reach" was NOT monolithic: synthesis already REACHES an introspectable dataclass
+parameter (`_synth_value`/`_synth_from_ann` build the `Relation`), so the residual was only the differential
+— no candidate VARIED a value-bearing field. B2 supplies it: `distinct_field_value` (the differential
+`p_field` of Def. 11.8(vi), truth-table pinned, isolation ✓ COMPLETE 36/38) varies one str/int/list field per
+candidate, carried as a `SourceExpr` constructor (`_domain_object_variant_inputs` / `_domain_variants` /
+`_as_domain_source`, gated by `domain_variant_retry_gate`), retried positive-only through `_classify_pool`.
+Measured on a fixed-point target (`power(c)` returning `c.base**2`, whose exponent mutants all agree at the
+synth sample `base=1`): the exponent VALUE survivors — which NO `--input` can express and the fixed point
+hides — go from candidate-equivalent to KILLED with a witness that renders as a runnable `Cfg(base=2)`
+constructor. The generalization of B0/B1 from topologies and scalar guards to a dataclass field.
+
+**Still open — the irreducible representation core.** After B2, what genuinely remains is the
+**cross-field-invariant** object (a `Relation` whose `args` must reference declared entities, so a blind
+field variant builds an instance the function rejects) and the **non-introspectable** object (no
+`dataclasses.fields`: opaque / C-extension / factory-built state) — both still route to the door-3 fixture
+caveat (§6), NOT a kill. B0 + B1 + B2 are the three bounded down-payments; the cross-field-invariant + opaque
+residual is the materially smaller open synthesis problem, deliberately NOT claimed.
 
 ### F1 — the deep-slice re-rank
 
