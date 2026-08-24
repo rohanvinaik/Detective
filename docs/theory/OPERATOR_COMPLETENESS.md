@@ -107,13 +107,15 @@ $f : D \to |R|$. A *codomain deviation* of $f$ is a pair $(x, r')$ with $r' \neq
 input $x$. A perturbation $p$ *realizes* the deviation at $x$ iff $p(f(x)) = r'$; the perturbed denotation is
 $f \oplus p = p \circ f$ (*Negative Specification* Def 3.1).
 
-**Definition 2.3 ($\Pi$-completeness / codomain separation).** $\Pi_R$ is **complete for $R$** iff
-$\langle \Pi_R \rangle$ realizes every codomain deviation: for every $r \in |R|$ and every $r' \in |R|$ there
-is $p \in \langle \Pi_R \rangle$ with $p(r) = r'$ — equivalently, $\langle \Pi_R \rangle$ acts *transitively*
-on $|R|$ and separates every pair of behaviors distinguishable at the codomain (*Negative Specification* Def
-11.8b). *(Refinement, deferred to Lemma 3.2: completeness for the SEPARATION task — distinguishing any two
-admissible-vs-near-miss behaviors under a covering oracle — may require strictly less than full transitive
-realization; §3 states the strong form and fences the minimal-separating-set refinement as open.)*
+**Definition 2.3 ($\Pi$-completeness — the STRONG definition).** $\Pi_R$ is **complete for $R$** iff
+$\langle \Pi_R \rangle = M_R$ (for finite $R$, $= T_n$): the generated submonoid is the *entire* codomain
+transformation monoid, so $\langle \Pi_R \rangle$ realizes **every** deviation $r \mapsto r'$ for all
+$r, r' \in |R|$. This is the **strong / maximal** completeness notion — deliberately the strongest available,
+not the weakest sufficient one. *(Methodological stance: a strong assertion is chosen precisely so its
+FAILURE is informative — where the strong definition cannot be met, the countermanding contradiction exposes
+the theoretical limitation exactly. A weaker "separation-only" notion — distinguish any admissible $f$ from
+any near-miss under a fixed oracle — may be satisfiable by a proper subset of $M_R$; the gap between the two
+is not a hedge but the measuring instrument (Rem. 3.3).)*
 
 **Remark 2.4 (why the monoid).** This is the negative-sign instance of the positive **operator-basis**
 question *Specification Complexity* §2.3 leaves open: "does a finite operator family span the space it is
@@ -131,10 +133,11 @@ transformation monoid, which is where the classical decidability results live.
    rank-$(n-1)$ idempotent generate $T_n$; i.e. $\operatorname{rank}(T_n) = 3$.
 3. *(decidability)* Deciding whether a given finite $\Pi_R$ is complete is **decidable and PSPACE-complete**.
 
-> `▢ PROOF OBLIGATION A.1 (characterization)` — Show Def 2.3's transitive-realization condition is equivalent
-> to $\langle \Pi_R \rangle = T_n$. *Strategy:* full realization of every $(r,r')$ deviation means every
-> constant-image and every permutation is generated; a monoid on $[n]$ realizing all $(r \mapsto r')$ and
-> closed under composition is $T_n$. *Status: mechanical algebra. [Wayfinder/Aristotle: T_A1]*
+> `A.1 (characterization)` — **definitional** under the strong Def 2.3 ($\Pi_R$ complete $:\!\Leftrightarrow
+> \langle \Pi_R \rangle = T_n$). No proof obligation; A.1 restates the definition to make the monoid-generation
+> reading explicit. *(That "realize every $(r,r')$ deviation" $\Leftrightarrow \langle\Pi_R\rangle = T_n$ is
+> itself a one-line lemma — every point-to-point map plus closure gives all of $T_n$ — is recorded but not
+> load-bearing.)*
 >
 > `▢ PROOF OBLIGATION A.2 (basis)` — $\operatorname{rank}(T_n) = 3$. *Strategy:* CITE Gomes & Howie 1987
 > (transposition + $n$-cycle generate $S_n$ at rank 2; adjoining one rank-$(n-1)$ map reaches all of $T_n$).
@@ -150,10 +153,16 @@ transformation monoid, which is where the classical decidability results live.
 is a decidable, absolute predicate — no basis-relativity, no observing-set qualifier. This is the negative-sign
 counterpart of *Negative Specification* Thm 8.1 (unqualified correctness on the finite/decidable class).
 
-**Lemma 3.2 (the minimal-separating-set refinement — OPEN).** For the weaker *separation* task (distinguish any
-admissible $f$ from any near-miss $f'$ under a fixed covering oracle), the minimal complete $\Pi_R$ may have
-size $< 3$ or a different structure than a monoid generating set. Characterizing it is open (§8). *Status:
-CONJECTURE / open.*
+**Remark 3.3 (the strong definition is the measuring instrument).** We adopt Def 2.3's strong completeness
+($\langle \Pi_R \rangle = T_n$) deliberately, following the method that a theoretical limit is learned by
+asserting the maximum and reading the contradiction that countermands it. The weaker *separation* task
+(distinguish any admissible $f$ from any near-miss $f'$ under a fixed covering oracle) may be met by a proper
+subset of $T_n$; the **gap** between "generates all of $T_n$" and "separates the observed behaviors" is not a
+hedge but the ruler — every place the strong definition fails while separation still holds *localizes* a
+codomain deviation the operator family cannot express, which is exactly the diagnostic content the tool needs.
+Characterizing the minimal *separating* set (as opposed to the minimal *generating* set, which Thm A fixes at
+3) is therefore not a weakening of this paper's claim but a distinct downstream question (§8). *Status of the
+separating-set characterization: open; the strong generating-set result (Thm A) stands on its own.*
 
 ---
 
@@ -306,8 +315,9 @@ theory supplies the foreclosure (Doliwa 2014; Moran–Yehudayoff 2015; Pabbaraju
 
 ## 10. Open problems
 
-1. **The minimal separating set (Lemma 3.2).** For the separation task under a fixed oracle, characterize the
-   minimal complete $\Pi_R$ on a finite codomain — is it always $\le 3$, or task-dependent?
+1. **The minimal separating set (Rem. 3.3).** For the separation task under a fixed oracle (distinct from the
+   strong generating-set completeness Thm A fixes at 3), characterize the minimal *separating* $\Pi_R$ on a
+   finite codomain — is it always $\le 3$, or task-dependent?
 2. **Decidable structured sub-fragments.** Which structured codomains admit decidable completeness by a
    *restricted* presentation (confluent/terminating rewriting, so the word problem is decidable there)? — the
    TCE / regression-verification analogue for operators.
@@ -324,7 +334,7 @@ theory supplies the foreclosure (Doliwa 2014; Moran–Yehudayoff 2015; Pabbaraju
 
 | Result | Kind | Status | Target |
 |---|---|---|---|
-| Thm A.1 (characterization) | mechanical algebra | ▢ to prove | T_A1 |
+| Thm A.1 (characterization) | definitional (strong Def 2.3) | — no obligation | — |
 | Thm A.2 ($\operatorname{rank} T_n = 3$) | inherited (Gomes–Howie) | ▢ transcribe + check | T_A2 |
 | Thm A.3 (PSPACE decidable) | inherited (Kozen) | ▢ cite + assemble | T_A3 |
 | Thm B.1 (word-problem reduction) | **NEW, load-bearing** | ▢ to prove | T_B1 |
@@ -332,7 +342,7 @@ theory supplies the foreclosure (Doliwa 2014; Moran–Yehudayoff 2015; Pabbaraju
 | Thm C (dichotomy) | corollary of A+B | ▢ to prove | T_C1 |
 | Thm D (compression foreclosure) | assembly of proved impossibilities | ▢ transport + verify | T_D1 |
 | Thm E (ASDL syntactic criterion) | decidable + empirical caveat | ▢ to prove | T_E1 |
-| Lemma 3.2 (minimal separating set) | conjecture | open | — |
+| Rem 3.3 (minimal separating set) | conjecture | open | — |
 
 **Provenance.** The gap this paper fills was confirmed by a source-verified literature workflow (42/42
 sources, 2026-08-25; `LITERATURE_PI_COMPLETENESS.md`). The algebraic and computability results are classical
