@@ -3459,6 +3459,34 @@ _EXIT_CODES = (
 )
 
 
+def exit_code_meaning(code: int) -> str:
+    """The self-describing label for an exit code (#16, pure — pinned). Every ``--json`` verdict carries
+    ``{exit_code, exit_meaning}`` so a machine consumer branches on the FIELD — not the process status it
+    may not even see, nor the human epilog `_EXIT_CODES` it would have to parse. One map, the four codes
+    of that contract; an out-of-range code is NAMED ``unknown``, never silently dropped or mislabelled as
+    one of the four."""
+    return {
+        0: "clean",
+        1: "gap_or_refusal",
+        2: "conflict_or_precondition",
+        3: "invalid_measurement_rerun",
+    }.get(code, "unknown")
+
+
+def _emit_json(payload: dict, code: int) -> int:
+    """The ONE funnel for a ``--json`` verdict (#16): inject the self-describing ``exit_code`` +
+    ``exit_meaning`` (so a consumer branches on the FIELD, never the un-seen process status), print, and
+    RETURN the code — so a verb's `--json` ending is `return _emit_json(payload, code)`, the payload and
+    its exit status minted at one point and unable to disagree. A structural test asserts every verdict
+    emission goes through here, so a new verb cannot ship a code its `--json` reader cannot see."""
+    print(
+        json.dumps(
+            {**payload, "exit_code": code, "exit_meaning": exit_code_meaning(code)}, indent=2, default=str
+        )
+    )
+    return code
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="detective",
@@ -4803,571 +4831,261 @@ def _format_rewrite(r) -> str:
     return "\n".join(lines)
 
 
-def _run(args) -> int:
-    if args.command == "regime":
-        from dataclasses import asdict as _asdict
+def _run_decompose(args, file, function) -> int:
+    from .decompose_apply import apply_decomposition
 
-        from .regime import apply_migration, plan_migration, resolve_regime
+    supplied = (
+        _parse_supplied_inputs(args.input, _target_ns(file, function, args.project_root))
+        if getattr(args, "input", None)
+        else None
+    )
+    result = apply_decomposition(
+        file,
+        function,
+        args.project_root,
+        write=args.apply,
+        supplied_inputs=supplied,
+        deadline_s=args.deadline,
+        two_sign=getattr(args, "two_sign", False),
+        # decompose's work IS a converge plus a trial-apply per candidate — the slowest
+        # command in the CLI, and until now the only one that printed nothing while it ran.
+        notify=None if args.json else _notify_stderr,
+    )
+    if args.json:
+        print(json.dumps(asdict(result), indent=2, default=str))
+    else:
+        text = _format_decompose(result, args.apply, args.target, args.project_root)
+        # Persist the full outcome — especially a REFUSAL, which otherwise leaves no
+        # artifact and can only be re-diagnosed by re-running the slowest command here.
+        #
+        # The FILE is the full artifact and the terminal stays minimal — the split
+        # converge already makes (`_format_converge_terse` to the screen, the complete
+        # `_format_converge` to disk). Decompose printed and persisted the SAME string,
+        # so "full report" named a byte-identical copy of what the reader had just
+        # scrolled past, and the one command that promises more delivered less. The
+        # proof run is where the detail lives: per-pass, every survivor, the generated
+        # source. Absent on a refusal that never got to converge, and then the outcome
+        # text is genuinely all there is.
+        detail = text
+        if getattr(result, "proof", None) is not None:
+            detail = "\n".join(
+                [
+                    text,
+                    "",
+                    _RULE,
+                    "PROOF RUN — the converge this decomposition was validated against",
+                    _RULE,
+                    _format_converge(result.proof, show_tests=True),
+                ]
+            )
+        rel = _write_converge_report(args.project_root, function, detail, prefix="decompose")
+        if rel:
+            _notify_stderr(f"full report: {rel}")
+        print(text)
+    # 3 on a CUT proof (issue #31), mirroring converge: the run did not complete its
+    # proof within the wall, so CI must tell it apart from a clean "nothing to decompose".
+    return 3 if getattr(result, "budget_exhausted", False) else 0
 
-        target_file = _split_target(args.target, args.project_root)[0] if args.target else None
-        regime = resolve_regime(args.project_root, target_file)
-        plan = plan_migration(regime)
-        applied: tuple[str, ...] = ()
-        if args.migrate:
-            # por qué no los dos: cross-check the static precedence mirror (regime.config_file)
-            # against the config file pytest ITSELF reports. Agreement is the standard case;
-            # divergence means a non-standard/version-specific config — register into pytest's own
-            # file and WARN, rather than silently declaring into one pytest ignores.
-            from .regime import _resolved_for_file, pytest_configfile_live, reconcile_config_file
 
-            _root = os.path.abspath(args.project_root)
-            _chosen, _divergence = reconcile_config_file(regime.config_file, pytest_configfile_live(_root))
-            _override = _resolved_for_file(_root, _chosen) if _divergence else None
-            applied = apply_migration(plan, _override)
-            if _divergence:
-                print(f"  ⚠ {_divergence}", file=sys.stderr)
-            # Re-read: the report must describe the tree as it IS now, not as it was before we
-            # wrote to it. Reporting the pre-migration regime after migrating is how a tool
-            # tells you it fixed something and shows you the evidence that it did not.
-            regime = resolve_regime(args.project_root, target_file)
-            plan = plan_migration(regime)
-        if args.json:
-            print(json.dumps({"regime": _asdict(regime), "applied": list(applied)}, indent=2, default=str))
-        else:
-            print(_format_regime(regime, plan, applied, args.target))
-        # A conflict is the answer, not a crash: exit 2 so a script can gate on it, the same
-        # code every other command returns when it refuses for the same reason.
-        return 2 if regime.conflicts else 0
+def _run_audit(args, file, function) -> int:
+    from .audit import audit_suite
 
-    if args.command == "purge":
-        from Wesker.memory_guard import purge_caches
+    if getattr(args, "plan", False):
+        # The mutation-budget decision WITHOUT paying for it (issue #52): tier 0 static + tier 1
+        # trace (fan-in, coverage) + a MEASURED tier-2 estimate, then exit before mutating.
+        from .audit import mutation_estimate_seconds
+        from .engine import _resolve, trace_tier
+        from .parsimony_map import read_function
 
-        from . import verdict_cache as _vc
-
-        # BOTH packages. Wesker's purge knows `.wesker/`; ours knows `.detective/`. Neither can
-        # know the other's, and a command that purges one of two caches while announcing "a clean
-        # state" is worse than one that purges neither — the user acts on the claim.
-        w_removed, w_reclaimed = purge_caches(args.project_root)
-        d_removed, d_reclaimed = _vc.purge(args.project_root)
-        removed = tuple(w_removed) + tuple(d_removed)
-        reclaimed = w_reclaimed + d_reclaimed
-        if args.json:
-            print(json.dumps({"removed": list(removed), "reclaimed_bytes": reclaimed}))
-        elif removed:
-            print(f"purged {len(removed)} cache file(s), reclaimed {reclaimed // 1024} KB:")
-            for path in removed:
-                print(f"  - {path}")
-        else:
-            print("nothing to purge — no cached analysis found (a clean state)")
-        return 0
-
-    if args.command == "parsimony":
-        from .parsimony_map import parsimony_plan, score_path
-
-        score = score_path(args.path, args.project_root)
-        if getattr(args, "plan", False):
-            # A work QUEUE, not the map (issue #51): flagged functions grouped by module (one trace
-            # per group), worst-first, so a driver spends a finite budget where it pays off first.
-            if args.json:
-                groups = parsimony_plan(score)
-                print(
-                    json.dumps(
-                        {
-                            "kind": "parsimony-plan",
-                            "note": "schedule (advisory) — ranks no quality, proves nothing, writes nothing",
-                            "functions": score.functions,
-                            "flagged": score.flagged,
-                            "trace_groups": len(groups),
-                            "groups": [
-                                {
-                                    "module": module,
-                                    "one_baseline_trace": True,
-                                    "targets": [
-                                        {"target": r.qualname, "smells": r.smells, "detail": r.detail}
-                                        for r in reads
-                                    ],
-                                }
-                                for module, reads in groups[: args.top]
-                            ],
-                        },
-                        indent=2,
-                    )
-                )
-            else:
-                print(_format_parsimony_plan(score, top=args.top))
-            return 0
-        if args.json:
-            print(json.dumps(asdict(score), indent=2, default=str))
-        else:
-            print(_format_parsimony_map(score, top=args.top))
-        return 0
-
-    if args.command == "censor":
-        # Path-based + static (an AST call-site + call-graph pass), so it lands with the other advisory
-        # verbs ABOVE _split_target — it carries `path`, not `target`, and never opens a live session.
-        from .censor import harvest_corpus_censors, score_censor
-        from .promotion_ledger import (
-            build_ledger,
-            corpus_fixpoint,
-            ledger_key,
-            load_ledger,
-            save_ledger,
-        )
-
-        if args.list:
-            entries = load_ledger(args.project_root)
-            if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "kind": "censor-ledger",
-                            "count": len(entries),
-                            "entries": {
-                                k: {
-                                    "censor": asdict(e.censor),
-                                    "kappa": e.kappa,
-                                    "state": e.state,
-                                    "generation": e.generation,
-                                }
-                                for k, e in entries.items()
-                            },
-                        },
-                        indent=2,
-                    )
-                )
-            else:
-                print(_format_censor_list(entries))
-            return 0
-
-        censors = harvest_corpus_censors(args.project_root, args.path)
-        if args.promote:
-            result = corpus_fixpoint(args.project_root, censors)
-            # Persist the promoted censors into the ledger (merge with any existing entries).
-            store = load_ledger(args.project_root)
-            for e in result["promoted"]:
-                store[ledger_key(e.censor)] = e
-            save_ledger(args.project_root, store)
-            if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "kind": "censor-promote",
-                            "proposed": len(censors),
-                            "generations": result["generations"],
-                            "n_demoted": result["n_demoted"],
-                            "self_teaching": result["self_teaching"],
-                            "promoted": [
-                                {
-                                    "key": ledger_key(e.censor),
-                                    "censor": asdict(e.censor),
-                                    "kappa": e.kappa,
-                                    "generation": e.generation,
-                                }
-                                for e in result["promoted"]
-                            ],
-                        },
-                        indent=2,
-                    )
-                )
-            else:
-                print(_format_censor_promote(result, len(censors)))
-            return 0
-
-        ledger = build_ledger(args.project_root, censors)
-        # Per-censor disposition at the conservative σ̂ default (retains plurality): propose / abstain /
-        # refuse — the same score_censor the fixpoint gates on, shown so a reader sees WHY each ranks.
-        rows = [
-            (ledger_key(e.censor), e.censor, e.kappa, score_censor(e.censor, e.kappa or 0, 1)) for e in ledger
-        ]
+        _root = os.path.abspath(args.project_root)
+        _full = file if os.path.isabs(file) else os.path.join(_root, file)
+        try:
+            with open(_full, encoding="utf-8") as _fh:
+                _qn, _node = _resolve(ast.parse(_fh.read()), function)
+            _static = read_function(_node, function).detail if _node is not None else ""
+        except (OSError, SyntaxError):
+            _static = ""
+        tier1 = trace_tier(file, function, args.project_root, trace_progress=_stream_trace_progress(function))
+        est_s = mutation_estimate_seconds(tier1.mutant_count, _read_per_mutant_ms())
         if args.json:
             print(
                 json.dumps(
                     {
-                        "kind": "censor-proposal",
-                        "proposed": len(censors),
-                        "censors": [
-                            {
-                                "key": k,
-                                "func_key": c.func_key,
-                                "kind": c.kind,
-                                "subject": c.subject,
-                                "source": c.source,
-                                "kappa": kap,
-                                "disposition": disp,
-                            }
-                            for k, c, kap, disp in rows[: args.top]
-                        ],
+                        "kind": "audit-plan",
+                        "note": "schedule (advisory) — tiers 0-1 measured, tier 2 estimated, not mutated",
+                        "function": tier1.function,
+                        "tier0_static": _static or None,
+                        "tier1": {
+                            "tests_reaching": tier1.tests_reaching,
+                            "tests_total": tier1.tests_total,
+                            "covered_lines": tier1.covered_lines,
+                            "executable_lines": tier1.executable_lines,
+                        },
+                        "tier2": {"mutant_count": tier1.mutant_count, "estimate_seconds": est_s},
                     },
                     indent=2,
                 )
             )
         else:
-            print(_format_censor_proposal(rows, total=len(censors), top=args.top))
+            print(_format_audit_plan(function, _static, tier1, est_s))
         return 0
 
-    file, function = _split_target(args.target, getattr(args, "project_root", None))
+    # Tier 0 first (issue #52): the ~0s static read, streamed the instant the file parses, so
+    # audit shows a grounded first line immediately instead of a dead terminal — then the trace
+    # (tier 1) and mutation (tier 2) heartbeats follow, each carrying its own warrant.
+    _print_tier0_static(file, function, args.project_root)
+    report = audit_suite(
+        file,
+        function,
+        args.project_root,
+        progress=_stream_progress(function),
+        trace_progress=_stream_trace_progress(function),
+        two_sign=getattr(args, "two_sign", False),
+    )
+    # CI ratchet (issues #35, #50): --check makes a SPECIFICATION gap an enforceable process
+    # result (exit 1), but a MEASUREMENT limit (an unclassified survivor the search could not
+    # evaluate) is surfaced, never fatal by default — only --check-strict gates on it (exit 2).
+    # The gate is embedded in --json so a pipeline branches on the field, not the exit code alone.
+    check = getattr(args, "check", False) or getattr(args, "check_strict", False)
+    strict = getattr(args, "check_strict", False)
+    payload = asdict(report)
+    if check:
+        from .audit import audit_check_failed, audit_gate_exit, audit_measurement_incomplete
 
-    if args.command == "receipt":
-        from .rewrite import make_receipt
-
-        rec = make_receipt(file, function, args.project_root, notify=_notify_stderr)
-        text = rec.to_json()
-        if getattr(args, "out", None):
-            with open(args.out, "w", encoding="utf-8") as fh:
-                fh.write(text + "\n")
-            _notify_stderr(f"receipt written: {args.out}  (proof status: {rec.proof_status})")
-        else:
-            print(text)
-        # A valid baseline receipt needs BOTH a mutation-complete proof AND a green verification of it
-        # (issue #37): either alone is a weak baseline verify-rewrite must not treat as sound, so this
-        # is AND, not OR. A weak receipt exits 3 so it is caught at creation, not silently trusted later.
-        return 0 if (rec.proof_status == "passed" and rec.functionally_complete) else 3
-
-    if args.command == "verify-rewrite":
-        from .rewrite import (
-            _RECEIPT_SCHEMA,
-            RewriteReceipt,
-            RewriteVerification,
-            receipt_load_refusal,
-            verify_rewrite,
+        spec_gap = audit_check_failed(
+            len(report.killable_gaps),
+            len(report.missing_lines),
+            len(report.failing_tests),
+            getattr(report, "authored_fence", 0),  # Q8: an unenforced must-not is a spec gap
         )
-
-        def _invalid(reason: str) -> int:
-            """Emit INVALID_RECEIPT through the SAME channel a real verdict uses (#57).
-
-            The load boundary raised, so a corrupt or foreign receipt reached the user as a
-            Python traceback — and under ``--json`` as NOTHING AT ALL, since the exception
-            escaped before anything was printed. A caller cannot consume a refusal the tool
-            never emitted. Every ending of this command is a `RewriteVerification`, including
-            the ones where no verification could begin.
-            """
-            res = RewriteVerification(
-                verdict="INVALID_RECEIPT",
-                function=f"{file}::{function}",
-                proof_replayed="",
-                new_dimensions=(),
-                differences=(),
-                abstentions=(),
-                note=reason,
-            )
-            print(res.to_json() if args.json else _format_rewrite(res))
-            return 1
-
-        try:
-            with open(args.receipt_path, encoding="utf-8") as fh:
-                _text = fh.read()
-        except OSError as exc:
-            return _invalid(f"unreadable_receipt: {exc}")
-        _reason = receipt_load_refusal(_text, _RECEIPT_SCHEMA)
-        if _reason:
-            return _invalid(_reason)
-        try:
-            receipt = RewriteReceipt.from_json(_text)
-        except (TypeError, ValueError) as exc:
-            # Residual. `receipt_load_refusal` names every failure derivable from the TEXT, but
-            # construction can still reject a shape it does not model — an unexpected key, a
-            # field whose type it does not inspect. Catching here keeps the promise that no
-            # input reaches the user as a traceback, instead of assuming that list is total.
-            return _invalid(f"bad_fields: {exc}")
-        result = verify_rewrite(
-            receipt, file, function, args.project_root, notify=None if args.json else _notify_stderr
-        )
-        if args.json:
-            print(result.to_json())
-        else:
-            print(_format_rewrite(result))
-        # --learn (#17): a CHANGED rewrite is §9's SECOND spine source. `learn_disposition` is the
-        # pure gate (flag off → skip_disabled; not CHANGED → skip_unchanged); only "learn" harvests
-        # the near-misses, κ-scores them over the call graph via the SAME corpus fixpoint `censor
-        # --promote` uses, and persists the promoted ones. Reported on stderr so the --json verdict
-        # on stdout stays a clean RewriteVerification.
-        from .censor import learn_disposition
-
-        if learn_disposition(result.verdict, args.learn) == "learn":
-            from .censor import censors_from_verification
-            from .promotion_ledger import corpus_fixpoint, ledger_key, load_ledger, save_ledger
-
-            censors = censors_from_verification(f"{file}::{function}", result)
-            promoted = corpus_fixpoint(args.project_root, censors)["promoted"] if censors else []
-            store = load_ledger(args.project_root)
-            for e in promoted:
-                store[ledger_key(e.censor)] = e
-            save_ledger(args.project_root, store)
-            if not args.json:
-                _notify_stderr(
-                    f"learned {len(promoted)} censor(s) from the rejected rewrite "
-                    f"({len(censors)} near-miss candidate(s)) → .detective/censors.json"
-                )
-        # Only PRESERVED is a pass; every other verdict (CHANGED / UNREVIEWED / ABSTAIN / STALE) is a
-        # refusal CI must catch, so it exits non-zero.
-        return 0 if result.verdict == "PRESERVED" else 1
-
-    if args.command == "flag":
-        from .engine import profile
-        from .equivalents import add_flag
-
-        result = profile(file, function, args.project_root)
-        # Match against value-survivors — the SAME set audit/classify report from — so a
-        # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-
-        # survivor). Using survivor_records here would miss those and read "none surviving".
-        rec = next(
-            (
-                r
-                for r in result.value_survivor_records
-                if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))
-            ),
-            None,
-        )
-        if rec is None:
-            ids = (
-                ", ".join(r.get("mutant_id", "?") for r in result.value_survivor_records) or "none surviving"
-            )
-            print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
-            return 1
-        _verdict = "fence" if args.fence else "equivalent"
-        add_flag(
-            args.project_root,
-            result.function_key,
-            rec.get("diff_summary", ""),
-            note=args.note,
-            verdict=_verdict,
-        )
-        suffix = f" ({args.note})" if args.note else ""
-        print(f"{result.function_key} — flag · {args.mutant_id}")
-        print("")
-        if args.fence:
-            # A FENCE is the OPPOSITE claim to equivalent: this survival is a BUG, an authored
-            # must-not the suite does not enforce. It is a GAP (fails `audit --check`, blocks
-            # ✓COMPLETE), never suppressed — so a witness that KILLS it SATISFIES the fence, it does
-            # not override a mistaken judgement.
-            print(_row("✓ recorded", f"fence — an unenforced must-not{suffix}"))
-            print(_row("", "keyed to this exact code — an edit un-flags it."))
-            print("")
-            print("DONE:  future audit/converge runs report it as an UNENFORCED must-not — a gap")
-            print("       that fails `audit --check` and blocks ✓COMPLETE until a test kills it.")
-            print(f"       Next: detective converge '{result.function_key}'   # write the test it needs")
-            return 0
-        # A flag is a CLAIM, and the one place a human overrides the engine. Say what it does
-        # and what still outranks it: a real distinguishing witness. Otherwise it reads as a
-        # way to silence a survivor, which is how a green board gets flagged into existence.
-        print(_row("✓ recorded", f"equivalent{suffix}"))
-        print(_row("", "keyed to this exact code — an edit un-flags it."))
-        print("")
-        print("DONE:  future audit/converge runs treat it as equivalent — unless a witness")
-        print("       is found, which outranks your flag. Proof beats judgement.")
-        # `function_key`, not `function`: the bare name does not resolve as a target, so the
-        # one command this line offers would fail for anyone who pasted it.
-        print(f"       Next: detective audit '{result.function_key}'   # it is no longer a gap")
-        return 0
-
-    if args.command == "flag-line":
-        from Wesker.ci import walk_functions as _walk
-
-        from .line_flags import add_line_flag, clean_orphaned_flags, flag_statuses, remove_line_flag
-
-        root_abs = os.path.abspath(args.project_root)
-        full = file if os.path.isabs(file) else os.path.join(root_abs, file)
-        try:
-            with open(full, encoding="utf-8") as fh:
-                node = next((n for qn, n in _walk(ast.parse(fh.read())) if qn == function), None)
-        except (OSError, SyntaxError) as exc:
-            print(f"detective: cannot read {file}: {exc}")
-            return 1
-        if node is None:
-            print(f"detective: function '{function}' not found in {file}")
-            return 1
-        # THE ledger identity — issue #9 round 2: audit/converge key on the
-        # root-relative path, so `./pkg/mod.py`, an absolute path, and `pkg/mod.py`
-        # must all land on one record, not three.
-        func_key = f"{os.path.relpath(full, root_abs)}::{function}"
-
-        if args.list or args.clean:
-            if args.list:
-                statuses = flag_statuses(args.project_root, func_key, node)
-                if args.json:
-                    print(
-                        json.dumps(
-                            {
-                                "action": "list",
-                                "function": func_key,
-                                "flags": [{**asdict(f), "status": s} for f, s in statuses],
-                            },
-                            indent=2,
-                        )
-                    )
-                    return 0
-                print(f"{func_key} — flag-line · {len(statuses)} record(s)")
-                for f, status in statuses:
-                    note = f"  ({f.note})" if f.note else ""
-                    print(f"  [{status}] line {f.line}: {f.source}{note}")
-                if not statuses:
-                    print("  (none)")
-                return 0
-            removed = clean_orphaned_flags(args.project_root, func_key, node)
-            if args.json:
-                print(
-                    json.dumps(
-                        {"action": "clean", "function": func_key, "removed": [asdict(f) for f in removed]},
-                        indent=2,
-                    )
-                )
-                return 0
-            print(f"{func_key} — flag-line --clean")
-            for f in removed:
-                print(f"  removed orphaned record: line {f.line}: {f.source}")
-            print(f"DONE:  {len(removed)} orphaned record(s) removed; current judgments untouched.")
-            return 0
-
-        if args.line is None:
-            print("detective: flag-line needs a LINE (or --list / --clean)")
-            return 1
-
-        if args.remove:
-            removed_flag = remove_line_flag(args.project_root, func_key, node, args.line)
-            if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "action": "remove",
-                            "function": func_key,
-                            "removed": asdict(removed_flag) if removed_flag else None,
-                        },
-                        indent=2,
-                    )
-                )
-                return 0 if removed_flag else 1
-            if removed_flag is None:
-                print(f"detective: no flag recorded at line {args.line} for {func_key}")
-                return 1
-            print(f"{func_key} — flag-line --remove · line {args.line}")
-            print(_row("✓ removed", f"{removed_flag.source}"))
-            print("DONE:  the line counts as a residual again on the next audit/converge.")
-            return 0
-
-        flag = add_line_flag(args.project_root, func_key, node, args.line, note=args.note)
-        if flag is None:
-            span = f"{node.lineno}-{node.end_lineno}"
-            if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "action": "add",
-                            "function": func_key,
-                            "line": args.line,
-                            "error": f"not a statement of {function} (lines {span})",
-                        }
-                    )
-                )
-                return 1
-            print(f"detective: line {args.line} is not a statement of {function} (lines {span})")
-            return 1
-        if args.json:
-            print(json.dumps({"action": "add", "function": func_key, **asdict(flag)}, indent=2))
-            return 0
-        suffix = f" ({args.note})" if args.note else ""
-        print(f"{func_key} — flag-line · line {args.line}")
-        print("")
-        print(_row("✓ recorded", f"unreachable{suffix}: {flag.source}"))
-        print(_row("", "keyed to this exact statement — an edit un-flags it."))
-        print("")
-        # The two ledgers stay orthogonal: this closes a LINE residual and nothing else.
-        # Say what still outranks it — observed execution is proof of reachability.
-        print("DONE:  line reports read 'line-complete modulo N flagged unreachable'. The flag")
-        print("       kills no mutant and never gates decompose. If a test ever EXECUTES the")
-        print("       line, execution overrides your flag. Proof beats judgement.")
-        print(f"       Next: detective audit '{func_key}'   # the line is no longer a gap")
-        return 0
-
-    if args.command == "diagnose":
-        from .engine import diagnose
-
-        scope = diagnose(
-            file,
-            function,
-            args.project_root,
-            progress=_stream_progress(function),
-            trace_progress=_stream_trace_progress(function),
-            # BOTH budgets, always. `--trace-budget` used to stop here while its session sibling
-            # went through, so the per-test cap silently stayed at the default however the user
-            # set it. It also has to arrive for the verdict cache to be keyed honestly: the key
-            # identifies the budget regime a result was measured under, and a flag that reaches
-            # the seam but not this call would change the answer without changing the key.
-            trace_budget_s=_trace_budget(args),
-            trace_session_budget_s=_trace_session_budget(args),
-            include_shaped=args.include_shaped,
-            two_sign=args.two_sign,
-        )
-        print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
-        return 0
-
-    if args.command == "converge":
-        from .converge import converge
-
-        supplied = (
-            _parse_supplied_inputs(args.input, _target_ns(file, function, args.project_root))
-            if getattr(args, "input", None)
-            else None
-        )
-        from .capabilities import parse_env
-
-        try:
-            _env = parse_env(getattr(args, "env", None) or [])
-        except ValueError as exc:
-            print(f"detective: {exc}", file=sys.stderr)
-            return 2
-        result = converge(
-            file,
-            function,
-            args.project_root,
-            write_dir=args.write_dir,
-            max_iterations=args.max_iterations,
-            supplied_inputs=supplied,
-            clock=args.clock,
-            env=_env,
-            receiver_factory=getattr(args, "receiver_factory", None),
-            fast=args.fast,
-            deadline_s=args.deadline,
-            include_shaped=args.include_shaped,
-            two_sign=args.two_sign,
-            progress=_stream_progress(function),
-            notify=_notify_stderr,
-        )
-        if args.json:
-            print(json.dumps(asdict(result), indent=2, default=str))
-            # 3 for either invalid-measurement stamp: a stale target (issue #17) or a
-            # deadline CUT (issue #31) both mean "this run's numbers are partial — re-run".
-            return (
-                3
-                if result.stale_target
-                or result.budget_exhausted
-                or (result.verification is not None and not result.verification.ok)
-                else 0
-            )
-        # The full report always goes to a readable file; the terminal stays minimal
-        # (a banner + the one quick action) unless --full is asked for. The FILE is always
-        # verbose — it is the archive `flag` reads mutant ids out of, and a file has no
-        # scrolling cost. The terminal groups unless --verbose, so the two are rendered
-        # separately rather than sharing one string.
-        qn = result.function.split("::")[-1]
-        report_path = _write_converge_report(
-            os.path.abspath(args.project_root), qn, _format_converge(result, show_tests=True, verbose=True)
-        )
-        if args.full:
-            print(_format_converge(result, show_tests=True, verbose=args.verbose))
-        else:
+        meas_incomplete = audit_measurement_incomplete(report.unclassified)
+        gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
+        payload["gate"] = {
+            "spec_gap": spec_gap,
+            "measurement_incomplete": meas_incomplete,
+            "unmeasured": {"unclassified": report.unclassified},
+            "strict": strict,
+            "exit": gate_exit,
+        }
+    print(
+        json.dumps(payload, indent=2, default=str)
+        if args.json
+        else _format_audit(report, removing=bool(args.remove and report.redundant_tests))
+    )
+    if check:
+        if meas_incomplete and not spec_gap:
+            # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search
+            # is a measurement limit, not a finding — the default gate stays a claim about the code.
             print(
-                _format_converge_terse(
-                    result,
-                    report_path,
-                    args.project_root,
-                    getattr(args, "session_reason", ""),
-                    tuple(getattr(args, "input", ()) or ()),
-                )
+                f"  ⚠ measurement incomplete — {report.unclassified} survivor(s) the equivalence "
+                "search could not classify; NOT a specification gap. Use --check-strict to gate on it.",
+                file=sys.stderr,
             )
-        # 3, not 1: "the measurement is invalid, re-run" is a different failure
-        # from "the run errored", and CI that gates on converge needs to tell
-        # them apart (issue #17). A deadline CUT (issue #31) is the same class of
-        # invalid-measurement signal — partial evidence, re-run with more budget.
+        return gate_exit
+    if args.remove and report.redundant_tests:
+        from .audit import module_safe_removals
+        from .suite_edit import apply_removals
+
+        # The redundant set is single-function evidence; deletion is a
+        # module-level act. Filter against every sibling in the file first —
+        # a test pointless for THIS function can be the only killer of a
+        # sibling's mutant (the post-decompose wrapper case).
+        safe, retained = module_safe_removals(file, function, args.project_root, list(report.redundant_tests))
+        for name, sibling in sorted(retained.items()):
+            # Honest about WHAT the sibling check verified (issue #54): it confirms the test still
+            # contributes a kill/line to `sibling` — NOT that `sibling` is itself specified. If
+            # `sibling` is far from complete, "still contributes" is a weaker guarantee than "pins".
+            print(
+                f"  retained {name} — still contributes kills/lines to {sibling} "
+                f"({sibling}'s own completeness unknown)"
+            )
+        result = apply_removals(file, args.project_root, list(safe))
+        if result.removed:
+            print(f"  removed {len(result.removed)}: {', '.join(result.removed)}")
+        if result.not_found:
+            # An explicit scope RULE, not a shrug (issue #54): --remove edits only tests Detective
+            # can attribute to this function's own file. A candidate elsewhere (a test of another
+            # function that traverses this one) is out of scope — never a deletion candidate,
+            # regardless of file layout, so it was protected by policy, not by accident.
+            print(
+                f"  skipped {len(result.not_found)} — outside this function's editable test scope "
+                "(--remove edits only its own test file, never a cross-file test): "
+                f"{', '.join(result.not_found)}"
+            )
+        if result.parametrized:
+            print(
+                f"  parametrized case(s) — rows of a live test, not removable as "
+                f"functions; prune the @parametrize row(s) yourself: "
+                f"{', '.join(result.parametrized)}"
+            )
+        if result.removed:
+            # Re-audit so the user sees the suite is still complete after pruning.
+            after = audit_suite(file, function, args.project_root, two_sign=getattr(args, "two_sign", False))
+            print(
+                f"  after removal: {after.test_count} test(s), "
+                f"complete={after.complete}, minimal cover={after.minimal_test_count}"
+            )
+            print(f"DONE:  removed {len(result.removed)} test(s); the suite above is what remains.")
+        else:
+            # Issue #10: the requested action RAN and retained everything — say why and
+            # stop. Repeating `audit --remove` here instructs the user to re-run a
+            # command that just proved itself a no-op.
+            why = (
+                ", ".join(
+                    p
+                    for p in (
+                        f"{len(retained)} still contribute to a sibling" if retained else "",
+                        f"{len(result.parametrized)} are parametrized rows (report-only)"
+                        if result.parametrized
+                        else "",
+                        f"{len(result.not_found)} outside this function's editable test scope"
+                        if result.not_found
+                        else "",
+                    )
+                    if p
+                )
+                or "no candidate was safely removable"
+            )
+            print(f"DONE:  removed nothing — {why}. Every test is retained; the suite stands.")
+    return 0
+
+
+def _run_converge(args, file, function) -> int:
+    from .converge import converge
+
+    supplied = (
+        _parse_supplied_inputs(args.input, _target_ns(file, function, args.project_root))
+        if getattr(args, "input", None)
+        else None
+    )
+    from .capabilities import parse_env
+
+    try:
+        _env = parse_env(getattr(args, "env", None) or [])
+    except ValueError as exc:
+        print(f"detective: {exc}", file=sys.stderr)
+        return 2
+    result = converge(
+        file,
+        function,
+        args.project_root,
+        write_dir=args.write_dir,
+        max_iterations=args.max_iterations,
+        supplied_inputs=supplied,
+        clock=args.clock,
+        env=_env,
+        receiver_factory=getattr(args, "receiver_factory", None),
+        fast=args.fast,
+        deadline_s=args.deadline,
+        include_shaped=args.include_shaped,
+        two_sign=args.two_sign,
+        progress=_stream_progress(function),
+        notify=_notify_stderr,
+    )
+    if args.json:
+        print(json.dumps(asdict(result), indent=2, default=str))
+        # 3 for either invalid-measurement stamp: a stale target (issue #17) or a
+        # deadline CUT (issue #31) both mean "this run's numbers are partial — re-run".
         return (
             3
             if result.stale_target
@@ -5375,229 +5093,575 @@ def _run(args) -> int:
             or (result.verification is not None and not result.verification.ok)
             else 0
         )
-
-    if args.command == "audit":
-        from .audit import audit_suite
-
-        if getattr(args, "plan", False):
-            # The mutation-budget decision WITHOUT paying for it (issue #52): tier 0 static + tier 1
-            # trace (fan-in, coverage) + a MEASURED tier-2 estimate, then exit before mutating.
-            from .audit import mutation_estimate_seconds
-            from .engine import _resolve, trace_tier
-            from .parsimony_map import read_function
-
-            _root = os.path.abspath(args.project_root)
-            _full = file if os.path.isabs(file) else os.path.join(_root, file)
-            try:
-                with open(_full, encoding="utf-8") as _fh:
-                    _qn, _node = _resolve(ast.parse(_fh.read()), function)
-                _static = read_function(_node, function).detail if _node is not None else ""
-            except (OSError, SyntaxError):
-                _static = ""
-            tier1 = trace_tier(
-                file, function, args.project_root, trace_progress=_stream_trace_progress(function)
+    # The full report always goes to a readable file; the terminal stays minimal
+    # (a banner + the one quick action) unless --full is asked for. The FILE is always
+    # verbose — it is the archive `flag` reads mutant ids out of, and a file has no
+    # scrolling cost. The terminal groups unless --verbose, so the two are rendered
+    # separately rather than sharing one string.
+    qn = result.function.split("::")[-1]
+    report_path = _write_converge_report(
+        os.path.abspath(args.project_root), qn, _format_converge(result, show_tests=True, verbose=True)
+    )
+    if args.full:
+        print(_format_converge(result, show_tests=True, verbose=args.verbose))
+    else:
+        print(
+            _format_converge_terse(
+                result,
+                report_path,
+                args.project_root,
+                getattr(args, "session_reason", ""),
+                tuple(getattr(args, "input", ()) or ()),
             )
-            est_s = mutation_estimate_seconds(tier1.mutant_count, _read_per_mutant_ms())
+        )
+    # 3, not 1: "the measurement is invalid, re-run" is a different failure
+    # from "the run errored", and CI that gates on converge needs to tell
+    # them apart (issue #17). A deadline CUT (issue #31) is the same class of
+    # invalid-measurement signal — partial evidence, re-run with more budget.
+    return (
+        3
+        if result.stale_target
+        or result.budget_exhausted
+        or (result.verification is not None and not result.verification.ok)
+        else 0
+    )
+
+
+def _run_flag_line(args, file, function) -> int:
+    from Wesker.ci import walk_functions as _walk
+
+    from .line_flags import add_line_flag, clean_orphaned_flags, flag_statuses, remove_line_flag
+
+    root_abs = os.path.abspath(args.project_root)
+    full = file if os.path.isabs(file) else os.path.join(root_abs, file)
+    try:
+        with open(full, encoding="utf-8") as fh:
+            node = next((n for qn, n in _walk(ast.parse(fh.read())) if qn == function), None)
+    except (OSError, SyntaxError) as exc:
+        print(f"detective: cannot read {file}: {exc}")
+        return 1
+    if node is None:
+        print(f"detective: function '{function}' not found in {file}")
+        return 1
+    # THE ledger identity — issue #9 round 2: audit/converge key on the
+    # root-relative path, so `./pkg/mod.py`, an absolute path, and `pkg/mod.py`
+    # must all land on one record, not three.
+    func_key = f"{os.path.relpath(full, root_abs)}::{function}"
+
+    if args.list or args.clean:
+        if args.list:
+            statuses = flag_statuses(args.project_root, func_key, node)
             if args.json:
                 print(
                     json.dumps(
                         {
-                            "kind": "audit-plan",
-                            "note": "schedule (advisory) — tiers 0-1 measured, tier 2 estimated, not mutated",
-                            "function": tier1.function,
-                            "tier0_static": _static or None,
-                            "tier1": {
-                                "tests_reaching": tier1.tests_reaching,
-                                "tests_total": tier1.tests_total,
-                                "covered_lines": tier1.covered_lines,
-                                "executable_lines": tier1.executable_lines,
-                            },
-                            "tier2": {"mutant_count": tier1.mutant_count, "estimate_seconds": est_s},
+                            "action": "list",
+                            "function": func_key,
+                            "flags": [{**asdict(f), "status": s} for f, s in statuses],
                         },
                         indent=2,
                     )
                 )
-            else:
-                print(_format_audit_plan(function, _static, tier1, est_s))
+                return 0
+            print(f"{func_key} — flag-line · {len(statuses)} record(s)")
+            for f, status in statuses:
+                note = f"  ({f.note})" if f.note else ""
+                print(f"  [{status}] line {f.line}: {f.source}{note}")
+            if not statuses:
+                print("  (none)")
             return 0
-
-        # Tier 0 first (issue #52): the ~0s static read, streamed the instant the file parses, so
-        # audit shows a grounded first line immediately instead of a dead terminal — then the trace
-        # (tier 1) and mutation (tier 2) heartbeats follow, each carrying its own warrant.
-        _print_tier0_static(file, function, args.project_root)
-        report = audit_suite(
-            file,
-            function,
-            args.project_root,
-            progress=_stream_progress(function),
-            trace_progress=_stream_trace_progress(function),
-            two_sign=getattr(args, "two_sign", False),
-        )
-        # CI ratchet (issues #35, #50): --check makes a SPECIFICATION gap an enforceable process
-        # result (exit 1), but a MEASUREMENT limit (an unclassified survivor the search could not
-        # evaluate) is surfaced, never fatal by default — only --check-strict gates on it (exit 2).
-        # The gate is embedded in --json so a pipeline branches on the field, not the exit code alone.
-        check = getattr(args, "check", False) or getattr(args, "check_strict", False)
-        strict = getattr(args, "check_strict", False)
-        payload = asdict(report)
-        if check:
-            from .audit import audit_check_failed, audit_gate_exit, audit_measurement_incomplete
-
-            spec_gap = audit_check_failed(
-                len(report.killable_gaps),
-                len(report.missing_lines),
-                len(report.failing_tests),
-                getattr(report, "authored_fence", 0),  # Q8: an unenforced must-not is a spec gap
+        removed = clean_orphaned_flags(args.project_root, func_key, node)
+        if args.json:
+            print(
+                json.dumps(
+                    {"action": "clean", "function": func_key, "removed": [asdict(f) for f in removed]},
+                    indent=2,
+                )
             )
-            meas_incomplete = audit_measurement_incomplete(report.unclassified)
-            gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
-            payload["gate"] = {
-                "spec_gap": spec_gap,
-                "measurement_incomplete": meas_incomplete,
-                "unmeasured": {"unclassified": report.unclassified},
-                "strict": strict,
-                "exit": gate_exit,
-            }
-        print(
-            json.dumps(payload, indent=2, default=str)
-            if args.json
-            else _format_audit(report, removing=bool(args.remove and report.redundant_tests))
-        )
-        if check:
-            if meas_incomplete and not spec_gap:
-                # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search
-                # is a measurement limit, not a finding — the default gate stays a claim about the code.
-                print(
-                    f"  ⚠ measurement incomplete — {report.unclassified} survivor(s) the equivalence "
-                    "search could not classify; NOT a specification gap. Use --check-strict to gate on it.",
-                    file=sys.stderr,
-                )
-            return gate_exit
-        if args.remove and report.redundant_tests:
-            from .audit import module_safe_removals
-            from .suite_edit import apply_removals
-
-            # The redundant set is single-function evidence; deletion is a
-            # module-level act. Filter against every sibling in the file first —
-            # a test pointless for THIS function can be the only killer of a
-            # sibling's mutant (the post-decompose wrapper case).
-            safe, retained = module_safe_removals(
-                file, function, args.project_root, list(report.redundant_tests)
-            )
-            for name, sibling in sorted(retained.items()):
-                # Honest about WHAT the sibling check verified (issue #54): it confirms the test still
-                # contributes a kill/line to `sibling` — NOT that `sibling` is itself specified. If
-                # `sibling` is far from complete, "still contributes" is a weaker guarantee than "pins".
-                print(
-                    f"  retained {name} — still contributes kills/lines to {sibling} "
-                    f"({sibling}'s own completeness unknown)"
-                )
-            result = apply_removals(file, args.project_root, list(safe))
-            if result.removed:
-                print(f"  removed {len(result.removed)}: {', '.join(result.removed)}")
-            if result.not_found:
-                # An explicit scope RULE, not a shrug (issue #54): --remove edits only tests Detective
-                # can attribute to this function's own file. A candidate elsewhere (a test of another
-                # function that traverses this one) is out of scope — never a deletion candidate,
-                # regardless of file layout, so it was protected by policy, not by accident.
-                print(
-                    f"  skipped {len(result.not_found)} — outside this function's editable test scope "
-                    "(--remove edits only its own test file, never a cross-file test): "
-                    f"{', '.join(result.not_found)}"
-                )
-            if result.parametrized:
-                print(
-                    f"  parametrized case(s) — rows of a live test, not removable as "
-                    f"functions; prune the @parametrize row(s) yourself: "
-                    f"{', '.join(result.parametrized)}"
-                )
-            if result.removed:
-                # Re-audit so the user sees the suite is still complete after pruning.
-                after = audit_suite(
-                    file, function, args.project_root, two_sign=getattr(args, "two_sign", False)
-                )
-                print(
-                    f"  after removal: {after.test_count} test(s), "
-                    f"complete={after.complete}, minimal cover={after.minimal_test_count}"
-                )
-                print(f"DONE:  removed {len(result.removed)} test(s); the suite above is what remains.")
-            else:
-                # Issue #10: the requested action RAN and retained everything — say why and
-                # stop. Repeating `audit --remove` here instructs the user to re-run a
-                # command that just proved itself a no-op.
-                why = (
-                    ", ".join(
-                        p
-                        for p in (
-                            f"{len(retained)} still contribute to a sibling" if retained else "",
-                            f"{len(result.parametrized)} are parametrized rows (report-only)"
-                            if result.parametrized
-                            else "",
-                            f"{len(result.not_found)} outside this function's editable test scope"
-                            if result.not_found
-                            else "",
-                        )
-                        if p
-                    )
-                    or "no candidate was safely removable"
-                )
-                print(f"DONE:  removed nothing — {why}. Every test is retained; the suite stands.")
+            return 0
+        print(f"{func_key} — flag-line --clean")
+        for f in removed:
+            print(f"  removed orphaned record: line {f.line}: {f.source}")
+        print(f"DONE:  {len(removed)} orphaned record(s) removed; current judgments untouched.")
         return 0
 
-    if args.command == "decompose":
-        from .decompose_apply import apply_decomposition
+    if args.line is None:
+        print("detective: flag-line needs a LINE (or --list / --clean)")
+        return 1
 
-        supplied = (
-            _parse_supplied_inputs(args.input, _target_ns(file, function, args.project_root))
-            if getattr(args, "input", None)
-            else None
-        )
-        result = apply_decomposition(
-            file,
-            function,
-            args.project_root,
-            write=args.apply,
-            supplied_inputs=supplied,
-            deadline_s=args.deadline,
-            two_sign=getattr(args, "two_sign", False),
-            # decompose's work IS a converge plus a trial-apply per candidate — the slowest
-            # command in the CLI, and until now the only one that printed nothing while it ran.
-            notify=None if args.json else _notify_stderr,
-        )
+    if args.remove:
+        removed_flag = remove_line_flag(args.project_root, func_key, node, args.line)
         if args.json:
-            print(json.dumps(asdict(result), indent=2, default=str))
-        else:
-            text = _format_decompose(result, args.apply, args.target, args.project_root)
-            # Persist the full outcome — especially a REFUSAL, which otherwise leaves no
-            # artifact and can only be re-diagnosed by re-running the slowest command here.
-            #
-            # The FILE is the full artifact and the terminal stays minimal — the split
-            # converge already makes (`_format_converge_terse` to the screen, the complete
-            # `_format_converge` to disk). Decompose printed and persisted the SAME string,
-            # so "full report" named a byte-identical copy of what the reader had just
-            # scrolled past, and the one command that promises more delivered less. The
-            # proof run is where the detail lives: per-pass, every survivor, the generated
-            # source. Absent on a refusal that never got to converge, and then the outcome
-            # text is genuinely all there is.
-            detail = text
-            if getattr(result, "proof", None) is not None:
-                detail = "\n".join(
-                    [
-                        text,
-                        "",
-                        _RULE,
-                        "PROOF RUN — the converge this decomposition was validated against",
-                        _RULE,
-                        _format_converge(result.proof, show_tests=True),
-                    ]
+            print(
+                json.dumps(
+                    {
+                        "action": "remove",
+                        "function": func_key,
+                        "removed": asdict(removed_flag) if removed_flag else None,
+                    },
+                    indent=2,
                 )
-            rel = _write_converge_report(args.project_root, function, detail, prefix="decompose")
-            if rel:
-                _notify_stderr(f"full report: {rel}")
-            print(text)
-        # 3 on a CUT proof (issue #31), mirroring converge: the run did not complete its
-        # proof within the wall, so CI must tell it apart from a clean "nothing to decompose".
-        return 3 if getattr(result, "budget_exhausted", False) else 0
+            )
+            return 0 if removed_flag else 1
+        if removed_flag is None:
+            print(f"detective: no flag recorded at line {args.line} for {func_key}")
+            return 1
+        print(f"{func_key} — flag-line --remove · line {args.line}")
+        print(_row("✓ removed", f"{removed_flag.source}"))
+        print("DONE:  the line counts as a residual again on the next audit/converge.")
+        return 0
+
+    flag = add_line_flag(args.project_root, func_key, node, args.line, note=args.note)
+    if flag is None:
+        span = f"{node.lineno}-{node.end_lineno}"
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "action": "add",
+                        "function": func_key,
+                        "line": args.line,
+                        "error": f"not a statement of {function} (lines {span})",
+                    }
+                )
+            )
+            return 1
+        print(f"detective: line {args.line} is not a statement of {function} (lines {span})")
+        return 1
+    if args.json:
+        print(json.dumps({"action": "add", "function": func_key, **asdict(flag)}, indent=2))
+        return 0
+    suffix = f" ({args.note})" if args.note else ""
+    print(f"{func_key} — flag-line · line {args.line}")
+    print("")
+    print(_row("✓ recorded", f"unreachable{suffix}: {flag.source}"))
+    print(_row("", "keyed to this exact statement — an edit un-flags it."))
+    print("")
+    # The two ledgers stay orthogonal: this closes a LINE residual and nothing else.
+    # Say what still outranks it — observed execution is proof of reachability.
+    print("DONE:  line reports read 'line-complete modulo N flagged unreachable'. The flag")
+    print("       kills no mutant and never gates decompose. If a test ever EXECUTES the")
+    print("       line, execution overrides your flag. Proof beats judgement.")
+    print(f"       Next: detective audit '{func_key}'   # the line is no longer a gap")
+    return 0
+
+
+def _run_flag(args, file, function) -> int:
+    from .engine import profile
+    from .equivalents import add_flag
+
+    result = profile(file, function, args.project_root)
+    # Match against value-survivors — the SAME set audit/classify report from — so a
+    # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-
+    # survivor). Using survivor_records here would miss those and read "none surviving".
+    rec = next(
+        (r for r in result.value_survivor_records if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))),
+        None,
+    )
+    if rec is None:
+        ids = ", ".join(r.get("mutant_id", "?") for r in result.value_survivor_records) or "none surviving"
+        print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
+        return 1
+    _verdict = "fence" if args.fence else "equivalent"
+    add_flag(
+        args.project_root,
+        result.function_key,
+        rec.get("diff_summary", ""),
+        note=args.note,
+        verdict=_verdict,
+    )
+    suffix = f" ({args.note})" if args.note else ""
+    print(f"{result.function_key} — flag · {args.mutant_id}")
+    print("")
+    if args.fence:
+        # A FENCE is the OPPOSITE claim to equivalent: this survival is a BUG, an authored
+        # must-not the suite does not enforce. It is a GAP (fails `audit --check`, blocks
+        # ✓COMPLETE), never suppressed — so a witness that KILLS it SATISFIES the fence, it does
+        # not override a mistaken judgement.
+        print(_row("✓ recorded", f"fence — an unenforced must-not{suffix}"))
+        print(_row("", "keyed to this exact code — an edit un-flags it."))
+        print("")
+        print("DONE:  future audit/converge runs report it as an UNENFORCED must-not — a gap")
+        print("       that fails `audit --check` and blocks ✓COMPLETE until a test kills it.")
+        print(f"       Next: detective converge '{result.function_key}'   # write the test it needs")
+        return 0
+    # A flag is a CLAIM, and the one place a human overrides the engine. Say what it does
+    # and what still outranks it: a real distinguishing witness. Otherwise it reads as a
+    # way to silence a survivor, which is how a green board gets flagged into existence.
+    print(_row("✓ recorded", f"equivalent{suffix}"))
+    print(_row("", "keyed to this exact code — an edit un-flags it."))
+    print("")
+    print("DONE:  future audit/converge runs treat it as equivalent — unless a witness")
+    print("       is found, which outranks your flag. Proof beats judgement.")
+    # `function_key`, not `function`: the bare name does not resolve as a target, so the
+    # one command this line offers would fail for anyone who pasted it.
+    print(f"       Next: detective audit '{result.function_key}'   # it is no longer a gap")
+    return 0
+
+
+def _run_verify_rewrite(args, file, function) -> int:
+    from .rewrite import (
+        _RECEIPT_SCHEMA,
+        RewriteReceipt,
+        RewriteVerification,
+        receipt_load_refusal,
+        verify_rewrite,
+    )
+
+    def _invalid(reason: str) -> int:
+        """Emit INVALID_RECEIPT through the SAME channel a real verdict uses (#57).
+
+        The load boundary raised, so a corrupt or foreign receipt reached the user as a
+        Python traceback — and under ``--json`` as NOTHING AT ALL, since the exception
+        escaped before anything was printed. A caller cannot consume a refusal the tool
+        never emitted. Every ending of this command is a `RewriteVerification`, including
+        the ones where no verification could begin.
+        """
+        res = RewriteVerification(
+            verdict="INVALID_RECEIPT",
+            function=f"{file}::{function}",
+            proof_replayed="",
+            new_dimensions=(),
+            differences=(),
+            abstentions=(),
+            note=reason,
+        )
+        print(res.to_json() if args.json else _format_rewrite(res))
+        return 1
+
+    try:
+        with open(args.receipt_path, encoding="utf-8") as fh:
+            _text = fh.read()
+    except OSError as exc:
+        return _invalid(f"unreadable_receipt: {exc}")
+    _reason = receipt_load_refusal(_text, _RECEIPT_SCHEMA)
+    if _reason:
+        return _invalid(_reason)
+    try:
+        receipt = RewriteReceipt.from_json(_text)
+    except (TypeError, ValueError) as exc:
+        # Residual. `receipt_load_refusal` names every failure derivable from the TEXT, but
+        # construction can still reject a shape it does not model — an unexpected key, a
+        # field whose type it does not inspect. Catching here keeps the promise that no
+        # input reaches the user as a traceback, instead of assuming that list is total.
+        return _invalid(f"bad_fields: {exc}")
+    result = verify_rewrite(
+        receipt, file, function, args.project_root, notify=None if args.json else _notify_stderr
+    )
+    if args.json:
+        print(result.to_json())
+    else:
+        print(_format_rewrite(result))
+    # --learn (#17): a CHANGED rewrite is §9's SECOND spine source. `learn_disposition` is the
+    # pure gate (flag off → skip_disabled; not CHANGED → skip_unchanged); only "learn" harvests
+    # the near-misses, κ-scores them over the call graph via the SAME corpus fixpoint `censor
+    # --promote` uses, and persists the promoted ones. Reported on stderr so the --json verdict
+    # on stdout stays a clean RewriteVerification.
+    from .censor import learn_disposition
+
+    if learn_disposition(result.verdict, args.learn) == "learn":
+        from .censor import censors_from_verification
+        from .promotion_ledger import corpus_fixpoint, ledger_key, load_ledger, save_ledger
+
+        censors = censors_from_verification(f"{file}::{function}", result)
+        promoted = corpus_fixpoint(args.project_root, censors)["promoted"] if censors else []
+        store = load_ledger(args.project_root)
+        for e in promoted:
+            store[ledger_key(e.censor)] = e
+        save_ledger(args.project_root, store)
+        if not args.json:
+            _notify_stderr(
+                f"learned {len(promoted)} censor(s) from the rejected rewrite "
+                f"({len(censors)} near-miss candidate(s)) → .detective/censors.json"
+            )
+    # Only PRESERVED is a pass; every other verdict (CHANGED / UNREVIEWED / ABSTAIN / STALE) is a
+    # refusal CI must catch, so it exits non-zero.
+    return 0 if result.verdict == "PRESERVED" else 1
+
+
+def _run_receipt(args, file, function) -> int:
+    from .rewrite import make_receipt
+
+    rec = make_receipt(file, function, args.project_root, notify=_notify_stderr)
+    text = rec.to_json()
+    if getattr(args, "out", None):
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(text + "\n")
+        _notify_stderr(f"receipt written: {args.out}  (proof status: {rec.proof_status})")
+    else:
+        print(text)
+    # A valid baseline receipt needs BOTH a mutation-complete proof AND a green verification of it
+    # (issue #37): either alone is a weak baseline verify-rewrite must not treat as sound, so this
+    # is AND, not OR. A weak receipt exits 3 so it is caught at creation, not silently trusted later.
+    return 0 if (rec.proof_status == "passed" and rec.functionally_complete) else 3
+
+
+def _run_diagnose(args, file, function) -> int:
+    from .engine import diagnose
+
+    scope = diagnose(
+        file,
+        function,
+        args.project_root,
+        progress=_stream_progress(function),
+        trace_progress=_stream_trace_progress(function),
+        # BOTH budgets, always. `--trace-budget` used to stop here while its session sibling
+        # went through, so the per-test cap silently stayed at the default however the user
+        # set it. It also has to arrive for the verdict cache to be keyed honestly: the key
+        # identifies the budget regime a result was measured under, and a flag that reaches
+        # the seam but not this call would change the answer without changing the key.
+        trace_budget_s=_trace_budget(args),
+        trace_session_budget_s=_trace_session_budget(args),
+        include_shaped=args.include_shaped,
+        two_sign=args.two_sign,
+    )
+    print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
+    return 0
+
+
+def _run_censor(args) -> int:
+    # Path-based + static (an AST call-site + call-graph pass), so it lands with the other advisory
+    # verbs ABOVE _split_target — it carries `path`, not `target`, and never opens a live session.
+    from .censor import harvest_corpus_censors, score_censor
+    from .promotion_ledger import (
+        build_ledger,
+        corpus_fixpoint,
+        ledger_key,
+        load_ledger,
+        save_ledger,
+    )
+
+    if args.list:
+        entries = load_ledger(args.project_root)
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "kind": "censor-ledger",
+                        "count": len(entries),
+                        "entries": {
+                            k: {
+                                "censor": asdict(e.censor),
+                                "kappa": e.kappa,
+                                "state": e.state,
+                                "generation": e.generation,
+                            }
+                            for k, e in entries.items()
+                        },
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(_format_censor_list(entries))
+        return 0
+
+    censors = harvest_corpus_censors(args.project_root, args.path)
+    if args.promote:
+        result = corpus_fixpoint(args.project_root, censors)
+        # Persist the promoted censors into the ledger (merge with any existing entries).
+        store = load_ledger(args.project_root)
+        for e in result["promoted"]:
+            store[ledger_key(e.censor)] = e
+        save_ledger(args.project_root, store)
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "kind": "censor-promote",
+                        "proposed": len(censors),
+                        "generations": result["generations"],
+                        "n_demoted": result["n_demoted"],
+                        "self_teaching": result["self_teaching"],
+                        "promoted": [
+                            {
+                                "key": ledger_key(e.censor),
+                                "censor": asdict(e.censor),
+                                "kappa": e.kappa,
+                                "generation": e.generation,
+                            }
+                            for e in result["promoted"]
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(_format_censor_promote(result, len(censors)))
+        return 0
+
+    ledger = build_ledger(args.project_root, censors)
+    # Per-censor disposition at the conservative σ̂ default (retains plurality): propose / abstain /
+    # refuse — the same score_censor the fixpoint gates on, shown so a reader sees WHY each ranks.
+    rows = [
+        (ledger_key(e.censor), e.censor, e.kappa, score_censor(e.censor, e.kappa or 0, 1)) for e in ledger
+    ]
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "kind": "censor-proposal",
+                    "proposed": len(censors),
+                    "censors": [
+                        {
+                            "key": k,
+                            "func_key": c.func_key,
+                            "kind": c.kind,
+                            "subject": c.subject,
+                            "source": c.source,
+                            "kappa": kap,
+                            "disposition": disp,
+                        }
+                        for k, c, kap, disp in rows[: args.top]
+                    ],
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(_format_censor_proposal(rows, total=len(censors), top=args.top))
+    return 0
+
+
+def _run_parsimony(args) -> int:
+    from .parsimony_map import parsimony_plan, score_path
+
+    score = score_path(args.path, args.project_root)
+    if getattr(args, "plan", False):
+        # A work QUEUE, not the map (issue #51): flagged functions grouped by module (one trace
+        # per group), worst-first, so a driver spends a finite budget where it pays off first.
+        if args.json:
+            groups = parsimony_plan(score)
+            print(
+                json.dumps(
+                    {
+                        "kind": "parsimony-plan",
+                        "note": "schedule (advisory) — ranks no quality, proves nothing, writes nothing",
+                        "functions": score.functions,
+                        "flagged": score.flagged,
+                        "trace_groups": len(groups),
+                        "groups": [
+                            {
+                                "module": module,
+                                "one_baseline_trace": True,
+                                "targets": [
+                                    {"target": r.qualname, "smells": r.smells, "detail": r.detail}
+                                    for r in reads
+                                ],
+                            }
+                            for module, reads in groups[: args.top]
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(_format_parsimony_plan(score, top=args.top))
+        return 0
+    if args.json:
+        print(json.dumps(asdict(score), indent=2, default=str))
+    else:
+        print(_format_parsimony_map(score, top=args.top))
+    return 0
+
+
+def _run_regime(args) -> int:
+    from dataclasses import asdict as _asdict
+
+    from .regime import apply_migration, plan_migration, resolve_regime
+
+    target_file = _split_target(args.target, args.project_root)[0] if args.target else None
+    regime = resolve_regime(args.project_root, target_file)
+    plan = plan_migration(regime)
+    applied: tuple[str, ...] = ()
+    if args.migrate:
+        # por qué no los dos: cross-check the static precedence mirror (regime.config_file)
+        # against the config file pytest ITSELF reports. Agreement is the standard case;
+        # divergence means a non-standard/version-specific config — register into pytest's own
+        # file and WARN, rather than silently declaring into one pytest ignores.
+        from .regime import _resolved_for_file, pytest_configfile_live, reconcile_config_file
+
+        _root = os.path.abspath(args.project_root)
+        _chosen, _divergence = reconcile_config_file(regime.config_file, pytest_configfile_live(_root))
+        _override = _resolved_for_file(_root, _chosen) if _divergence else None
+        applied = apply_migration(plan, _override)
+        if _divergence:
+            print(f"  ⚠ {_divergence}", file=sys.stderr)
+        # Re-read: the report must describe the tree as it IS now, not as it was before we
+        # wrote to it. Reporting the pre-migration regime after migrating is how a tool
+        # tells you it fixed something and shows you the evidence that it did not.
+        regime = resolve_regime(args.project_root, target_file)
+        plan = plan_migration(regime)
+    if args.json:
+        print(json.dumps({"regime": _asdict(regime), "applied": list(applied)}, indent=2, default=str))
+    else:
+        print(_format_regime(regime, plan, applied, args.target))
+    # A conflict is the answer, not a crash: exit 2 so a script can gate on it, the same
+    # code every other command returns when it refuses for the same reason.
+    return 2 if regime.conflicts else 0
+
+
+def _run_purge(args) -> int:
+    from Wesker.memory_guard import purge_caches
+
+    from . import verdict_cache as _vc
+
+    # BOTH packages. Wesker's purge knows `.wesker/`; ours knows `.detective/`. Neither can
+    # know the other's, and a command that purges one of two caches while announcing "a clean
+    # state" is worse than one that purges neither — the user acts on the claim.
+    w_removed, w_reclaimed = purge_caches(args.project_root)
+    d_removed, d_reclaimed = _vc.purge(args.project_root)
+    removed = tuple(w_removed) + tuple(d_removed)
+    reclaimed = w_reclaimed + d_reclaimed
+    if args.json:
+        print(json.dumps({"removed": list(removed), "reclaimed_bytes": reclaimed}))
+    elif removed:
+        print(f"purged {len(removed)} cache file(s), reclaimed {reclaimed // 1024} KB:")
+        for path in removed:
+            print(f"  - {path}")
+    else:
+        print("nothing to purge — no cached analysis found (a clean state)")
+    return 0
+
+
+def _run(args) -> int:
+    if args.command == "regime":
+        return _run_regime(args)
+
+    if args.command == "purge":
+        return _run_purge(args)
+
+    if args.command == "parsimony":
+        return _run_parsimony(args)
+
+    if args.command == "censor":
+        return _run_censor(args)
+
+    file, function = _split_target(args.target, getattr(args, "project_root", None))
+
+    if args.command == "receipt":
+        return _run_receipt(args, file, function)
+
+    if args.command == "verify-rewrite":
+        return _run_verify_rewrite(args, file, function)
+
+    if args.command == "flag":
+        return _run_flag(args, file, function)
+
+    if args.command == "flag-line":
+        return _run_flag_line(args, file, function)
+
+    if args.command == "diagnose":
+        return _run_diagnose(args, file, function)
+
+    if args.command == "converge":
+        return _run_converge(args, file, function)
+
+    if args.command == "audit":
+        return _run_audit(args, file, function)
+
+    if args.command == "decompose":
+        return _run_decompose(args, file, function)
 
     # Unreachable: argparse (required subparsers) guarantees args.command is one of the
     # registered commands, each handled above. Kept as a defensive guard.
