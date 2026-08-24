@@ -39,6 +39,7 @@ CUT_REASONS: tuple[str, ...] = (
     "uncontained_worker",
     "coverage_truncated",
     "sampled_universe",
+    "collection_incomplete",
     "ambiguous_module_identity",
     "engine_refused_unspecified",
 )
@@ -51,12 +52,20 @@ def measurement_cut_reasons(
     coverage_depth: str,
     containment: str,
     identity_ambiguous: bool,
+    collection_incomplete: bool = False,
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
     Plural on purpose. A run can be cut for more than one reason at once, and reporting only the
     first makes the second invisible to whoever fixes the first — they re-run, hit the next
     refusal, and have no way to know it was always there.
+
+    ``collection_incomplete`` is the "degrade loudly" enforcement for the test FLOOR: a test file
+    that failed to COLLECT (an ImportError at collection — a torch dep, a broken conftest) is
+    silently absent from the routed suite, so a mutant only that file's tests would kill reads as
+    candidate-equivalent, and the COMPLETE claim is unsafe. Since an uncollected file cannot be
+    reach-analysed, ANY collection error cuts the run — the sound over-approximation — rather than
+    let the measurement rest on fewer tests than the layout implies without saying so.
 
     ``engine_refused_unspecified`` is the load-bearing state. When the engine reports
     ``is_gateable=False`` and none of the signals we DO understand explains it, the honest answer
@@ -77,6 +86,8 @@ def measurement_cut_reasons(
         reasons.append("coverage_truncated")
     elif coverage_depth == "sampled":
         reasons.append("sampled_universe")
+    if collection_incomplete:
+        reasons.append("collection_incomplete")
     if identity_ambiguous:
         reasons.append("ambiguous_module_identity")
     if reported_gateable and not gateable and not reasons:
@@ -106,6 +117,8 @@ def cut_reason_sentence(reason: str) -> str:
         " shared a process with it",
         "coverage_truncated": "the profile was cut before the universe was measured",
         "sampled_universe": "the universe was sampled, not enumerated",
+        "collection_incomplete": "one or more test files failed to collect (an import error), so the"
+        " routed suite is missing tests the layout implies — fix the collection errors and re-run",
         "ambiguous_module_identity": "the live collection resolved one module name to more than one file",
         "engine_refused_unspecified": "the engine refused to gate this measurement without naming a reason",
     }.get(reason, f"an unrecognised engine refusal ({reason})")
@@ -166,6 +179,17 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
     else:
         containment = "contained" if contained_raw else "uncontained"
 
+    # Collection completeness (the test FLOOR). Tests that failed to COLLECT (an import error — a
+    # torch dep, a broken conftest) are SILENTLY absent from the routed suite, so a mutant only that
+    # file's tests would kill reads as candidate-equivalent and the COMPLETE claim is unsafe. The
+    # engine reports the erroring test node-ids; a non-empty list cuts the run. Same absent-sentinel
+    # as the others: an older engine that does not report it is flagged absent, never a fabricated
+    # "collection was complete".
+    collection_errors_raw = getattr(result, "collection_errors", _ABSENT)
+    collection_incomplete = (
+        bool(collection_errors_raw) if collection_errors_raw is not _ABSENT else False
+    )
+
     # The engine's own execution mode (in_process / isolated). The field defaults to "in_process",
     # so an UNREAD isolated run is silently mislabeled as in-process — a false description of how the
     # measurement ran. Read with the same absent-sentinel as the others: an older engine that does
@@ -182,6 +206,8 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
         missing.append("collection_conflicts")
     if contained_raw is _ABSENT:
         missing.append("all_contained")
+    if collection_errors_raw is _ABSENT:
+        missing.append("collection_errors")
     if execution_mode_raw is _ABSENT:
         missing.append("execution_mode")
 
@@ -205,6 +231,7 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
         coverage_depth=depth,
         containment=containment,
         identity_ambiguous=identity_ambiguous,
+        collection_incomplete=collection_incomplete,
     )
     return MeasurementValidity(
         gateable=gateable,

@@ -143,6 +143,7 @@ def test_a_current_engine_normalizes_to_a_clean_validity():
             collection_conflicts=(),
             all_contained=True,
             execution_mode="isolated",
+            collection_errors=(),
         )
     )
     assert validity.admits_certificate is True
@@ -182,6 +183,7 @@ def test_an_older_engine_names_every_field_it_could_not_supply():
         "absent:coverage_depth",
         "absent:collection_conflicts",
         "absent:all_contained",
+        "absent:collection_errors",
         "absent:execution_mode",
         # execution_mode absent -> defaults to in_process -> the count is an in-process estimate
         "approximate:mutant_universe",

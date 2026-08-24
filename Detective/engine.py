@@ -1070,6 +1070,17 @@ def profile(
         # SAME content-addressed OUTPUT mutants (its by_id) that it must witness-search. Absent on a
         # cache hit (which returns before the capture above); classify re-captures as the fallback.
         result.observed_return_types = _prof_kwargs.get("observed_return_types")  # type: ignore[attr-defined]
+    # Collection completeness (the "degrade loudly" enforcement for the test FLOOR). Tests that failed
+    # to COLLECT (an import error — a torch dep, a broken conftest) are silently absent from the routed
+    # suite, so a mutant only their tests would kill reads as candidate-equivalent and the COMPLETE
+    # claim is unsafe. The runner captured the erroring node-ids during THIS profiling's collection
+    # (Wesker `last_collection_errors`, live in this context); attach them the same way as test_routing
+    # so `normalize_validity` cuts the run. Attached even when empty (collection observed, 0 errors), so
+    # a clean run reads "observed, none" rather than "absent" — a cache hit returns above and stays
+    # absent, correctly, because it re-collected nothing.
+    from Wesker.pytest_discovery import last_collection_errors as _last_collection_errors
+
+    result.collection_errors = _last_collection_errors()  # type: ignore[attr-defined]
     # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
     # later as if it were the whole profile.
     # Admit on the engine's OWN validity verdict, not a correlate of it (#60). `not

@@ -5106,13 +5106,16 @@ def _run_converge(args, file, function) -> int:
         notify=_notify_stderr,
     )
     if args.json:
-        # 3 for either invalid-measurement stamp: a stale target (issue #17) or a
-        # deadline CUT (issue #31) both mean "this run's numbers are partial — re-run".
+        # 3 = "this run's numbers are partial — re-run": a stale target (#17), OR ANY ungateable
+        # measurement (#60 — a deadline CUT, an uncontained worker, an ambiguous module identity, or an
+        # INCOMPLETE COLLECTION: tests that failed to import are absent from the floor), OR an unverified
+        # basis. Consumes the absorbing `admits_certificate`, never the narrow `budget_exhausted` proxy —
+        # else an ungateable run that did not blow its budget silently exits 0, the seam this closes.
         return _emit_json(
             asdict(result),
             3
             if result.stale_target
-            or result.budget_exhausted
+            or not result.admits_certificate
             or (result.verification is not None and not result.verification.ok)
             else 0,
         )
@@ -5137,14 +5140,15 @@ def _run_converge(args, file, function) -> int:
                 tuple(getattr(args, "input", ()) or ()),
             )
         )
-    # 3, not 1: "the measurement is invalid, re-run" is a different failure
-    # from "the run errored", and CI that gates on converge needs to tell
-    # them apart (issue #17). A deadline CUT (issue #31) is the same class of
-    # invalid-measurement signal — partial evidence, re-run with more budget.
+    # 3, not 1: "the measurement is invalid, re-run" is a different failure from "the run errored",
+    # and CI that gates on converge needs to tell them apart (issue #17). ANY ungateable measurement
+    # is this class (#60 — a deadline CUT, an uncontained worker, an ambiguous identity, or an
+    # incomplete collection), so this consumes the absorbing `admits_certificate` rather than the
+    # narrow `budget_exhausted` proxy that let an ungateable-but-in-budget run exit 0.
     return (
         3
         if result.stale_target
-        or result.budget_exhausted
+        or not result.admits_certificate
         or (result.verification is not None and not result.verification.ok)
         else 0
     )
