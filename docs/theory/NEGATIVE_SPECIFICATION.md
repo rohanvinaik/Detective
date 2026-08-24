@@ -1379,9 +1379,21 @@ these.
    `form_b_equivalence` (`distinguished` / `no_evidence` / `equivalent`) — the negative mirror of
    `candidate-equivalent — UNPROVEN`, pinned 14/14. TCE-style bytecode identity (Wesker #24) still does not
    apply to Form B; the runtime comparison stands in its place, per sibling type.
-4. **Completeness of Π (Def. 11.8, 11.8b).** How much of the codomain a finite perturbation family fences
-   — the negative analogue of the positive operator-basis question SC §2.3 leaves open. Bounds require
-   measuring reach against a codomain model, i.e. Fork 2's observed type (Def. 11.10). (The user's
+4. **Completeness of Π (Def. 11.8, 11.8b) — reframed as a DECIDABILITY DICHOTOMY; own paper.** How much of
+   the codomain a finite perturbation family fences — the negative analogue of the positive operator-basis
+   question SC §2.3 leaves open. A source-verified literature sweep (42/42 sources, 2026-08-25;
+   `LITERATURE_PI_COMPLETENESS.md`) established that **mutation testing has no completeness theorem** — the
+   field rests on the coupling-effect HYPOTHESIS (DeMillo–Lipton–Sayward 1978), and the strongest results are
+   basis-/test-set-relative (Offutt 1996; Ammann–Delamaro–Offutt 2014), with *true* mutant subsumption
+   UNDECIDABLE (Kurtz et al. 2015). This is not an oversight but a decidability boundary: modelling Π as a
+   generating set of the codomain transformation monoid, Π-completeness is **decidable + constructive on a
+   FINITE codomain** (basis size 3 from $\operatorname{rank}(T_n)=3$, Gomes–Howie 1987; PSPACE-complete, Kozen
+   1977) and **undecidable off it** (word problem, Post/Markov 1947; program equivalence, Rice 1953 /
+   Budd–Angluin 1982) — the exact operator-layer image of σ vs σ̂ (Rem 1.3b) and Thm 8.1/8.2, so the tool's
+   basis-relative certificate is *forced*, not a limitation. And a *dimension-bounded minimal* complete basis
+   is FORECLOSED (the fault space is multiclass; Pabbaraju 2024, Hanneke–Moran–Waknine 2024 — confirming the
+   Prop 15.6 compression retraction). Full treatment, with authored theorem statements pending a
+   Wayfinder/Aristotle pass, is the standalone paper `OPERATOR_COMPLETENESS.md`. (Subsumes the user's
    fenced-off "full-40 Π" completeness item.)
 5. **The bounded-curvature bound (Def. 14.6; Conj. 10.4 → Cor. 14.5, now measured).** The obstruction is
    no longer conjectured: `promotion_not_submodular` is measured constructively (Thm 14.4, $d \le 14$–$25$
