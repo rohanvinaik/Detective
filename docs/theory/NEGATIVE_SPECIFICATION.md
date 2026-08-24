@@ -482,13 +482,17 @@ constructs a `Relation`); the differential increment B2 *varies one value-bearin
 `SourceExpr` **constructor** — a term in a language $L^{+}$ that extends $L$ with dataclass constructors
 (the same extension that already admits `ast.parse(...)` for AST parameters), so the witness renders as a
 runnable `Cls(field=…)` while remaining outside the `--input` literal allowlist (never a paste-able
-literal, never a flag). What stays genuinely representation-bound — the *irreducible* regime (3) — is the
-**cross-field-invariant** object (a `Relation` whose `args` must reference declared entities, so a blind
-field variant builds an instance the function rejects) and the **non-introspectable** object (no
-`dataclasses.fields`: an opaque / C-extension / factory-built state). So Theorem 6.2's "computable" is not
-one thing: *total automation* on (1), a *tractability frontier* on (2), an *automatable constructor
-fixture* on the introspectable part of (3), and a *representation obligation* only on its
-cross-field-invariant / non-introspectable core — an inner boundary inside $\mathrm{DOF}^{0}$ the tool now
+literal, never a flag). The cross-field-invariant subcase — a `Relation` whose `args` must reference declared entities, so a blind
+*synthesized* variant builds an instance the function rejects — is itself recovered (B3): the covering
+tests built a VALID instance and the function is its own invariant oracle, so varying ONE field of a
+*captured* instance preserves the invariant by locality. What stays genuinely representation-bound — the
+*irreducible* regime (3) — is the **non-introspectable** object (no `dataclasses.fields`: an opaque /
+C-extension / factory-built state, with no field to vary and no constructor `repr` to render) and a
+dataclass with a **nested-object field** (whose constructor render would need an import the single-class
+emission does not carry). So Theorem 6.2's "computable" is not one thing: *total automation* on (1), a
+*tractability frontier* on (2), an *automatable constructor fixture* — synthesized (B2) or
+captured-and-varied (B3) — on the introspectable part of (3), and a *representation obligation* only on
+its non-introspectable / nested-object core — an inner boundary inside $\mathrm{DOF}^{0}$ the tool now
 computes across all four bands.
 
 **Remark 6.6 (The false-equivalence hazard has two doors; only one is a synthesis problem).** A survivor
@@ -509,8 +513,9 @@ and carries it as a `SourceExpr` constructor, so the hand-back becomes a synthes
 [Status: Prop. 6.5's stratification is ASSERTED — argued from the $L$/`is_expressible` boundary the tool
 computes decidably; the door-(2) detector + B0 retry are BUILT (Detective `c898e0e`/`49b6ae0`); the
 door-(3) expressibility gate in `residual_disposition` is BUILT (`1dc579b`); the differential fixture
-synthesis (B2) is BUILT (`distinct_field_value` / `_domain_object_variant_inputs`), leaving only the
-cross-field-invariant and non-introspectable objects as the fixture residual (§18 Q10).]
+synthesis is BUILT for both the from-scratch synth (B2, `distinct_field_value` / `_domain_object_variant_inputs`)
+and the captured valid instance (B3, `_captured_domain_variant_inputs` — the cross-field-invariant case),
+leaving only the non-introspectable and nested-object objects as the fixture residual (§18 Q10).]
 
 ---
 
@@ -1372,9 +1377,9 @@ these.
    the consolidation-as-free-energy reading (Prop. 15.5) are CONJECTURE pending the entropy-bit machinery
    ($H_0$, $L(D)$, $I_{\mathrm{solve}}$ in bits); the built quantities are coverage analogs. And
    `safe_forget_preserves_sigma_sem` (Thm 15.4's transport) is an unproved Lean target.
-10. **The expressibility boundary inside DOF⁰ (Prop. 6.5) — all three bounded increments now BUILT.** The
+10. **The expressibility boundary inside DOF⁰ (Prop. 6.5) — all four bounded increments now BUILT.** The
     refinement of §6 names an inner, *decidable* boundary in the mechanical residual: reachable /
-    expressible-but-hard / $L$-inexpressible. Three build items fell out, of different sizes. (a) **The
+    expressible-but-hard / $L$-inexpressible. Four build items fell out, of different sizes. (a) **The
     integrity increment — door-(3) fixture gate, BUILT (Detective `1dc579b`):** `residual_disposition`
     consumes $\mathrm{expr}_L$ AND the reachability signal (RIP-R), so a *flat, $L$-inexpressible* residual
     routes to a `fixture` hand-back, never `genuine_equivalent`/flag — the honest closure of the
@@ -1393,12 +1398,21 @@ these.
     36/38) varies one str/int/list field per candidate, carried as a `SourceExpr` **constructor**
     (`_domain_object_variant_inputs` / `_as_domain_source`), positive-only, so a fixed-point survivor an
     `--input` can never express (measured: `power(c)` with `c.base**2`, whose exponent mutants all agree at
-    the sample `base=1`) becomes a KILL rendered as a runnable `Cls(field=…)` — never a flag. **Still open —
-    the irreducible representation core:** a **cross-field-invariant** object (a `Relation` whose `args`
-    must reference declared entities, so a blind field variant builds an instance the function rejects) and
-    a **non-introspectable** object (no `dataclasses.fields`) still route to the fixture hand-back. B0/B1/B2
-    are the three bounded down-payments on Prop. 6.5's bands; the cross-field-invariant + opaque residual is
-    what genuinely remains — a materially smaller open problem than the whole differential reach.
+    the sample `base=1`) becomes a KILL rendered as a runnable `Cls(field=…)` — never a flag. (d) **The
+    cross-field-invariant band — B3, BUILT:** B2 varies a from-SCRATCH synth, which for a COUPLED-field
+    object (a `Rel` whose `args` must all be declared) builds an instance the invariant rejects — it raises,
+    no witness. But the covering tests BUILT a VALID one, and the function is its own invariant oracle:
+    `_captured_domain_variant_inputs` harvests the real captured instance and varies ONE field
+    (`distinct_field_value`), the invariant preserved by LOCALITY (the other fields are the test's own valid
+    values), positive-only — a variant that breaks the invariant just raises and is dropped. Measured
+    (`render(r)` returning `r.tag**2` behind `all(x in KNOWN for x in r.args)`): the invariant-guarded
+    exponent survivor becomes a KILL rendered as `Rel(tag=2, args=['a'])`. **Still open — the irreducible
+    representation core:** a **non-introspectable** object (no `dataclasses.fields`: opaque / C-extension /
+    factory-built state — no field to vary and no constructor `repr` to render) and a dataclass with a
+    **nested-object field** (whose render would need an import the single-class emission does not carry).
+    B0/B1/B2/B3 are the four bounded down-payments on Prop. 6.5's bands; the non-introspectable / nested
+    core is what genuinely remains — the representation obligation Rem. 6.6 fences, materially smaller than
+    the whole differential reach this ledger once called open.
 
 ---
 

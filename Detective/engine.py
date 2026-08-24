@@ -2169,6 +2169,45 @@ def _domain_object_variant_inputs(
     return bounded_product(grids)
 
 
+def _captured_domain_variant_inputs(captured: Sequence[tuple], cap: int = 24) -> list[tuple]:
+    """B3 (#67): field-varied `SourceExpr` variants of the REAL dataclass instances the covering tests
+    already built — the closure for the CROSS-FIELD-INVARIANT object B2 cannot reach.
+
+    B2 varies a from-SCRATCH synth, which for an object whose fields are COUPLED (a `Rel` whose `args`
+    must all be declared) builds an instance the function rejects — it raises, so no witness. A
+    *captured* instance is VALID by construction (the test built it and the original ran on it), so
+    varying ONE field (`distinct_field_value`) keeps the invariant by LOCALITY while still
+    differentiating; each variant is carried as a constructor `SourceExpr` so a kill renders. The base
+    captured instance is included too, so a target the pool-poverty rescue skipped (an `else`-branch
+    scalar made it look `expressible`) still gets its real valid input tried. Positive-only: a variant
+    that DOES break the invariant makes the original raise and is dropped, never a false COMPLETE.
+
+    Empty when nothing captured holds a dataclass instance — the honest limit (a non-introspectable /
+    opaque object has no field to vary and no constructor `repr` to render, and stays a fixture).
+    """
+    out: list[tuple] = []
+    seen: set[str] = set()
+    for row in captured:
+        for i, arg in enumerate(row):
+            variants = _domain_variants(arg)
+            if variants is None:
+                continue
+            for var in variants:
+                new_row = tuple(var if j == i else row[j] for j in range(len(row)))
+                try:
+                    key = repr(new_row)
+                except Exception:  # noqa: BLE001 — an unrepr-able row counts as fresh, never a crash
+                    key = None
+                if key is not None and key in seen:
+                    continue
+                if key is not None:
+                    seen.add(key)
+                out.append(new_row)
+                if len(out) >= cap:
+                    return out
+    return out
+
+
 def search_pool_admission(is_hermetic: bool, include_shaped: bool) -> str:
     """Whether a candidate test enters the SPECULATIVE widen pool — the converge/diagnose
     kill-measurement that speculatively traces unconfirmed reachers (shaped-defer, pure — pinned).
@@ -2739,6 +2778,33 @@ def classify_survivors(
                 # A domain-object witness is a SourceExpr constructor (is_expressible False by design —
                 # a constructor is not an --input literal), so expressibility stays False; the kill
                 # renders via the SourceExpr source, not a paste-able literal. Recompute on witnesses.
+                witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
+                if witness_args:
+                    expressible = all(is_expressible(a) for args in witness_args for a in args)
+
+    # B3 (#67): captured-instance differential — B2 over a REAL valid base, the CROSS-FIELD-INVARIANT
+    # closure. A from-scratch synth builds an instance the invariant rejects (it raises); the covering
+    # tests built a VALID one, so harvest it and vary ONE field (invariant preserved by locality), retry
+    # positive-only. Also recovers the raw captured input the pool-poverty rescue skipped when an
+    # else-branch scalar made the target look `expressible`. Same effects + wall gates as B2.
+    _b3 = domain_variant_retry_gate(
+        any(not v.killable and not v.crash_only for v in verdicts), bool(effects), _cls_exhausted()
+    )
+    if _b3 == "run":
+        func_names = [qn for qn, _ in walk_functions(tree)]
+        harvest_tests = discover_test_callables(
+            root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
+        )
+        harvest_tests, _hd = _admit_search_pool(harvest_tests, include_shaped)  # shaped-defer (see above)
+        _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
+        b3_inputs = _captured_domain_variant_inputs(capture_call_inputs(original, harvest_tests))
+        fresh = [t for t in b3_inputs if _safely_fresh(t, inputs)]
+        if fresh:
+            retry = _classify_pool(supplied + fresh + inputs)
+            if sum(1 for v in retry[0] if v.killable) > sum(1 for v in verdicts if v.killable):
+                verdicts, unclassified, manual_equivalent, fence = retry
+                final_pool = supplied + fresh + inputs
+                note = None
                 witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
                 if witness_args:
                     expressible = all(is_expressible(a) for args in witness_args for a in args)

@@ -1073,12 +1073,23 @@ synth sample `base=1`): the exponent VALUE survivors — which NO `--input` can 
 hides — go from candidate-equivalent to KILLED with a witness that renders as a runnable `Cfg(base=2)`
 constructor. The generalization of B0/B1 from topologies and scalar guards to a dataclass field.
 
-**Still open — the irreducible representation core.** After B2, what genuinely remains is the
-**cross-field-invariant** object (a `Relation` whose `args` must reference declared entities, so a blind
-field variant builds an instance the function rejects) and the **non-introspectable** object (no
-`dataclasses.fields`: opaque / C-extension / factory-built state) — both still route to the door-3 fixture
-caveat (§6), NOT a kill. B0 + B1 + B2 are the three bounded down-payments; the cross-field-invariant + opaque
-residual is the materially smaller open synthesis problem, deliberately NOT claimed.
+**[B3 CAPTURED-INSTANCE DIFFERENTIAL LANDED — the CROSS-FIELD-INVARIANT closure.]** B2 varies a
+from-SCRATCH synth, which for a coupled-field object (a `Rel` whose `args` must all be declared) builds an
+instance the invariant rejects — it raises, no witness. The covering tests BUILT a VALID one and the
+function is its own invariant oracle: `_captured_domain_variant_inputs` harvests the real captured instance
+and varies ONE field (`distinct_field_value`), the invariant preserved by LOCALITY, retried positive-only.
+Measured on `render(r)` returning `r.tag**2` behind `all(x in KNOWN for x in r.args)`: the invariant-guarded
+exponent survivor — which B2's synth cannot reach (its `Rel(tag=1, args=[1])` raises) — becomes a KILL
+rendered as the valid constructor `Rel(tag=2, args=['a'])`. Also recovers the raw captured input the
+pool-poverty rescue skips when an `else`-branch scalar makes the target look `expressible`.
+
+**Still open — the irreducible representation core.** After B3, what genuinely remains is the
+**non-introspectable** object (no `dataclasses.fields`: opaque / C-extension / factory-built state — no
+field to vary and no constructor `repr` to render) and a dataclass with a **nested-object field** (whose
+render would need an import the single-class emission does not carry) — both still route to the door-3
+fixture caveat (§6), NOT a kill. B0 + B1 + B2 + B3 are the four bounded down-payments; the
+non-introspectable / nested-object residual is the representation obligation §6 fences, deliberately NOT
+claimed.
 
 ### F1 — the deep-slice re-rank
 
