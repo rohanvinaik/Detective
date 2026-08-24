@@ -1319,21 +1319,27 @@ def _format_survivor_report(
     # harder (nested / cross-referential) input rather than equivalent — so caution against a
     # false `flag` here. Only when there ARE flag-eligible survivors (candidate-equivalent or
     # crash-only); a fully killed target needs no caveat.
-    if deep_structure_caveat(structural_difficulty, bool(unproven)):
-        from .equivalence import structural_residual_handback
-
-        # F2 dispatch: never send the reader to `--input` for a residual whose distinguishing input
-        # has no literal form — that is the broken ask `converge_next_action` also refuses.
-        _how = (
-            "a nested / cross-referential `--input`"
-            if structural_residual_handback(bool(rep.inputs_expressible)) == "structural_input"
-            else "a hand-built object (a real value — no `--input` expresses this shape)"
-        )
+    _caveat = candidate_equivalent_caveat(
+        structural_difficulty,
+        rep.inputs_expressible is not False,  # only a definite False ⇒ fixture; None = unknown
+        bool(unproven),
+        any(not v.reached for v in unproven),
+    )
+    if _caveat == "fixture":
+        # §6 door 3: no `--input` has a literal form for a domain-object parameter, so the broken ask
+        # `converge_next_action` refuses is never printed — the honest move is a hand-built fixture.
         lines.append(
-            "  ⚠ deep-structure caveat: this target indexes into collection elements and drives a "
-            "worklist/fixpoint loop — a shape whose distinguishing inputs the witness search does "
-            "NOT synthesize. A survivor above may be KILLABLE, not equivalent. Confirm with a "
-            f"differential check (original vs mutant over {_how}) BEFORE you `flag`."
+            "  ⚠ fixture caveat: this target's inputs have no `--input` literal form (a domain object), so "
+            "no `--input` can supply a differentiator. A survivor above may be KILLABLE with a hand-built "
+            "differential fixture, not equivalent — write a differential test with a real object BEFORE you "
+            "`flag`."
+        )
+    elif _caveat == "structural":
+        lines.append(
+            "  ⚠ structural caveat: a survivor above may be KILLABLE, not equivalent — its distinguishing "
+            "input is one the deterministic search did not construct (a nested/cross-referential value, or a "
+            "branch no tried input reached). Confirm with a differential check over a nested / "
+            "cross-referential `--input` BEFORE you `flag`."
         )
     if rep.manual_equivalent:
         lines.append(
@@ -1954,25 +1960,29 @@ def _format_converge_terse(
             lines.append(
                 _row("· crash-only-equiv", f"{len(crash_only)} — detected by crash; no value pins them")
             )
-        # F2: the deep-structure caveat must reach the DEFAULT surface too, not only the verbose
-        # report — this is the surface that invites a `flag`, and a `deep_structural` survivor above
-        # may be killable-with-harder-input, not equivalent. The SAME decision the verbose path uses,
-        # so the two cannot drift on when to caution.
-        if deep_structure_caveat(
-            getattr(result, "structural_difficulty", ""), bool(rep.candidate_equivalent)
-        ):
-            from .equivalence import structural_residual_handback
-
-            _how = (
-                "a nested/cross-referential --input"
-                if structural_residual_handback(bool(rep.inputs_expressible)) == "structural_input"
-                else "a hand-built object (no --input expresses it)"
-            )
+        # F2: the caveat must reach the DEFAULT surface too, not only the verbose report — this is the
+        # surface that invites a `flag`, and a survivor above may be killable-with-harder-input, not
+        # equivalent. The SAME decision the verbose path uses, so the two cannot drift on when to caution.
+        _caveat = candidate_equivalent_caveat(
+            getattr(result, "structural_difficulty", ""),
+            rep.inputs_expressible is not False,  # only a DEFINITE False is a fixture; None=unknown
+            bool(rep.candidate_equivalent),
+            any(not v.reached for v in rep.candidate_equivalent),
+        )
+        if _caveat == "fixture":
             lines.append(
                 _row(
-                    "⚠ deep-structure",
-                    f"a survivor above may be KILLABLE, not equivalent — confirm over {_how} before "
-                    "you `flag` (full report)",
+                    "⚠ fixture",
+                    "a survivor above may be KILLABLE with a hand-built object, not equivalent — inputs "
+                    "have no --input form; write a differential test before you `flag` (full report)",
+                )
+            )
+        elif _caveat == "structural":
+            lines.append(
+                _row(
+                    "⚠ structural",
+                    "a survivor above may be KILLABLE, not equivalent — confirm over a nested/cross-"
+                    "referential --input (or a branch no input reached) before you `flag` (full report)",
                 )
             )
     # The target printed to stdout while being measured, all contained off this channel
@@ -2026,30 +2036,49 @@ def _format_converge_terse(
     return "\n".join(lines)
 
 
-def deep_structure_caveat(structural_difficulty: str, has_candidate_equivalent: bool) -> bool:
-    """Whether to warn that a CANDIDATE-EQUIVALENT survivor may be KILLABLE, not equivalent (F2 — pinned).
+def candidate_equivalent_caveat(
+    structural_difficulty: str,
+    inputs_expressible: bool,
+    has_candidate_equivalent: bool,
+    has_unreached_candidate: bool,
+) -> str:
+    """Which caveat a CANDIDATE-EQUIVALENT survivor warrants — ``"none"`` / ``"fixture"`` / ``"structural"``
+    (F2/#67 — pure, pinned). It must reach EVERY surface that invites a ``flag`` (the terse default AND the
+    verbose report) or the default invites the flag while the caution lives only in the verbose one (the F2
+    measurement/decision gap), so the decision is made ONCE here and both consume it.
 
-    A ``deep_structural`` target (it indexes into collection elements and drives a worklist/fixpoint
-    loop) has distinguishing inputs the witness search does NOT synthesize, so a survivor it left
-    ``candidate-equivalent`` may be killable with a hand-built structural input, not a genuine
-    equivalent. The caution must reach EVERY surface that invites a ``flag`` — the terse default AND
-    the verbose report — or the default invites the flag while the caution lives only in the verbose
-    one (the F2 measurement/decision gap). So the decision is made ONCE here and both consume it.
+    DERIVED from the canonical :func:`residual_disposition` so the caveat and the typed residual cannot
+    disagree, and fed the two negative-entropy signals ``classify_survivors`` now carries (§6, the
+    expressibility boundary; Def. 1.4's RIP):
 
-    The gate is CANDIDATE-EQUIVALENT presence specifically, NOT any flag-eligible survivor. A
-    crash-only survivor is a ``value_residual`` (a crash input DOES distinguish it), never a
-    ``structural_residual``, so a result with only crash-only survivors must NOT receive the
-    structural-input warning — passing the merged "candidate-equivalent OR crash-only" flag was the
-    bug that let it. DERIVED from the canonical `residual_disposition` typing so the caveat and the
-    typed residual cannot disagree: only a candidate-equivalent on a deep_structural target is a
-    ``structural_residual``, which is exactly what this caveat names.
+      * ``inputs_expressible`` False ⇒ a domain-object function: no ``--input`` differentiates, so a
+        candidate-equivalent needs a hand-built differential FIXTURE — ``residual_disposition`` →
+        ``fixture_residual`` → ``"fixture"`` (the serialize_rule case).
+      * ``has_unreached_candidate`` True (or a ``deep_structural`` shape) ⇒ a reaching ``--input`` exists
+        the search did not construct — ``residual_disposition`` → ``structural_residual`` → ``"structural"``.
+      * otherwise (reached ∧ expressible) ⇒ ``genuine_equivalent``, flag OK → ``"none"``.
+
+    The gate is CANDIDATE-EQUIVALENT presence specifically: a crash-only survivor is a ``value_residual``
+    (a crash input DOES distinguish it), excluded by the ``has_candidate_equivalent`` flag — never
+    mistaken for a residual with no distinguishing input.
     """
     from .equivalence import residual_disposition
 
-    return (
-        has_candidate_equivalent
-        and residual_disposition(False, False, structural_difficulty) == "structural_residual"
+    if not has_candidate_equivalent:
+        return "none"
+    # reached is per-survivor; if ANY candidate-equivalent is unreached the residual is structural.
+    disp = residual_disposition(
+        False,
+        False,
+        structural_difficulty,
+        reached=not has_unreached_candidate,
+        inputs_expressible=inputs_expressible,
     )
+    if disp == "fixture_residual":
+        return "fixture"
+    if disp == "structural_residual":
+        return "structural"
+    return "none"
 
 
 def converge_next_action(

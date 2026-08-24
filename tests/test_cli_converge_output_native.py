@@ -15,7 +15,7 @@ from Detective.cli import (
     _final_banner,
     _format_converge_terse,
     _plain_terms,
-    deep_structure_caveat,
+    candidate_equivalent_caveat,
 )
 from Detective.converge import ConvergeResult
 from Detective.equivalence import MutantVerdict, SurvivorReport, Witness
@@ -168,19 +168,28 @@ def test_terse_is_minimal_when_complete_clean():
     assert len(out.splitlines()) <= 10
 
 
-# ── F2: the deep-structure caveat must reach the DEFAULT terse surface ─────────
-def test_deep_structure_caveat_truth_table():
-    # Warn ONLY on a deep_structural target that HAS a CANDIDATE-EQUIVALENT survivor (the second arg);
-    # a crash-only survivor is a value_residual and must not trigger it (see the crash-only test).
-    assert deep_structure_caveat("deep_structural", True) is True
-    assert deep_structure_caveat("deep_structural", False) is False  # no candidate-equiv → no caveat
-    assert deep_structure_caveat("flat", True) is False
-    assert deep_structure_caveat("", True) is False
+# ── F2/#67: the caveat (none/fixture/structural) must reach the DEFAULT terse surface ──
+def test_candidate_equivalent_caveat_truth_table():
+    # (structural_difficulty, inputs_expressible, has_candidate_equivalent, has_unreached_candidate)
+    # No candidate-equivalent → never caution, whatever the shape (a crash-only survivor is a
+    # value_residual, excluded by the has_candidate_equivalent gate).
+    assert candidate_equivalent_caveat("deep_structural", True, False, False) == "none"
+    assert candidate_equivalent_caveat("flat", False, False, True) == "none"
+    # Inexpressible inputs (a domain object) → fixture, outranking the structural gate (serialize_rule):
+    # no --input can differentiate, so the honest ask is a hand-built fixture, never a flag.
+    assert candidate_equivalent_caveat("flat", False, True, False) == "fixture"
+    assert candidate_equivalent_caveat("deep_structural", False, True, False) == "fixture"
+    # Expressible: deep_structural OR an unreached survivor → structural (a reaching --input exists).
+    assert candidate_equivalent_caveat("deep_structural", True, True, False) == "structural"
+    assert candidate_equivalent_caveat("flat", True, True, True) == "structural"
+    # Expressible, flat, all reached → genuine_equivalent; a flag is appropriate → none.
+    assert candidate_equivalent_caveat("flat", True, True, False) == "none"
 
 
-def test_terse_surfaces_the_deep_structure_caveat_on_a_flag_eligible_survivor():
-    # A candidate-equivalent survivor on a deep_structural target: the terse DEFAULT surface — the one
-    # that invites a `flag` — must carry the caution that it may be killable-with-harder-input (F2).
+def test_terse_surfaces_the_structural_caveat_on_a_flag_eligible_survivor():
+    # A candidate-equivalent survivor on a deep_structural target (inputs_expressible unset ⇒ unknown,
+    # treated as expressible): the terse DEFAULT surface — the one that invites a `flag` — must carry the
+    # caution that it may be killable-with-harder-input via a reaching --input (F2).
     rep = SurvivorReport((_equiv(),), ())
     out = _format_converge_terse(
         _cr(
@@ -192,11 +201,13 @@ def test_terse_surfaces_the_deep_structure_caveat_on_a_flag_eligible_survivor():
         ),
         "",
     )
-    assert "deep-structure" in out
+    assert "structural" in out
     assert "may be KILLABLE" in out
 
 
-def test_terse_omits_the_caveat_on_a_flat_target():
+def test_terse_omits_the_caveat_on_a_flat_reached_expressible_target():
+    # Flat + reached + expressible (the _equiv default) ⇒ genuine_equivalent; a flag IS appropriate,
+    # so NO caveat fires — the flag-safe case the new signals must not over-warn on.
     rep = SurvivorReport((_equiv(),), ())
     out = _format_converge_terse(
         _cr(
@@ -208,7 +219,7 @@ def test_terse_omits_the_caveat_on_a_flat_target():
         ),
         "",
     )
-    assert "deep-structure" not in out
+    assert "may be KILLABLE" not in out
 
 
 def _deep_structural_terse(inputs_expressible):
@@ -231,10 +242,13 @@ def test_terse_caveat_asks_for_input_when_the_structural_input_is_expressible():
 
 
 def test_terse_caveat_asks_for_a_fixture_when_the_input_is_not_expressible():
-    # F2 dispatch: no `--input` can express the shape, so the caveat asks for a hand-built object,
-    # never the broken `--input` ask.
+    # §6 door 3: no `--input` can express a domain-object parameter, so the caveat asks for a hand-built
+    # differential fixture, never the broken `--input` ask. Inexpressibility OUTRANKS the structural gate,
+    # so a deep_structural target with inexpressible inputs still routes to fixture, not --input.
     out = _deep_structural_terse(inputs_expressible=False)
-    assert "hand-built object (no --input expresses it)" in out
+    assert "hand-built object" in out
+    assert "no --input form" in out
+    assert "fixture" in out
 
 
 def test_converge_result_carries_the_function_basis_into_json():

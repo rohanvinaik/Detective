@@ -53,6 +53,7 @@ from .equivalence import (
     SurvivorReport,
     _grid_for,
     _outcome,
+    _reached_lines,
     _type_of,
     ast_grid,
     bounded_product,
@@ -2271,6 +2272,7 @@ def classify_survivors(
         return _verdicts, _unclassified, _manual, _fence
 
     verdicts, unclassified, manual_equivalent, fence = _classify_pool(inputs)
+    final_pool = inputs  # the pool the FINAL verdicts were classified over; updated when a retry adopts
     note: str | None = None
 
     # POOL-POVERTY RESCUE. The capture fallback above triggers on "every candidate
@@ -2329,6 +2331,7 @@ def classify_survivors(
             )
             if improved:
                 verdicts, unclassified, manual_equivalent, fence = retry
+                final_pool = supplied + fresh + inputs
                 # Expressibility must be judged on the WITNESS inputs, not the first
                 # input that merely exercised the function: a captured function object
                 # discriminates but cannot be typed, and the renderer's contract is
@@ -2368,6 +2371,7 @@ def classify_survivors(
             retry = _classify_pool(supplied + fresh + inputs)
             if sum(1 for v in retry[0] if v.killable) > sum(1 for v in verdicts if v.killable):
                 verdicts, unclassified, manual_equivalent, fence = retry
+                final_pool = supplied + fresh + inputs
                 # A "no input discriminates / equivalence is about the pool" note set above is
                 # falsified by the new kill — clear it rather than ship a stale claim.
                 note = None
@@ -2376,6 +2380,28 @@ def classify_survivors(
                 witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
                 if witness_args:
                     expressible = all(is_expressible(a) for args in witness_args for a in args)
+
+    # Reachability (RIP-R, §6 door 2 / Def. 1.4): a candidate-equivalent whose mutated line was never
+    # EXECUTED by the final pool is killable with a reaching input the search did not construct — not an
+    # equivalence. Trace the ORIGINAL over the pool once and mark each such verdict, so the renderer's
+    # `residual_disposition` routes it to a caveat, never a flag. Skipped when the wall is gone (#31:
+    # keep the flag-safe reached=True default) or nothing is candidate-equivalent (no flag to guard).
+    _cand = [v for v in verdicts if not v.killable and not v.crash_only]
+    if _cand and not _cls_exhausted():
+        _id_line = {r.get("mutant_id"): r.get("mutated_line") for r in survivors}
+        _want = frozenset(ln for v in _cand if (ln := _id_line.get(v.mutant_id)) is not None)
+        _fname = getattr(getattr(original, "__code__", None), "co_filename", None)
+        if _want and _fname is not None:
+            _reach_budget = (
+                5.0 if _cls_abs_deadline is None else max(0.0, min(5.0, _cls_abs_deadline - time.monotonic()))
+            )
+            _reached = _reached_lines(original_call, final_pool, _fname, _want, _reach_budget)
+            verdicts = [
+                dataclasses.replace(v, reached=(_id_line.get(v.mutant_id) in _reached))
+                if (not v.killable and not v.crash_only and _id_line.get(v.mutant_id) is not None)
+                else v
+                for v in verdicts
+            ]
 
     return SurvivorReport(
         tuple(verdicts),

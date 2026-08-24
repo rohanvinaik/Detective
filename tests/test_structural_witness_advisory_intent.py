@@ -27,7 +27,8 @@ from Detective.equivalence import (
     structural_shape,
 )
 
-_CAVEAT = "deep-structure caveat"
+_CAVEAT = "structural caveat"
+_FIXTURE_CAVEAT = "fixture caveat"
 
 
 def _func(src: str, name: str) -> ast.FunctionDef:
@@ -163,6 +164,19 @@ def test_no_flag_eligible_survivors_no_caveat_even_when_deep_structural():
     rep = SurvivorReport(verdicts=(_killable("VALUE_a1"),), unclassified=())
     out = "\n".join(_format_survivor_report(rep, structural_difficulty="deep_structural"))
     assert _CAVEAT not in out
+
+
+def test_inexpressible_survivors_get_the_fixture_caveat_not_a_flag():
+    # §6 door 3 (the serialize_rule case): a candidate-equivalent on a FLAT target whose inputs have no
+    # `--input` literal form (inputs_expressible=False) must get the FIXTURE caveat — a hand-built
+    # differential object, never `--input`, never a flag — even though the shape is not deep_structural.
+    rep = SurvivorReport(
+        verdicts=(_candidate_equivalent("VALUE_b2"),), unclassified=(), inputs_expressible=False
+    )
+    out = "\n".join(_format_survivor_report(rep, structural_difficulty="flat"))
+    assert _FIXTURE_CAVEAT in out
+    assert "hand-built" in out
+    assert _CAVEAT not in out  # not the structural caveat — inexpressibility outranks it
 
 
 def test_the_caveat_omitted_by_default_is_backward_compatible():

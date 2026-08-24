@@ -25,6 +25,7 @@ from __future__ import annotations
 import ast
 import itertools
 import re
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -488,30 +489,52 @@ def structural_input_difficulty(
     return "flat"
 
 
-def residual_disposition(is_killable: bool, is_crash_only: bool, structural_difficulty: str) -> str:
-    """The KIND of residual a surviving mutant is, and thus its one next action (F2 — pure, pinned).
+def residual_disposition(
+    is_killable: bool,
+    is_crash_only: bool,
+    structural_difficulty: str,
+    reached: bool = True,
+    inputs_expressible: bool = True,
+) -> str:
+    """The KIND of residual a surviving mutant is, and thus its one next action (F2/#67 — pure, pinned).
 
-    Named codes, never a bool: ``structural_residual`` and ``genuine_equivalent`` BOTH arise from a
-    survivor with no distinguishing input found, and are told apart ONLY by the #67 structural gate
-    (:func:`structural_input_difficulty`). Collapsing them is the exact conflation this closes — a
-    killable-but-unsynthesized survivor ``flag``-ged as equivalent is a false specification claim.
+    A candidate-equivalent (no distinguishing input found) is NOT one thing, and collapsing the kinds
+    into a flag-eligible ``genuine_equivalent`` is a false specification claim. Two negative-entropy
+    signals the search ALREADY computes — and used to discard here — tell them apart (§6, the
+    expressibility boundary; Def. 1.4's RIP: Reachability–Infection–Propagation):
+
+      * ``reached``            — was the mutant's mutated line EXECUTED by any tried input? A survivor
+                                whose mutation never ran (R fails) is categorically NOT an equivalent;
+                                a reaching literal exists, the search just did not construct it.
+      * ``inputs_expressible`` — does the value that EXERCISES the function have an ``--input`` literal
+                                form? False ⇒ a domain-object function: no ``--input`` can supply a
+                                differentiator, so a candidate-equivalent here needs a hand-built FIXTURE,
+                                and telling the reader to ``--input`` it is the broken ask that loops.
 
       "killer_ready"        a witness exists — synthesize the test (not really a residual)
       "value_residual"      crash-only: a crash input distinguishes it, no value PINS it
-      "structural_residual" no input found AND the target is deep_structural — likely KILLABLE with a
-                            nested / cross-referential input the witness search does not reach; route
-                            to the structural hand-back, NEVER flag
-      "genuine_equivalent"  no input found AND flat — flag is appropriate
+      "fixture_residual"    inputs are inexpressible (a domain object) — likely KILLABLE with a hand-built
+                            differential fixture, NEVER an ``--input``; NEVER flag (§6 door 3, serialize_rule)
+      "structural_residual" a reaching literal exists but the search did not construct it — deep_structural
+                            (nested/cross-referential, B0) OR simply unreached; ``--input``, NEVER flag
+      "genuine_equivalent"  REACHED ∧ expressible ∧ no input found — a true equivalence candidate; flag OK
 
-    Order is the point: a killer outranks everything (it is not a residual); crash-only is checked
-    before the structural gate because a crash-distinguished survivor is value-unspecified, not "no
-    input found"; the structural split is last, over the true candidate-equivalents only.
+    Order is the point: a killer outranks everything; crash-only is a value_residual with a known
+    distinguishing input; inexpressibility (the domain-object door) outranks the structural gate because
+    no ``--input`` helps there; ``genuine_equivalent`` is minted ONLY when the mutation was actually
+    reached over expressible inputs — the RIP condition a flag-safe equivalence requires. Defaults are
+    the flag-safe identity (reached, expressible), so a caller that supplies neither signal keeps the
+    prior deep_structural/flat behaviour exactly.
     """
     if is_killable:
         return "killer_ready"
     if is_crash_only:
         return "value_residual"
+    if not inputs_expressible:
+        return "fixture_residual"
     if structural_difficulty == "deep_structural":
+        return "structural_residual"
+    if not reached:
         return "structural_residual"
     return "genuine_equivalent"
 
@@ -838,6 +861,71 @@ def _outcome(fn: Callable[..., Any], args: tuple, timeout_s: float = _CLASSIFY_T
     return box.get("v", _OUTCOME_TIMEOUT)
 
 
+def _reached_lines(
+    call: Callable[..., Any],
+    candidate_inputs: list[tuple],
+    filename: str | None,
+    target_lines: frozenset[int],
+    budget_s: float,
+) -> frozenset[int]:
+    """Which of ``target_lines`` (line numbers in ``filename``) the ORIGINAL executes across the pool.
+
+    The Reachability half of RIP (Def. 1.4, Reachability-Infection-Propagation): a surviving mutant
+    whose mutated line is NOT in the returned set was never EXECUTED by any tried input, so it is not
+    an equivalence -- a reaching input exists that the search did not construct. Runs the ORIGINAL
+    (never the mutant, which could diverge or crash from the mutation) under a line tracer,
+    write-blocked and time-bounded exactly like :func:`_outcome`, early-exiting the moment every target
+    line is hit.
+
+    A best-effort SIGNAL, never a verdict: on a timeout, an unbindable input, or an unknown filename it
+    returns only what it reached, so an un-traced line reads as "unreached" and therefore only ADDS a
+    caveat -- it can never suppress one. That is the same principled-abstention direction as ``blocked``
+    and ``undefined``: a measurement that did not run banks nothing toward a flag-safe verdict.
+    """
+    if not target_lines or filename is None:
+        return frozenset()
+    from .synthesis.characterization import block_fs_writes
+
+    hit: set[int] = set()
+    want = set(target_lines)
+    deadline = time.monotonic() + budget_s
+
+    def _run(args: tuple) -> None:
+        def _local(frame, event, _arg):
+            if event == "line" and frame.f_lineno in want:
+                hit.add(frame.f_lineno)
+                want.discard(frame.f_lineno)
+            return _local
+
+        def _global(frame, event, arg):
+            # Trace only frames from the target's own file; the mutation lives in the target
+            # function, and line numbers are unique per file, so this is exact and cheap.
+            return _local(frame, event, arg) if frame.f_code.co_filename == filename else None
+
+        try:
+            sys.settrace(_global)
+            with block_fs_writes():
+                call(*(unwrap(a) for a in args))
+        except BaseException:  # noqa: BLE001 -- a raise still traced the lines it reached; reachability is additive
+            pass
+        finally:
+            sys.settrace(None)
+
+    for args in candidate_inputs:
+        if not want or time.monotonic() >= deadline:
+            break
+        if not _binds(call, args):
+            continue
+        per_call = max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - time.monotonic()))
+        thread = threading.Thread(target=_run, args=(args,), daemon=True)
+        thread.start()
+        thread.join(per_call)
+        if thread.is_alive():
+            _abandon(thread)
+            thread.join(_CLASSIFY_UNWIND_S)
+    return frozenset(hit)
+
+
 def _outcome_value(fn: Callable[..., Any], args: tuple) -> Any:
     """The LIVE outcome of ``fn(*args)``, or None if it raised.
 
@@ -1021,6 +1109,12 @@ class MutantVerdict:
     # candidate-equivalent (no input distinguishes it): honest uncertainty, routed to the report's
     # ``unclassified`` bucket rather than counted as an equivalence claim. Never true when killable.
     blocked: bool = False
+    # Was the mutant's mutated line EXECUTED by any tried input (RIP-R; Def. 1.4)? A candidate-equivalent
+    # whose mutation never ran is NOT an equivalence — a reaching input exists the search did not build,
+    # so it must not be flagged. Defaulted True (the flag-safe identity): a verdict built without the
+    # reachability pass reads as reached, so the signal only ever ADDS a caveat, never removes one.
+    # Meaningful only for a candidate-equivalent — a killable/crash-only survivor carries its own input.
+    reached: bool = True
 
     @property
     def label(self) -> str:
