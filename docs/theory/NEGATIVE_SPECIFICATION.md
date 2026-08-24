@@ -1260,9 +1260,13 @@ these.
 2. **The regime key (Def. 9.1 keying).** Regime = symmetry; a censor keyed below the semantic-equivalence
    class over-reaches (traps positions that merely rhyme), keyed above it under-reaches. Working guess:
    typed interface + purity class. Wants a derivation.
-3. **μ⁻ equivalence — resolved for Form A (Prop. 11.5), open for Form B.** Form B has no compilable
-   mutant, so TCE-style bytecode identity (Wesker #24) does not apply; a negative mirror of
-   `candidate-equivalent — UNPROVEN` may be required per sibling type.
+3. **μ⁻ equivalence — resolved for BOTH forms (Form B built 2026-08-23).** Form A by compile-and-compare
+   (Prop. 11.5); Form B by a RUNTIME mirror of `check_equivalent` (Wesker `e3ec27e`): a `wrapper_factory`
+   mutant has no compilable body, so `check_equivalent` dispatches it to `_check_equivalent_wrapper`, which
+   materializes the perturbed vs. original yields on boundary inputs and votes via the pure
+   `form_b_equivalence` (`distinguished` / `no_evidence` / `equivalent`) — the negative mirror of
+   `candidate-equivalent — UNPROVEN`, pinned 14/14. TCE-style bytecode identity (Wesker #24) still does not
+   apply to Form B; the runtime comparison stands in its place, per sibling type.
 4. **Completeness of Π (Def. 11.8, 11.8b).** How much of the codomain a finite perturbation family fences
    — the negative analogue of the positive operator-basis question SC §2.3 leaves open. Bounds require
    measuring reach against a codomain model, i.e. Fork 2's observed type (Def. 11.10). (The user's
@@ -1271,8 +1275,11 @@ these.
    no longer conjectured: `promotion_not_submodular` is measured constructively (Thm 14.4, $d \le 14$–$25$
    on six real pulls, the Macbeth $\kappa(\text{give}\mid\varnothing): 2\to3$ witness). Open is the
    POSITIVE bound — `bridge_curvature_bound`, greedy degrading in $d$ and recovering $(1-1/e)$ at $d=0$
-   (Feige–Izsak, or Golovin–Krause adaptive) — a Lean TARGET, to be proved against a graph whose $d$ is
-   already known. Measure $d$ on the *code* obligation graph once Q1 fixes it.
+   (Feige–Izsak, or Golovin–Krause adaptive) — was a Lean TARGET, now **CLOSED** (2026-08-24) by the
+   Wayfinder → Aristotle pipeline: Wayfinder closed 8 of 9 subgoals locally in ~119s, Aristotle the single
+   residual (`sorries_remaining: 0`), saved to
+   `Semantic_Specification_Learning/proofs/bridge_curvature_bound.lean`; the independent `#print axioms`
+   audit is the remaining gate. Measure $d$ on the *code* obligation graph once Q1 fixes it.
 6. **Build ordering (μ⁻ realizations — largely closed).** Form A + Fork 1, Fork 2, and Form B are all
    built (Wesker `dfce857`/`bdefe56`/`bf0f179`), with Detective's two-sign consumption wired
    (`diagnose`/`converge --two-sign`) and the two channel-propagation leaks closed (Props. 11.13–11.14,
@@ -1323,7 +1330,11 @@ noted).** μ⁻ **Form A + Fork 1** (Def. 11.4, 11.10) — `MutationCategory.OUT
 sub-modes ($p_{\mathrm{const}}, p_{\mathrm{id}}, p_{\mathrm{none}}$), return-site AST rewrites reusing the
 evaluate/score/cover pipeline. **Fork 2** — the type-conditional family generated only for an observed
 codomain type (`bdefe56`). **Form B** — the runtime `wrapper_factory` reaching the non-return codomain
-(generators, yield sub-modes; `bf0f179`). The **two-sign policy** σ(P, μ ∪ μ⁻) as an opt-in
+(generators, yield sub-modes; `bf0f179`). **Form-B μ⁻ equivalence** (§18 Q3; Wesker `e3ec27e`, 2026-08-23)
+— `check_equivalent` dispatches a `wrapper_factory` mutant (no compilable body) to
+`_check_equivalent_wrapper`, the runtime mirror comparing materialized yields on boundary inputs; the pure
+`form_b_equivalence` verdict pinned 14/14, and it is on the live `run_function_converged` path. The
+**two-sign policy** σ(P, μ ∪ μ⁻) as an opt-in
 `mutation_policy(two_sign=True)` with its own id, the default one-sign id byte-identical. **Detective's
 consumption** — `diagnose`/`converge --two-sign`, the Fork-2 return-type capture, the classification and
 compile paths taught both new mutant kinds. **Channel propagation** (Props. 11.13–11.14) — the
@@ -1373,14 +1384,13 @@ codomain relation $=$ metamorphic testing (Segura); σ $=$ TD $=$ exact-learning
 Hellerstein); the RTD–VC–compression bridge (Doliwa; Chen). The contribution is orthogonal: the two-sign
 σ, channel isolation, Form B, the censor layer, and the TD/RTD co-characterization.
 
-**Conjectured / unbuilt (the Lean targets and the code ports).** `bridge_curvature_bound` — the positive
-degrading guarantee (Def. 14.6; the negative `promotion_not_submodular` is measured, the positive bound
-is not). Two-sign ESL and
+**Conjectured / unbuilt (the Lean targets and the code ports).** Two-sign ESL and
 Uroboros (Def. 13.6) — designed; the backward pass is unrun and no trained two-sign learner exists. The
 entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5, §18 Q9);
 `safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition (Def. 7.3), needed
 only once a degenerate-measure case lands. [κ-for-code (Q1) and the greenfield persisted contract (Q8) are
-now BUILT — see the 2026-08-23 Built block above.]
+now BUILT — see the 2026-08-23 Built block above; `bridge_curvature_bound` (Def. 14.6) is now CLOSED by
+the Wayfinder → Aristotle pipeline (2026-08-24, `sorries_remaining: 0`, pending the `#print axioms` audit).]
 
 **Asserted (interpretations, argued not proved).** "σ makes SICP computable" as a *phrasing*
 (`thesis_vision.md`, not read; the *mechanism* is proved, Prop. 15.3). The identification of ESL's
