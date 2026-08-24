@@ -3,7 +3,7 @@ title: "The Completeness of Mutation Operators"
 subtitle: "A transformation-monoid decidability dichotomy for behavioral specification, and why a dimension-bounded minimal complete basis cannot exist"
 author: "Rohan Vinaik"
 date: "2026-08-25"
-status: "DRAFT SCAFFOLD — theorem statements authored, proofs are PLACEHOLDERS (Wayfinder/Aristotle targets). Do not cite as proven. Every proof obligation carries a status tag and a strategy sketch; nothing here is machine-checked yet."
+status: "DRAFT — proofs WRITTEN. The finite constructive fragment (Thm A, base cases n=2,3) is machine-checked by Aristotle (0 sorries; #print axioms audit owed — see §11). Thm B (undecidability), C (dichotomy), D (foreclosure), E (ASDL) are PAPER PROOFS citing the classical undecidability/impossibility results (Post/Markov, Rice, Pabbaraju, HMW). Not peer-reviewed or fully audited; two steps are flagged for tightening (B.1 completeness-oracle ⇒ word-equality-oracle; D fault-space-is-multiclass). Do not cite as fully proven."
 priors_do_not_rederive:
   - "σ = teaching dimension (SC Thm 2.7, machine-checked); σ is μ-parameterized (SC §2.3)"
   - "The two-sign policy σ(P, μ ∪ μ⁻) and the negative operator family Π (NEGATIVE_SPECIFICATION Def 3.1, 11.8, 11.8b)"
@@ -14,10 +14,15 @@ bibliography: "LITERATURE_PI_COMPLETENESS.md (42 sources, workflow-verified 2026
 
 # The Completeness of Mutation Operators
 
-> **Scaffold notice.** This is an incomplete draft. Theorem *statements* are authored; every *proof* is a
-> placeholder marked `▢ PROOF OBLIGATION` with a strategy sketch and a target tag `[Wayfinder/Aristotle:
-> Tx]`. Placeholders are the point — the statements are what the proof engine will be handed. Nothing below
-> is claimed as proven until its obligation is discharged and audited.
+> **Draft notice.** Proofs are now written. **Thm A** (finite fragment) is machine-checked at its base cases
+> (`T2_generated`, `T3_generated_rank3` — Aristotle, 0 sorries, 2026-08-25) with the general $n$ transcribed
+> from Gomes–Howie; **Thm B/C/D/E** are *paper proofs* citing the classical undecidability (Post/Markov, Rice)
+> and impossibility (Pabbaraju, HMW) results — by design, since those dependencies are not in Mathlib and
+> should not be re-formalized (the undecidability is recorded as the Lean axiom
+> `pi_completeness_undecidable_infinite`, corpus style). Two obligations are flagged inline for tightening
+> before submission (B.1's completeness-oracle ⇒ word-equality-oracle step; D's multiclass-class step), and
+> the `#print axioms` audit on the two Aristotle proofs is owed (§11). Not peer-reviewed; do not cite as fully
+> proven.
 
 ## Abstract
 
@@ -139,15 +144,29 @@ transformation monoid, which is where the classical decidability results live.
 > itself a one-line lemma — every point-to-point map plus closure gives all of $T_n$ — is recorded but not
 > load-bearing.)*
 >
-> `▢ PROOF OBLIGATION A.2 (basis)` — $\operatorname{rank}(T_n) = 3$. *Strategy:* CITE Gomes & Howie 1987
-> (transposition + $n$-cycle generate $S_n$ at rank 2; adjoining one rank-$(n-1)$ map reaches all of $T_n$).
-> This is inherited classical algebra, not a new proof — transcribe and machine-check the generation.
-> *Status: transcription of a proved result. [Wayfinder/Aristotle: T_A2]*
->
-> `▢ PROOF OBLIGATION A.3 (decidability)` — membership/generation in a finite transformation monoid is
-> decidable, and generability is PSPACE-complete. *Strategy:* CITE Kozen 1977 (transformation-monoid
-> generability / automata-intersection non-emptiness is PSPACE-complete); the decision procedure is closure of
-> the generated set under composition, bounded by $|T_n| = n^n$. *Status: cite + assemble. [Wayfinder/Aristotle: T_A3]*
+*Proof of A.2 (constructive basis).* By Gomes & Howie (1987, Math. Proc. Camb. Phil. Soc. 101(3):395–403),
+$\operatorname{rank}(T_n) = 3$ for $n \ge 3$: an $n$-cycle and a transposition generate the symmetric group
+$S_n$ (which has $\operatorname{rank} = 2$), and adjoining a single map of rank $n-1$ (a non-injective
+idempotent collapsing one pair) generates every element of $T_n$ — any $f \in T_n$ of rank $r$ factors as a
+permutation, a product of $n-r$ rank-lowering maps (each a conjugate of the adjoined idempotent by a
+permutation), and a permutation. For $n \le 2$ the count is smaller ($\operatorname{rank}(T_1)=1$,
+$\operatorname{rank}(T_2)=2$). The generation is **machine-checked at the base cases**: `T2_generated`
+(the successor and constant-$0$ maps generate $T_2$) and `T3_generated_rank3` (a $3$-cycle, a transposition,
+and a rank-$2$ idempotent generate all $27$ elements of $T_3$) were both closed by Aristotle with
+`sorries_remaining = 0` (2026-08-25; `Wayfinder/…/proofs/{T2_generated,T3_generated_rank3}.lean`), each
+discharging the enumeration by `decide` over the finite monoid. The general $n$ is the cited classical
+result; $n = 2, 3$ are the verified instances. $\square$ *[machine-checked modulo `#print axioms` audit; the
+general statement is transcribed from Gomes–Howie, not re-proven.]*
+
+*Proof of A.3 (decidability, PSPACE).* $T_n = \operatorname{Function.End}([n])$ is a **finite** monoid with
+$n^n$ elements. $\langle \Pi_R \rangle$ is computed by the standard closure iteration: initialize
+$S_0 = \Pi_R \cup \{\mathrm{id}\}$, set $S_{k+1} = S_k \cup \{p \circ q : p, q \in S_k\}$, and stop at the
+first fixpoint $S_{k+1} = S_k$; the chain is monotone in the finite lattice of subsets of $T_n$, so it
+terminates in $\le n^n$ steps, and $\langle \Pi_R \rangle = S_\infty$. Completeness is then the finite check
+$S_\infty = T_n$, i.e. $|S_\infty| = n^n$. Hence "$\Pi_R$ is complete" is **decidable**. The precise
+complexity is **PSPACE-complete**: the closure can be explored in polynomial space (Kozen 1977, FOCS,
+transformation-monoid generability / finite-automata intersection non-emptiness), and Kozen's lower bound
+gives hardness. $\square$
 
 **Corollary A.4 (finite completeness certificate is absolute).** On a finite codomain, "$\Pi_R$ is complete"
 is a decidable, absolute predicate — no basis-relativity, no observing-set qualifier. This is the negative-sign
@@ -178,17 +197,43 @@ or any recursively-presented transformation sub-monoid of $M_R$). Then:
    $\langle \Pi_R \rangle$ reduces to mutant/program equivalence and is **undecidable**.
 3. *(corollary)* No algorithm uniformly decides $\Pi$-completeness across structured codomains.
 
-> `▢ PROOF OBLIGATION B.1 (word problem)` — reduce the word problem for finitely-presented semigroups to
-> $\Pi$-completeness. *Strategy:* given a finite semigroup presentation $\langle A \mid \mathcal{R}\rangle$ with
-> unsolvable word problem (Post 1947; Markov 1947), realize its generators as perturbations on a structured
-> $R$ so that a target deviation is realizable iff two words are equal in the presentation; then "does
-> $\Pi_R$ realize the target" decides "$u = v$", contradiction. *Status: the LOAD-BEARING new proof of this
-> paper. [Wayfinder/Aristotle: T_B1 — the hard one; may need an Aristotle pass on the embedding lemma.]*
->
-> `▢ PROOF OBLIGATION B.2 (equivalence)` — CITE Rice 1953 (non-trivial semantic properties undecidable) and
-> Budd & Angluin 1982 (equivalent-mutant undecidability); "is deviation $(x,r')$ realizable by some
-> $p \in \langle\Pi_R\rangle$" is a non-trivial semantic property of the perturbed denotation. *Status: cite +
-> instantiate. [Wayfinder/Aristotle: T_B2]*
+*Proof of B.1 (word-problem reduction — the load-bearing result).* Fix a finite semigroup presentation
+$P = \langle A \mid \mathcal{R} \rangle$ ($A$ finite, $\mathcal{R}$ a finite set of relations $u_i = v_i$)
+whose **word problem is recursively unsolvable** — given words $u, v \in A^\ast$, deciding $u =_P v$ admits
+no algorithm (Post 1947; Markov 1947, independently). Realize $P$ as a structured codomain and a
+perturbation family:
+
+- **Codomain.** Let $R$ carry the elements of $P$ — concretely the free monoid $A^\ast$ modulo the
+  congruence $\sim_{\mathcal{R}}$ generated by $\mathcal{R}$. This is a recursively-presented infinite type,
+  the codomain a real program inhabits (a `list A` return value modulo the rewriting $\mathcal{R}$).
+- **Perturbations.** For each generator $a \in A$ let $p_a : R \rightharpoonup R$ be left-translation
+  $[w] \mapsto [a \cdot w]$; set $\Pi := \{ p_a : a \in A \}$. Each $p_a$ is a perturbation of the codomain
+  (Def 2.1), and for a word $x = a_1 \cdots a_k$ write $p_x := p_{a_1} \circ \cdots \circ p_{a_k} \in
+  \langle \Pi \rangle$.
+
+Now the map $x \mapsto p_x$ is a homomorphism $P \to \langle \Pi \rangle \subseteq T_R$, and it is
+**injective on $P$**: $p_u = p_v$ as elements of $T_R$ iff $[u \cdot w] = [v \cdot w]$ for all $w$, which
+(taking $w = [\varepsilon]$) forces $[u] = [v]$, i.e. $u =_P v$; the converse is immediate. Therefore
+**deciding equality of two realizing perturbations in $\langle \Pi \rangle$ is exactly deciding the word
+problem of $P$.** Any decision procedure for $\Pi$-completeness (Def 2.3) would, in resolving whether
+$\langle \Pi \rangle$ realizes each codomain deviation and *by which composite*, in particular decide
+equality of composites $p_u, p_v$ in $\langle \Pi \rangle$ — hence decide $u =_P v$, contradicting
+Post/Markov. So $\Pi$-completeness on a structured codomain is undecidable. The construction is uniform in
+$P$, which gives (3). $\square$
+
+*[Paper proof. The undecidability invoked is Post 1947 / Markov 1947, cited not re-proven; its Lean form is
+the axiom `pi_completeness_undecidable_infinite` (corpus style, cf. `bridge_B09.undecidability_infinite`).
+The one obligation to tighten before submission is the "by which composite" step — i.e. that a completeness
+oracle yields a *word-equality* oracle; the clean statement is that the **subsemigroup-membership /
+uniform-word problem** for $\langle \Pi \rangle$ is undecidable, of which the above is the canonical
+instance.]*
+
+*Proof of B.2 (equivalence reduction).* The predicate "the deviation $(x, r')$ is realizable by some
+$p \in \langle \Pi_R \rangle$" is a non-trivial semantic property of the perturbed-denotation family
+$\{ f \oplus p \}$. By **Rice's theorem** (1953) every non-trivial semantic property of partial recursive
+functions is undecidable; **Budd & Angluin** (1982) give the mutation-testing instantiation
+(equivalent-mutant detection is undecidable). Hence deviation-realizability — and a fortiori completeness,
+which quantifies over all deviations — is undecidable off the finite class. $\square$
 
 **Remark 4.1 (the boundary is exactly the carrier).** Theorems A and B locate the frontier precisely at
 codomain *finiteness*: the same generation question is decidable on $T_n$ and undecidable on a
@@ -207,8 +252,11 @@ codomain carrier is finite (or effectively bounded). Consequently a completeness
 2. necessarily **basis-relative** on structured/infinite codomains (Thm B) — "complete over the operator
    family $\Pi$ and the stated observing oracle," never over the full behavioral space.
 
-> `▢ PROOF OBLIGATION C.1` — immediate from Thm A ($\Leftarrow$) and Thm B ($\Rightarrow$). *Status: corollary.
-> [Wayfinder/Aristotle: T_C1]*
+*Proof of C.* ($\Leftarrow$) If the carrier is finite (or effectively bounded, Rem 4.1), Thm A.3 gives a
+decision procedure, and Cor A.4 makes the certificate absolute. ($\Rightarrow$) If the carrier is a
+structured/infinite type, Thm B shows no decision procedure exists, so any certificate must be relativized to
+the fixed operator family $\Pi$ and the stated observing oracle. The biconditional is the conjunction of the
+two, and it pins the decidable/undecidable frontier exactly at codomain finiteness (Rem 4.1). $\square$
 
 **Corollary 5.1 (the $\sigma / \hat\sigma$ homology).** Theorem C is the operator-layer image of the
 value-layer dichotomy of *Negative Specification*: $\sigma$ (intrinsic, undecidable off the decidable class) vs
@@ -243,12 +291,21 @@ concept class. Then:
 Hence a minimal complete basis, where it exists, **cannot be certified by a capacity dimension**; completeness
 must be stated basis-relative (as in Thm C), never as a dimension bound.
 
-> `▢ PROOF OBLIGATION D.1` — assemble the cited impossibilities into the negative-specification setting.
-> *Strategy:* (a) invoke Doliwa et al. 2014 (repetition-free teaching plan = unlabeled sample compression for
-> maximum classes) to identify minimal-basis with compression; (b) argue the fault space is multiclass/list,
-> not binary; (c) invoke Pabbaraju 2024 and Hanneke–Moran–Waknine 2024 for the impossibility in that regime.
-> No NEW impossibility is proven — this is a transport of established negative results. *Status: assembly of
-> proved foreclosures. [Wayfinder/Aristotle: T_D1 — verify the transport is faithful, not a new claim.]*
+*Proof of D (transport of proved impossibilities).* (a) By Doliwa, Fan, Simon & Zilles (2014), for a maximum
+concept class a repetition-free teaching plan is *equivalent* to an unlabeled sample-compression scheme; a
+*minimal complete basis* — the smallest operator/witness set that identifies the target up to the observing
+oracle — is exactly such a minimal teaching object, hence a compression scheme for the induced class. (b) The
+concept class a fault space induces is **not binary**: at a given input a program may return any of many wrong
+outputs, so the label set is the codomain, and the class is genuinely *multiclass* (and, when several wrong
+outputs are jointly admissible, *list*-valued). (c) In that regime the requisite bound provably fails:
+Pabbaraju (2024) shows a learnable multiclass class (finite DS-dimension) need admit **no** compression scheme
+bounded by any function of DS-dimension; Hanneke, Moran & Waknine (2024) show list compression can fail
+outright while uniform convergence persists. Therefore no bound on the minimal complete basis as a function of
+a VC-like capacity dimension can hold in general; by (a) the basis inherits this impossibility. Completeness
+must be stated basis-relative (Thm C), not dimension-bounded. $\square$ *[No new impossibility is proven; the
+result is the faithful transport of Pabbaraju 2024 / Hanneke–Moran–Waknine 2024 into the negative-spec
+setting via the Doliwa 2014 bridge. The obligation before submission is only to confirm the fault-space class
+is multiclass/list in the precise sense those theorems require.]*
 
 **Remark 6.1 (this confirms the μ⁻ retraction).** Theorem D is the same wall *Negative Specification* Prop 15.6
 hit when it **retracted** consolidation = sample compression to a conjecture. That retraction was correct;
@@ -273,9 +330,16 @@ return grammar). Then:
    coverage (grammar-coverage vs code-coverage Spearman $\approx 0.95 < 1$; Purdom 1972; Fuzzing Book), it does
    not entail it.
 
-> `▢ PROOF OBLIGATION E.1` — (1) finite check, immediate. (2) contrapositive: an unmutated node kind fixes a
-> behavioral dimension. (3) CITE the sub-unity grammar/code coverage correlation as the counterexample witness
-> to sufficiency. *Status: (1)-(2) immediate; (3) empirical citation. [Wayfinder/Aristotle: T_E1]*
+*Proof of E.* (1) The ASDL is a *finite* set of node kinds and fields; "does $\Pi$ assign a perturbation to
+every node kind" is a finite membership check over that set — decidable, in fact linear in the ASDL size. (2)
+Contrapositive: if some node kind $k$ has no operator in $\Pi$, then no mutant perturbs a program at a
+$k$-occurrence, so the behavioral distinction between a program and its $k$-variant is unexpressible by
+$\Pi$; hence $\Pi$ is behaviorally incomplete. So syntactic totality is *necessary*. (3) It is *not*
+sufficient: syntactic (production/grammar) coverage is only a sub-unity statistical proxy for behavioral
+coverage — Purdom's production coverage and its $k$-path refinements correlate with code coverage at Spearman
+$\approx 0.9478 < 1$ (Havrikov & Zeller 2019; The Fuzzing Book), so a syntactically total $\Pi$ can still miss
+behavioral distinctions. (Sufficiency would moreover contradict Thm B: a *decidable* syntactic criterion
+cannot entail the *undecidable* behavioral completeness of §4.) $\square$
 
 **Remark 7.1 (the actionable gate).** Theorem E is the buildable criterion: wire Wesker's operator dispatch to
 the ASDL as a total-coverage check, retiring "did we miss a node kind" as a permanent, decidable gate —
@@ -340,26 +404,30 @@ citing Turing/Rado).*
 | Result | Kind | Proof form | Status |
 |---|---|---|---|
 | Thm A.1 (characterization) | definitional (strong Def 2.3) | — | no obligation |
-| **Thm A.2 (n=2): `T2_generated`** | concrete constructive witness | **Lean → Aristotle** | elaborates ✓; Wayfinder-local 133 attempts, residual; **fired to Aristotle** (`0946336c…`) |
-| **Thm A.2 (n=3, rank 3): `T3_generated_rank3`** | concrete constructive witness | **Lean → Aristotle** | elaborates ✓; Wayfinder-local 133 attempts, residual; **fired to Aristotle** (`932252e6…`) |
-| Thm A.2 (general $\operatorname{rank}T_n=3$) | inherited (Gomes–Howie 1987) | paper (cite) | cited; n=2,3 are the machine-checked instances |
-| Thm A.3 (finite decidability) | instance-level (`Decidable` is `Type`, not `Prop`) | Lean `instance` (sorry) + paper | not a theorem/Wayfinder target; witnessed by A.2 |
-| Thm B.1 (word-problem reduction) | **NEW, load-bearing** | **paper proof** (reduce to Post/Markov 1947) | to write; not Lean (word-problem undecidability not in Mathlib) — axiom `pi_completeness_undecidable_infinite` records it |
-| Thm B.2 (equivalence reduction) | inherited (Rice 1953 / Budd–Angluin 1982) | paper (cite) | to write |
-| Thm C (dichotomy) | corollary of A+B | paper | to write |
-| Thm D (compression foreclosure) | assembly of proved impossibilities | paper (transport Pabbaraju / HMW) | to write; not Lean (ML results not formalized) |
-| Thm E (ASDL syntactic criterion) | decidable + empirical caveat | paper + empirical citation | to write |
+| **Thm A.2 (n=2): `T2_generated`** | concrete constructive witness | **Lean → Aristotle** | ✅ **CLOSED by Aristotle, 0 sorries** (`0946336c…`); `#print axioms` audit owed |
+| **Thm A.2 (n=3, rank 3): `T3_generated_rank3`** | concrete constructive witness | **Lean → Aristotle** | ✅ **CLOSED by Aristotle, 0 sorries** (`932252e6…`); `#print axioms` audit owed |
+| Thm A.2 (general $\operatorname{rank}T_n=3$) | inherited (Gomes–Howie 1987) | paper §3 (cite) | ✍ written; n=2,3 are the machine-checked instances |
+| Thm A.3 (finite decidability) | finite-iteration + Kozen (PSPACE) | paper §3 proof + Lean `instance` | ✍ written (proof of A.3) |
+| Thm B.1 (word-problem reduction) | **NEW, load-bearing** | **paper proof §4** (reduce to Post/Markov 1947) | ✍ written; step flagged: completeness-oracle ⇒ word-equality-oracle. Lean axiom `pi_completeness_undecidable_infinite` records it |
+| Thm B.2 (equivalence reduction) | inherited (Rice 1953 / Budd–Angluin 1982) | paper §4 (cite) | ✍ written |
+| Thm C (dichotomy) | corollary of A+B | paper §5 | ✍ written |
+| Thm D (compression foreclosure) | assembly of proved impossibilities | paper §6 (transport Pabbaraju / HMW) | ✍ written; step flagged: fault-space is multiclass/list |
+| Thm E (ASDL syntactic criterion) | decidable + empirical caveat | paper §7 + empirical citation | ✍ written |
 | Rem 3.3 (minimal separating set) | conjecture | — | open |
 
-**Lean artifacts.** `Wayfinder/data/lean_project/operator_completeness.lean` (the finite witnesses + the
-undecidability axiom, corpus style); manifest `Wayfinder/data/operator_completeness_manifest.jsonl`. Both
-`T2_generated` and `T3_generated_rank3` **elaborate against Mathlib** and were searched by Wayfinder-local
-(133 attempts each, 4 sub-goals closed, residual open) then fired to Aristotle — collection pending.
+**Lean artifacts.** Source: `Wayfinder/data/lean_project/operator_completeness.lean` (the finite witnesses +
+the undecidability axiom, corpus style) + manifest `…/operator_completeness_manifest.jsonl`. Closed proofs:
+`Semantic_Specification_Learning/proofs/{T2_generated,T3_generated_rank3}.lean` — both **CLOSED by Aristotle,
+`sorries_remaining = 0`** (2026-08-25), each discharging the finite enumeration by `decide`. The
+`#print axioms` audit is **owed** — currently blocked on the proofs-repo local Mathlib cache
+(`lake exe cache get`) and a backup-restore permission artifact in `.lake`; the same audit is owed on the
+corpus's existing 21 SSL proofs.
 
 **Provenance.** The gap this paper fills was confirmed by a source-verified literature workflow (42/42
 sources, 2026-08-25; `LITERATURE_PI_COMPLETENESS.md`). The algebraic and computability results are classical
 and cited; the reduction of the finiteness dichotomy to $\Pi$-completeness (Thm B.1) and the dichotomy
 (Thm C) are this paper's contribution, delivered as **paper proofs citing the classical undecidability
 results** (not Lean, by design — see the strategy note). The finite constructive fragment (Thm A, n=2/3) is
-the machine-checked slice. Nothing is proven until the Aristotle results are collected and audited; do not
-cite as proven.
+**machine-checked by Aristotle** (0 sorries; `#print axioms` audit owed). Register: *proved-modulo-audit* on
+the finite fragment, *rigorous-paper-proof* on B–E, two steps flagged for tightening. Do not cite as fully
+proven.
