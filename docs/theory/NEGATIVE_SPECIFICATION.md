@@ -455,6 +455,20 @@ answered against the value and not the (often absent) annotation — built as `e
 a nested list of ints is $\top$; a `list[Account]`, a built engine state, or a `SourceExpr` dataclass
 constructor is $\bot$ (the constructor names a class the allowlist refuses).
 
+**Definition 6.4b (The render language $L^{+} \supsetneq L$ — what a test may contain vs. what a user may
+type).** The witness a *generated test* may hold is drawn from a strictly larger language than the one a
+user may paste into `--input`. $L$ (Def. 6.4) is the literal allowlist. $L^{+}$ extends it with
+*synthesized constructors* — an `ast.parse(...)` call rebuilding an AST node, a `Cls(field=…)` dataclass
+constructor — each carried by `equivalence.SourceExpr`, the one type that pairs the live value, the source
+that rebuilds it, and the imports that source needs. Two decidable boundaries sit inside $L^{+}$, and the
+tool computes both: `is_expressible` tests membership in $L$ and returns $\bot$ on a `SourceExpr` *by
+construction* (a constructor is not a paste-able literal), so a witness in $L^{+}\setminus L$ is
+*renderable as a runnable test but never offered as an `--input`, never a flag*; and membership in $L^{+}$
+itself is decided by `_as_domain_source`, which returns a `SourceExpr` iff the object is an introspectable
+dataclass whose every field is already an $L^{+}$-term, and $\bot$ (a hand-fixture obligation) otherwise.
+$L \subsetneq L^{+}$ is the formal content of "extract the pure decision so its witnesses re-enter the
+language": the door-3 fixture hand-back is exactly a witness that falls outside $L^{+}$.
+
 **Proposition 6.5 (DOF⁰ is not uniform — it stratifies by $L$, and the split is decidable).** Theorem 6.2
 says $\mathrm{DOF}^{0}$ is oracle-free, but *oracle-free is not cheap*. Relative to $L$, $\mathrm{DOF}^{0}$
 splits into three regimes by *why* input synthesis may fail to produce a distinguishing witness — none of
@@ -470,30 +484,37 @@ which needs a teacher:
    an `Account`, a built state), so *no* input synthesis reaches it, ever — not for hardness but by the
    construction of $L$.
 
-$\mathrm{expr}_L$ is the **decidable separator** between (2) and (3). The resolution differs by regime:
-(1) is automatic; (2) is a *search* problem (more, and smarter, synthesis); (3) is a *representation*
-problem — closed by supplying a value outside $L$ (a *fixture*) or by *re-expressing the decision over
-$L$-terms* (the standard "extract the pure decision" move) so its witnesses re-enter $L$. Regime (3) is
-itself not uniform, and grounding the wiring split it further (the same natural-philosophy move that
-produced this section): for an **introspectable** domain object — a dataclass whose fields are themselves
-$L$-terms — the fixture need not be hand-built. Synthesis already *reaches* the object (`_synth_value`
-constructs a `Relation`); the differential increment B2 *varies one value-bearing field* per candidate
-(`distinct_field_value`, the differential $p_{\mathrm{field}}$ of Def. 11.8(vi)) and carries it as a
-`SourceExpr` **constructor** — a term in a language $L^{+}$ that extends $L$ with dataclass constructors
-(the same extension that already admits `ast.parse(...)` for AST parameters), so the witness renders as a
-runnable `Cls(field=…)` while remaining outside the `--input` literal allowlist (never a paste-able
-literal, never a flag). The cross-field-invariant subcase — a `Relation` whose `args` must reference declared entities, so a blind
-*synthesized* variant builds an instance the function rejects — is itself recovered (B3): the covering
-tests built a VALID instance and the function is its own invariant oracle, so varying ONE field of a
-*captured* instance preserves the invariant by locality. What stays genuinely representation-bound — the
-*irreducible* regime (3) — is the **non-introspectable** object (no `dataclasses.fields`: an opaque /
-C-extension / factory-built state, with no field to vary and no constructor `repr` to render) and a
-dataclass with a **nested-object field** (whose constructor render would need an import the single-class
-emission does not carry). So Theorem 6.2's "computable" is not one thing: *total automation* on (1), a
-*tractability frontier* on (2), an *automatable constructor fixture* — synthesized (B2) or
-captured-and-varied (B3) — on the introspectable part of (3), and a *representation obligation* only on
-its non-introspectable / nested-object core — an inner boundary inside $\mathrm{DOF}^{0}$ the tool now
-computes across all four bands.
+$\mathrm{expr}_L$ is the **decidable separator** between (2) and (3), and $L^{+}$ (Def. 6.4b) splits (3)
+again. The mechanical residual is attacked by a **four-band ladder of bounded synthesis increments**, each
+a *positive-only* retry that only ever upgrades a candidate-equivalent to a proven kill (so none can mint a
+false COMPLETE), each firing behind its own truth-table-pinned gate:
+
+| Band | Regime | Mechanism (built) | Witness language | Status |
+|---|---|---|---|---|
+| 1 | reachable$(L)$ | the default grid / typed grids | $L$ | baseline (`candidate_inputs`) |
+| 2a | expressible $\setminus$ reachable | **B0** — a fixed cross-referential adjacency-topology library (`_structural_topology_inputs`) | $L$ | `49b6ae0` |
+| 2b | expressible $\setminus$ reachable | **B1** — guard-directed: the branch's *own* comparison synthesizes a reaching input (`_guard_directed_inputs`) | $L$ | `b3e7842` |
+| 3a-i | $\lnot$expressible, introspectable | **B2** — a *synthesized* dataclass with one value-bearing field varied (`_domain_object_variant_inputs`) | $L^{+}\setminus L$ | this session |
+| 3a-ii | $\lnot$expressible, introspectable, invariant-coupled | **B3** — a *captured* valid instance with one field varied, invariant kept by locality (`_captured_domain_variant_inputs`) | $L^{+}\setminus L$ | this session |
+| 3b | $\lnot$expressible, non-introspectable / nested-object | — (a hand-fixture obligation, correctly routed by the door-3 gate) | outside $L^{+}$ | irreducible |
+
+The two frontiers are of DIFFERENT KINDS. Band 2 is a **search** problem — the Test-Cover hardness of
+Rem. 1.3b turned inward, from "which tests" to "which $L$-literal" (NP-hard reachability); B0 (a fixed
+topology library) and B1 (the branch's declared guard) are bounded down-payments, general
+grammar/constraint synthesis the open case. Band 3a is a **representation** problem that the render
+language $L^{+}$ *dissolves for the introspectable case*: the object is CONSTRUCTIBLE — from scratch
+(`_synth_value`, B2) or from the covering tests (`capture_call_inputs`, B3) — and its constructor is an
+$L^{+}$-term, so the fixture the door-3 gate would hand back is instead *auto-built*, varying one field
+(`distinct_field_value`, the differential $p_{\mathrm{field}}$ of Def. 11.8(vi)) so the mutation manifests.
+B3 is B2 over a *captured* base precisely because a cross-field invariant (a `Rel` whose `args` must be
+declared) makes a from-scratch synth invalid — a captured instance satisfies the invariant by construction,
+and single-field locality preserves it (the function itself is the invariant oracle: a variant that breaks
+it raises and is dropped). Only **Band 3b** — an object with no `dataclasses.fields` (opaque / C-extension /
+factory-built), or a nested-object field whose render needs an import the single-class emission cannot
+carry — is genuinely outside $L^{+}$, and it stays the representation obligation Rem. 6.3 fences. So
+Theorem 6.2's "computable" is a four-band ladder: *total automation* on band 1, a *search frontier* on
+band 2, an *automatable constructor fixture* on band 3a, and a bare *representation obligation* only on
+band 3b — an inner boundary inside $\mathrm{DOF}^{0}$ the tool now computes across all four.
 
 **Remark 6.6 (The false-equivalence hazard has two doors; only one is a synthesis problem).** A survivor
 with no witness found and no genuine equivalence is the hazard the negative sign fences: shown as
@@ -507,15 +528,22 @@ guarded *only if the disposition consumes* $\mathrm{expr}_L$: `genuine_equivalen
 require flat $\wedge$ no-witness $\wedge$ *the witness would be expressible*, routing an inexpressible
 residual to a `fixture` / decision-extraction hand-back instead of a flag. This is the same
 false-equivalence bug B0 closed for door (2), closed for door (3). And once the gate routes an
-inexpressible residual to a `fixture`, B2 (Def. 6.5's regime-2 differential increment) can *auto-build*
-that fixture for the introspectable-dataclass case — `distinct_field_value` varies a value-bearing field
-and carries it as a `SourceExpr` constructor, so the hand-back becomes a synthesized `Cls(field=…)` kill.
-[Status: Prop. 6.5's stratification is ASSERTED — argued from the $L$/`is_expressible` boundary the tool
-computes decidably; the door-(2) detector + B0 retry are BUILT (Detective `c898e0e`/`49b6ae0`); the
-door-(3) expressibility gate in `residual_disposition` is BUILT (`1dc579b`); the differential fixture
-synthesis is BUILT for both the from-scratch synth (B2, `distinct_field_value` / `_domain_object_variant_inputs`)
-and the captured valid instance (B3, `_captured_domain_variant_inputs` — the cross-field-invariant case),
-leaving only the non-introspectable and nested-object objects as the fixture residual (§18 Q10).]
+inexpressible residual to a `fixture`, the **band-3a** increments (Prop. 6.5) *auto-build* that fixture for
+the introspectable-dataclass case — B2 varies a value-bearing field of a *synthesized* instance, B3 of a
+*captured* valid one, each carried as a `SourceExpr` constructor, so the hand-back becomes a synthesized
+`Cls(field=…)` kill; only the band-3b (non-introspectable / nested-object) residual is a true fixture ask.
+[Status — every band BUILT and traced end-to-end to the CLI caveat this session: Prop. 6.5's
+stratification is ASSERTED (argued from the decidable $L$ / $L^{+}$ boundaries the tool computes); band 2a
+B0 (`_structural_topology_inputs`, `c898e0e`/`49b6ae0`) and band 2b B1 (`_guard_directed_inputs` /
+`guard_comparison_target`, `b3e7842`) are BUILT; the door-3 expressibility gate `residual_disposition`
+(reached $\wedge$ expressible) is BUILT (`1dc579b`) and *consumed* — `cli.candidate_equivalent_caveat`
+calls it and both renderers (`_format_survivor_report`, `_format_converge_terse`) emit the resulting
+`fixture` / `structural` caveat, so the signal reaches the decision, not a proxy; band 3a B2
+(`_domain_object_variant_inputs`, synthesized) and B3 (`_captured_domain_variant_inputs`, captured — the
+cross-field-invariant case) are BUILT, each measured to a written constructor golden (`Cfg(base=2)` /
+`Rel(tag=2, args=['a'])`). The pure decisions are pinned: `distinct_field_value` (isolation ✓ COMPLETE
+36/38), `output_mode_applies` (8/8), and the gates/`residual_disposition`/`candidate_equivalent_caveat` by
+truth-table intent tests. Only band 3b (non-introspectable / nested-object) remains a fixture ask (§18 Q10).]
 
 ---
 
