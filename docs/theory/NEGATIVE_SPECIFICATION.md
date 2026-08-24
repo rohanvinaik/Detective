@@ -1382,7 +1382,7 @@ these.
 4. **Completeness of Π (Def. 11.8, 11.8b) — reframed as a DECIDABILITY DICHOTOMY; own paper.** How much of
    the codomain a finite perturbation family fences — the negative analogue of the positive operator-basis
    question SC §2.3 leaves open. A source-verified literature sweep (42/42 sources, 2026-08-25;
-   `LITERATURE_PI_COMPLETENESS.md`) established that **mutation testing has no completeness theorem** — the
+   `operator_completeness/LITERATURE_PI_COMPLETENESS.md`) established that **mutation testing has no completeness theorem** — the
    field rests on the coupling-effect HYPOTHESIS (DeMillo–Lipton–Sayward 1978), and the strongest results are
    basis-/test-set-relative (Offutt 1996; Ammann–Delamaro–Offutt 2014), with *true* mutant subsumption
    UNDECIDABLE (Kurtz et al. 2015). This is not an oversight but a decidability boundary: modelling Π as a
@@ -1393,7 +1393,7 @@ these.
    basis-relative certificate is *forced*, not a limitation. And a *dimension-bounded minimal* complete basis
    is FORECLOSED (the fault space is multiclass; Pabbaraju 2024, Hanneke–Moran–Waknine 2024 — confirming the
    Prop 15.6 compression retraction). Full treatment, with authored theorem statements pending a
-   Wayfinder/Aristotle pass, is the standalone paper `OPERATOR_COMPLETENESS.md`. (Subsumes the user's
+   Lean-verified finite fragment, is the standalone paper `operator_completeness/OPERATOR_COMPLETENESS.md`. (Subsumes the user's
    fenced-off "full-40 Π" completeness item.)
 5. **The bounded-curvature bound (Def. 14.6; Conj. 10.4 → Cor. 14.5, now measured).** The obstruction is
    no longer conjectured: `promotion_not_submodular` is measured constructively (Thm 14.4, $d \le 14$–$25$
