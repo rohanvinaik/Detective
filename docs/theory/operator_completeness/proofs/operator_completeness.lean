@@ -1,61 +1,52 @@
 import Mathlib
 
 /-!
-# Operator Completeness: the decidability dichotomy for μ⁻ codomain operators
+# Operator Completeness — statements and one cited axiom (NOT the machine-checked proofs)
 
-The negative operator family Π on a codomain type R is modelled as a finite generating set of the
-transformation monoid `Function.End R`. Π is COMPLETE (strong definition, OPERATOR_COMPLETENESS.md
-Def 2.3) iff `Submonoid.closure ↑Π = ⊤` — it generates the ENTIRE transformation monoid, realizing
-every deviation `r ↦ r'`.
+This umbrella file is **statements only**. The machine-checked content of the paper lives in the two
+sibling files, each fully proven (no `sorry`) and `#print axioms`-clean:
 
-This mirrors `bridge_B09_decidability.lean` (equivalent-mutant detection: decidable finite, undecidable
-infinite), one layer down at the OPERATOR family:
+- `T2_generated.lean`        — Thm A.1 (n = 2): swap + constant generate `T₂` on `Fin 2`.
+- `T3_generated_rank3.lean`  — Thm A.1 (n = 3): 3-cycle + transposition + rank-2 idempotent generate `T₃`.
 
-- `pi_completeness_decidable_finite` — Thm A.3: completeness is DECIDABLE on a finite codomain.
-- `T2_generated`, `T3_generated_rank3` — Thm A.2: concrete constructive bases; rank(T_n) = 3
-  (Gomes & Howie 1987).
-- `pi_completeness_undecidable_infinite` — Thm B: UNDECIDABLE off finite, stated as an AXIOM citing the
-  word problem for finitely-presented semigroups (Post 1947 / Markov 1947) and program equivalence
-  (Rice 1953 / Budd & Angluin 1982), following the corpus pattern for `bridge_B09.undecidability_infinite`.
+What this file adds is (a) the *signature* of the finite-decidability result, whose actual proof is the
+polynomial-time algorithm in the paper (§3, Thm A.2) and is not formalized as a Lean term; and (b) **one
+cited classical fact, recorded as an axiom** — the Rice-flavored ingredient behind Thm C.2.
+
+Honest scope, so nothing here is oversold:
+- Thm A.1 (finite generation, n = 2,3): **proven** — in the two sibling files, not here.
+- Thm A.2 (finite decidability, in P): the `instance` below is a **signature stub**; the proof is the
+  rank-argument + Schreier–Sims of paper §3, not a Lean term. It carries `sorry` deliberately.
+- Thm B (infinite impossibility): **elementary cardinality** (paper §4); a countable closure cannot equal
+  the uncountable `Function.End R`. Not formalized here (one line on paper).
+- Thm C.1 (relative undecidability): a **paper proof** (§5) reducing from the Post/Markov word problem. It is
+  **NOT** the axiom below and is not formalized here.
+- The axiom `func_equality_undecidable` below is the classical undecidability of extensional equality of
+  `ℕ → ℕ` functions — the ingredient behind Thm C.2 (Rice 1953 / Budd–Angluin 1982). It is an adjacent
+  cited fact, **not** a formalization of Π-completeness undecidability.
 -/
 
 open Function
 
-/-- **Thm A.3.** On a FINITE codomain, Π-completeness (`closure ↑Π = ⊤`) is decidable — the negative
-operator-layer analogue of `bridge_B09.decidability_finite`. Stated as an `instance` because
-`Decidable _` is `Type`, not `Prop` (so it is not a theorem/Wayfinder target); the CONCRETE generation
-Props `T2_generated` / `T3_generated_rank3` are its machine-checkable witnesses, and the general
-decidability is instance-level (paper §3, Thm A.3 / Cor A.4). -/
+/-- **Thm A.2 (signature stub).** On a FINITE codomain, absolute Π-completeness (`closure ↑Π = ⊤`) is
+decidable. Recorded as an `instance` because `Decidable _` is `Type`, not `Prop`. The actual decision
+procedure is the polynomial-time algorithm of paper §3, Thm A.2 (rank argument + Schreier–Sims on the
+permutation generators + a rank-`(n-1)` scan) — it is **not** formalized as a Lean term here, hence the
+deliberate `sorry`. The concrete generation witnesses `T2_generated` / `T3_generated_rank3` (sibling files)
+are the machine-checked base cases. -/
 instance pi_completeness_decidable_finite
     (R : Type) [Fintype R] [DecidableEq R]
     (P : Finset (Function.End R)) :
     Decidable (Submonoid.closure (↑P : Set (Function.End R)) = ⊤) := by
   sorry
 
-/-- **Thm A.2 (n = 2).** The swap `x ↦ x+1` and the constant `0` generate the full transformation
-monoid `T₂` on `Fin 2`: a concrete witness that `rank(T₂) ≤ 2`. -/
-theorem T2_generated :
-    Submonoid.closure
-      ({(fun x => x + 1 : Function.End (Fin 2)),
-        (fun _ => 0 : Function.End (Fin 2))} : Set (Function.End (Fin 2))) = ⊤ := by
-  sorry
+/-- **Cited classical axiom (behind Thm C.2).** Extensional equality of functions `ℕ → ℕ` is undecidable:
+there is no decision procedure `decide` with `decide f g = true ↔ ∀ n, f n = g n`. This is the
+Rice-flavored ingredient the paper cites (Rice 1953; Budd–Angluin 1982) for the equivalence reduction
+(§5, Thm C.2). It is recorded as an axiom in the standard idiom for a cited undecidability.
 
-/-- **Thm A.2 (n = 3, rank 3).** A 3-cycle, a transposition, and a rank-2 idempotent generate `T₃`
-on `Fin 3` — the constructive basis of size `rank(T₃) = 3` (Gomes & Howie 1987). -/
-theorem T3_generated_rank3 :
-    Submonoid.closure
-      ({(fun x => x + 1 : Function.End (Fin 3)),
-        (fun x => if x = 0 then 1 else if x = 1 then 0 else 2 : Function.End (Fin 3)),
-        (fun x => if x = 2 then 1 else x : Function.End (Fin 3))} :
-        Set (Function.End (Fin 3))) = ⊤ := by
-  sorry
-
-/-- **Thm B (undecidability), AXIOM.** Off the finite fragment, Π-completeness is undecidable: there is
-no uniform decision procedure for whether a finitely-presented perturbation family generates the target
-transformation sub-monoid on a structured/infinite codomain. Reduces to the word problem for
-finitely-presented semigroups (Post 1947 / Markov 1947) and to program equivalence (Rice 1953;
-Budd & Angluin 1982). Stated as an axiom citing these classical results, mirroring
-`bridge_B09.undecidability_infinite`. -/
-axiom pi_completeness_undecidable_infinite :
+IMPORTANT: this axiom is **not** a formalization of Thm C.1 (the word-problem reduction for *relative*
+Π-completeness). That reduction is a paper proof (§5) + Lemma C.1a; it is intentionally not formalized here. -/
+axiom func_equality_undecidable :
     ¬∃ (decide : (ℕ → ℕ) → (ℕ → ℕ) → Bool),
       ∀ f g, decide f g = true ↔ (∀ n, f n = g n)

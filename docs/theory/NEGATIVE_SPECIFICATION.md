@@ -1379,22 +1379,29 @@ these.
    `form_b_equivalence` (`distinguished` / `no_evidence` / `equivalent`) — the negative mirror of
    `candidate-equivalent — UNPROVEN`, pinned 14/14. TCE-style bytecode identity (Wesker #24) still does not
    apply to Form B; the runtime comparison stands in its place, per sibling type.
-4. **Completeness of Π (Def. 11.8, 11.8b) — reframed as a DECIDABILITY DICHOTOMY; own paper.** How much of
+4. **Completeness of Π (Def. 11.8, 11.8b) — reframed as a DECIDABILITY TRICHOTOMY; own paper.** How much of
    the codomain a finite perturbation family fences — the negative analogue of the positive operator-basis
    question SC §2.3 leaves open. A source-verified literature sweep (42/42 sources, 2026-08-25;
    `operator_completeness/LITERATURE_PI_COMPLETENESS.md`) established that **mutation testing has no completeness theorem** — the
    field rests on the coupling-effect HYPOTHESIS (DeMillo–Lipton–Sayward 1978), and the strongest results are
    basis-/test-set-relative (Offutt 1996; Ammann–Delamaro–Offutt 2014), with *true* mutant subsumption
    UNDECIDABLE (Kurtz et al. 2015). This is not an oversight but a decidability boundary: modelling Π as a
-   generating set of the codomain transformation monoid, Π-completeness is **decidable + constructive on a
-   FINITE codomain** (basis size 3 from $\operatorname{rank}(T_n)=3$, Gomes–Howie 1987; PSPACE-complete, Kozen
-   1977) and **undecidable off it** (word problem, Post/Markov 1947; program equivalence, Rice 1953 /
-   Budd–Angluin 1982) — the exact operator-layer image of σ vs σ̂ (Rem 1.3b) and Thm 8.1/8.2, so the tool's
-   basis-relative certificate is *forced*, not a limitation. And a *dimension-bounded minimal* complete basis
-   is FORECLOSED (the fault space is multiclass; Pabbaraju 2024, Hanneke–Moran–Waknine 2024 — confirming the
-   Prop 15.6 compression retraction). Full treatment, with authored theorem statements pending a
-   Lean-verified finite fragment, is the standalone paper `operator_completeness/OPERATOR_COMPLETENESS.md`. (Subsumes the user's
-   fenced-off "full-40 Π" completeness item.)
+   generating set of the codomain transformation monoid, Π-completeness is a **trichotomy** — (i) on a
+   **FINITE** codomain, absolute completeness is **decidable in P** and constructive (basis size 3 from
+   $\operatorname{rank}(T_n)=3$, Gomes–Howie 1987; Kozen 1977's PSPACE-completeness is the *relative*-membership
+   question, not whole-monoid recognition); (ii) on an **INFINITE** codomain, absolute completeness by a finite
+   family is **impossible by cardinality** (a countable closure cannot equal an uncountable monoid), so only
+   *relative* completeness is meaningful; (iii) **relative** completeness against a finitely-presented target is
+   **undecidable in general** (word problem, Post/Markov 1947; program equivalence, Rice 1953 / Budd–Angluin
+   1982), the boundary drawn by the *presentation*, not the carrier. Beneath all three is a **post-composition
+   ceiling**: output operators cannot separate inputs the correct denotation collapses, so completeness is for
+   *output recodings* — a strict subspace of behavioral faults. This is the exact operator-layer image of σ vs σ̂
+   (Rem 1.3b) and Thm 8.1/8.2, so the tool's basis-relative certificate is *forced*, not a limitation. A
+   *dimension-bounded minimal* complete basis is **conjecturally foreclosed** (the fault space is multiclass —
+   Pabbaraju 2024, Hanneke–Moran–Waknine 2024, consistent with the Prop 15.6 compression retraction — but the
+   generating-basis ↔ compression bridge is not yet established; Doliwa 2014 is restricted to maximum classes).
+   Full treatment, with the finite fragment Lean-verified and axiom-audited, is the standalone paper
+   `operator_completeness/OPERATOR_COMPLETENESS.md`. (Subsumes the user's fenced-off "full-40 Π" completeness item.)
 5. **The bounded-curvature bound (Def. 14.6; Conj. 10.4 → Cor. 14.5, now measured).** The obstruction is
    no longer conjectured: `promotion_not_submodular` is measured constructively (Thm 14.4, $d \le 14$–$25$
    on six real pulls, the Macbeth $\kappa(\text{give}\mid\varnothing): 2\to3$ witness). Open is the
