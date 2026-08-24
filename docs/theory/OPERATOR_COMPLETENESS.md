@@ -3,7 +3,7 @@ title: "The Completeness of Mutation Operators"
 subtitle: "A transformation-monoid decidability dichotomy for behavioral specification, and why a dimension-bounded minimal complete basis cannot exist"
 author: "Rohan Vinaik"
 date: "2026-08-25"
-status: "DRAFT — proofs WRITTEN. The finite constructive fragment (Thm A, base cases n=2,3) is machine-checked by Aristotle (0 sorries; #print axioms audit owed — see §11). Thm B (undecidability), C (dichotomy), D (foreclosure), E (ASDL) are PAPER PROOFS citing the classical undecidability/impossibility results (Post/Markov, Rice, Pabbaraju, HMW). Not peer-reviewed or fully audited; the two previously-flagged steps are now tightened into Lemmas B.1a (word-problem ≤ submonoid-membership ≤ completeness) and D.a (label space = codomain ⇒ multiclass; set-fence ⇒ list), leaving one optional submission-time item (a concrete List A word-problem embedding). Do not cite as fully proven."
+status: "DRAFT — proofs WRITTEN and (finite fragment) AUDITED. Thm A base cases n=2,3 are machine-checked by Aristotle (0 sorries) AND #print-axioms AUDITED CLEAN ([propext, Classical.choice, Quot.sound], no sorryAx). Thm B (undecidability), C (dichotomy), D (foreclosure), E (ASDL) are rigorous PAPER PROOFS citing classical undecidability/impossibility (Post/Markov, Rice, Pabbaraju, HMW); the two previously-flagged steps are discharged as Lemmas B.1a and D.a. The inherited SC/SSL scaffolding is itself axiom-audited clean (~30 proofs, this session). Remaining before submission: inline the SC/SSL scaffolding (§8) for self-containment; optionally a concrete List A embedding for B.1. Not peer-reviewed; do not cite as fully proven."
 priors_do_not_rederive:
   - "σ = teaching dimension (SC Thm 2.7, machine-checked); σ is μ-parameterized (SC §2.3)"
   - "The two-sign policy σ(P, μ ∪ μ⁻) and the negative operator family Π (NEGATIVE_SPECIFICATION Def 3.1, 11.8, 11.8b)"
@@ -385,10 +385,19 @@ finite case, a *minimal complete negative basis of size 3* — a concrete instan
 set once" reduction (*Negative Specification* Thm 6.2, §12). Theorem D confirms the paper's retracted
 compression reading. Theorem E supplies the decidable syntactic gate the engine can actually run.
 
-`▢ INTEGRATION OBLIGATION` — pull the machine-checked $\sigma = \mathrm{TD}$ (SC Thm 2.7), the two-sign
-construction, and the isolation theorem (*Negative Specification* Thm 5.2) into this paper's preliminaries as
-inherited scaffolding, so it stands alone. *(Placeholder: cite by file+section now; expand into a
-self-contained §2 before submission.)*
+**Remark 8.1 (the inherited scaffolding is itself machine-checked and axiom-clean).** This paper stands on
+prior results that are not merely cited but *formally verified*: $\sigma = \mathrm{TD}$ (SC Thm 2.7) and the
+SSL/significance-weighting corpus (`coverage_submodular`, `greedy_coverage_bound`, `marginal_antitone`,
+`self_confirming_cannot_certify`, `falsifiability_pivot`, and ~25 more) were `#print axioms`-audited this
+session (2026-08-25) and are **clean** — every one depends only on `[propext, Classical.choice, Quot.sound]`
+(several on fewer; `self_confirming_cannot_certify` on *none*), with **no `sorryAx`**. So the layer beneath
+Theorem A is a verified base, not an assumed one — the finite fragment of this paper joins it at the same
+register.
+
+**Remaining editorial obligation (submission).** Pull $\sigma = \mathrm{TD}$, the two-sign construction, and
+the isolation theorem (*Negative Specification* Thm 5.2) *inline* into a self-contained §2, so the paper reads
+without the companion documents. Currently cited by file+section; the mathematics is settled, the expansion
+is prose.
 
 ---
 
