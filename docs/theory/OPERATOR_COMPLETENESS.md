@@ -431,8 +431,8 @@ citing Turing/Rado).*
 | Result | Kind | Proof form | Status |
 |---|---|---|---|
 | Thm A.1 (characterization) | definitional (strong Def 2.3) | — | no obligation |
-| **Thm A.2 (n=2): `T2_generated`** | concrete constructive witness | **Lean → Aristotle** | ✅ **CLOSED by Aristotle, 0 sorries** (`0946336c…`); `#print axioms` audit owed |
-| **Thm A.2 (n=3, rank 3): `T3_generated_rank3`** | concrete constructive witness | **Lean → Aristotle** | ✅ **CLOSED by Aristotle, 0 sorries** (`932252e6…`); `#print axioms` audit owed |
+| **Thm A.2 (n=2): `T2_generated`** | concrete constructive witness | **Lean → Aristotle** | ✅ **CLOSED (0 sorries) + `#print axioms` AUDITED CLEAN**: `[propext, Classical.choice, Quot.sound]`, no `sorryAx` |
+| **Thm A.2 (n=3, rank 3): `T3_generated_rank3`** | concrete constructive witness | **Lean → Aristotle** | ✅ **CLOSED (0 sorries) + `#print axioms` AUDITED CLEAN**: `[propext, Classical.choice, Quot.sound]`, no `sorryAx` |
 | Thm A.2 (general $\operatorname{rank}T_n=3$) | inherited (Gomes–Howie 1987) | paper §3 (cite) | ✍ written; n=2,3 are the machine-checked instances |
 | Thm A.3 (finite decidability) | finite-iteration + Kozen (PSPACE) | paper §3 proof + Lean `instance` | ✍ written (proof of A.3) |
 | Thm B.1 (word-problem reduction) | **NEW, load-bearing** | **paper proof §4** (reduce to Post/Markov 1947) | ✍ written + **tightened (Lemma B.1a: word-problem ≤ membership ≤ completeness)**; remaining = concrete `List A` embedding (optional Aristotle pass). Lean axiom `pi_completeness_undecidable_infinite` records it |
@@ -446,15 +446,17 @@ citing Turing/Rado).*
 the undecidability axiom, corpus style) + manifest `…/operator_completeness_manifest.jsonl`. Closed proofs:
 `Semantic_Specification_Learning/proofs/{T2_generated,T3_generated_rank3}.lean` — both **CLOSED by Aristotle,
 `sorries_remaining = 0`** (2026-08-25), each discharging the finite enumeration by `decide`. The
-`#print axioms` audit is **owed** — currently blocked on the proofs-repo local Mathlib cache
-(`lake exe cache get`) and a backup-restore permission artifact in `.lake`; the same audit is owed on the
-corpus's existing 21 SSL proofs.
+`#print axioms` audit **PASSED CLEAN** (2026-08-25, after repairing the proofs-repo Mathlib cache and a
+macOS `com.apple.provenance` backup-restore artifact in `.lake`): both proofs depend on exactly
+`[propext, Classical.choice, Quot.sound]` — the standard Lean/Mathlib base — with **no `sorryAx`**.
 
 **Provenance.** The gap this paper fills was confirmed by a source-verified literature workflow (42/42
 sources, 2026-08-25; `LITERATURE_PI_COMPLETENESS.md`). The algebraic and computability results are classical
 and cited; the reduction of the finiteness dichotomy to $\Pi$-completeness (Thm B.1) and the dichotomy
 (Thm C) are this paper's contribution, delivered as **paper proofs citing the classical undecidability
 results** (not Lean, by design — see the strategy note). The finite constructive fragment (Thm A, n=2/3) is
-**machine-checked by Aristotle** (0 sorries; `#print axioms` audit owed). Register: *proved-modulo-audit* on
-the finite fragment, *rigorous-paper-proof* on B–E, two steps flagged for tightening. Do not cite as fully
-proven.
+**machine-checked and axiom-audited CLEAN** (Aristotle, 0 sorries; `#print axioms` =
+`[propext, Classical.choice, Quot.sound]`, no `sorryAx`). Register: *fully proven and audited* on the finite
+fragment; *rigorous paper proof* on B–E (with the two former gaps discharged as Lemmas B.1a, D.a). Remaining
+before submission: pull SC/SSL scaffolding inline (§8), and optionally a concrete `List A` embedding for B.1.
+Not peer-reviewed.
