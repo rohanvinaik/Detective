@@ -338,7 +338,9 @@ where $\mathrm{DOF}^{+}$ is pinned by positive intent tests (oracle: a grounded 
 returns $y$ on $x$"), $\mathrm{DOF}^{-}$ is pinned by the negative fence (oracle: the upper bound, "no
 correct implementation produces $(x,y)$"), and $\mathrm{DOF}^{0}$ is the residual on which no intent of
 either sign has a claim — every value consistent with $\mathrm{DOF}^{+} \cup \mathrm{DOF}^{-}$ is
-admissible.
+admissible. (Prop. 6.5 refines $\mathrm{DOF}^{0}$ further: being teacher-free does not make every point
+mechanically *synthesizable* — relative to the `--input` language it stratifies into
+reachable / expressible-but-hard / language-inexpressible, and only the first is automatic.)
 
 **Definition 4.2 (Solve/teach decomposition; cited).** Write $I_{\mathrm{solve}}(P)$ for the
 information required to resolve $\mathrm{DOF}(f)$ after structure has done all it can, and
@@ -443,6 +445,55 @@ teaching set, and the teaching set is the compressed formal statement of what th
 — intent, of both signs. The positive half of this was already the tool's stated boundary ("the human
 belongs at intent"); the negative half — the MUST-NOTs — is the part Theorem 6.2 newly names as equally
 teacher-supplied and, until now, leaked into the synthesis loop (Prop. 4.3).
+
+**Definition 6.4 (The synthesis input language $L$; the expressibility predicate).** The mechanical
+synthesis of Theorem 6.2 draws its witnesses not from all of $D$ but from a fixed *input language* $L$ —
+the `--input` literal allowlist (str / bool / int / float, and lists / tuples / sets / dicts nesting the
+same), chosen precisely so that "no arbitrary code execution" is a *checkable* property (§12). Write
+$\mathrm{expr}_L : D \to \{\top,\bot\}$ for the *decidable* predicate "this value is a term of $L$",
+answered against the value and not the (often absent) annotation — built as `equivalence.is_expressible`:
+a nested list of ints is $\top$; a `list[Account]`, a built engine state, or a `SourceExpr` dataclass
+constructor is $\bot$ (the constructor names a class the allowlist refuses).
+
+**Proposition 6.5 (DOF⁰ is not uniform — it stratifies by $L$, and the split is decidable).** Theorem 6.2
+says $\mathrm{DOF}^{0}$ is oracle-free, but *oracle-free is not cheap*. Relative to $L$, $\mathrm{DOF}^{0}$
+splits into three regimes by *why* input synthesis may fail to produce a distinguishing witness — none of
+which needs a teacher:
+1. **reachable$(L)$** — the default grid constructs the witness; $\hat\sigma = \sigma$ here, nothing to do.
+2. **expressible$(L)\setminus$reachable** — a distinguishing witness *is* a term of $L$ (a nested,
+   cross-referential literal) but the deterministic search does not construct it. This is the genuine
+   *synthesis-tractability frontier*: the Test-Cover hardness of Rem. 1.3b turned inward, from "which
+   tests" to "which inputs" (NP-hard reachability), attacked by *deterministic structural synthesis* — a
+   fixed cross-referential library (built: the B0 adjacency-topology retry, `engine._ADJACENCY_TOPOLOGIES`)
+   as a bounded down-payment, general grammar/constraint synthesis the open case.
+3. **$\lnot$expressible$(L)$** — the distinguishing witness is a *domain object outside $L$* (a `Relation`,
+   an `Account`, a built state), so *no* input synthesis reaches it, ever — not for hardness but by the
+   construction of $L$.
+
+$\mathrm{expr}_L$ is the **decidable separator** between (2) and (3). The resolution differs by regime:
+(1) is automatic; (2) is a *search* problem (more, and smarter, synthesis); (3) is a *representation*
+problem — closed only by supplying a value outside $L$ **by hand** (a *fixture*) or by *re-expressing the
+decision over $L$-terms* (the standard "extract the pure decision" move) so its witnesses re-enter $L$.
+Throwing synthesis at a regime-(3) residual is a category error. So Theorem 6.2's "computable" is not one
+thing: it is *total automation* on (1), a *tractability frontier* on (2), and a *representation obligation*
+on (3) — an inner boundary inside $\mathrm{DOF}^{0}$ the tool already computes but the two-region picture
+had not named.
+
+**Remark 6.6 (The false-equivalence hazard has two doors; only one is a synthesis problem).** A survivor
+with no witness found and no genuine equivalence is the hazard the negative sign fences: shown as
+`candidate-equivalent`, it invites a false `equivalent` flag — a $\hat\sigma \to \sigma$ overclaim (§9.5,
+§12.4). Prop. 6.5 says this residual arrives through *two distinct doors*. **Door (2)** — a
+worklist/fixpoint target whose witness is an *expressible* nested literal — is guarded by the
+`deep_structural` detector (`structural_input_difficulty`) and *attacked* by B0. **Door (3)** — a *flat*,
+under-annotated target whose witness is $L$-inexpressible (the measured case: `crystallize.serialize_rule`,
+whose 6 residuals sit behind `isinstance(fact, Relation)`, so no literal `--input` reaches them) — is
+guarded *only if the disposition consumes* $\mathrm{expr}_L$: `genuine_equivalent` (flag appropriate) must
+require flat $\wedge$ no-witness $\wedge$ *the witness would be expressible*, routing an inexpressible
+residual to a `fixture` / decision-extraction hand-back instead of a flag. This is the same
+false-equivalence bug B0 closed for door (2), closed for door (3). [Status: Prop. 6.5's stratification is
+ASSERTED — argued from the $L$/`is_expressible` boundary the tool already computes decidably; the door-(2)
+detector + B0 retry are BUILT (Detective `c898e0e`/`49b6ae0`); the door-(3) expressibility gate in
+`residual_disposition` is the identified, not-yet-built integrity increment (§18 Q10).]
 
 ---
 
@@ -1040,8 +1091,10 @@ regardless: monotonicity of forward closure (nearly free), and submodularity WIT
 The dense-graph constants ($L = 0.528$, the ~3% knee, the 28× drop) were measured on a *dense* IS-A graph
 and DO NOT transfer to a *sparse* obligation graph — measured, the sparse rule graph knees 3–12× later
 with a 3.5–8× softer drop; citing the dense constants for code would be wrong by an order of magnitude.
-[Conjecture: `bridge_curvature_bound`, a Lean TARGET; $d$ measured on the rule graph, unproved for the
-obstruction bound.]
+[`bridge_curvature_bound`: **CLOSED in Lean** (2026-08-24, `sorries_remaining: 0`), proved *locally* by
+Wayfinder — the clean geometric-contraction bound $\mathrm{opt} - \mathrm{gap}_k \ge (1 - e^{-1/(d+1)})\,\mathrm{opt}$,
+recovering $(1-1/e)$ at $d=0$; the `#print axioms` audit is the remaining gate, and $d$ on the *code*
+obstruction graph is still to be measured (§18 Q1/Q5).]
 
 **Proposition 14.7 (Admissibility is machine-checked, and it is the well-definedness condition).** A
 censor is admissible iff (i) it is *spine-sourced* — carved from an observed near-miss or a rejected-
@@ -1275,9 +1328,10 @@ these.
    no longer conjectured: `promotion_not_submodular` is measured constructively (Thm 14.4, $d \le 14$–$25$
    on six real pulls, the Macbeth $\kappa(\text{give}\mid\varnothing): 2\to3$ witness). Open is the
    POSITIVE bound — `bridge_curvature_bound`, greedy degrading in $d$ and recovering $(1-1/e)$ at $d=0$
-   (Feige–Izsak, or Golovin–Krause adaptive) — was a Lean TARGET, now **CLOSED** (2026-08-24) by the
-   Wayfinder → Aristotle pipeline: Wayfinder closed 8 of 9 subgoals locally in ~119s, Aristotle the single
-   residual (`sorries_remaining: 0`), saved to
+   (Feige–Izsak, or Golovin–Krause adaptive) — was a Lean TARGET, now **CLOSED** (2026-08-24): Wayfinder
+   closed it **entirely locally** (~119s) — it is the *one* theorem of this session's 21-proof batch that
+   needed no Aristotle residual (absent from the Aristotle collection list), `sorries_remaining: 0`, the
+   proved statement $\mathrm{opt}-\mathrm{gap}_k \ge (1-e^{-1/(d+1)})\mathrm{opt}$ saved to
    `Semantic_Specification_Learning/proofs/bridge_curvature_bound.lean`; the independent `#print axioms`
    audit is the remaining gate. Measure $d$ on the *code* obligation graph once Q1 fixes it.
 6. **Build ordering (μ⁻ realizations — largely closed).** Form A + Fork 1, Fork 2, and Form B are all
@@ -1301,6 +1355,17 @@ these.
    the consolidation-as-free-energy reading (Prop. 15.5) are CONJECTURE pending the entropy-bit machinery
    ($H_0$, $L(D)$, $I_{\mathrm{solve}}$ in bits); the built quantities are coverage analogs. And
    `safe_forget_preserves_sigma_sem` (Thm 15.4's transport) is an unproved Lean target.
+10. **The expressibility boundary inside DOF⁰ (Prop. 6.5) and the door-(3) fixture gate.** The refinement
+    of §6 names an inner, *decidable* boundary in the mechanical residual: reachable / expressible-but-hard
+    / $L$-inexpressible. Two build items fall out, of different sizes. (a) **The integrity increment (small,
+    scoped):** teach `residual_disposition` to consume $\mathrm{expr}_L$ so a *flat but $L$-inexpressible*
+    residual routes to a `fixture` hand-back, never `genuine_equivalent`/flag — closing the
+    false-equivalence door B0 left open for the non-worklist case (the `serialize_rule` witness). This is
+    the door-(3) guard, and it is the honest closure of the `serialize_rule` residuals (a *representation*
+    fix — fixture or decision-extraction — never more synthesis). (b) **The open frontier (B1):** general
+    deterministic structural synthesis over the *expressible-but-hard* band — arbitrary depth, arbitrary
+    index relations, beyond B0's fixed adjacency library. Band (a) is buildable now; band (b) stays the
+    open synthesis problem, not folded in.
 
 ---
 
@@ -1315,7 +1380,17 @@ built / measured / conjectured separate for every claim the added sections make.
 and decidability (SC Thm 2.5); greedy = Angluin exact learner (SC Thm 4.3); the DOF singleton-cover exact
 optimality and `coverage_submodular`, `marginal_antitone`, `greedy_coverage_bound`,
 `resolution_bulk_bounded` — **all over a fixed ground structure only (Def. 10.2, Thm 14.4)**;
-`self_confirming_cannot_certify`, `falsifiability_pivot` (the admissibility guard, Prop. 14.7).
+`self_confirming_cannot_certify`, `falsifiability_pivot` (the admissibility guard, Prop. 14.7 — the SSL
+claim is now *backed in Lean this session*; see the "Machine-checked this session" block below).
+
+**Machine-checked this session (Wayfinder → Aristotle, 2026-08-24; `sorries_remaining: 0`, the `#print
+axioms` audit OWED — proved-modulo-audit, not audited).** Three Lean obligations this document cites were
+discharged this session, part of a 21-theorem SSL/Ansatz batch closed the same way:
+`bridge_curvature_bound` (Def. 14.6, the bounded-curvature positive bound $\mathrm{opt}-\mathrm{gap}_k \ge
+(1-e^{-1/(d+1)})\mathrm{opt}$) — closed **entirely locally** by Wayfinder, the one of the 21 needing no
+Aristotle residual; and the admissibility guard `self_confirming_cannot_certify` + `falsifiability_pivot`
+(Prop. 9.4/14.7) — closed by Aristotle from a Wayfinder-reduced residual. Until the `#print axioms` audit
+runs, the paper cites these at the proved-modulo-audit register, never as audited.
 
 **Transported (argued here from cited priors, not re-proved).** Prop. 2.2 (positive policies are
 one-sign); Prop. 2.5 (μ⁻ is a second instantiation, no new metatheory); Theorem 5.2 (channel isolation);
@@ -1389,8 +1464,9 @@ Uroboros (Def. 13.6) — designed; the backward pass is unrun and no trained two
 entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5, §18 Q9);
 `safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition (Def. 7.3), needed
 only once a degenerate-measure case lands. [κ-for-code (Q1) and the greenfield persisted contract (Q8) are
-now BUILT — see the 2026-08-23 Built block above; `bridge_curvature_bound` (Def. 14.6) is now CLOSED by
-the Wayfinder → Aristotle pipeline (2026-08-24, `sorries_remaining: 0`, pending the `#print axioms` audit).]
+now BUILT — see the 2026-08-23 Built block above; `bridge_curvature_bound` (Def. 14.6) and the
+admissibility guard `self_confirming_cannot_certify`/`falsifiability_pivot` are now CLOSED in Lean — see
+the "Machine-checked this session" block above (2026-08-24, `sorries_remaining: 0`, `#print axioms` owed).]
 
 **Asserted (interpretations, argued not proved).** "σ makes SICP computable" as a *phrasing*
 (`thesis_vision.md`, not read; the *mechanism* is proved, Prop. 15.3). The identification of ESL's
