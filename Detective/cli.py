@@ -3473,17 +3473,21 @@ def exit_code_meaning(code: int) -> str:
     }.get(code, "unknown")
 
 
+def _with_exit(payload: dict, code: int) -> dict:
+    """Enrich a ``--json`` verdict with its self-describing exit field (#16): ``exit_code`` +
+    ``exit_meaning``, so a consumer branches on the FIELD, never the process status it may not see nor
+    the human `_EXIT_CODES` epilog it would have to parse. Wrap a payload where it is already
+    ``json.dumps``-ed — ``json.dumps(_with_exit(payload, code), …)`` — so the field rides along without
+    disturbing the payload's own (possibly nested) shape."""
+    return {**payload, "exit_code": code, "exit_meaning": exit_code_meaning(code)}
+
+
 def _emit_json(payload: dict, code: int) -> int:
-    """The ONE funnel for a ``--json`` verdict (#16): inject the self-describing ``exit_code`` +
-    ``exit_meaning`` (so a consumer branches on the FIELD, never the un-seen process status), print, and
-    RETURN the code — so a verb's `--json` ending is `return _emit_json(payload, code)`, the payload and
-    its exit status minted at one point and unable to disagree. A structural test asserts every verdict
-    emission goes through here, so a new verb cannot ship a code its `--json` reader cannot see."""
-    print(
-        json.dumps(
-            {**payload, "exit_code": code, "exit_meaning": exit_code_meaning(code)}, indent=2, default=str
-        )
-    )
+    """The print+return funnel for a ``--json`` verdict (#16): enrich, print, and RETURN the code — so a
+    verb's `--json` ending is `return _emit_json(payload, code)`, the payload and its exit status minted
+    at one point and unable to disagree. A structural test asserts every verdict emission carries the
+    field, whether via this funnel or a ``json.dumps(_with_exit(...))`` wrap where the dumps already sits."""
+    print(json.dumps(_with_exit(payload, code), indent=2, default=str))
     return code
 
 
@@ -4358,20 +4362,17 @@ def _run_live(args) -> int:
     if context.disposition == "wrong_interpreter":
         detail = _format_execution_refusal(context)
         if getattr(args, "json", False):
-            print(
-                json.dumps(
-                    {
-                        "verdict": "REFUSED",
-                        "reason": "wrong_interpreter",
-                        "active_environment": context.active_environment,
-                        "executable": context.executable,
-                        "detail": detail.strip(),
-                    },
-                    indent=2,
-                )
+            return _emit_json(
+                {
+                    "verdict": "REFUSED",
+                    "reason": "wrong_interpreter",
+                    "active_environment": context.active_environment,
+                    "executable": context.executable,
+                    "detail": detail.strip(),
+                },
+                2,
             )
-        else:
-            sys.stderr.write(detail)
+        sys.stderr.write(detail)
         return 2
     # Resolve the testing regime BEFORE the session — the session is the expensive part, and
     # tracing a suite that cannot reach the target is the longest possible way to learn nothing.
@@ -4471,21 +4472,18 @@ def _run_live(args) -> int:
         # measured and the command exits non-zero, and a `--json` caller gets a typed refusal.
         if reason == "collection_errors":
             if getattr(args, "json", False):
-                print(
-                    json.dumps(
-                        {
-                            "verdict": "REFUSED",
-                            "reason": "collection_errors",
-                            "detail": "suite could not be collected — nothing measured; fix and re-run",
-                        },
-                        indent=2,
-                    )
+                return _emit_json(
+                    {
+                        "verdict": "REFUSED",
+                        "reason": "collection_errors",
+                        "detail": "suite could not be collected — nothing measured; fix and re-run",
+                    },
+                    2,
                 )
-            else:
-                sys.stderr.write(
-                    "  REFUSED: the suite could not be collected, so nothing was measured — "
-                    "fix the error above and re-run.\n"
-                )
+            sys.stderr.write(
+                "  REFUSED: the suite could not be collected, so nothing was measured — "
+                "fix the error above and re-run.\n"
+            )
             return 2
         # CARRY THE REASON PAST THE FALLBACK. This warning used to be the only trace that the
         # suite never ran: `diagnostic` is a local, `_run` takes only `args`, and the renderer
@@ -4852,36 +4850,35 @@ def _run_decompose(args, file, function) -> int:
         notify=None if args.json else _notify_stderr,
     )
     if args.json:
-        print(json.dumps(asdict(result), indent=2, default=str))
-    else:
-        text = _format_decompose(result, args.apply, args.target, args.project_root)
-        # Persist the full outcome — especially a REFUSAL, which otherwise leaves no
-        # artifact and can only be re-diagnosed by re-running the slowest command here.
-        #
-        # The FILE is the full artifact and the terminal stays minimal — the split
-        # converge already makes (`_format_converge_terse` to the screen, the complete
-        # `_format_converge` to disk). Decompose printed and persisted the SAME string,
-        # so "full report" named a byte-identical copy of what the reader had just
-        # scrolled past, and the one command that promises more delivered less. The
-        # proof run is where the detail lives: per-pass, every survivor, the generated
-        # source. Absent on a refusal that never got to converge, and then the outcome
-        # text is genuinely all there is.
-        detail = text
-        if getattr(result, "proof", None) is not None:
-            detail = "\n".join(
-                [
-                    text,
-                    "",
-                    _RULE,
-                    "PROOF RUN — the converge this decomposition was validated against",
-                    _RULE,
-                    _format_converge(result.proof, show_tests=True),
-                ]
-            )
-        rel = _write_converge_report(args.project_root, function, detail, prefix="decompose")
-        if rel:
-            _notify_stderr(f"full report: {rel}")
-        print(text)
+        return _emit_json(asdict(result), 3 if getattr(result, "budget_exhausted", False) else 0)
+    text = _format_decompose(result, args.apply, args.target, args.project_root)
+    # Persist the full outcome — especially a REFUSAL, which otherwise leaves no
+    # artifact and can only be re-diagnosed by re-running the slowest command here.
+    #
+    # The FILE is the full artifact and the terminal stays minimal — the split
+    # converge already makes (`_format_converge_terse` to the screen, the complete
+    # `_format_converge` to disk). Decompose printed and persisted the SAME string,
+    # so "full report" named a byte-identical copy of what the reader had just
+    # scrolled past, and the one command that promises more delivered less. The
+    # proof run is where the detail lives: per-pass, every survivor, the generated
+    # source. Absent on a refusal that never got to converge, and then the outcome
+    # text is genuinely all there is.
+    detail = text
+    if getattr(result, "proof", None) is not None:
+        detail = "\n".join(
+            [
+                text,
+                "",
+                _RULE,
+                "PROOF RUN — the converge this decomposition was validated against",
+                _RULE,
+                _format_converge(result.proof, show_tests=True),
+            ]
+        )
+    rel = _write_converge_report(args.project_root, function, detail, prefix="decompose")
+    if rel:
+        _notify_stderr(f"full report: {rel}")
+    print(text)
     # 3 on a CUT proof (issue #31), mirroring converge: the run did not complete its
     # proof within the wall, so CI must tell it apart from a clean "nothing to decompose".
     return 3 if getattr(result, "budget_exhausted", False) else 0
@@ -4908,26 +4905,23 @@ def _run_audit(args, file, function) -> int:
         tier1 = trace_tier(file, function, args.project_root, trace_progress=_stream_trace_progress(function))
         est_s = mutation_estimate_seconds(tier1.mutant_count, _read_per_mutant_ms())
         if args.json:
-            print(
-                json.dumps(
-                    {
-                        "kind": "audit-plan",
-                        "note": "schedule (advisory) — tiers 0-1 measured, tier 2 estimated, not mutated",
-                        "function": tier1.function,
-                        "tier0_static": _static or None,
-                        "tier1": {
-                            "tests_reaching": tier1.tests_reaching,
-                            "tests_total": tier1.tests_total,
-                            "covered_lines": tier1.covered_lines,
-                            "executable_lines": tier1.executable_lines,
-                        },
-                        "tier2": {"mutant_count": tier1.mutant_count, "estimate_seconds": est_s},
+            return _emit_json(
+                {
+                    "kind": "audit-plan",
+                    "note": "schedule (advisory) — tiers 0-1 measured, tier 2 estimated, not mutated",
+                    "function": tier1.function,
+                    "tier0_static": _static or None,
+                    "tier1": {
+                        "tests_reaching": tier1.tests_reaching,
+                        "tests_total": tier1.tests_total,
+                        "covered_lines": tier1.covered_lines,
+                        "executable_lines": tier1.executable_lines,
                     },
-                    indent=2,
-                )
+                    "tier2": {"mutant_count": tier1.mutant_count, "estimate_seconds": est_s},
+                },
+                0,
             )
-        else:
-            print(_format_audit_plan(function, _static, tier1, est_s))
+        print(_format_audit_plan(function, _static, tier1, est_s))
         return 0
 
     # Tier 0 first (issue #52): the ~0s static read, streamed the instant the file parses, so
@@ -4968,7 +4962,7 @@ def _run_audit(args, file, function) -> int:
             "exit": gate_exit,
         }
     print(
-        json.dumps(payload, indent=2, default=str)
+        json.dumps(_with_exit(payload, gate_exit if check else 0), indent=2, default=str)
         if args.json
         else _format_audit(report, removing=bool(args.remove and report.redundant_tests))
     )
@@ -5083,15 +5077,15 @@ def _run_converge(args, file, function) -> int:
         notify=_notify_stderr,
     )
     if args.json:
-        print(json.dumps(asdict(result), indent=2, default=str))
         # 3 for either invalid-measurement stamp: a stale target (issue #17) or a
         # deadline CUT (issue #31) both mean "this run's numbers are partial — re-run".
-        return (
+        return _emit_json(
+            asdict(result),
             3
             if result.stale_target
             or result.budget_exhausted
             or (result.verification is not None and not result.verification.ok)
-            else 0
+            else 0,
         )
     # The full report always goes to a readable file; the terminal stays minimal
     # (a banner + the one quick action) unless --full is asked for. The FILE is always
@@ -5152,17 +5146,14 @@ def _run_flag_line(args, file, function) -> int:
         if args.list:
             statuses = flag_statuses(args.project_root, func_key, node)
             if args.json:
-                print(
-                    json.dumps(
-                        {
-                            "action": "list",
-                            "function": func_key,
-                            "flags": [{**asdict(f), "status": s} for f, s in statuses],
-                        },
-                        indent=2,
-                    )
+                return _emit_json(
+                    {
+                        "action": "list",
+                        "function": func_key,
+                        "flags": [{**asdict(f), "status": s} for f, s in statuses],
+                    },
+                    0,
                 )
-                return 0
             print(f"{func_key} — flag-line · {len(statuses)} record(s)")
             for f, status in statuses:
                 note = f"  ({f.note})" if f.note else ""
@@ -5172,13 +5163,10 @@ def _run_flag_line(args, file, function) -> int:
             return 0
         removed = clean_orphaned_flags(args.project_root, func_key, node)
         if args.json:
-            print(
-                json.dumps(
-                    {"action": "clean", "function": func_key, "removed": [asdict(f) for f in removed]},
-                    indent=2,
-                )
+            return _emit_json(
+                {"action": "clean", "function": func_key, "removed": [asdict(f) for f in removed]},
+                0,
             )
-            return 0
         print(f"{func_key} — flag-line --clean")
         for f in removed:
             print(f"  removed orphaned record: line {f.line}: {f.source}")
@@ -5192,17 +5180,14 @@ def _run_flag_line(args, file, function) -> int:
     if args.remove:
         removed_flag = remove_line_flag(args.project_root, func_key, node, args.line)
         if args.json:
-            print(
-                json.dumps(
-                    {
-                        "action": "remove",
-                        "function": func_key,
-                        "removed": asdict(removed_flag) if removed_flag else None,
-                    },
-                    indent=2,
-                )
+            return _emit_json(
+                {
+                    "action": "remove",
+                    "function": func_key,
+                    "removed": asdict(removed_flag) if removed_flag else None,
+                },
+                0 if removed_flag else 1,
             )
-            return 0 if removed_flag else 1
         if removed_flag is None:
             print(f"detective: no flag recorded at line {args.line} for {func_key}")
             return 1
@@ -5215,22 +5200,19 @@ def _run_flag_line(args, file, function) -> int:
     if flag is None:
         span = f"{node.lineno}-{node.end_lineno}"
         if args.json:
-            print(
-                json.dumps(
-                    {
-                        "action": "add",
-                        "function": func_key,
-                        "line": args.line,
-                        "error": f"not a statement of {function} (lines {span})",
-                    }
-                )
+            return _emit_json(
+                {
+                    "action": "add",
+                    "function": func_key,
+                    "line": args.line,
+                    "error": f"not a statement of {function} (lines {span})",
+                },
+                1,
             )
-            return 1
         print(f"detective: line {args.line} is not a statement of {function} (lines {span})")
         return 1
     if args.json:
-        print(json.dumps({"action": "add", "function": func_key, **asdict(flag)}, indent=2))
-        return 0
+        return _emit_json({"action": "add", "function": func_key, **asdict(flag)}, 0)
     suffix = f" ({args.note})" if args.note else ""
     print(f"{func_key} — flag-line · line {args.line}")
     print("")
@@ -5326,7 +5308,9 @@ def _run_verify_rewrite(args, file, function) -> int:
             abstentions=(),
             note=reason,
         )
-        print(res.to_json() if args.json else _format_rewrite(res))
+        if args.json:
+            return _emit_json(asdict(res), 1)
+        print(_format_rewrite(res))
         return 1
 
     try:
@@ -5349,7 +5333,14 @@ def _run_verify_rewrite(args, file, function) -> int:
         receipt, file, function, args.project_root, notify=None if args.json else _notify_stderr
     )
     if args.json:
-        print(result.to_json())
+        # WRAP, not early-return: the --learn persistence below runs under --json too.
+        print(
+            json.dumps(
+                _with_exit(asdict(result), 0 if result.verdict == "PRESERVED" else 1),
+                indent=2,
+                default=str,
+            )
+        )
     else:
         print(_format_rewrite(result))
     # --learn (#17): a CHANGED rewrite is §9's SECOND spine source. `learn_disposition` is the
@@ -5415,7 +5406,9 @@ def _run_diagnose(args, file, function) -> int:
         include_shaped=args.include_shaped,
         two_sign=args.two_sign,
     )
-    print(json.dumps(asdict(scope), indent=2, default=str) if args.json else _format_scope(scope))
+    if args.json:
+        return _emit_json(asdict(scope), 0)
+    print(_format_scope(scope))
     return 0
 
 
@@ -5434,26 +5427,23 @@ def _run_censor(args) -> int:
     if args.list:
         entries = load_ledger(args.project_root)
         if args.json:
-            print(
-                json.dumps(
-                    {
-                        "kind": "censor-ledger",
-                        "count": len(entries),
-                        "entries": {
-                            k: {
-                                "censor": asdict(e.censor),
-                                "kappa": e.kappa,
-                                "state": e.state,
-                                "generation": e.generation,
-                            }
-                            for k, e in entries.items()
-                        },
+            return _emit_json(
+                {
+                    "kind": "censor-ledger",
+                    "count": len(entries),
+                    "entries": {
+                        k: {
+                            "censor": asdict(e.censor),
+                            "kappa": e.kappa,
+                            "state": e.state,
+                            "generation": e.generation,
+                        }
+                        for k, e in entries.items()
                     },
-                    indent=2,
-                )
+                },
+                0,
             )
-        else:
-            print(_format_censor_list(entries))
+        print(_format_censor_list(entries))
         return 0
 
     censors = harvest_corpus_censors(args.project_root, args.path)
@@ -5465,29 +5455,26 @@ def _run_censor(args) -> int:
             store[ledger_key(e.censor)] = e
         save_ledger(args.project_root, store)
         if args.json:
-            print(
-                json.dumps(
-                    {
-                        "kind": "censor-promote",
-                        "proposed": len(censors),
-                        "generations": result["generations"],
-                        "n_demoted": result["n_demoted"],
-                        "self_teaching": result["self_teaching"],
-                        "promoted": [
-                            {
-                                "key": ledger_key(e.censor),
-                                "censor": asdict(e.censor),
-                                "kappa": e.kappa,
-                                "generation": e.generation,
-                            }
-                            for e in result["promoted"]
-                        ],
-                    },
-                    indent=2,
-                )
+            return _emit_json(
+                {
+                    "kind": "censor-promote",
+                    "proposed": len(censors),
+                    "generations": result["generations"],
+                    "n_demoted": result["n_demoted"],
+                    "self_teaching": result["self_teaching"],
+                    "promoted": [
+                        {
+                            "key": ledger_key(e.censor),
+                            "censor": asdict(e.censor),
+                            "kappa": e.kappa,
+                            "generation": e.generation,
+                        }
+                        for e in result["promoted"]
+                    ],
+                },
+                0,
             )
-        else:
-            print(_format_censor_promote(result, len(censors)))
+        print(_format_censor_promote(result, len(censors)))
         return 0
 
     ledger = build_ledger(args.project_root, censors)
@@ -5497,29 +5484,26 @@ def _run_censor(args) -> int:
         (ledger_key(e.censor), e.censor, e.kappa, score_censor(e.censor, e.kappa or 0, 1)) for e in ledger
     ]
     if args.json:
-        print(
-            json.dumps(
-                {
-                    "kind": "censor-proposal",
-                    "proposed": len(censors),
-                    "censors": [
-                        {
-                            "key": k,
-                            "func_key": c.func_key,
-                            "kind": c.kind,
-                            "subject": c.subject,
-                            "source": c.source,
-                            "kappa": kap,
-                            "disposition": disp,
-                        }
-                        for k, c, kap, disp in rows[: args.top]
-                    ],
-                },
-                indent=2,
-            )
+        return _emit_json(
+            {
+                "kind": "censor-proposal",
+                "proposed": len(censors),
+                "censors": [
+                    {
+                        "key": k,
+                        "func_key": c.func_key,
+                        "kind": c.kind,
+                        "subject": c.subject,
+                        "source": c.source,
+                        "kappa": kap,
+                        "disposition": disp,
+                    }
+                    for k, c, kap, disp in rows[: args.top]
+                ],
+            },
+            0,
         )
-    else:
-        print(_format_censor_proposal(rows, total=len(censors), top=args.top))
+    print(_format_censor_proposal(rows, total=len(censors), top=args.top))
     return 0
 
 
@@ -5532,34 +5516,30 @@ def _run_parsimony(args) -> int:
         # per group), worst-first, so a driver spends a finite budget where it pays off first.
         if args.json:
             groups = parsimony_plan(score)
-            print(
-                json.dumps(
-                    {
-                        "kind": "parsimony-plan",
-                        "note": "schedule (advisory) — ranks no quality, proves nothing, writes nothing",
-                        "functions": score.functions,
-                        "flagged": score.flagged,
-                        "trace_groups": len(groups),
-                        "groups": [
-                            {
-                                "module": module,
-                                "one_baseline_trace": True,
-                                "targets": [
-                                    {"target": r.qualname, "smells": r.smells, "detail": r.detail}
-                                    for r in reads
-                                ],
-                            }
-                            for module, reads in groups[: args.top]
-                        ],
-                    },
-                    indent=2,
-                )
+            return _emit_json(
+                {
+                    "kind": "parsimony-plan",
+                    "note": "schedule (advisory) — ranks no quality, proves nothing, writes nothing",
+                    "functions": score.functions,
+                    "flagged": score.flagged,
+                    "trace_groups": len(groups),
+                    "groups": [
+                        {
+                            "module": module,
+                            "one_baseline_trace": True,
+                            "targets": [
+                                {"target": r.qualname, "smells": r.smells, "detail": r.detail} for r in reads
+                            ],
+                        }
+                        for module, reads in groups[: args.top]
+                    ],
+                },
+                0,
             )
-        else:
-            print(_format_parsimony_plan(score, top=args.top))
+        print(_format_parsimony_plan(score, top=args.top))
         return 0
     if args.json:
-        print(json.dumps(asdict(score), indent=2, default=str))
+        print(json.dumps(_with_exit(asdict(score), 0), indent=2, default=str))
     else:
         print(_format_parsimony_map(score, top=args.top))
     return 0
@@ -5593,9 +5573,8 @@ def _run_regime(args) -> int:
         regime = resolve_regime(args.project_root, target_file)
         plan = plan_migration(regime)
     if args.json:
-        print(json.dumps({"regime": _asdict(regime), "applied": list(applied)}, indent=2, default=str))
-    else:
-        print(_format_regime(regime, plan, applied, args.target))
+        return _emit_json({"regime": _asdict(regime), "applied": list(applied)}, 2 if regime.conflicts else 0)
+    print(_format_regime(regime, plan, applied, args.target))
     # A conflict is the answer, not a crash: exit 2 so a script can gate on it, the same
     # code every other command returns when it refuses for the same reason.
     return 2 if regime.conflicts else 0
@@ -5614,8 +5593,8 @@ def _run_purge(args) -> int:
     removed = tuple(w_removed) + tuple(d_removed)
     reclaimed = w_reclaimed + d_reclaimed
     if args.json:
-        print(json.dumps({"removed": list(removed), "reclaimed_bytes": reclaimed}))
-    elif removed:
+        return _emit_json({"removed": list(removed), "reclaimed_bytes": reclaimed}, 0)
+    if removed:
         print(f"purged {len(removed)} cache file(s), reclaimed {reclaimed // 1024} KB:")
         for path in removed:
             print(f"  - {path}")
