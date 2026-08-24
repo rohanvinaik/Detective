@@ -20,6 +20,7 @@ now minted ONLY when the mutation was REACHED over EXPRESSIBLE inputs.
 
 from __future__ import annotations
 
+import Detective.engine as engine
 from Detective.engine import classify_survivors
 from Detective.equivalence import _reached_lines, residual_disposition
 
@@ -70,7 +71,10 @@ def _write_pick(tmp_path) -> str:
     return str(tmp_path)
 
 
-def test_unreached_candidate_equivalent_is_marked_and_never_flag_safe(tmp_path):
+def test_unreached_candidate_equivalent_is_marked_and_never_flag_safe(tmp_path, monkeypatch):
+    # Isolate the reachability SIGNAL from B1's guard-directed search (which would otherwise KILL these
+    # very survivors — its own test): with B1 off, the unreached residual persists to be marked.
+    monkeypatch.setattr(engine, "guard_retry_gate", lambda *a, **k: "skip")
     rep = classify_survivors("pick.py", "pick", _write_pick(tmp_path), deadline_s=None)
     # The mutants on `items[5] * 100` sit behind `len(items) > 5`; the grid never builds a long enough
     # list, so the ORIGINAL never executes that line — those survivors come back reached=False.
@@ -87,9 +91,11 @@ def test_unreached_candidate_equivalent_is_marked_and_never_flag_safe(tmp_path):
         )
 
 
-def test_reachability_is_sign_agnostic_marks_two_sign_survivors_too(tmp_path):
+def test_reachability_is_sign_agnostic_marks_two_sign_survivors_too(tmp_path, monkeypatch):
     # The signal gates ANY candidate-equivalent, positive OR μ⁻: the two-sign run marks `reached` the
-    # same way (an OUTPUT perturbation behind the unreached branch is not flag-safe either).
+    # same way (an OUTPUT perturbation behind the unreached branch is not flag-safe either). B1 off, as
+    # above, so the unreached residual is observable rather than killed.
+    monkeypatch.setattr(engine, "guard_retry_gate", lambda *a, **k: "skip")
     rep = classify_survivors("pick.py", "pick", _write_pick(tmp_path), deadline_s=None, two_sign=True)
     assert any(not v.reached for v in rep.candidate_equivalent), (
         "the two-sign run must also mark the unreached survivors reached=False"

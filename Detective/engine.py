@@ -1874,6 +1874,150 @@ def structural_retry_gate(
     return "run"
 
 
+def guard_comparison_target(op: str, const: int) -> int | None:
+    """The integer a variable must take to satisfy a simple comparison guard ``<var> OP const``
+    (B1 guard-directed synthesis, #15 F0 — pure, pinned).
+
+    A reachability-identified survivor sits behind a branch the grid never entered; the branch's OWN
+    guard names the reaching condition, so for a comparison against a constant we synthesize the single
+    adjacent integer that satisfies it. For ``len(<var>) OP const`` the same target is the LENGTH the
+    container must have (the caller builds a list of it). None when the operator is not one a single
+    adjacent integer satisfies — the honest limit that keeps this bounded, leaving the survivor a caveat
+    rather than a fabricated kill.
+
+      ">": const+1   "<": const-1   ">=": const   "<=": const   "==": const   "!=": const+1
+    """
+    if op == ">":
+        return const + 1
+    if op == "<":
+        return const - 1
+    if op in (">=", "==", "<="):
+        return const
+    if op == "!=":
+        return const + 1
+    return None
+
+
+def guard_retry_gate(has_candidate_equivalent: bool, has_effects: bool, wall_exhausted: bool) -> str:
+    """Whether to run the B1 guard-directed retry after the first pass (and B0) left a candidate-
+    equivalent (#15 F0, pure — pinned). A named code, never a bool.
+
+    Like B0's gate, the synthesized inputs are OUR fabrications, so the retry obeys the same two gates
+    the fabricated grid pool does: never on an effectful target — a guard-satisfying value CALLS the
+    target, damage not a guess — and never once the aggregate wall is gone (#31: a cut run keeps its
+    first-pass verdicts). And there is nothing to gain when no candidate-equivalent remains to upgrade.
+
+      "run"   a candidate-equivalent remains and the search is safe
+      "skip"  nothing left to upgrade, effectful, or wall exhausted
+    """
+    if not has_candidate_equivalent:
+        return "skip"
+    if has_effects:
+        return "skip"
+    if wall_exhausted:
+        return "skip"
+    return "run"
+
+
+_GUARD_OPS: dict[type, str] = {
+    ast.Gt: ">",
+    ast.Lt: "<",
+    ast.GtE: ">=",
+    ast.LtE: "<=",
+    ast.Eq: "==",
+    ast.NotEq: "!=",
+}
+
+
+def _guard_pins(node: ast.AST, lineno: int, params: list[str]) -> dict[int, Any]:
+    """B1: {param-index -> a value that satisfies the SIMPLE comparison guard gating ``lineno``}.
+
+    Handles ``<param> OP const`` (the param, an int, takes the adjacent value) and ``len(<param>) OP
+    const`` (the param, a list, takes ``[1..target]`` — a non-trivial list of the target length, so a
+    value-mutant on its elements is distinguishable, not zeroed out). Only the branch tests that ENCLOSE
+    ``lineno`` (``if``/``while`` whose body spans it), matching :func:`_line_guards`. Anything else — a
+    boolean op, a call, a non-int constant, a comparison against a non-param — is left un-pinned: the
+    honest bound that keeps a survivor a caveat rather than a fabricated kill.
+    """
+
+    def _spans(stmts: list) -> bool:
+        return any(
+            getattr(s, "lineno", 1 << 30) <= lineno <= getattr(s, "end_lineno", getattr(s, "lineno", -1))
+            for s in stmts
+        )
+
+    pins: dict[int, Any] = {}
+    for n in ast.walk(node):
+        body = getattr(n, "body", None)
+        if not (isinstance(n, (ast.If, ast.While)) and body and _spans(body)):
+            continue
+        test = n.test
+        if not (isinstance(test, ast.Compare) and len(test.ops) == 1 and len(test.comparators) == 1):
+            continue
+        op = _GUARD_OPS.get(type(test.ops[0]))
+        right = test.comparators[0]
+        if op is None or not (isinstance(right, ast.Constant) and isinstance(right.value, int)):
+            continue
+        left = test.left
+        target = guard_comparison_target(op, right.value)
+        if target is None:
+            continue
+        if isinstance(left, ast.Name) and left.id in params:
+            pins[params.index(left.id)] = target
+        elif (
+            isinstance(left, ast.Call)
+            and isinstance(left.func, ast.Name)
+            and left.func.id == "len"
+            and len(left.args) == 1
+            and isinstance(left.args[0], ast.Name)
+            and left.args[0].id in params
+            and target >= 0
+        ):
+            pins[params.index(left.args[0].id)] = list(range(1, target + 1))
+    return pins
+
+
+def _guard_directed_inputs(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict, target_lines: frozenset[int]
+) -> list[tuple]:
+    """B1 (#15 F0): full positional-arg tuples that satisfy the simple comparison guard gating each
+    target line, so a reachability-identified survivor behind ``len(x) > 5`` / ``x == 42`` is actually
+    REACHED. Each tuple pins the guarded parameter(s) to a satisfying value and takes the ordinary grid
+    default elsewhere. Empty when no target line has a synthesizable guard — the honest limit.
+
+    These are OUR fabrications, so the caller applies the same world-effects gate the rest of the
+    fabricated pool obeys; the search is positive-only, so an input that distinguishes a survivor
+    upgrades it to a proven KILL and one that does not leaves the residual exactly as it was.
+    """
+    params = [
+        a.arg for a in getattr(getattr(node, "args", None), "args", []) or [] if a.arg not in ("self", "cls")
+    ]
+    if not params:
+        return []
+    grids = _input_grids(node, namespace)
+    base = [g[0] if g else 0 for g in grids]
+    seen: set[tuple] = set()
+    out: list[tuple] = []
+    for ln in target_lines:
+        pins = _guard_pins(node, ln, params)
+        if not pins:
+            continue
+        args = list(base)
+        for i, v in pins.items():
+            if i < len(args):
+                args[i] = v
+        try:
+            key = tuple(tuple(a) if isinstance(a, list) else a for a in args)
+        except TypeError:
+            key = None
+        if key is not None and key in seen:
+            continue
+        if key is not None:
+            seen.add(key)
+        out.append(tuple(args))
+    return out
+
+
 def search_pool_admission(is_hermetic: bool, include_shaped: bool) -> str:
     """Whether a candidate test enters the SPECULATIVE widen pool — the converge/diagnose
     kill-measurement that speculatively traces unconfirmed reachers (shaped-defer, pure — pinned).
@@ -2392,6 +2536,36 @@ def classify_survivors(
                 if witness_args:
                     expressible = all(is_expressible(a) for args in witness_args for a in args)
 
+    # The mutated line of each survivor — shared by the B1 guard-directed search and the reachability pass.
+    _id_line = {r.get("mutant_id"): r.get("mutated_line") for r in survivors}
+
+    # B1 (#15 F0): guard-directed active search — the generalization of B0 from a fixed topology library
+    # to the SIMPLE comparison guard a candidate-equivalent sits behind (``len(x) > 5``, ``x == 42``). The
+    # scalar grid never entered that branch, so the mutation is unreached; an input satisfying the guard,
+    # read off the branch's OWN AST, reaches it. Retry positive-only through _classify_pool (adopt only a
+    # NEW kill, so never a false COMPLETE). The differential / domain-object reach stays the open frontier
+    # (a fixture caveat), exactly as B0 left general worklist synthesis.
+    _guard = guard_retry_gate(
+        any(not v.killable and not v.crash_only for v in verdicts), bool(effects), _cls_exhausted()
+    )
+    if _guard == "run":
+        _cand_lines = frozenset(
+            ln
+            for v in verdicts
+            if not v.killable and not v.crash_only and (ln := _id_line.get(v.mutant_id)) is not None
+        )
+        guard_inputs = _guard_directed_inputs(node, ns, _cand_lines)
+        fresh = [t for t in guard_inputs if _safely_fresh(t, inputs)]
+        if fresh:
+            retry = _classify_pool(supplied + fresh + inputs)
+            if sum(1 for v in retry[0] if v.killable) > sum(1 for v in verdicts if v.killable):
+                verdicts, unclassified, manual_equivalent, fence = retry
+                final_pool = supplied + fresh + inputs
+                note = None
+                witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
+                if witness_args:
+                    expressible = all(is_expressible(a) for args in witness_args for a in args)
+
     # Reachability (RIP-R, §6 door 2 / Def. 1.4): a candidate-equivalent whose mutated line was never
     # EXECUTED by the final pool is killable with a reaching input the search did not construct — not an
     # equivalence. Trace the ORIGINAL over the pool once and mark each such verdict, so the renderer's
@@ -2399,7 +2573,6 @@ def classify_survivors(
     # keep the flag-safe reached=True default) or nothing is candidate-equivalent (no flag to guard).
     _cand = [v for v in verdicts if not v.killable and not v.crash_only]
     if _cand and not _cls_exhausted():
-        _id_line = {r.get("mutant_id"): r.get("mutated_line") for r in survivors}
         _want = frozenset(ln for v in _cand if (ln := _id_line.get(v.mutant_id)) is not None)
         _fname = getattr(getattr(original, "__code__", None), "co_filename", None)
         if _want and _fname is not None:

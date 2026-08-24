@@ -1040,6 +1040,33 @@ decisive: `serialize_rule`'s 6 residual obligations are **undischargeable by any
 no widening or re-ranking reaches them — only synthesis does. Blocked on X3/X4 for the obligation
 signal.
 
+**[B0 LANDED — Detective `49b6ae0`; the TRACTABLE half.]** With X3/X4 shipped the obligation signal
+exists, and the active search is built for the case synthesis *can* reach. A `deep_structural`
+(worklist/fixpoint) target's candidate-equivalent residual is retried over a fixed CROSS-REFERENTIAL
+topology library — index-valid adjacency lists (`_ADJACENCY_TOPOLOGIES`) whose inner integers point
+back into the outer list, the content the scalar and length-variant grids never construct.
+Grounding corrected the plan: the gap is cross-referential *content*, not nesting *depth*
+(`_seq_length_variants` already builds shallow nested lists). The retry is rescue-style (fires only
+on a persisting residual), **positive-only** (a topology can only *prove* a kill, never erase one, so
+no false COMPLETE), and world-effects + `#31`-wall gated. Gate: `structural_retry_gate` (pure,
+truth-table pinned). Measured end-to-end on a worklist target: 12→14 kills, 2→0 candidate-equivalent
+residual, the net kills witnessed by `[[1, 2], [2], []]`.
+
+**[B1 GUARD-DIRECTED LANDED — the SECOND tractable increment.]** The reachability signal (RIP-R, §6 door
+2) now identifies an unreached candidate-equivalent — one whose mutated line the pool never executed — and
+B1 reaches it by the branch's OWN guard: a survivor behind a SIMPLE comparison guard (`len(x) > 5`,
+`x == 42`) gets a guard-satisfying input synthesized off the AST (`_guard_directed_inputs` /
+`guard_comparison_target` / `guard_retry_gate`, truth-table pinned), retried positive-only through the same
+`_classify_pool`. Measured on a `len(items) > 5` target: the unreached VALUE survivors go from
+candidate-equivalent to KILLED, leaving only the reached-but-not-propagated residual. The generalization of
+B0 from a fixed topology library to the guard the branch itself declares.
+
+**Still open — the intractable core.** GENERAL cross-referential / DIFFERENTIAL domain-object synthesis:
+`serialize_rule`'s residuals need a *differentiating* `Relation` (a domain object, `--input`-inexpressible)
+that no guard names and no synthesis over the input LANGUAGE reaches — it routes to the door-3 fixture
+caveat (§6), NOT a kill. B0 + B1 are bounded down-payments; the differential domain-object reach is the open
+synthesis problem, deliberately NOT claimed.
+
 ### F1 — the deep-slice re-rank
 
 **Correction: F1 is NOT blocked on X4.** The obligation signals are already local to the widen loop

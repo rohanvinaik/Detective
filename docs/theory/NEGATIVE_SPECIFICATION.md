@@ -1355,17 +1355,22 @@ these.
    the consolidation-as-free-energy reading (Prop. 15.5) are CONJECTURE pending the entropy-bit machinery
    ($H_0$, $L(D)$, $I_{\mathrm{solve}}$ in bits); the built quantities are coverage analogs. And
    `safe_forget_preserves_sigma_sem` (Thm 15.4's transport) is an unproved Lean target.
-10. **The expressibility boundary inside DOF⁰ (Prop. 6.5) and the door-(3) fixture gate.** The refinement
-    of §6 names an inner, *decidable* boundary in the mechanical residual: reachable / expressible-but-hard
-    / $L$-inexpressible. Two build items fall out, of different sizes. (a) **The integrity increment (small,
-    scoped):** teach `residual_disposition` to consume $\mathrm{expr}_L$ so a *flat but $L$-inexpressible*
-    residual routes to a `fixture` hand-back, never `genuine_equivalent`/flag — closing the
-    false-equivalence door B0 left open for the non-worklist case (the `serialize_rule` witness). This is
-    the door-(3) guard, and it is the honest closure of the `serialize_rule` residuals (a *representation*
-    fix — fixture or decision-extraction — never more synthesis). (b) **The open frontier (B1):** general
-    deterministic structural synthesis over the *expressible-but-hard* band — arbitrary depth, arbitrary
-    index relations, beyond B0's fixed adjacency library. Band (a) is buildable now; band (b) stays the
-    open synthesis problem, not folded in.
+10. **The expressibility boundary inside DOF⁰ (Prop. 6.5) — both bounded increments now BUILT.** The
+    refinement of §6 names an inner, *decidable* boundary in the mechanical residual: reachable /
+    expressible-but-hard / $L$-inexpressible. Two build items fell out, of different sizes. (a) **The
+    integrity increment — door-(3) fixture gate, BUILT (Detective `1dc579b`):** `residual_disposition`
+    consumes $\mathrm{expr}_L$ AND the reachability signal (RIP-R), so a *flat, $L$-inexpressible* residual
+    routes to a `fixture` hand-back, never `genuine_equivalent`/flag — the honest closure of the
+    `serialize_rule` residuals (a *representation* fix — fixture or decision-extraction — never more
+    synthesis). (b) **The expressible-but-hard band — B1 guard-directed, the tractable increment BUILT:**
+    the reachability signal identifies an unreached candidate-equivalent, and a survivor behind a SIMPLE
+    comparison guard (`len(x) > 5`, `x == 42`) is reached by an input synthesized off the branch's OWN AST
+    (`guard_comparison_target` / `_guard_directed_inputs`, truth-table pinned, positive-only), turning it
+    from candidate-equivalent to a KILL — the generalization of B0 from a fixed topology library to the
+    guard the branch declares (measured on a `len(items) > 5` target). **Still open — the differential /
+    domain-object reach:** a `serialize_rule` residual needs a *differentiating* `Relation` (inexpressible),
+    which no guard names and no synthesis over $L$ reaches; it routes to (a)'s fixture caveat, not a kill.
+    B0 + B1 are bounded down-payments; the differential domain-object synthesis is the residual open problem.
 
 ---
 
