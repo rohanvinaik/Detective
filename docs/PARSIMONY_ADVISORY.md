@@ -1,9 +1,17 @@
 # Parsimony — the SICP advisory read (design spec)
 
-**Status:** design, pre-build. **Home:** Detective (native). **Powered by:** Wesker.
-**Scope:** a small, well-scoped set of *advisory* code-quality signals that make Detective a
-SICP-style clean-coding tool for the human or large model at its CLI. Nothing here proves
-anything, and nothing here writes source.
+**Status:** BUILT + wired + surfaced + pinned + calibrated (grounded 2026-08-25; the "design,
+pre-build" header was stale). `Detective/parsimony.py` holds all seven lenses — complexity, purity,
+interface width, seam, regime, behavioural overload, and the one new metric **cohesion**
+(`statement_cohesion` / `cohesion_lens`) — plus the ≥2-lens consensus fusion (`parsimony_from_function`).
+It is wired into `diagnose` (`engine._parsimony_signals` → `ScopeMap.parsimony`, engine.py:1272),
+surfaced in the CLI (`_format_scope` → `_parsimony_rows`), pinned (`test_parsimony_cohesion.py`
+hand-written + converge synths for every vote lens and `_flagged`), and the two numeric backstops are
+calibrated on 527 Detective+Wesker functions (2026-08-06, percentiles recorded in `parsimony.py`). The
+build order below is kept as the record of how it was built. **Home:** Detective (native). **Powered
+by:** Wesker. **Scope:** a small, well-scoped set of *advisory* code-quality signals that make Detective
+a SICP-style clean-coding tool for the human or large model at its CLI. Nothing here proves anything, and
+nothing here writes source.
 
 ---
 
