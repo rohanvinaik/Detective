@@ -19,9 +19,10 @@ bibliography: "LITERATURE_PI_COMPLETENESS.md"
 
 Mutation testing certifies a program by the fraction of a fixed family of *mutant* programs its test suite
 distinguishes; a score of $1$ is read as evidence that the suite is adequate. But adequate *for what*? The field
-has never had a completeness theorem for its operators, and its strongest formal results — sufficient operator
-sets, minimal mutant sets, mutant subsumption — are relative to a fixed program text or a fixed test suite by
-construction. We give a completeness notion that is neither. Restricting to **output mutation** (perturb the
+has no completeness theorem characterizing when an operator family makes a passing score adequate; the closest
+formal treatments (Budd & Angluin 1982) establish undecidability of related decision problems rather than such a
+characterization, and its strongest constructive results — sufficient operator sets, minimal mutant sets, mutant
+subsumption — are relative to a fixed program text or a fixed test suite by construction. We give a completeness notion that is neither. Restricting to **output mutation** (perturb the
 returned value — extreme/Descartes-style mutation), we observe that for adequacy purposes an output operator is
 exactly its **footprint** $\mathrm{Mov}(p) = \{r : p(r) \neq r\}$: equivalence and killing both depend only on
 where $p$ moves values, never on where it sends them. Calling an operator family $\Pi$ **adequacy-complete for a
@@ -142,17 +143,20 @@ fixed-point-free, and $p(x) := q(x)$ for $x \in S$, $p(x) := x$ otherwise, has $
 $|R|$-cycle would not serve for uncountable $R$, whose orbits under iteration are countable.)
 So the footprints range over the *entire* powerset $2^R$, and — by Prop 2.4 — the adequacy content of an
 operator family $\Pi$ is exactly the set $\mathrm{Foot}(\Pi) = \{\mathrm{Mov}(p) : p \in \Pi\} \subseteq 2^R$.
-Where operators send the values they move is adequacy-invisible; this is the seed of every result below.
+Where operators send the values they move is adequacy-invisible; this underlies every result below.
 
-**Remark 2.6 (scope and assumptions).** The model makes three assumptions that fix its scope. *(i) Exact
-oracle.* A mutant is killed exactly when some test yields a different return value (Def 2.3), which presumes the
-suite observes the full output; under a weaker oracle a covered mutant may survive (a *pseudo-tested* method),
-and such survivals lie outside what output coverage characterizes. *(ii) Pure total functions.* A denotation is
-a total map $f : D \to R$; void methods, exceptions, and side effects are not modelled. *(iii) Uniform
-post-composition.* An output operator perturbs every returned value identically, $f \mapsto p \circ f$; a
-statement-level mutation of a single `return` site is not of this form. Each marks a boundary at which the theory
-would require extension, not a defect within its stated scope; the results below concern output/extreme mutation
-of pure functions under an exact output oracle.
+**Remark 2.6 (scope and assumptions).** The results below concern output/extreme mutation of pure functions
+under an exact output oracle. One assumption is load-bearing and two are simplifying. *(Load-bearing — the exact
+oracle.)* A mutant is killed exactly when some test yields a different return value (Def 2.3), which presumes the
+suite observes the full output. This is the assumption that makes the theory clean, and it is also where its
+practical relevance is most constrained: under a weaker oracle a *covered* mutant can survive because no
+assertion inspects the changed output — the *pseudo-tested-method* phenomenon that motivates extreme mutation in
+practice (Niedermayr et al. 2016; Vera-Pérez et al. 2018) — and such survivals are exactly what an exact-oracle
+model assumes away. The weak-oracle theory is thus the principal direction the present results do not cover
+(§11). *(Simplifying.)* Denotations are pure total maps $f : D \to R$, so void methods, exceptions, and side
+effects are out of scope; and an output operator perturbs every returned value identically ($f \mapsto p \circ
+f$), so a statement-level mutation of a single `return` site is not of this form. These bound the setting rather
+than the argument.
 
 ---
 
@@ -233,6 +237,18 @@ then for any target footprint $S$ and any $b \in S$, $\gamma_b$ satisfies $b \in
 condition holds and $\Pi$ is absolutely complete. Minimality: each of the $n$ singleton targets forces a
 distinct guard, so no family of size $< n$ suffices. $\square$
 
+**Corollary 4.1a (absolute completeness requires a finite return type).** A *finite* operator family can be
+absolutely complete only when $R$ is finite. Equivalently: for an infinite return type — `int`, `String`,
+arbitrary objects — **no finite output-operator family is absolutely complete.**
+
+*Proof.* By Cor 4.1, absolute completeness requires a distinct singleton footprint $\{r\}$ for every $r \in R$;
+the map $r \mapsto \{r\}$ is injective, so a complete family has at least $|R|$ operators, which is infinite when
+$R$ is. $\square$
+
+This bounds the value-guard story to finite return types (Booleans, enums, small tagged unions). On the return
+types typical of real programs the absolute notion is unavailable, and the meaningful question is *relative*
+completeness for a chosen footprint class (§5) — which is where the certificate a tool can actually offer lives.
+
 **Corollary 4.2 (extreme mutation is optimal on Booleans, deficient beyond).** A Descartes-style *constant*
 operator `return c` has footprint $R \setminus \{c\}$ (it moves every value except $c$). The constant family
 $\{\,`return c` : c \in R\,\}$ is absolutely complete iff $n = 2$.
@@ -260,7 +276,7 @@ is the whole of what output mutation can certify, and no more.
 $b \in I \setminus O$ and the guard $\gamma_b$ (footprint $\{b\}$): non-equivalent ($b \in I$), unkilled
 ($\{b\} \cap O = \varnothing$), so the score is $< 1$. $\square$
 
-**Remark 4.5 (the ceiling, operationally).** Theorem 4.4 is the honest reading of output mutation: a full score
+**Remark 4.5 (the ceiling, operationally).** Theorem 4.4 states the operational content of output mutation: a full score
 certifies **output coverage** — the dynamic property "every value the program can return is observed by the
 suite" — and the value guards are the cheapest operator family that makes that certificate *exact*. It says
 nothing about faults that separate two inputs mapped to the same output: if $f(x_1) = f(x_2)$ then
@@ -277,7 +293,7 @@ Fix a finite $\Pi$ and a finitely-presented target $\Gamma$. By Thm 3.2, decidin
 **Proposition 5.1 (the exact reach of a finite family).** The value guards $\{\gamma_{r_1}, \dots,
 \gamma_{r_k}\}$ (footprints the singletons $\{r_1\}, \dots, \{r_k\}$) are adequacy-complete for exactly
 $$ \Gamma_{\max} = \{\, g : \mathrm{Mov}(g) \subseteq \{r_1, \dots, r_k\} \,\}. $$
-So a partial guard family yields a *legible* certificate: "every guarded value the program can produce is
+So a partial guard family yields an explicit certificate: "every guarded value the program can produce is
 exercised, hence any fault confined to the guarded values is caught."
 
 *Proof.* By Thm 3.2, the guards are complete for $g$ iff every $b \in \mathrm{Mov}(g)$ has a guard $\gamma_{r_i}$
@@ -401,21 +417,23 @@ guarantee its score underwrites — and nothing it does not.
 
 ## 9. Consequences for mutation-based tools
 
-The results apply to any tool that certifies code against an **output/extreme** mutation family.
+The results apply to any tool that certifies code against an **output/extreme** mutation family, and they
+delimit as much as they prescribe.
 
-- **A passing score means output coverage, exactly (Thm 4.4).** Report it as such: "every value the program can
-  return was observed." Do not read an output-mutation score as evidence about input-separating faults — those
-  are outside the ceiling (Rem 4.5), and a tool that also mutates program text is certifying a *different*,
-  larger, and program-dependent fault space (§7).
-- **Use value guards, not constants, past Booleans (Cor 4.1–4.2).** The minimal complete output family is the
-  $n$ value guards; Descartes constants are complete only for $n = 2$. On richer return types, `return c`
-  operators leave the surviving faults of Example 4.3.
-- **A partial guard family gives a legible partial certificate (Prop 5.1):** "faults confined to the guarded
-  values are caught." State the guarded set.
-- **Do not rely on coupling for output mutation (Prop 6.1):** killing first-order output mutants does not
-  entail killing their higher-order compositions; if those are in scope, a tool must generate them.
-- **Report the certifying-suite size $\sigma(f) = |f(D)|$ (Thm 8.1)** as the honest cost and content of the
-  guarantee.
+- **A passing score means output coverage, exactly (Thm 4.4)** — and, under an absolutely complete family, only
+  that. Report it as such ("every value the program can return was observed"), and do not read an
+  output-mutation score as evidence about input-separating faults (outside the ceiling, Rem 4.5) or about faults
+  a weaker oracle would miss (Rem 2.6).
+- **For the absolutely complete family, output mutation adds nothing over coverage.** A value-guard score of $1$
+  is *equivalent* to output coverage (Thm 4.4), so a tool gains no information by running the guard mutants
+  rather than measuring output coverage directly. The value of the result is the *characterization* — it states
+  exactly what an output-mutation score certifies — not a recommendation to run output mutation.
+- **Between constants and full guards the certificate is explicit but partial (Cor 4.2, Prop 5.1).** Descartes
+  constants are complete only for $n = 2$; a partial guard family certifies "faults confined to the guarded
+  values are caught" (state the guarded set), leaving the surviving faults of Example 4.3 on richer types.
+- **Coupling cannot be relied on for output mutation (Prop 6.1):** killing first-order output mutants does not
+  entail killing their higher-order compositions.
+- **Report the certifying-suite size $\sigma(f) = |f(D)|$ (Thm 8.1)** as the cost and content of the guarantee.
 
 ---
 
