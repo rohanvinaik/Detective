@@ -1,9 +1,9 @@
 ---
 title: "The Completeness of Mutation Operators"
-subtitle: "Output-mutation completeness is a transformation-monoid generation (equivalently, submonoid-membership) problem: a P / PSPACE-complete / impossible / undecidable landscape and the post-composition ceiling"
+subtitle: "Output-mutation completeness as transformation-monoid generation: a P / PSPACE-complete / impossible / undecidable landscape and the post-composition ceiling"
 author: 
 date: 
-status: "DRAFT — proofs written; two corners of the landscape machine-checked. Thm A.1 (rank-3 basis, finite generation) base cases n=2,3 are machine-checked in Lean 4 (Mathlib), #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx). Thm A.2 (finite ABSOLUTE completeness in P) and A.3 (finite RELATIVE completeness PSPACE-complete, Kozen 1977) are paper proofs. Thm B (infinite-absolute impossibility) is an elementary cardinality argument, machine-checked in Lean 4 (Mathlib), #print-axioms clean. Thm C (relative completeness ≡ finitely-generated submonoid membership; undecidable in general) is a paper proof by direct L_g reduction, citing Mihailova 1958 / Lohrey–Steinberg 2008 for undecidable submonoid membership WITH decidable word problem (so the frontier is membership, NOT the word problem). Thm D is the 2×2 landscape (P / PSPACE-complete / impossible / undecidable). Conjecture E (dimension-bounded basis foreclosure) is CONJECTURAL: contingent on a basis-to-compression bridge not established here (Doliwa 2014 restricted to maximum classes). Prop F (ASDL coverage) is a decidable engineering invariant; the earlier 'necessary for behavioral completeness' claim is WITHDRAWN. NOTE: the Mihailova / Lohrey–Steinberg citations are recalled, source-verification owed (web budget exhausted the session they were added). Not peer-reviewed; do not cite as fully proven."
+status: "DRAFT — proofs written; two corners of the landscape machine-checked. Thm A.1 (rank-3 basis, finite generation) base cases n=2,3 are machine-checked in Lean 4 (Mathlib), #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx). Thm A.2 (finite ABSOLUTE completeness in P) and A.3 (finite RELATIVE completeness PSPACE-complete, Kozen 1977) are paper proofs. Thm B (infinite-absolute impossibility) is an elementary cardinality argument, machine-checked in Lean 4 (Mathlib), #print-axioms clean. Thm C (relative completeness ≡ finitely-generated submonoid membership; undecidable in general) is a paper proof by direct L_g reduction, citing Mihailova 1958 / Lohrey–Steinberg 2008 for undecidable submonoid membership WITH decidable word problem (so the frontier is membership, NOT the word problem). Thm D is the 2×2 landscape (P / PSPACE-complete / impossible / undecidable). Conjecture E (dimension-bounded basis foreclosure) is CONJECTURAL: contingent on a basis-to-compression bridge not established here (Doliwa 2014 restricted to maximum classes). Prop F (ASDL coverage) is a decidable engineering invariant; the earlier 'necessary for behavioral completeness' claim is WITHDRAWN. NOTE: the Mihailova / Lohrey–Steinberg citations were corroborated by an external reviewer (2026-08-26; Lohrey–Steinberg transitive-forest characterization confirmed), but a primary-source DOI/venue fetch is still pending for camera-ready. Not peer-reviewed; do not cite as fully proven."
 bibliography: "LITERATURE_PI_COMPLETENESS.md (42 sources, verified 2026-08-25)"
 ---
 
@@ -19,7 +19,7 @@ bibliography: "LITERATURE_PI_COMPLETENESS.md (42 sources, verified 2026-08-25)"
 > **Thm D** is the 2×2 landscape (P / PSPACE-complete / impossible / undecidable). **Conjecture E** is explicitly
 > conjectural — the basis-to-compression bridge it needs is not established here. **Prop F** (ASDL coverage) is a
 > decidable invariant, not a logical prerequisite for completeness. Not peer-reviewed; do not cite as fully
-> proven. *(Mihailova / Lohrey–Steinberg citations recalled, source-verification owed.)*
+> proven. *(Mihailova / Lohrey–Steinberg corroborated in review; primary-source fetch pending for camera-ready.)*
 
 ## Abstract
 
@@ -48,9 +48,10 @@ completeness for *output recodings*, a strict subspace of behavioral faults. Two
 practice: a *conjectured* foreclosure of any capacity-dimension-bounded minimal complete basis (contingent on a
 teaching/compression bridge we do not prove), and a decidable *syntactic* coverage invariant (operator-totality
 over Python's ASDL) that is useful but, we show, neither necessary nor sufficient for the behavioral notion. The
-contribution is the recognition that mutation-operator completeness *is* a transformation-monoid generation
-problem — equivalently, a submonoid-membership problem — with a **P / PSPACE-complete / impossible / undecidable**
-landscape and a post-composition ceiling.
+contribution is the recognition that mutation-operator completeness is a transformation-monoid problem —
+whole-monoid **generation** for the absolute notion, finitely-generated **submonoid membership** for the
+relative one — and that the *gap* between those two objects is exactly the **P vs PSPACE-complete** (finite) and
+**impossible vs undecidable** (infinite) structure of the landscape, all under a post-composition ceiling.
 
 ---
 
@@ -148,9 +149,11 @@ $$ f(x_1) = f(x_2) \ \Longrightarrow\ (p \circ f)(x_1) = (p \circ f)(x_2). $$
 Hence **no** output perturbation can separate two inputs the correct denotation $f$ identifies. The set of
 faults expressible by an output family is exactly the orbit of output recodings
 $\{\, p \circ f : p \in \langle \Pi_R \rangle \,\} \subseteq |R|^{D}$, which is a **strict** subset of the
-behavioral fault space $|R|^{D}$ whenever $f$ is non-injective. *Proof.* Post-composition applies the same $p$
-to equal values $f(x_1)=f(x_2)$, giving equal outputs; a fault $f'$ with $f'(x_1)\neq f'(x_2)$ while
-$f(x_1)=f(x_2)$ is therefore not of the form $p\circ f$. $\square$
+behavioral fault space $|R|^{D}$ whenever $f$ is non-injective **and $|R| \ge 2$**. *Proof.* Post-composition
+applies the same $p$ to equal values $f(x_1)=f(x_2)$, giving equal outputs; with $|R| \ge 2$ pick $r' \neq
+f(x_1)$ and a fault $f'$ agreeing with $f$ except $f'(x_1)=r'$, so $f'(x_1)\neq f'(x_2)$ while $f(x_1)=f(x_2)$ —
+this $f'$ is therefore not of the form $p\circ f$. (For $|R| = 1$ the space $|R|^{D}$ is a singleton and the
+inclusion is not strict — but the ceiling is vacuous there.) $\square$
 
 > This is the honest scope statement for the entire enterprise: output-mutation completeness is completeness
 > for *output recodings*, not for arbitrary behavioral faults. Everything below characterizes completeness
@@ -167,13 +170,15 @@ $f(x_1)=f(x_2)$ is therefore not of the form $p\circ f$. $\square$
   $\langle \Pi_R \rangle \supseteq \mathcal{S}_R$. Absolute completeness is literally the special case
   $\mathcal{S}_R = T(R)$.
 
-The *decision problem* studied below takes the target $\mathcal{S}_R$ **by a finite generating set**
-$\mathcal{S}_R = \langle g_1, \dots, g_m \rangle$ — the representation a specification supplies. (We do not
-require $\mathcal{S}_R$ itself to be finitely generated as an abstract object: on an infinite carrier $T(R)$ is
-not finitely generated, by Thm B, yet the admissible-target it is compared against is presented finitely.) The
-distinction from absolute completeness is not cosmetic: §4 shows absolute completeness is unattainable on
-infinite carriers, so the finitely-presented *relative* problem is the *only* meaningful notion there — and it
-is a different mathematical object with a different decidability status (§5).
+The *definition* of relative completeness is stated for an **arbitrary** submonoid $\mathcal{S}_R$; the
+*decision problem* studied below restricts to **finitely-generated** targets, presented by a finite generating
+set $\mathcal{S}_R = \langle g_1, \dots, g_m \rangle$ — the representation a specification supplies. Absolute
+completeness ($\mathcal{S}_R = T(R)$) is *not* an instance of that decision problem on an infinite carrier,
+precisely because $T(R)$ is then **not** finitely generated (Thm B) — consistent with §4, where absolute-
+infinite completeness is settled by cardinality, not by a membership algorithm. The distinction from absolute
+completeness is not cosmetic: §4 shows absolute completeness is unattainable on infinite carriers, so the
+finitely-generated *relative* problem is the *only* meaningful notion there — and it is a different mathematical
+object with a different decidability status (§5).
 
 **Remark 2.5 (three distinct notions — do not conflate them).** It is tempting to gloss "generate $T_n$" as
 "realize every deviation," but three notions must be kept apart:
@@ -209,8 +214,9 @@ succinct circuit encoding.
 
 1. *(constructive basis)* An absolutely complete $\Pi_R$ exists with $|\Pi_R| = 3$: a transposition, an
    $n$-cycle, and one rank-$(n-1)$ idempotent generate $T_n$; i.e. $\operatorname{rank}(T_n) = 3$ for $n \ge 3$.
-2. *(absolute, in P)* Deciding whether a given finite $\Pi_R$ is *absolutely* complete
-   ($\langle \Pi_R \rangle = T_n$) is **decidable in polynomial time**.
+2. *(absolute, in P)* For $n \ge 2$, deciding whether a given finite $\Pi_R$ is *absolutely* complete
+   ($\langle \Pi_R \rangle = T_n$) is **decidable in polynomial time**. (The case $n = 1$ is trivial:
+   $T_1 = \{\mathrm{id}\}$, so *every* $\Pi_R$ — including $\Pi_R = \varnothing$ — is absolutely complete.)
 3. *(relative, PSPACE-complete)* Deciding whether $\Pi_R$ is complete *relative* to a finitely-generated target
    $\mathcal{S}_R = \langle g_1, \dots, g_m \rangle$ (i.e. $\langle \Pi_R \rangle \supseteq \mathcal{S}_R$) is
    **PSPACE-complete**.
@@ -220,7 +226,8 @@ $\operatorname{rank}(T_n) = 3$ for $n \ge 3$: an $n$-cycle and a transposition g
 $S_n$ (rank $2$), and adjoining a single map of rank $n-1$ (a non-injective idempotent collapsing one pair)
 generates every element of $T_n$ — any $f \in T_n$ of rank $r$ factors as a permutation, a product of $n-r$
 rank-lowering maps (each a conjugate of the adjoined idempotent by a permutation), and a permutation. For
-$n \le 2$ the count is smaller ($\operatorname{rank}(T_1)=1$, $\operatorname{rank}(T_2)=2$). The generation is
+$n \le 2$ the count is smaller ($\operatorname{rank}(T_1)=0$ — under the submonoid convention $T_1 = \{\mathrm{id}\}$
+is generated by the empty family — and $\operatorname{rank}(T_2)=2$). The generation is
 **machine-checked at the base cases** in Lean 4 / Mathlib: `T2_generated` (the successor and constant-$0$ maps
 generate $T_2$) and `T3_generated_rank3` (a $3$-cycle, a transposition, and a rank-$2$ idempotent generate all
 $27$ elements of $T_3$) are fully proven, no `sorry` (`proofs/T2_generated.lean`,
@@ -228,7 +235,9 @@ $27$ elements of $T_3$) are fully proven, no `sorry` (`proofs/T2_generated.lean`
 general $n$ is the cited classical result. $\square$ *[`#print axioms` clean — see §12; the general statement
 is transcribed from Gomes–Howie, not re-proven.]*
 
-*Proof of A.2 (decidability in P).* We do **not** compute the closure (which can reach $n^n$ elements). The key
+*Proof of A.2 (decidability in P).* Take $n \ge 2$ (for $n = 1$, $T_1 = \{\mathrm{id}\}$ and every $\Pi_R$ is
+absolutely complete — decidable in constant time). We do **not** compute the closure (which can reach $n^n$
+elements). The key
 is that rank is non-increasing under composition, $\operatorname{rank}(g \circ h) \le \min(\operatorname{rank}
 g, \operatorname{rank} h)$. Two consequences:
 
@@ -253,9 +262,13 @@ n)$ rank scan. Hence absolute completeness on a finite codomain is decidable in 
 \mathcal{S}_R$ iff every generator $g_i \in \langle \Pi_R \rangle$ — a finite conjunction of
 **transformation-monoid membership** queries "$g \in \langle \Pi_R \rangle$?". Kozen (1977, FOCS, *Lower bounds
 for natural proof systems*) proves exactly this membership problem PSPACE-complete for transformations of a
-finite set. **Membership (PSPACE):** guess a word over $\Pi_R \cup \{\mathrm{id}\}$ and verify it composes to
-$g$, tracking only the current composite (an $n$-entry table) in polynomial space — a nondeterministic
-poly-space search, so $\mathrm{PSPACE} = \mathrm{NPSPACE}$ (Savitch); a finite conjunction stays in PSPACE.
+finite set. **Membership (PSPACE):** guess the word one generator at a time, maintaining the running composite
+(an $n$-entry table) and a **binary step-counter capped at $n^n$**. The bound is sound: the reachable set
+$\{\mathrm{id}\} \subseteq S_1 \subseteq S_2 \subseteq \dots$ is monotone in the finite lattice of subsets of
+$T_n$ ($n^n$ elements), so it stabilizes within $n^n$ steps and every reachable element — in particular $g$, if
+$g \in \langle \Pi_R \rangle$ — is realized by a word of length $< n^n$. The counter costs $O(\log n^n) =
+O(n \log n)$ bits and the composite $O(n \log n)$ bits, so the whole nondeterministic search runs in polynomial
+space; $\mathrm{PSPACE} = \mathrm{NPSPACE}$ (Savitch), and a conjunction of $m$ such queries stays in PSPACE.
 **Hardness:** a single membership instance "$g \in \langle \Pi_R \rangle$?" is the relative-completeness
 instance with $\mathcal{S}_R = \langle g \rangle$, so Kozen's lower bound transfers verbatim. Hence relative
 completeness is PSPACE-complete. $\square$
@@ -329,10 +342,11 @@ the relative question, to which we now turn.
 Let $R$ be a codomain with infinite carrier and $\mathcal{S}_R = \langle g_1, \dots, g_m \rangle$ a
 finitely-generated target of admissible deviations. Then:
 
-1. *(equivalence)* Relative completeness and finitely-generated submonoid membership are computationally
-   equivalent. $\langle \Pi_R \rangle \supseteq \mathcal{S}_R$ iff $g_i \in \langle \Pi_R \rangle$ for every $i$
-   (a finite conjunction of membership queries); and conversely a single membership instance
-   $g \in \langle \Pi_R \rangle$ is the relative-completeness instance with $\mathcal{S}_R = \langle g \rangle$.
+1. *(equivalence)* Relative completeness and finitely-generated submonoid membership are **polynomial-time
+   Turing equivalent** (Cook). $\langle \Pi_R \rangle \supseteq \mathcal{S}_R$ iff $g_i \in \langle \Pi_R \rangle$
+   for every $i$ — relative completeness reduces to a polynomial number ($m$) of membership queries; and
+   conversely a single membership instance $g \in \langle \Pi_R \rangle$ is the relative-completeness instance
+   $\mathcal{S}_R = \langle g \rangle$, a **many-one (Karp)** reduction the other way.
 2. *(undecidability)* Relative completeness is **undecidable** in general: there is a structured codomain and a
    family for which no algorithm decides $\langle \Pi_R \rangle \supseteq \mathcal{S}_R$.
 3. *(the frontier is membership, not the word problem)* Undecidability here is **not** controlled by the word
@@ -351,7 +365,9 @@ finitely-generated **submonoid-membership problem is undecidable** — given $g,
 $g \in \langle x_1, \dots, x_k \rangle$ admits no algorithm. Such $G$ exist *with decidable word problem*:
 Lohrey–Steinberg (2008) give undecidable finitely-generated submonoid membership in **graph groups** (right-
 angled Artin groups) whose word problem is decidable, and Mihailova (1958) already gives undecidable
-finitely-generated *subgroup* membership in $F_2 \times F_2$, a group with decidable word problem. Let the
+finitely-generated *subgroup* membership in $F_2 \times F_2$, a group with decidable word problem (in a group a
+finitely-generated subgroup is a finitely-generated *submonoid* once the inverses of its generators are
+adjoined, so subgroup membership is a special case of the submonoid problem we need). Let the
 codomain be $R = G$ and represent each $h \in G$ by its **left translation** $L_h : R \to R,\ L_h(x) = h \cdot
 x$. This representation is a *faithful* monoid homomorphism $G \hookrightarrow T(R)$: $L_{h h'} = L_h \circ
 L_{h'}$, and $L_h(1_G) = h$ so $L_h = L_{h'} \Rightarrow h = h'$ (injective). Given a submonoid-membership
@@ -463,12 +479,14 @@ under specification, the object to identify is its behavioral class $[f]_{\equiv
 a map $D \to R$, so the **label space is the codomain $R$**, not $\{0,1\}$. Hence the class is a *multiclass*
 concept class with $|R|$ labels ($|R| \ge 3$ generically; infinite for structured $R$) — precisely Pabbaraju
 (2024)'s setting. When the specification admits a *set* of correct outputs at an input (several implementations
-all acceptable), the target is a *list* concept — precisely Hanneke–Moran–Waknine (2024)'s setting. So the
-fault-space class sits in exactly the two regimes the cited impossibilities foreclose; the binary VC regime
-(where a dimension bound might survive) is *not* where code specification lives. $\square$
+all acceptable), the target is a *list* concept — precisely Hanneke–Moran–Waknine (2024)'s setting. So a
+**general nonbinary** software fault space is multiclass, and a **set-valued** specification additionally enters
+the list-valued regime — exactly the two regimes the cited impossibilities foreclose. (Boolean-returning
+functions are the genuine binary exception, $|R|=2$, where a VC-dimension bound might survive; the claim is
+about nonbinary codomains, which is the generic case.) $\square$
 
-**Remark 7.1 (the honest positive reading).** What survives unconditionally: a real fault space is
-multiclass/list (Lemma D.a), and in that regime the *general* learning-theoretic hope for a
+**Remark 7.1 (the honest positive reading).** What survives unconditionally: a general nonbinary / set-valued
+fault space is multiclass/list (Lemma D.a), and in that regime the *general* learning-theoretic hope for a
 capacity-dimension-bounded minimal object is already foreclosed *for compression schemes and teaching sets*
 (Pabbaraju; HMW). What is conjectural is only the transport of that foreclosure onto *operator generating bases*
 via a bridge we have flagged. Either way, completeness is safest stated basis-relative (Thm D), not
@@ -478,8 +496,9 @@ dimension-bounded.
 
 ## 8. Syntactic operator coverage: a decidable invariant (not a completeness criterion)
 
-Behavioral completeness is undecidable off finite codomains (Thm C); a *syntactic* coverage check is decidable,
-and it is the honest thing a tool can actually run — provided it is not oversold as a completeness criterion.
+Off finite codomains, absolute completeness is trivially settled (impossible, Thm B) and *relative* completeness
+is undecidable in general (Thm C); a *syntactic* coverage check is decidable, and it is the honest thing a tool
+can actually run — provided it is not oversold as a completeness criterion.
 
 **Proposition F (ASDL operator-coverage).** Let a language's abstract syntax be finitely specified (Python's
 ASDL: a finite set of node kinds and fields). Define $\Pi$ **syntactically total** iff it assigns a
