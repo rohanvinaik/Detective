@@ -93,6 +93,23 @@ def test_the_unreachability_oracle_runs_without_a_flag_store_and_flags_nothing(t
     assert b.undischargeable.lines == ()
 
 
+def test_basis_action_is_stricter_than_functionally_complete_on_the_line_axis():
+    # The anti-drift pin (Tier-1 review): `basis.action` unifies the mutant AND line axes, whereas
+    # converge's `functionally_complete` is mutant-only (converge.py:1949). So a run whose mutants are
+    # ALL killed (mutant-axis complete) but which leaves an admissible line uncovered is `gap` here,
+    # while `functionally_complete` would read True. This encodes `action == "complete"` ⟺
+    # functionally_complete ∧ line_complete, so the two decisions provably cannot silently be made to
+    # agree by dropping the line axis from `has_open_obligations`. Distinct INTENT from the
+    # admissible-view test above (which pins raw-union ≠ admissible, not the fc relationship).
+    r = _result(  # every mutant killed (no survivors), but admissible coverage misses line 3
+        killed_records=[{"mutant_id": "m0"}],
+        survivor_records=[],
+        total_survived=0,
+        admissible_line_coverage={"t": [1, 2]},
+    )
+    assert function_basis(r, _GATEABLE).action == "gap"
+
+
 def test_a_candidate_equivalent_survivor_is_not_a_gap():
     # survived == candidate_equivalent (caller-supplied): only undecidable equivalents remain.
     got = function_basis(

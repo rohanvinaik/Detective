@@ -572,12 +572,21 @@ class BasisWitness:
 class FunctionBasis:
     """The per-function value the subsystem produces and every reporting consumer reads (§9, #D1).
 
-    WIRED as a REPORTING projection: `profile` attaches it (both return sites), `diagnose` carries it
-    into `--json`, and `audit` rebuilds it with the real classified equivalent count. NOT YET the
-    loop's governor — seed/widen termination is still `next_routing_action`'s own decision (#18),
-    `converge` does not rebuild or consume this object, and `unresolved` / `excluded` stay unpopulated
-    (`excluded` is vacuous post-X1: no fresh negative reaches an assembled certificate). `action` is
-    the terminal state (§1.3): complete | trace_next | gap | unresolved.
+    The honest REPORTING projection of a completed measurement — NOT the loop's surfaced governor,
+    and correctly so. `profile` attaches an advisory basis (equivalent=0) at both return sites;
+    `converge` REBUILDS it with the real classified count (converge.py:2084) reusing the SAME
+    `_validity` that governs `functionally_complete`, so `action` provably agrees with the certificate
+    (see the intent pin: `action == "complete"` ⟺ gateable ∧ `functionally_complete` ∧ `line_complete`);
+    `audit` rebuilds it too; `diagnose` carries it into `--json`. `action` is STRICTER than
+    `functionally_complete` alone: the latter is the mutant axis only, this unifies mutant AND line, so
+    an all-killed run with an uncovered admissible line is `gap` here while `functionally_complete` is
+    True. It is the honest projection and NOT the governor because the CLI verdict
+    (`converge_next_action`) legitimately consumes MORE than a `ProfilingResult`-derived basis can hold
+    — did the WRITTEN suite re-run green (`fix_verification`), did the target move (`rerun_stale`),
+    collection health — signals no reporting projection can see. The loop's real governor is `_validity`,
+    which governs this `action` and the certificate together. `unresolved` / `excluded` stay unpopulated
+    (`excluded` is vacuous post-X1: no fresh negative reaches an assembled certificate). `action` on a
+    FINAL result (§1.3): complete | gap | unresolved (`trace_next` is a widen-loop state, never seen here).
     """
 
     target: str

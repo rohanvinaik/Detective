@@ -1,10 +1,18 @@
 # The Function Basis — an overhaul of test discovery, scoping, and proof accounting
 
 **Status:** A–E IMPLEMENTED (the Part V gap ledger X1–X6 is closed; see §15–§16). The FunctionBasis
-is live as a REPORTING projection, not yet the loop's governor; F0's residual→synthesis dispatch and
-"FunctionBasis governs converge" are the remaining work to call this the full Sandwich. Sections that
-still read as future tense (Part I–IV design prose) predate the build — the closeout in Part V is the
-current state of record.
+is the honest REPORTING projection of a completed measurement — and grounding (2026-08-25) settled
+that this is correct, not a shortfall: `converge` rebuilds it with the real classified count reusing
+the ONE normalized `_validity` (`2c05812`, converge.py:2084), so `basis.action` provably agrees with
+the certificate (`action == "complete"` ⟺ gateable ∧ `functionally_complete` ∧ `line_complete`; pinned
+in `test_function_basis_intent`). It is deliberately NOT the surfaced governor: the loop's real
+governor is `_validity` (which governs the action AND the certificate together), and the CLI verdict
+(`converge_next_action`) legitimately consumes MORE than a `ProfilingResult`-derived basis can hold —
+`fix_verification` (did the WRITTEN suite re-run green), `rerun_stale`, collection health — so making
+the coarser basis the surfaced governor would REGRESS those states. The genuinely-remaining Sandwich
+work is F0's residual→synthesis dispatch (the general #67 case), not a basis-as-governor rewire.
+Sections that still read as future tense (Part I–IV design prose) predate the build — the closeout in
+Part V is the current state of record.
 **Home:** Detective (the law, the universe, the basis) + Wesker (the router, the tracer).
 **Question:** *given `file.py::function`, which tests are admissible evidence about it, and when
 have we got enough?*

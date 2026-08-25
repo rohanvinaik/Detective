@@ -2072,10 +2072,14 @@ def _converge_impl(
     structural_difficulty = structural_input_difficulty(**structural_shape(node))
     # Rebuild the FunctionBasis with the REAL classified count (review — converge governs its own
     # basis, not profile()'s equivalent=0 advisory object). U_t = every VALUE-undischargeable survivor
-    # (candidate-equivalent + crash-only + manual-equivalent), so `action` agrees with
-    # `functionally_complete` (open = killable + unclassified). Reuses `_validity` — the ONE normalized
-    # validity computed above — so the basis's action and the certificate rest on the same answer.
-    # 0 equivalents when classification did not run.
+    # (candidate-equivalent + crash-only + manual-equivalent, the `.equivalent` union + manual), so the
+    # basis's mutant-axis open set = killable + unclassified — the SAME set `functionally_complete`
+    # gates on (1949: `not killable and not unclassified`). `action` then unifies that with the LINE
+    # axis, so `action == "complete"` ⟺ gateable ∧ `functionally_complete` ∧ `line_complete`: it is
+    # STRICTER than `functionally_complete` alone (mutant-only), never weaker — an all-killed run with
+    # an open line is `gap` here. Reuses `_validity` — the ONE normalized validity computed above — so
+    # the basis's action and the certificate rest on the same answer. 0 equivalents when classification
+    # did not run.
     _modulo = (
         len(survivor_report.equivalent) + len(survivor_report.manual_equivalent)
         if survivor_report is not None
