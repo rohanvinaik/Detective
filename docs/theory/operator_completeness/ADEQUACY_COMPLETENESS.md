@@ -145,6 +145,16 @@ So the footprints range over the *entire* powerset $2^R$, and — by Prop 2.4 �
 operator family $\Pi$ is exactly the set $\mathrm{Foot}(\Pi) = \{\mathrm{Mov}(p) : p \in \Pi\} \subseteq 2^R$.
 Where operators send the values they move is adequacy-invisible; this is the seed of every result below.
 
+**Remark 2.6 (scope and assumptions).** The model makes three assumptions that fix its scope. *(i) Exact
+oracle.* A mutant is killed exactly when some test yields a different return value (Def 2.3), which presumes the
+suite observes the full output; under a weaker oracle a covered mutant may survive (a *pseudo-tested* method),
+and such survivals lie outside what output coverage characterizes. *(ii) Pure total functions.* A denotation is
+a total map $f : D \to R$; void methods, exceptions, and side effects are not modelled. *(iii) Uniform
+post-composition.* An output operator perturbs every returned value identically, $f \mapsto p \circ f$; a
+statement-level mutation of a single `return` site is not of this form. Each marks a boundary at which the theory
+would require extension, not a defect within its stated scope; the results below concern output/extreme mutation
+of pure functions under an exact output oracle.
+
 ---
 
 ## 3. Adequacy-completeness and the footprint characterization
@@ -427,22 +437,34 @@ output mutation (Prop 6.1), and the detection-set factoring that explains the fi
 
 ---
 
-## 11. Open problems
+## 11. Conclusion
 
-*(The program↔footprint bridge, once listed here as the sole formalization gap, is now closed: the Lean
-development models programs `f : D → R` and finite suites `T : Finset D` directly and proves `ProgComplete Π Γ ↔
-Complete (Mov '' Π) (Mov '' Γ)` via `progScore_iff_scoreAt` (Prop 2.4, formal) and `realizable`, then restates
-Thm 3.2 over programs as `progComplete_characterization` — all `#print axioms`-clean. See §12.)*
+Mutation testing is ordinarily used heuristically: a high score is read as evidence of suite adequacy, justified
+by the coupling effect and the competent-programmer hypothesis, which are empirical. For one operator class we
+take a different stance — measuring a family not by the faults it can *express* but by what killing its mutants
+*certifies*, uniformly over programs and suites (Def 3.1) — and for output mutation we characterize the score
+exactly. The characterization partitions the content of a passing score into three determinate parts: what it
+**certifies** (under an absolutely complete family, precisely output coverage, Thm 4.4); what it **provably
+cannot** certify (any fault distinguishing two inputs the program maps to the same output — the post-composition
+ceiling, Rem 4.5); and where the completeness question is **undecidable** (relative completeness against a
+presented target, off finite codomains, §5). For this class a mutation score is therefore an object with a
+characterized semantics rather than a quantity trusted empirically — a determinate answer to "what did killing
+these mutants prove?".
 
-1. **Beyond output operators.** Characterize adequacy-completeness for operator classes whose detection sets do
-   *not* factor through a program-independent object (Prop 7.2) — i.e. identify the largest operator class for
-   which a program-independent completeness theorem survives.
-2. **Cost-optimal partial families.** Given a fault budget $\Gamma$ and a per-operator cost, find the minimum-cost
-   $\Pi$ adequacy-complete for $\Gamma$ — a set-cover-flavored optimization over footprints (Thm 3.2 makes the
-   feasibility test explicit).
-3. **Input-separating faults.** The ceiling (Rem 4.5) bounds output mutation; the companion theory for operators
-   that *can* separate collapsed inputs (program-text or input-space mutation) is where program-independence is
-   lost — quantify what is recoverable.
+The account is deliberately bounded: it concerns output/extreme mutation of pure total functions under an exact
+output oracle (Rem 2.6), and we make no claim that it extends to general program-text mutation. Its main
+theorem, every consequence, and the reduction to programs and finite suites are machine-checked in Lean 4 /
+Mathlib (§12).
+
+**Future directions.** What would let another operator class admit the same treatment is identified precisely by
+Prop 7.2 — a program-independent detection invariant analogous to the footprint — and left open: (1) characterize
+the largest operator class whose detection factors through such an invariant, i.e. for which a program- and
+suite-independent completeness theory (Def 3.1) is available. Two further questions are internal to the present
+theory: (2) *cost-optimal partial families* — given a target class $\Gamma$ and a per-operator cost, the
+minimum-cost $\Pi$ adequacy-complete for $\Gamma$ is a weighted set-cover over footprints (Thm 3.2 makes the
+feasibility predicate explicit); and (3) *decidable relative fragments* — Thm 5.2 gives polynomial time for
+explicit finite footprints and decidability for Presburger-definable ones, and a systematic account of the
+boundary is open.
 
 ---
 
