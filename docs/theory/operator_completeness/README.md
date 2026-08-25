@@ -35,7 +35,7 @@ tool or research program.
 | `proofs/T2_generated.lean` | machine-checked (Thm A): two maps generate the full transformation monoid `T₂` |
 | `proofs/T3_generated_rank3.lean` | machine-checked (Thm A): a 3-cycle + transposition + rank-2 idempotent generate all 27 maps of `T₃` (the rank-3 basis) |
 | `proofs/pi_incomplete_infinite.lean` | machine-checked (Thm B): on an infinite codomain, a finitely generated submonoid of `Function.End R` cannot be everything (countable closure vs uncountable monoid) |
-| `proofs/operator_completeness.lean` | **statements only** — the finite-decidability signature (proof is the P-time algorithm of §3, not a Lean term) and one cited classical axiom (function-equality undecidability, the ingredient behind Thm C.2). *Not* the word-problem reduction. |
+| `proofs/operator_completeness.lean` | **documentation index only** — no declarations (no `axiom`, no `sorry`); points to the three closed proofs and notes which results are paper-only (A.2, A.3, Thm C). An earlier inconsistent function-equality `axiom` was removed (see the file's provenance note). |
 
 ## The machine-checked fragment (both machine-checked corners of the landscape)
 
@@ -55,11 +55,12 @@ Mathlib (`lake exe cache get`), then `#print axioms <name>`.
 
 **What is and isn't machine-checked.** *Both left-column corners of the landscape* are machine-checked: the finite
 *generation* base cases (Thm A, n=2,3) and the infinite *impossibility* (Thm B). The finite *decidability in P*
-(Thm A.2) is a paper proof (rank argument + Schreier–Sims); the umbrella file's decidability `instance` is a
-signature stub, not a Lean proof. Thm C (relative undecidability) is a paper proof citing Post/Markov and Rice;
-the umbrella axiom records the Rice-flavored function-equality fact behind Thm C.2, **not** the word-problem
-reduction of Thm C.1. Conjecture E is explicitly conjectural — the basis-to-compression bridge it needs (beyond
-Doliwa's maximum-class equivalence) is not established here.
+(Thm A.2) and *relative* PSPACE-completeness (Thm A.3) are paper proofs (rank argument + Schreier–Sims; Kozen
+membership). Thm C (relative undecidability) is a paper proof by the direct `L_g` reduction — relative
+completeness *is* finitely-generated submonoid membership, undecidable by Mihailova 1958 / Lohrey–Steinberg 2008
+(results not in Mathlib). The umbrella file introduces **no declarations** (no axiom, no `sorry`); an earlier
+inconsistent function-equality axiom was removed. Conjecture E is explicitly conjectural — the basis-to-compression
+bridge it needs (beyond Doliwa's maximum-class equivalence) is not established here.
 
 *Status: draft; both machine-checked corners of the landscape (Thm A basis, Thm B impossibility) are machine-checked and
 axiom-audited clean, the finite decidability and Thm C are rigorous paper proofs, and E is an open conjecture.

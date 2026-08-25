@@ -636,15 +636,17 @@ enumeration by `decide`), and `pi_incomplete_infinite.lean` (Thm B, infinite imp
 **fully proven (no `sorry`)** in Lean 4 / Mathlib with `#print axioms` **clean** (`[propext, Classical.choice,
 Quot.sound]`, **no `sorryAx`**) — so **both machine-verifiable corners of the landscape are proven**: the
 finite constructive basis (top-left) and the infinite-absolute impossibility (bottom-left). The umbrella
-`operator_completeness.lean` carries **statements only**: the finite-decidability `instance` is a signature stub
-(the proof is the P-time algorithm of §3, Thm A.2, not a Lean term), and the file records **one cited classical
-fact as an axiom** — the undecidability of extensional equality of $\mathbb{N} \to \mathbb{N}$ functions, the
-Rice-flavored ingredient behind the *non-load-bearing* Remark 5.2. That axiom is **not** the proof of Thm C: the
-undecidability reduction (§5) is the direct $L_g$ embedding of finitely-generated submonoid membership, a paper
-proof citing Mihailova 1958 / Lohrey–Steinberg 2008 (results not in Mathlib). The honest summary: the two
-left-column corners (Thm A.1 basis, Thm B impossibility) are machine-checked and axiom-clean; the finite
-complexity (A.2 P, A.3 PSPACE-complete), the relative undecidability (Thm C), and everything else are paper
-proofs or (for Conj E) an open conjecture.
+`operator_completeness.lean` is a **documentation index only — it introduces no declarations** (no `axiom`, no
+`sorry`): it points to the three closed sibling proofs and states, in prose, which results are paper-only
+(A.2 P-time decidability, A.3 PSPACE-complete membership, Thm C's $L_g$ reduction). *(An earlier version carried
+an `axiom` for the undecidability of $\mathbb{N} \to \mathbb{N}$ function equality; it was **inconsistent** with
+Mathlib's classical foundations — `fun f g => decide (∀ n, f n = g n)` is such a `Bool`-valued function under
+`Classical.propDecidable`, so its negation is provable — and has been **removed**. Thm C's undecidability was
+never that axiom; it is the direct $L_g$ embedding of finitely-generated submonoid membership, a paper proof
+citing Mihailova 1958 / Lohrey–Steinberg 2008, results not in Mathlib.)* The honest summary: the two left-column
+corners (Thm A.1 basis, Thm B impossibility) are machine-checked and axiom-clean; the finite complexity (A.2 P,
+A.3 PSPACE-complete), the relative undecidability (Thm C), and everything else are paper proofs or (for Conj E)
+an open conjecture — and the proof artifacts now contain **no axioms and no `sorry`**.
 
 **Provenance.** The gap this paper fills was confirmed by a source-verified literature review (42 sources,
 `LITERATURE_PI_COMPLETENESS.md`). The algebraic and computability results are classical and cited; the recasting
