@@ -2,7 +2,8 @@ import Mathlib
 
 open Set
 
-variable {R : Type*}
+universe u
+variable {R : Type u}
 
 /-- **Footprint** of an output operator `p : R → R`: the set of values it changes.
 (Paper §2, Def 2.2.) For adequacy this is the whole of `p` that matters (Prop 2.4). -/
@@ -198,3 +199,86 @@ theorem certify_ub (I : Set R) (hIfin : I.Finite) :
     congr 1
     apply Finset.coe_injective
     rw [hIfin.coe_toFinset, Set.coe_toFinset]
+
+/-! ### The program ↔ footprint bridge (§11.1): completeness stated over real programs and suites. -/
+
+/-- **Program-level score.** A suite `T : Finset D` gives `score = 1` against operator family `Π` on
+program `f : D → R` iff every non-equivalent mutant `p ∘ f` (footprint meets the reachable set) is killed
+(some test in `T` exposes it). -/
+def ProgScore (Pi : Set (R → R)) {D : Type*} (f : D → R) (T : Finset D) : Prop :=
+  ∀ p ∈ Pi, (Mov p ∩ Set.range f).Nonempty → ∃ x ∈ T, p (f x) ≠ f x
+
+/-- **Program-level adequacy-completeness.** Over *every* program `f : D → R` and *every* finite suite
+`T`, a full `Π`-score forces a full `Γ`-score. This is Def 3.1 stated directly on programs and suites. -/
+def ProgComplete (Pi Gamma : Set (R → R)) : Prop :=
+  ∀ (D : Type u) (f : D → R) (T : Finset D), ProgScore Pi f T → ProgScore Gamma f T
+
+/-- **Prop 2.4 (the reduction), formal.** Program-level score against `Π` equals the footprint-level score
+`ScoreAt` at the reachable set `range f` and observed set `f '' T`, on the footprint family `Mov '' Π`. -/
+theorem progScore_iff_scoreAt [DecidableEq R] (Pi : Set (R → R)) {D : Type*} (f : D → R) (T : Finset D) :
+    ProgScore Pi f T ↔ ScoreAt (Set.range f) (T.image f) (Mov '' Pi) := by
+  constructor
+  · intro h S hS hSne
+    obtain ⟨p, hpPi, rfl⟩ := hS
+    obtain ⟨x, hxT, hxp⟩ := h p hpPi hSne
+    exact ⟨f x, Finset.mem_image_of_mem f hxT, hxp⟩
+  · intro h p hpPi hne
+    obtain ⟨b, hbO, hbp⟩ := h (Mov p) ⟨p, hpPi, rfl⟩ hne
+    obtain ⟨x, hxT, rfl⟩ := Finset.mem_image.mp hbO
+    exact ⟨x, hxT, hbp⟩
+
+/-- **Realizability.** Every reachable/observed pair `(I, O)` with `O ⊆ I` and `I` nonempty is realized by
+a genuine program `f : R → R` and suite `T = O`: `range f = I`, `O.image f = O`. -/
+theorem realizable [DecidableEq R] (I : Set R) (hI : I.Nonempty) (O : Finset R) (hOI : (↑O : Set R) ⊆ I) :
+    ∃ f : R → R, Set.range f = I ∧ O.image f = O := by
+  classical
+  obtain ⟨i₀, hi₀⟩ := hI
+  refine ⟨fun x => if x ∈ I then x else i₀, ?_, ?_⟩
+  · ext y
+    constructor
+    · rintro ⟨x, rfl⟩
+      by_cases hx : x ∈ I <;> simp [hx, hi₀]
+    · intro hy
+      exact ⟨y, by simp [hy]⟩
+  · have heq : O.image (fun x => if x ∈ I then x else i₀) = O.image id := by
+      apply Finset.image_congr
+      intro x hx
+      have hxI : x ∈ I := hOI hx
+      simp [hxI]
+    rw [heq, Finset.image_id]
+
+/-- **The bridge.** Program-level completeness of operator families equals footprint-level completeness of
+their footprint families. -/
+theorem progComplete_iff_complete [DecidableEq R] (Pi Gamma : Set (R → R)) :
+    ProgComplete Pi Gamma ↔ Complete (Mov '' Pi) (Mov '' Gamma) := by
+  constructor
+  · intro h I O hOI hsc
+    rcases I.eq_empty_or_nonempty with hIe | hIne
+    · intro S _ hSne
+      obtain ⟨b, _, hbI⟩ := hSne
+      rw [hIe] at hbI
+      exact ((Set.mem_empty_iff_false b).mp hbI).elim
+    · obtain ⟨f, hrange, himage⟩ := realizable I hIne O hOI
+      have hpc := h R f O
+      rw [progScore_iff_scoreAt, progScore_iff_scoreAt, hrange, himage] at hpc
+      exact hpc hsc
+  · intro h D f T hsc
+    rw [progScore_iff_scoreAt] at hsc ⊢
+    refine h (Set.range f) (T.image f) ?_ hsc
+    rw [Finset.coe_image]
+    exact Set.image_subset_range f _
+
+/-- **Theorem 3.2, over programs.** The program-level characterization: for a finite operator family,
+adequacy-completeness holds iff every target footprint is covered by contained `Π`-footprints. -/
+theorem progComplete_characterization [DecidableEq R] (Pi Gamma : Set (R → R)) (hfin : Pi.Finite) :
+    ProgComplete Pi Gamma ↔ ∀ g ∈ Gamma, ∀ b ∈ Mov g, ∃ p ∈ Pi, b ∈ Mov p ∧ Mov p ⊆ Mov g := by
+  rw [progComplete_iff_complete, footprint_characterization _ _ (hfin.image Mov)]
+  constructor
+  · intro h g hg b hb
+    obtain ⟨S, hS, hbS, hSsub⟩ := h (Mov g) ⟨g, hg, rfl⟩ b hb
+    obtain ⟨p, hpPi, rfl⟩ := hS
+    exact ⟨p, hpPi, hbS, hSsub⟩
+  · intro h t ht b hb
+    obtain ⟨g, hg, rfl⟩ := ht
+    obtain ⟨p, hpPi, hbp, hsub⟩ := h g hg b hb
+    exact ⟨Mov p, ⟨p, hpPi, rfl⟩, hbp, hsub⟩

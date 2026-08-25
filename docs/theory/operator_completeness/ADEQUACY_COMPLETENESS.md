@@ -3,7 +3,7 @@ title: "What a Mutation Score Certifies"
 subtitle: "Adequacy-completeness for output-mutation operators: a footprint characterization, the value-guard basis, and the coupling effect as a corollary"
 author: 
 date: 
-status: "DRAFT — self-contained, and the core is MACHINE-CHECKED. The main characterization (Thm 3.2) and every consequence (value-guard basis Cor 4.1, extreme-mutation Cor 4.2, ceiling Thm 4.4, coupling Thm 6.1, subsumption Prop 7.1, detection factoring Prop 7.2, teaching dimension Thm 8.1) are fully proven in Lean 4 / Mathlib (no sorry), #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx) — see proofs/adequacy_completeness.lean. Results are elementary; the contribution is the definition and its structure. Not peer-reviewed."
+status: "DRAFT — self-contained, and MACHINE-CHECKED end to end (from programs, not merely footprints). The main characterization (Thm 3.2) and every consequence (Cor 4.1, Cor 4.2, ceiling Thm 4.4, coupling Thm 6.1, subsumption Prop 7.1, detection factoring Prop 7.2, teaching dimension Thm 8.1), AND the program↔footprint bridge (Prop 2.4 formal, realizability, and Thm 3.2 restated over real programs f : D → R and finite suites) are fully proven in Lean 4 / Mathlib (no sorry), every theorem #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx) — see proofs/adequacy_completeness.lean. Results are elementary; the contribution is the definition and its structure. Not peer-reviewed."
 bibliography: "LITERATURE_PI_COMPLETENESS.md"
 ---
 
@@ -11,9 +11,10 @@ bibliography: "LITERATURE_PI_COMPLETENESS.md"
 
 > **Draft notice.** All results are elementary; none is deep, and that is the point — the contribution is a
 > *definition* (completeness measured by what a kill certifies, program- and suite-independently) and the clean
-> structure that falls out of it. **The main theorem (Thm 3.2) and every consequence are machine-checked in
-> Lean 4 / Mathlib** (`proofs/adequacy_completeness.lean`, no `sorry`, `#print axioms` clean, no `sorryAx`) — so
-> the definition's structure is auditable to the kernel. Not peer-reviewed.
+> structure that falls out of it. **The main theorem (Thm 3.2), every consequence, and the full bridge down to
+> real programs `f : D → R` and finite suites are machine-checked in Lean 4 / Mathlib**
+> (`proofs/adequacy_completeness.lean`, no `sorry`, every theorem `#print axioms` clean, no `sorryAx`) — so the
+> definition's structure is auditable to the kernel end to end. Not peer-reviewed.
 
 ## Abstract
 
@@ -408,23 +409,20 @@ footprint characterization (Thm 3.2), the value-guard basis and its size (Cor 4.
 
 ---
 
-## 11. Open problems and a formalization note
+## 11. Open problems
 
-1. **Formalize the program↔footprint bridge.** The machine-checked core (`proofs/adequacy_completeness.lean`)
-   formalizes completeness at the *footprint* level (Def 3.1 via Prop 2.4): `Complete Π Γ` quantifies over a
-   reachable set `I : Set R` and a *finite* observed set `O : Finset R` with `O ⊆ I` — the finiteness of `O`
-   being exactly the finite-suite constraint that makes the finiteness of `Π` load-bearing in Thm 3.2. Prop 2.4
-   (an output operator *is* its footprint) and realizability (every such `(I, O)` arises from a program `f = id`
-   and a suite `T = O`) are the bridge to the program-level statement; formalizing that bridge (modelling
-   `f : D → R`, `T : Finset D` explicitly) would close the last gap between the checked core and the
-   program-level Def 3.1. Everything downstream — Thm 3.2 and every consequence — is already machine-checked.
-2. **Beyond output operators.** Characterize adequacy-completeness for operator classes whose detection sets do
+*(The program↔footprint bridge, once listed here as the sole formalization gap, is now closed: the Lean
+development models programs `f : D → R` and finite suites `T : Finset D` directly and proves `ProgComplete Π Γ ↔
+Complete (Mov '' Π) (Mov '' Γ)` via `progScore_iff_scoreAt` (Prop 2.4, formal) and `realizable`, then restates
+Thm 3.2 over programs as `progComplete_characterization` — all `#print axioms`-clean. See §12.)*
+
+1. **Beyond output operators.** Characterize adequacy-completeness for operator classes whose detection sets do
    *not* factor through a program-independent object (Prop 7.2) — i.e. identify the largest operator class for
    which a program-independent completeness theorem survives.
-3. **Cost-optimal partial families.** Given a fault budget $\Gamma$ and a per-operator cost, find the minimum-cost
+2. **Cost-optimal partial families.** Given a fault budget $\Gamma$ and a per-operator cost, find the minimum-cost
    $\Pi$ adequacy-complete for $\Gamma$ — a set-cover-flavored optimization over footprints (Thm 3.2 makes the
    feasibility test explicit).
-4. **Input-separating faults.** The ceiling (Rem 4.5) bounds output mutation; the companion theory for operators
+3. **Input-separating faults.** The ceiling (Rem 4.5) bounds output mutation; the companion theory for operators
    that *can* separate collapsed inputs (program-text or input-space mutation) is where program-independence is
    lost — quantify what is recoverable.
 
@@ -438,7 +436,7 @@ theorem `#print axioms`-clean (`[propext, Classical.choice, Quot.sound]`, no `so
 
 | Result | Statement | Lean name | Status |
 |---|---|---|---|
-| Prop 2.4 | operator ≡ footprint for adequacy | *(in the model: `ScoreAt` reads only footprints)* | ✅ baked into the definitions |
+| Prop 2.4 | operator ≡ footprint (program score = footprint score) | `progScore_iff_scoreAt` | ✅ Lean, no `sorry`; axioms clean |
 | **Thm 3.2** | **footprint characterization** (the main theorem) | **`footprint_characterization`** | ✅ **Lean, no `sorry`; axioms clean** |
 | Cor 4.1 | value-guard basis | `absolute_iff_guards` | ✅ Lean, no `sorry`; axioms clean |
 | Cor 4.2 | extreme mutation complete iff $n=2$ | `constants_iff_card_two` | ✅ Lean, no `sorry`; axioms clean |
@@ -448,15 +446,22 @@ theorem `#print axioms`-clean (`[propext, Classical.choice, Quot.sound]`, no `so
 | Prop 7.1 | program-independent subsumption $=$ footprint $\subseteq$ | `subsumes_iff_subset` | ✅ Lean, no `sorry`; axioms clean |
 | Prop 7.2 | $\mathrm{Det}(p\circ f) = f^{-1}(\mathrm{Mov}(p))$ | `det_factors` | ✅ Lean, `rfl` (no axioms) |
 | Thm 8.1 | minimum certifying suite $\sigma(f) = |f(D)|$ | `certify_lb`, `certify_ub` | ✅ Lean, no `sorry`; axioms clean |
+| Bridge | realizability of $(I, O)$ by a program | `realizable` | ✅ Lean, no `sorry`; axioms clean |
+| Bridge | program-level $=$ footprint-level completeness | `progComplete_iff_complete` | ✅ Lean, no `sorry`; axioms clean |
+| **Thm 3.2 (over programs)** | characterization stated on `f : D → R`, `T : Finset D` | **`progComplete_characterization`** | ✅ **Lean, no `sorry`; axioms clean** |
 
-**Formalization.** The main theorem and every consequence are **fully proven in Lean 4 / Mathlib**
-(`proofs/adequacy_completeness.lean`, no `sorry`), and the `#print axioms` audit is **clean** — each depends on
-exactly `[propext, Classical.choice, Quot.sound]` (the standard base; `det_factors` on none), with **no
-`sorryAx`**. Prop 2.4 is absorbed into the model (the Lean `ScoreAt` reads only footprints); Thm 5.2's
-decidability *spectrum* is a meta-statement whose load-bearing reduction (to footprint containment) is the
-machine-checked Thm 3.2. The one remaining formalization gap is the program↔footprint bridge (§11.1), documented
-and by-hand. To reproduce: drop the `.lean` file into a Lean 4 project with Mathlib (`lake exe cache get`) and
-run `#print axioms footprint_characterization` (etc.).
+**Formalization.** The development is machine-checked **end to end, from real programs down to the kernel**.
+`ProgScore`/`ProgComplete` define completeness directly over programs `f : D → R` and finite suites
+`T : Finset D`; `progScore_iff_scoreAt` (Prop 2.4) reduces a program's score to the footprint-level `ScoreAt` at
+the reachable set `range f` and observed set `f '' T`; `realizable` shows every reachable/observed pair `(I, O)`
+with `O ⊆ I` is realized by an actual program; `progComplete_iff_complete` glues these into `ProgComplete Π Γ ↔
+Complete (Mov '' Π) (Mov '' Γ)`; and `progComplete_characterization` restates the main theorem (Thm 3.2) over
+programs. **Every theorem is `#print axioms`-clean** — each depends on exactly `[propext, Classical.choice,
+Quot.sound]` (the standard base; `det_factors` on none), with **no `sorryAx`**. The only results not carried as
+Lean theorems are Thm 5.2's decidability *spectrum* (a meta-statement whose load-bearing reduction to footprint
+containment *is* the checked Thm 3.2) — there is no remaining by-hand gap in the completeness chain itself. To
+reproduce: drop the `.lean` file into a Lean 4 project with Mathlib (`lake exe cache get`) and run
+`#print axioms progComplete_characterization` (etc.).
 
 **Provenance.** Self-contained; grounded on standard mutation-testing theory (coupling, sufficiency, subsumption)
 and the classical teaching-dimension notion, cited in §10 and `LITERATURE_PI_COMPLETENESS.md`. Not peer-reviewed.
