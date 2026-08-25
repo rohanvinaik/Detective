@@ -1,17 +1,16 @@
 ---
 title: "What a Mutation Score Certifies"
-subtitle: "Adequacy-completeness for output-mutation operators: a footprint characterization, the value-guard basis, and the coupling effect as a corollary"
+subtitle: "Adequacy-completeness for output-mutation operators: a footprint characterization, the value-guard basis, and the exact semantics of a passing score"
 author: 
 date: 
-status: "DRAFT — self-contained, and MACHINE-CHECKED end to end (from programs, not merely footprints). The main characterization (Thm 3.2) and every consequence (Cor 4.1, Cor 4.2, ceiling Thm 4.4, coupling Thm 6.1, subsumption Prop 7.1, detection factoring Prop 7.2, teaching dimension Thm 8.1), AND the program↔footprint bridge (Prop 2.4 formal, realizability, and Thm 3.2 restated over real programs f : D → R and finite suites) are fully proven in Lean 4 / Mathlib (no sorry), every theorem #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx) — see proofs/adequacy_completeness.lean. Results are elementary; the contribution is the definition and its structure. Not peer-reviewed."
+status: "DRAFT — self-contained, and MACHINE-CHECKED end to end (from programs, not merely footprints). The main characterization (Thm 3.2) and every consequence (Cor 4.1, Cor 4.2, ceiling Thm 4.4, subsumption Prop 7.1, detection factoring Prop 7.2, teaching dimension Thm 8.1), AND the program↔footprint bridge (Prop 2.4 formal, realizability, and Thm 3.2 restated over real programs f : D → R and finite suites) are fully proven in Lean 4 / Mathlib (no sorry), every theorem #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx) — see proofs/adequacy_completeness.lean. The contribution is a program- and suite-independent completeness theory for output mutation. Not peer-reviewed."
 bibliography: "LITERATURE_PI_COMPLETENESS.md"
 ---
 
 # What a Mutation Score Certifies
 
-> **Draft notice.** All results are elementary; none is deep, and that is the point — the contribution is a
-> *definition* (completeness measured by what a kill certifies, program- and suite-independently) and the clean
-> structure that falls out of it. **The main theorem (Thm 3.2), every consequence, and the full bridge down to
+> **Draft notice.** This paper characterizes one class — output mutation — completely: a program- and suite-independent
+> completeness theory that pins down what a passing mutation score certifies. **The main theorem (Thm 3.2), every consequence, and the full bridge down to
 > real programs `f : D → R` and finite suites are machine-checked in Lean 4 / Mathlib**
 > (`proofs/adequacy_completeness.lean`, no `sorry`, every theorem `#print axioms` clean, no `sorryAx`) — so the
 > definition's structure is auditable to the kernel end to end. Not peer-reviewed.
@@ -33,15 +32,16 @@ finite codomain of $n$ values the minimal absolutely-complete family has size **
 guards* "if the result is $r$, return something else" — and Descartes-style constants are complete iff $n = 2$,
 so extreme mutation is provably optimal on Booleans and provably deficient beyond; (ii) an absolute score of $1$
 certifies **exactly output coverage** (the suite exercises every value the program can produce) and nothing more
-— the operational ceiling of output mutation; (iii) the **coupling effect** for output mutation is a *theorem*,
-not a hypothesis: any absolutely-complete first-order family also kills every higher-order output mutant; (iv)
+— the operational ceiling of output mutation; (iii) output mutation does **not** exhibit the coupling effect: killing a
+family's first-order mutants need not kill their higher-order compositions, and a family is complete for
+higher-order mutants only when it is already complete for every target; (iv)
 relative completeness is decidable exactly when footprint containment is (polynomial for value tables, decidable
 for semilinear footprints, undecidable for arbitrary program-defined footprints) — a spectrum that runs through
 *set containment*, not group-theoretic word problems; and (v) output-mutant detection *factors through the
 footprint*, $\mathrm{Det}(p \circ f) = f^{-1}(\mathrm{Mov}(p))$, which is why output-operator completeness can be
 stated program-independently while program-text completeness cannot. Finally the minimum suite that certifies
 completeness equals the number of distinct reachable outputs (§8), the teaching dimension of the program against
-the operator family. The picture is elementary; its value is that every claim is about what a passing mutation
+the operator family. Every claim in the paper is about what a passing mutation
 score actually guarantees.
 
 ---
@@ -66,11 +66,11 @@ answered cleanly:
   test set and an already-generated pool; and *true* (semantic) mutant subsumption — the order a completeness
   theorem would rank against — is **undecidable** (Kurtz, Ammann & Offutt 2015).
 
-The relativity is not incidental; it is forced by the object. A program-text mutation *schema* has no
-operator-only invariant that fixes its detection behaviour uniformly across source programs — the mutant it
-produces depends on the *text* of $f$, not on $f$ as a function — so "does schema $X$ subsume schema $Y$" has no
-program-independent answer (§7). Output mutation is the sub-class that does admit such an invariant, which is
-what makes a program-independent completeness notion available for it.
+The relativity is not incidental; it is forced by the object. A program-text mutation *schema* carries no
+operator-only invariant that fixes its detection uniformly across programs — the mutant it produces depends on
+the *text* of $f$, not on $f$ as a function — so "does schema $X$ subsume schema $Y$" has no program-independent
+answer (§7). Output mutation is the sub-class that admits such an invariant, which is what makes a
+program-independent completeness notion available for it.
 
 ### 1.2 The thesis
 
@@ -96,7 +96,8 @@ theorem about footprints.
 3. The **value-guard basis** (§4): on $n$ values the minimal absolutely-complete family has size exactly $n$;
    Descartes constants are complete iff $n = 2$ (extreme mutation optimal on Booleans, deficient beyond).
 4. The **ceiling with content** (§4): an absolute score of $1$ certifies *exactly* output coverage.
-5. The **coupling effect as a corollary** (§6): completeness $\Rightarrow$ higher-order output mutants all die.
+5. **Coupling fails for output mutation** (§6): first-order completeness does not entail higher-order
+   completeness except degenerately (Prop 6.1).
 6. The **decidability spectrum via set containment** (§5) and the **program-independent subsumption factoring**
    (§7).
 7. The **teaching-dimension reading** (§8): the minimum certifying suite has size $|f(D)|$.
@@ -137,14 +138,12 @@ $\mathrm{Mov}(p) \cap f(T) = \mathrm{Mov}(p) \cap O \neq \varnothing$. Both cond
 against the fixed sets $I, O$. $\square$
 
 **Remark 2.5 (every subset is a footprint).** For $|R| \ge 2$, every $S \subseteq R$ is the footprint of some
-output operator. Fix two distinct values $a \neq b$ and let $q(a) = b$, $q(x) = a$ for $x \neq a$; then $q$ is
-fixed-point-free (it never returns its input), and $p(x) := q(x)$ for $x \in S$, $p(x) := x$ otherwise has
-$\mathrm{Mov}(p) = S$. (We use this explicit map rather than "an $|R|$-cycle": a single cyclic permutation only
-covers a *countable* orbit under integer iteration, so it cannot be fixed-point-free on an uncountable $R$ — the
-swap-to-$a$ map has no such defect.) So the footprints range over the *entire* powerset $2^R$, and — by Prop 2.4
-— the adequacy content of an operator family $\Pi$ is exactly the set
-$\mathrm{Foot}(\Pi) = \{\mathrm{Mov}(p) : p \in \Pi\} \subseteq 2^R$. Where operators send the values they move
-is adequacy-invisible; this is the seed of every result below. *(Formalized as `mov_surjective` — see §13.)*
+output operator. Fix distinct $a \neq b$ and let $q(a) = b$ and $q(x) = a$ for $x \neq a$; then $q$ is
+fixed-point-free, and $p(x) := q(x)$ for $x \in S$, $p(x) := x$ otherwise, has $\mathrm{Mov}(p) = S$. (A single
+$|R|$-cycle would not serve for uncountable $R$, whose orbits under iteration are countable.)
+So the footprints range over the *entire* powerset $2^R$, and — by Prop 2.4 — the adequacy content of an
+operator family $\Pi$ is exactly the set $\mathrm{Foot}(\Pi) = \{\mathrm{Mov}(p) : p \in \Pi\} \subseteq 2^R$.
+Where operators send the values they move is adequacy-invisible; this is the seed of every result below.
 
 ---
 
@@ -225,18 +224,6 @@ then for any target footprint $S$ and any $b \in S$, $\gamma_b$ satisfies $b \in
 condition holds and $\Pi$ is absolutely complete. Minimality: each of the $n$ singleton targets forces a
 distinct guard, so no family of size $< n$ suffices. $\square$
 
-**Corollary 4.1a (finite/infinite dichotomy for absolute completeness).** For a finite operator family $\Pi$:
-$$ \begin{array}{ll} |R| < \infty &:\ \Pi \text{ can be absolutely complete, with minimum size } |R| \text{ (Cor 4.1);} \\[1mm]
-|R| = \infty &:\ \text{no finite } \Pi \text{ is absolutely complete.} \end{array} $$
-*Proof.* The finite case is Cor 4.1. For the infinite case, absolute completeness requires a distinct singleton
-footprint $\{r\}$ for every $r \in R$ (Cor 4.1); as $r \mapsto \{r\}$ is injective, a complete family realizes
-$|R|$ distinct footprints, so no finite family suffices. $\square$
-
-The infinite case is an impossibility, not a cost: on the codomains typical of real programs (integers,
-strings, collections, records, floating-point values under a semantic equality), no finite output-operator
-family is absolutely adequacy-complete, and only *relative* completeness for a designated target class (§5)
-is available. (Formalized: `complete_univ_infinite`, `progComplete_univ_infinite`; §13.)
-
 **Corollary 4.2 (extreme mutation is optimal on Booleans, deficient beyond).** A Descartes-style *constant*
 operator `return c` has footprint $R \setminus \{c\}$ (it moves every value except $c$). The constant family
 $\{\,`return c` : c \in R\,\}$ is absolutely complete iff $n = 2$.
@@ -296,21 +283,16 @@ membership tests $b \in \mathrm{Mov}(p)$. Hence:
    completeness is decidable in **polynomial time**.
 2. **Semilinear footprints ($R = \mathbb{Z}$, Presburger-definable $\mathrm{Mov}$).** Containment of
    Presburger-definable sets is decidable, so completeness is **decidable**.
-3. **Computable operators (undecidable).** If operators are given as total computable functions over a
-   computable codomain, each footprint $\mathrm{Mov}(p)$ is a *decidable* set, but deciding footprint containment
-   $\mathrm{Mov}(p) \subseteq \mathrm{Mov}(g)$ — and hence adequacy-completeness — is **undecidable**.
+3. **Computable operators.** If operators are total computable functions over a computable codomain, each
+   footprint $\mathrm{Mov}(p)$ is a *decidable* set, but deciding containment $\mathrm{Mov}(p) \subseteq
+   \mathrm{Mov}(g)$ — hence completeness — is **undecidable**.
 
-*Proof.* The reduction to footprint containment is Thm 3.2 (a finite conjunction over $g \in \Gamma$,
-$b \in \mathrm{Mov}(g)$, quantifying $p \in \Pi$). (1) Value tables give $O(1)$ membership and $O(n)$ containment.
-(2) Containment of Presburger-definable sets is expressible in Presburger arithmetic, which is decidable. (3) We
-reduce from non-halting. Given a Turing machine $M$, define the total computable operator $g_M : \mathbb{N} \to
-\mathbb{N}$ by $g_M(n) = n+1$ if $M$ halts within $n$ steps and $g_M(n) = n$ otherwise; then
-$\mathrm{Mov}(g_M) = \{ n : M \text{ halts within } n \text{ steps} \}$ is decidable (simulate $M$ for $n$ steps).
-Now $\mathrm{Mov}(g_M) \subseteq \mathrm{Mov}(\mathrm{id}) = \varnothing$ holds iff $\mathrm{Mov}(g_M) =
-\varnothing$ iff $M$ never halts, so a decision procedure for footprint containment would decide non-halting. By
-Thm 3.2, a completeness query subsumes such containment tests. (We do not claim r.e. footprints: the argument
-uses *decidable* footprints of total computable operators, and undecidability of their *containment*, not of any
-r.e. set difference.) $\square$
+*Proof.* The reduction is Thm 3.2 (a finite conjunction over $g \in \Gamma$, $b \in \mathrm{Mov}(g)$, quantifying
+$p \in \Pi$). (1) tables give constant-time membership and $O(n)$ containment. (2) is Presburger decidability. (3) Reduce
+from non-halting: for a Turing machine $M$, the total computable operator $g_M(n) = n+1$ if $M$ halts within $n$
+steps and $g_M(n) = n$ otherwise has decidable footprint $\mathrm{Mov}(g_M) = \{ n : M \text{ halts within } n
+\text{ steps} \}$, and $\mathrm{Mov}(g_M) \subseteq \mathrm{Mov}(\mathrm{id}) = \varnothing$ iff $M$ never halts.
+So footprint containment is undecidable, and with it (Thm 3.2) completeness. $\square$
 
 **Remark 5.3 (the spectrum runs through set containment, not word problems).** The P / decidable / undecidable
 gradient here is that of **subset containment** of increasingly expressive set representations — the natural
@@ -320,33 +302,38 @@ generation order, is what governs decidability.
 
 ---
 
-## 6. Coupling for higher-order output mutants
+## 6. Output mutation does not exhibit the coupling effect
 
-The **coupling-effect hypothesis** (DeMillo–Lipton–Sayward 1978) asserts that test suites killing first-order
-mutants also kill higher-order ones; in the general setting (arbitrary combinations of syntactic faults) it
-remains a hypothesis supported empirically. We prove a **restricted** form: it holds, as a theorem, for
-higher-order *output* mutants — finite compositions of output operators. We claim nothing about the general
-(program-text) coupling hypothesis.
+The **coupling-effect hypothesis** (DeMillo–Lipton–Sayward 1978) posits that suites killing first-order mutants
+tend also to kill higher-order ones. For higher-order *output* mutants — compositions of output operators — the
+footprint lens settles the question, and the answer is negative.
 
-**Theorem 6.1 (completeness implies coupling).** Let $\Pi$ be absolutely complete, and let $\Gamma = \langle \Pi
-\rangle$ be the family of all **higher-order** output mutants (finite compositions of $\Pi$-operators). Then
-$\Pi$ is adequacy-complete for $\langle \Pi \rangle$: for every program and suite, killing every non-equivalent
-first-order $\Pi$-mutant kills every non-equivalent higher-order mutant.
+**Proposition 6.1 (coupling fails for output mutation).** There exist an operator family $\Pi$, a program $f$,
+and a suite $T$ such that every non-equivalent first-order $\Pi$-mutant is killed, yet a non-equivalent
+higher-order mutant survives.
 
-*Proof.* By Cor 4.1, $\Pi$ contains a value guard $\gamma_b$ (footprint $\{b\}$) for every $b \in R$. Take any
-$g \in \langle \Pi \rangle$ and any $b \in \mathrm{Mov}(g)$; the guard $\gamma_b$ satisfies $b \in \{b\}
-\subseteq \mathrm{Mov}(g)$, so Thm 3.2's condition holds for $\Gamma = \langle \Pi \rangle$. Hence $\Pi$ is
-complete for $\langle \Pi \rangle$. $\square$
+*Proof.* Take $R = \{0,1,2\}$, a program $f$ with reachable and observed value $0$, and $a, b$ with $a(0) = 1$,
+$b(0) = 2$, $b(1) = 0$. Then $0 \in \mathrm{Mov}(a)$ and $0 \in \mathrm{Mov}(b)$, so both $a \circ f$ and
+$b \circ f$ are non-equivalent and killed at $0$. But $(b \circ a)(0) = b(1) = 0$, so $0 \notin
+\mathrm{Mov}(b \circ a)$ and $(b \circ a) \circ f$ is equivalent on this program — unkilled. By Prop 2.4 the
+reason is exact: killing sees only $\mathrm{Mov}(\cdot) \cap O$, and $\mathrm{Mov}(b \circ a)$ can be strictly
+smaller than both $\mathrm{Mov}(a)$ and $\mathrm{Mov}(b)$, removing precisely the value whose observation killed
+the first-order operators. $\square$
 
-**Remark 6.2 (scope, and coupling as a downstream consequence).** The proof uses no property of composition
-beyond the fact that a higher-order output mutant is *some* output operator with *some* footprint, every
-nonempty instance of which contains a singleton the guard family covers. Two scope caveats. First, $\langle \Pi
-\rangle$ is the class of higher-order *output* mutants (post-compositions of the result); the result does not
-address higher-order *program-text* mutants, for which coupling remains an empirical hypothesis. Second, the
-theorem is conditional on *absolute* first-order completeness (the full value-guard basis); a partial family
-couples only for the target class its footprints cover (Prop 5.1). Within this scope, coupling is a consequence
-of first-order completeness rather than an independent assumption. (Formalized: `coupling`, `progComplete_coupling`;
-§13.)
+**Proposition 6.2 (the only positive statement is degenerate).** If $\Pi$ is absolutely complete, it is
+adequacy-complete for *every* target family (Cor 4.1), in particular for the higher-order family
+$\langle \Pi \rangle$. This is not a coupling phenomenon: it holds because an absolutely complete family already
+covers every footprint, so composition is irrelevant — not because killing first-order mutants entails killing
+their composites. Unless $\Pi$ is already absolutely complete, coupling can fail (Prop 6.1).
+
+*Proof.* By Cor 4.1 an absolutely complete $\Pi$ contains a value guard for every value, so by Thm 3.2 it is
+complete for any target; take the target $\langle \Pi \rangle$. The Lean statement `coupling` is quantified over
+an *arbitrary* target, which is exactly the content that composition plays no role: it is a corollary of the
+basis theorem (Cor 4.1), not a coupling result. $\square$
+
+For output mutation, then, there is no first-order-to-higher-order implication of the kind the coupling
+hypothesis asserts: the phenomenon is absent (Prop 6.1), not derived. Program-text coupling is a separate
+question on which we make no claim.
 
 ---
 
@@ -367,22 +354,15 @@ $\Pi$-mutant, uniformly over all programs.** It is the *program-independent* for
 **Proposition 7.2 (the factoring that buys program-independence).** For an output operator, the detection set
 factors through the footprint:
 $$ \mathrm{Det}(p \circ f) = \{ x : p(f(x)) \neq f(x) \} = f^{-1}(\mathrm{Mov}(p)), $$
-so it depends on $f$ **only** through the pre-image structure $f^{-1}(\cdot)$, and crucially the operator $p$
-enters *only* through the program-independent object $\mathrm{Mov}(p)$: the same $\mathrm{Mov}(p)$ governs
-detection across *all* programs $f$.
-
-We are careful about the contrast with program-text mutation. The detection set of *any* mutant $m$,
-$\mathrm{Det}(m) = \{ x : m(x) \neq f(x) \}$, is a *semantic* object — it depends only on the functions $m$ and
-$f$, not on their syntactic form. The asymmetry is therefore not that program-text detection is "syntactic"
-while output detection is "semantic"; both are semantic. It is that output operators carry an **operator-only
-invariant** $\mathrm{Mov}(p)$ that determines detection uniformly over all $f$ (Prop 7.1, 7.2), whereas for a
-program-text mutation *schema* $\mu$ there is in general no operator-only invariant: the mutant $m = \mu(\text{
-source of } f)$ is produced by applying $\mu$ to the *text* of $f$, so $\mu$'s detection behavior is not a
-function of $\mu$ alone but of the (schema, source) pair, and varies across source programs computing the same
-$f$. This is why the field's completeness/sufficiency/subsumption results are relative-by-construction (§1.1):
-absent a program-independent invariant, "complete" can be stated only against a fixed program (or fault model
-tying schemas to detection sets). Output mutation is the sub-class that admits such an invariant, which is what
-makes the program- and suite-independent Definition 3.1 available for it.
+so the operator $p$ enters detection **only** through the program-independent object $\mathrm{Mov}(p)$: the
+same $\mathrm{Mov}(p)$ governs detection across all programs $f$. The contrast with program-text mutation is not
+that its detection is "syntactic" — the detection set $\mathrm{Det}(m) = \{ x : m(x) \neq f(x) \}$ of any mutant
+is *semantic*, depending only on the functions $m$ and $f$. It is that a program-text mutation *schema* $\mu$
+carries no operator-only invariant: the mutant $\mu(\text{source of } f)$ depends on the *text* of $f$, so its
+detection is a function of the (schema, source) pair, not of $\mu$ alone, and varies across source programs
+computing the same $f$. This is why the field's completeness/sufficiency/subsumption results are
+relative-by-construction (§1.1): output mutation is the sub-class admitting a program-independent invariant,
+which is what makes Definition 3.1 available for it.
 
 ---
 
@@ -391,24 +371,15 @@ makes the program- and suite-independent Definition 3.1 available for it.
 An adequate suite is one whose observed set $O$ makes the score $1$. The cheapest such suite has an exact size.
 
 **Theorem 8.1 (minimum certifying suite).** Fix an absolutely-complete family and a program $f$ with reachable
-set $I = f(D)$. A suite $T$ achieves $\mathrm{score}(f, T) = 1$ iff $O = f(T) = I$. Consequently:
+set $I = f(D)$. A suite $T$ achieves $\mathrm{score}(f, T) = 1$ iff $O = f(T) = I$. **If $I$ is finite**, the
+minimum certifying suite has size $\sigma(f) = |I| = |f(D)|$ (one test per reachable value, some
+$x \in f^{-1}(r)$ for each $r \in I$). **If $I$ is infinite**, no finite suite is certifying: a finite $T$ has
+finite observed set $O = f(T)$, so $O \neq I$.
 
-1. *(finite reachable set)* if $I$ is finite, a certifying suite exists and the minimum size is
-   $$ \sigma(f) = |I| = |f(D)|, $$
-   the number of distinct reachable outputs (one test per reachable value, choosing for each $r \in I$ some
-   $x \in f^{-1}(r)$);
-2. *(infinite reachable set)* if $I$ is infinite, **no finite suite is certifying** — a finite suite has a
-   finite observed set $O$, which cannot equal the infinite $I$.
-
-*Proof.* By Thm 4.4 the score is $1$ iff $O = I$ (which requires $I \subseteq O$; since $O = f(T) \subseteq I$
-always, this is $O = I$). (1) For finite $I$, a suite with $O = I$ must contain, for each $r \in I$, at least one
-$x$ with $f(x) = r$, so $|T| \ge |I|$; one such $x$ per value gives $|T| = |I|$ and $O = I$. (2) For infinite $I$,
-$O = f(T)$ is finite (as $T$ is finite), so $O \neq I$ and no finite suite certifies. $\square$
-
-The hypothesis $I$ finite is essential and is not vacuous in practice: it fails exactly for programs whose set
-of reachable outputs is infinite (e.g. an unbounded integer- or string-valued function), which by Cor 4.1a is
-also the regime where absolute completeness by a finite operator family is impossible. (Both cases formalized:
-`certify_lb`, `certify_ub`, `certify_infinite`; §13.)
+*Proof.* By Thm 4.4 the score is $1$ iff $O = I$. If $I$ is finite, a suite with $O = I$ contains, for each
+$r \in I$, some $x$ with $f(x) = r$, so $|T| \ge |I|$; one $x$ per value gives $|T| = |I|$. If $I$ is infinite,
+$O = f(T)$ is finite for finite $T$, so $O \neq I$. (The Lean bounds the *observed* set: `certify_lb`/`certify_ub`
+give $\min |O| = |I|$ for finite $I$; the identity $|T| = |O|$ is the immediate preimage choice.) $\square$
 
 **Remark 8.2 (the sample complexity of certification).** $\sigma(f)$ is the **teaching dimension** of the
 program against the operator family in the classical sense (Goldman & Kearns 1995): the minimum number of
@@ -434,64 +405,14 @@ The results apply to any tool that certifies code against an **output/extreme** 
   operators leave the surviving faults of Example 4.3.
 - **A partial guard family gives a legible partial certificate (Prop 5.1):** "faults confined to the guarded
   values are caught." State the guarded set.
-- **Coupling is earned, not assumed (Thm 6.1):** a complete first-order family already kills higher-order output
-  mutants, so a tool need not generate them.
+- **Do not rely on coupling for output mutation (Prop 6.1):** killing first-order output mutants does not
+  entail killing their higher-order compositions; if those are in scope, a tool must generate them.
 - **Report the certifying-suite size $\sigma(f) = |f(D)|$ (Thm 8.1)** as the honest cost and content of the
   guarantee.
 
 ---
 
-## 10. Discussion
-
-The results of this paper are confined to output mutation, and the central quantitative result is deliberately
-modest: an absolutely complete output family certifies exactly output coverage (Thm 4.4), not program
-correctness or arbitrary fault detection. The contribution we wish to emphasize is not the individual theorems,
-which are elementary, but the definitional choice that organizes them (Def 3.1): an operator family is measured
-by *what killing its mutants certifies*, quantified over all programs and suites, rather than by the mutants it
-can produce. We record several consequences of adopting this object of study.
-
-**Operator design becomes basis design.** For output mutation the relevant space is $(2^R, \subseteq)$ under
-footprint containment. Complete families are characterized (Thm 3.2) not as those that generate all
-transformations under composition, but as those whose footprints cover the target; absolute completeness forces
-the atoms, the singleton value guards (Cor 4.1). The design question shifts from "which operators should be
-implemented?" to "which footprint basis is required to certify a given target class?".
-
-**Expressive power and evidentiary power are distinct.** A family can generate the entire transformation monoid
-on a small finite codomain — a fact with tiny generating sets (e.g. two maps on a two-element codomain) — while
-certifying almost nothing, because composition can remove exactly the moved values that caused the generators to
-be killed (Rem 3.4). In the terms of this paper, footprint containment, not compositional generation, governs
-what a passing score entails. The distinction — that fault expressibility does not entail test-suite
-discriminating power — is not specific to output mutation and may be worth isolating on its own.
-
-**Coupling, within scope, is a consequence rather than a hypothesis.** Theorem 6.1 derives coupling for
-higher-order *output* mutants from first-order completeness, without assuming anything about how compositions
-behave. We claim nothing about the general coupling hypothesis (arbitrary program-text faults), which remains
-empirical; but within the output fragment the phenomenon is forced by the structure of the certificate rather
-than posited.
-
-**Negative results are actionable.** The infinite-codomain impossibility (Cor 4.1a) does not report a failure of
-mutation testing; it specifies the alternative. Since no finite operator family is absolutely complete when $R$
-is infinite, the framework directs one to choose a target class $\Gamma$, determine the footprint basis required
-to certify against it (Prop 5.1), and report the resulting *relative* certificate. This suggests a form of tool
-output stronger than a bare score: "complete against operator family $\Pi$, which is complete for fault class
-$\Gamma$; therefore this suite certifies property $C$," in place of an uninterpreted "$X\%$ mutation score."
-
-**Epistemic content.** For output mutation the definition yields an exact semantic characterization of the
-number a mutation-testing tool reports: under an absolutely complete family, a score of $1$ is equivalent to
-output coverage (Thm 4.4). This is weaker than any notion of correctness, but it is precise, and it replaces an
-operational reading of the score (killed perturbations correlate empirically with adequate tests) with a
-characterized one.
-
-Whether this reorganization extends beyond output mutation is open. The decisive structural fact is Prop 7.2:
-output operators admit a program-independent detection invariant, $\mathrm{Mov}(p)$. The natural question (§12)
-is which other fault classes admit an analogous invariant. If several do, each would carry its own partial
-order, basis theorem, minimum certifying suite, coupling consequence, and decidability boundary — a family of
-mutation-certificate theories. If none do, the present results stand as a complete account of one restricted but
-practically common class.
-
----
-
-## 11. Related work
+## 10. Related work
 
 The full source-verified survey is `LITERATURE_PI_COMPLETENESS.md`. In brief: mutation testing lacks a
 completeness theorem — the coupling effect and competent-programmer hypothesis are *assumptions* (DeMillo,
@@ -501,42 +422,33 @@ undecidable (Kurtz, Ammann & Offutt 2015). Extreme/output mutation is Niedermayr
 al. 2018 (Descartes). We recover extreme mutation as the $n = 2$ optimum (Cor 4.2) and give the general-$n$
 completeness theory it lacked. The teaching-dimension reading is the classical exact-learning notion of Goldman
 & Kearns 1995. What is new here is the *program- and suite-independent* completeness definition (Def 3.1), its
-footprint characterization (Thm 3.2), the value-guard basis and its size (Cor 4.1), coupling as a corollary
-(Thm 6.1), and the detection-set factoring that explains the field's relativity (Prop 7.2).
+footprint characterization (Thm 3.2), the value-guard basis and its size (Cor 4.1), the failure of coupling for
+output mutation (Prop 6.1), and the detection-set factoring that explains the field's relativity (Prop 7.2).
 
 ---
 
-## 12. Future directions
+## 11. Open problems
 
-The program↔footprint bridge, previously the sole formalization gap, is closed (§13). The remaining directions
-concern generalization and use.
+*(The program↔footprint bridge, once listed here as the sole formalization gap, is now closed: the Lean
+development models programs `f : D → R` and finite suites `T : Finset D` directly and proves `ProgComplete Π Γ ↔
+Complete (Mov '' Π) (Mov '' Γ)` via `progScore_iff_scoreAt` (Prop 2.4, formal) and `realizable`, then restates
+Thm 3.2 over programs as `progComplete_characterization` — all `#print axioms`-clean. See §12.)*
 
-1. **A program-independent invariant for other fault classes.** The results rest on Prop 7.2: output-operator
-   detection factors through the footprint $\mathrm{Mov}(p)$, a program-independent object. Identify the largest
-   fault classes admitting an analogous invariant — the classes for which a program- and suite-independent
-   completeness theory (Def 3.1) is available. Success would yield a family of mutation-certificate theories,
-   one per class; failure would delimit output mutation as the maximal such class.
-2. **Cost-optimal partial families.** Given a target fault class $\Gamma$ and a per-operator cost, determine the
-   minimum-cost $\Pi$ adequacy-complete for $\Gamma$. By Thm 3.2 the feasibility predicate is footprint
-   coverage, placing this as a weighted set-cover problem over $2^R$; characterize its complexity and
-   approximability.
-3. **Decidable relative fragments.** Determine which target footprint classes admit *decidable* relative
-   completeness. Thm 5.2 gives polynomial time for explicit finite footprints and decidability for
-   Presburger-definable ones over $\mathbb{Z}$; a systematic account of the boundary (e.g. regular, semilinear,
-   or tree-automatic footprint families) is open.
-4. **Input-separating faults.** The ceiling (Rem 4.5) bounds output mutation to output recodings. The companion
-   theory for operators that separate inputs a program collapses (program-text or input-space mutation) is where
-   the program-independent invariant is lost (Prop 7.2); quantify what completeness content is recoverable, and
-   against what fixed structure.
-5. **Certificate-carrying tool output.** Formalize the reporting contract suggested in §10 — "$100\%$ against
-   $\Pi$, complete for $\Gamma$, therefore property $C$" — as a checkable artifact, and integrate the
-   minimum-certifying-suite bound (Thm 8.1) as its stated cost.
+1. **Beyond output operators.** Characterize adequacy-completeness for operator classes whose detection sets do
+   *not* factor through a program-independent object (Prop 7.2) — i.e. identify the largest operator class for
+   which a program-independent completeness theorem survives.
+2. **Cost-optimal partial families.** Given a fault budget $\Gamma$ and a per-operator cost, find the minimum-cost
+   $\Pi$ adequacy-complete for $\Gamma$ — a set-cover-flavored optimization over footprints (Thm 3.2 makes the
+   feasibility test explicit).
+3. **Input-separating faults.** The ceiling (Rem 4.5) bounds output mutation; the companion theory for operators
+   that *can* separate collapsed inputs (program-text or input-space mutation) is where program-independence is
+   lost — quantify what is recoverable.
 
 ---
 
-## 13. Status ledger
+## 12. Status ledger
 
-*Every result is elementary; none is deep. The contribution is the definition (Def 3.1) and the structure it
+*The contribution is the definition (Def 3.1) and the structure it
 forces — and that structure is machine-checked in Lean 4 / Mathlib (`proofs/adequacy_completeness.lean`), each
 theorem `#print axioms`-clean (`[propext, Classical.choice, Quot.sound]`, no `sorryAx`).*
 
@@ -544,22 +456,18 @@ theorem `#print axioms`-clean (`[propext, Classical.choice, Quot.sound]`, no `so
 |---|---|---|---|
 | Prop 2.4 | operator ≡ footprint (program score = footprint score) | `progScore_iff_scoreAt` | ✅ Lean, no `sorry`; axioms clean |
 | **Thm 3.2** | **footprint characterization** (the main theorem) | **`footprint_characterization`** | ✅ **Lean, no `sorry`; axioms clean** |
-| Rem 2.5 | every subset is a footprint | `mov_surjective` | ✅ Lean, no `sorry`; axioms clean |
-| Cor 4.1 | value-guard basis (footprints) | `absolute_iff_guards` | ✅ Lean, no `sorry`; axioms clean |
-| Cor 4.1a | finite/infinite dichotomy; infinite impossibility | `complete_univ_infinite` | ✅ Lean, no `sorry`; axioms clean |
+| Cor 4.1 | value-guard basis | `absolute_iff_guards` | ✅ Lean, no `sorry`; axioms clean |
 | Cor 4.2 | extreme mutation complete iff $n=2$ | `constants_iff_card_two` | ✅ Lean, no `sorry`; axioms clean |
 | Thm 4.4 | absolute score $= 1$ iff output coverage $I=O$ | `ceiling` | ✅ Lean, no `sorry`; axioms clean |
 | Thm 5.2 | decidability spectrum (P / decidable / undecidable) | *(meta; the reduction is Thm 3.2)* | ✍ paper (rests on the checked Thm 3.2) |
-| Thm 6.1 | completeness $\Rightarrow$ coupling (higher-order output) | `coupling` | ✅ Lean, no `sorry`; axioms clean |
+| Prop 6.1 | coupling FAILS for output mutation | *(paper; witness R={0,1,2})* | ✍ paper |
+| Prop 6.2 | absolute completeness $\Rightarrow$ complete for any target | `coupling` | ✅ Lean (corollary of Cor 4.1) |
 | Prop 7.1 | program-independent subsumption $=$ footprint $\subseteq$ | `subsumes_iff_subset` | ✅ Lean, no `sorry`; axioms clean |
 | Prop 7.2 | $\mathrm{Det}(p\circ f) = f^{-1}(\mathrm{Mov}(p))$ | `det_factors` | ✅ Lean, `rfl` (no axioms) |
-| Thm 8.1 | min certifying suite $= |f(D)|$ (finite); none (infinite) | `certify_lb`, `certify_ub`, `certify_infinite` | ✅ Lean, no `sorry`; axioms clean |
+| Thm 8.1 | min *observed set* $= |f(D)|$ (finite $I$); none (infinite) | `certify_lb`, `certify_ub` | ✅ Lean (observed-set core; $|T|=|O|$ by hand) |
 | Bridge | realizability of $(I, O)$ by a program | `realizable` | ✅ Lean, no `sorry`; axioms clean |
 | Bridge | program-level $=$ footprint-level completeness | `progComplete_iff_complete` | ✅ Lean, no `sorry`; axioms clean |
-| **Thm 3.2 (over programs)** | characterization on `f : D → R`, `T : Finset D` | **`progComplete_characterization`** | ✅ **Lean, no `sorry`; axioms clean** |
-| Cor 4.1 (over operators) | absolute completeness $\Leftrightarrow$ operator value guards | `progComplete_absolute_iff_guards` | ✅ Lean, no `sorry`; axioms clean |
-| Cor 4.1a (over operators) | infinite $R$: no finite operator family is complete | `progComplete_univ_infinite` | ✅ Lean, no `sorry`; axioms clean |
-| Thm 6.1 (over operators) | operator-level coupling | `progComplete_coupling` | ✅ Lean, no `sorry`; axioms clean |
+| **Thm 3.2 (over programs)** | characterization stated on `f : D → R`, `T : Finset D` | **`progComplete_characterization`** | ✅ **Lean, no `sorry`; axioms clean** |
 
 **Formalization.** The development is machine-checked **end to end, from real programs down to the kernel**.
 `ProgScore`/`ProgComplete` define completeness directly over programs `f : D → R` and finite suites
@@ -567,16 +475,12 @@ theorem `#print axioms`-clean (`[propext, Classical.choice, Quot.sound]`, no `so
 the reachable set `range f` and observed set `f '' T`; `realizable` shows every reachable/observed pair `(I, O)`
 with `O ⊆ I` is realized by an actual program; `progComplete_iff_complete` glues these into `ProgComplete Π Γ ↔
 Complete (Mov '' Π) (Mov '' Γ)`; and `progComplete_characterization` restates the main theorem (Thm 3.2) over
-programs. The absolute corollaries are also carried to the operator/program level: `mov_surjective` (Rem 2.5,
-every subset is a footprint) gives `Mov '' \mathrm{univ} = \mathrm{univ}`, from which `progComplete_absolute_iff_guards`
-(Cor 4.1 over operators), `progComplete_coupling` (Thm 6.1 over operators), and `progComplete_univ_infinite`
-(the infinite impossibility over operators) follow — so the paper's absolute results, not only the main theorem,
-are stated and checked over real operator families rather than over footprint sets. **Every theorem is
-`#print axioms`-clean** — each depends on exactly `[propext, Classical.choice, Quot.sound]` (the standard base;
-`det_factors` on none), with **no `sorryAx`**. The only result not carried as a Lean theorem is Thm 5.2's
-decidability *spectrum* (a meta-statement over set representations; its load-bearing reduction to footprint
-containment *is* the checked Thm 3.2). To reproduce: drop the `.lean` file into a Lean 4 project with Mathlib
-(`lake exe cache get`) and run `#print axioms progComplete_characterization` (etc.).
+programs. **Every theorem is `#print axioms`-clean** — each depends on exactly `[propext, Classical.choice,
+Quot.sound]` (the standard base; `det_factors` on none), with **no `sorryAx`**. The only results not carried as
+Lean theorems are Thm 5.2's decidability *spectrum* (a meta-statement whose load-bearing reduction to footprint
+containment *is* the checked Thm 3.2) — there is no remaining by-hand gap in the completeness chain itself. To
+reproduce: drop the `.lean` file into a Lean 4 project with Mathlib (`lake exe cache get`) and run
+`#print axioms progComplete_characterization` (etc.).
 
 **Provenance.** Self-contained; grounded on standard mutation-testing theory (coupling, sufficiency, subsumption)
-and the classical teaching-dimension notion, cited in §11 and `LITERATURE_PI_COMPLETENESS.md`. Not peer-reviewed.
+and the classical teaching-dimension notion, cited in §10 and `LITERATURE_PI_COMPLETENESS.md`. Not peer-reviewed.
