@@ -61,6 +61,20 @@ ISSTA/ICSE/TSE novelty check before submission.
 | Kintis, Papadakis, Jia, Malevris, Le Traon & Harman 2018, *Detecting Trivial Mutant Equivalences via Compiler Optimisations* (IEEE TSE) | Compiler-optimisation equivalence detection (C, Java) — sound but partial. | https://doi.org/10.1109/TSE.2017.2684805 |
 | Godlin & Strichman 2013, *Regression verification* (STVR 23(3):241–258) | Sidesteps undecidable equivalence for *similar* programs via uninterpreted-function abstraction — sound-but-incomplete. | https://onlinelibrary.wiley.com/doi/10.1002/stvr.1472 |
 
+### C′. Submonoid membership — the *precise* frontier for relative completeness (⚠ RECALLED, verification owed)
+
+> These two entries are **not part of the 42-verified corpus** — they were added after a review pass (2026-08-25)
+> identified that the relative-completeness undecidability frontier is finitely-generated **submonoid membership**,
+> not the word problem, and the session's web-search budget was already exhausted. The mathematical *fact* they
+> attribute (there exist finitely generated monoids/groups with decidable word problem but undecidable f.g.
+> submonoid/subgroup membership) is standard and independently sufficient for Thm C; the specific citations below
+> are **recalled from memory and must be source-verified before publication.** Do not quote as verified.
+
+| Source (⚠ recalled — verify) | Attributed claim | Locator to verify |
+|---|---|---|
+| Mihailova 1958, *The occurrence problem for direct products of groups* (Dokl. Akad. Nauk / Mat. Sb.) | $F_2 \times F_2$ has **decidable word problem** but **undecidable finitely-generated subgroup (occurrence/membership) problem** — the classical word-problem-vs-membership gap. Standard textbook reference: Lyndon–Schupp, *Combinatorial Group Theory*. | verify exact venue/year + statement (Lyndon–Schupp cites it) |
+| Lohrey & Steinberg 2008, *The submonoid and rational subset membership problems for graph groups* (J. Algebra 320(2):728–755) | For some **graph groups** (right-angled Artin groups) — which have **decidable word problem** — the finitely-generated **submonoid membership** problem is **undecidable**. The precise submonoid-level statement Thm C uses. | https://doi.org/10.1016/j.jalgebra.2008.02.030 (verify DOI + statement) |
+
 ## D. Teaching dimension / exact learning (the σ = TD scaffolding)
 
 | Source | Establishes | URL |
