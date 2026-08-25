@@ -90,12 +90,18 @@ The dispatch is a pure decision (type → hand-back kind), routed through the ex
 - **Active structural search** — `structural_residual` could instead TRIGGER a harder / structural
   witness search (real new synthesis machinery), not just a typed hand-back. That is genuinely "its
   own document" — the hand-back branch (§3.3) is the bounded slice built now. **[?]**
-- **The `inputs_expressible` second discriminator** — DONE. `structural_residual_handback(
-  inputs_expressible) -> "structural_input" | "structural_fixture"` (pure, pinned) is the escalation
-  dispatch: a `structural_residual` whose input has a literal form asks for a nested `--input`; one
-  without asks for a hand-built object, NEVER the broken `--input` ask. Both the terse default and the
-  verbose caveat consume it (AST-verified beforehand: `.inputs_expressible` had been read in exactly
-  one place — `audit.py` — so the converge render asked for `--input` regardless).
+- **The `inputs_expressible` second discriminator** — the discrimination is LIVE, but through
+  `residual_disposition`, not this helper. `residual_disposition` consumes `inputs_expressible` and
+  peels an inexpressible residual to `fixture_residual` UPSTREAM, and `candidate_equivalent_caveat`
+  (cli.py) maps that to the `fixture` / `structural` / `none` caveat both surfaces render — so the
+  fixture-vs-input ask reaches the terse default AND the verbose report via the caveat.
+  `structural_residual_handback(inputs_expressible) -> "structural_input" | "structural_fixture"`
+  (pure, pinned) is **built but NOT yet wired** — the reference graph shows only its test consumes it,
+  and it is currently REDUNDANT (once the caveat reports `structural`, the inputs are already
+  expressible, so its fixture branch is unreachable). Kept as a pure helper reserved for a finer
+  hand-back TEXT (a distinct "supply a nested `--input`" vs "hand-build a fixture" message) if that is
+  ever surfaced separately from the caveat. [Grounded 2026-08-25; corrects the earlier "both surfaces
+  consume it" claim, which the reference graph falsifies.]
 - **Where the type is stored** — a per-verdict field on `SurvivorReport` (more reusable) vs a
   converge-level decision consuming the report (smaller change). The slice takes the decision-consuming
   form; a stored field can follow if a second consumer appears. **[?]**

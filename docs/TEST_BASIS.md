@@ -1124,11 +1124,14 @@ undifferentiated `I_solve` bucket, which is what makes a killable-but-unsynthesi
 indistinguishable from a genuine equivalent), then #67's structural detector as the shared gate,
 then the escalation dispatch.
 
-One live defect found in passing: **the structural advisory reaches neither surface that invites a
-flag.** `structural_difficulty` (`converge.py:2005`) is read once, at `cli.py:1659`, but the
-default terminal path is `_format_converge_terse` (`cli.py:4897`), which never calls it — and
-`converge_next_action` does not consume it. So the caution built to prevent a false equivalence
-flag is absent from the surface that invites one.
+**[CLOSED — grounded 2026-08-25.]** This note recorded a live defect — *"the structural advisory
+reaches neither surface that invites a flag."* It is now closed: the default terminal path
+`_format_converge_terse` consumes `candidate_equivalent_caveat` (cli.py:1965) — *"the SAME decision
+the verbose path uses, so the two cannot drift on when to caution"* — which derives its fixture /
+structural / none verdict from the canonical `residual_disposition`. So the caution built to prevent
+a false equivalence flag now reaches BOTH the terse default and the verbose report. The reference
+graph confirms both `_format_survivor_report` (cli.py:1321) and `_format_converge_terse` (cli.py:1965)
+call it. (Kept for the record: the F2 residual typing — `residual_disposition` — is built AND wired.)
 
 ## 18. Open questions — flag, never guess
 
