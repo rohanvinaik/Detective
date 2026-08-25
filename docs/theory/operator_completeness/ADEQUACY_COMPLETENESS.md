@@ -32,9 +32,8 @@ finite codomain of $n$ values the minimal absolutely-complete family has size **
 guards* "if the result is $r$, return something else" — and Descartes-style constants are complete iff $n = 2$,
 so extreme mutation is provably optimal on Booleans and provably deficient beyond; (ii) an absolute score of $1$
 certifies **exactly output coverage** (the suite exercises every value the program can produce) and nothing more
-— the operational ceiling of output mutation; (iii) output mutation does **not** exhibit the coupling effect: killing a
-family's first-order mutants need not kill their higher-order compositions, and a family is complete for
-higher-order mutants only when it is already complete for every target; (iv)
+— the operational ceiling of output mutation; (iii) coupling is **not entailed** for output mutation: killing a
+family's first-order mutants need not kill their higher-order compositions (Prop 6.1, machine-checked); (iv)
 relative completeness is decidable exactly when footprint containment is (polynomial for value tables, decidable
 for semilinear footprints, undecidable for arbitrary program-defined footprints) — a spectrum that runs through
 *set containment*, not group-theoretic word problems; and (v) output-mutant detection *factors through the
@@ -96,8 +95,8 @@ theorem about footprints.
 3. The **value-guard basis** (§4): on $n$ values the minimal absolutely-complete family has size exactly $n$;
    Descartes constants are complete iff $n = 2$ (extreme mutation optimal on Booleans, deficient beyond).
 4. The **ceiling with content** (§4): an absolute score of $1$ certifies *exactly* output coverage.
-5. **Coupling fails for output mutation** (§6): first-order completeness does not entail higher-order
-   completeness except degenerately (Prop 6.1).
+5. **Coupling is not entailed for output mutation** (§6): first-order completeness does not force
+   higher-order completeness (Prop 6.1, machine-checked).
 6. The **decidability spectrum via set containment** (§5) and the **program-independent subsumption factoring**
    (§7).
 7. The **teaching-dimension reading** (§8): the minimum certifying suite has size $|f(D)|$.
@@ -312,38 +311,36 @@ generation order, is what governs decidability.
 
 ---
 
-## 6. Output mutation does not exhibit the coupling effect
+## 6. First-order completeness does not entail higher-order completeness
 
-The **coupling-effect hypothesis** (DeMillo–Lipton–Sayward 1978) posits that suites killing first-order mutants
-tend also to kill higher-order ones. For higher-order *output* mutants — compositions of output operators — the
-footprint lens settles the question, and the answer is negative.
+The **coupling-effect hypothesis** (DeMillo–Lipton–Sayward 1978) is the empirical observation that suites
+killing first-order mutants tend also to kill higher-order ones. For higher-order *output* mutants —
+compositions of output operators — no such implication holds as a theorem, and the footprint lens shows why.
 
-**Proposition 6.1 (coupling fails for output mutation).** There exist an operator family $\Pi$, a program $f$,
-and a suite $T$ such that every non-equivalent first-order $\Pi$-mutant is killed, yet a non-equivalent
+**Proposition 6.1 (coupling is not entailed).** There exist an operator family $\Pi$, a program $f$, and a
+suite $T$ under which every non-equivalent first-order $\Pi$-mutant is killed while a non-equivalent
 higher-order mutant survives.
 
-*Proof.* Take $R = \{0,1,2\}$, a program $f$ with reachable and observed value $0$, and $a, b$ with $a(0) = 1$,
-$b(0) = 2$, $b(1) = 0$. Then $0 \in \mathrm{Mov}(a)$ and $0 \in \mathrm{Mov}(b)$, so both $a \circ f$ and
-$b \circ f$ are non-equivalent and killed at $0$. But $(b \circ a)(0) = b(1) = 0$, so $0 \notin
-\mathrm{Mov}(b \circ a)$ and $(b \circ a) \circ f$ is equivalent on this program — unkilled. By Prop 2.4 the
-reason is exact: killing sees only $\mathrm{Mov}(\cdot) \cap O$, and $\mathrm{Mov}(b \circ a)$ can be strictly
-smaller than both $\mathrm{Mov}(a)$ and $\mathrm{Mov}(b)$, removing precisely the value whose observation killed
-the first-order operators. $\square$
+*Proof.* Let $R = \{0,1,2\}$ and $\Pi = \{a\}$ with $a : 0 \mapsto 1,\ 1 \mapsto 0,\ 2 \mapsto 1$, so
+$\mathrm{Mov}(a) = R$. Take a program $f$ with reachable set $I = \{0,2\}$ observed at $O = \{0\}$. The only
+non-equivalent first-order mutant $a \circ f$ is killed, since $0 \in \mathrm{Mov}(a) \cap O$. The higher-order
+mutant $a \circ a$ satisfies $(a \circ a) : 0 \mapsto 0,\ 1 \mapsto 1,\ 2 \mapsto 0$, so $\mathrm{Mov}(a \circ a)
+= \{2\}$: it meets $I$ (at $2$, hence non-equivalent) but misses $O$ (unkilled). So the score is $1$ against
+$\{a\}$ yet $< 1$ against $\langle \Pi \rangle$. By Prop 2.4 the reason is exact: $\mathrm{Mov}(a \circ a)$ can
+be strictly smaller than $\mathrm{Mov}(a)$, removing the value whose observation killed the first-order mutant.
+$\square$ *(Machine-checked as `coupling_fails`; §12.)*
 
-**Proposition 6.2 (the only positive statement is degenerate).** If $\Pi$ is absolutely complete, it is
-adequacy-complete for *every* target family (Cor 4.1), in particular for the higher-order family
-$\langle \Pi \rangle$. This is not a coupling phenomenon: it holds because an absolutely complete family already
-covers every footprint, so composition is irrelevant — not because killing first-order mutants entails killing
-their composites. Unless $\Pi$ is already absolutely complete, coupling can fail (Prop 6.1).
+**Proposition 6.2 (the only positive statement is degenerate).** If $\Pi$ is absolutely complete it is
+adequacy-complete for *every* target (Cor 4.1), in particular for $\langle \Pi \rangle$. This is a corollary of
+the value-guard basis, not a coupling phenomenon: it holds because such a family already covers every footprint,
+so composition is irrelevant. (The Lean statement `coupling` is quantified over an arbitrary target, which is
+exactly this content.)
 
-*Proof.* By Cor 4.1 an absolutely complete $\Pi$ contains a value guard for every value, so by Thm 3.2 it is
-complete for any target; take the target $\langle \Pi \rangle$. The Lean statement `coupling` is quantified over
-an *arbitrary* target, which is exactly the content that composition plays no role: it is a corollary of the
-basis theorem (Cor 4.1), not a coupling result. $\square$
-
-For output mutation, then, there is no first-order-to-higher-order implication of the kind the coupling
-hypothesis asserts: the phenomenon is absent (Prop 6.1), not derived. Program-text coupling is a separate
-question on which we make no claim.
+By Thm 3.2 higher-order-ness carries no special weight: a higher-order mutant is an operator with a footprint,
+and $\langle \Pi \rangle$ may contain footprints $\Pi$ does not cover (Prop 6.1). We therefore claim only that
+coupling is not *entailed* for output mutation — not that it never occurs; the coupling hypothesis was a
+statistical claim about typical faults, which a single counterexample does not refute. Program-text coupling is
+a separate question on which we make no claim.
 
 ---
 
@@ -482,8 +479,8 @@ theorem `#print axioms`-clean (`[propext, Classical.choice, Quot.sound]`, no `so
 | Cor 4.2 | extreme mutation complete iff $n=2$ | `constants_iff_card_two` | ✅ Lean, no `sorry`; axioms clean |
 | Thm 4.4 | absolute score $= 1$ iff output coverage $I=O$ | `ceiling` | ✅ Lean, no `sorry`; axioms clean |
 | Thm 5.2 | decidability spectrum (P / decidable / undecidable) | *(meta; the reduction is Thm 3.2)* | ✍ paper (rests on the checked Thm 3.2) |
-| Prop 6.1 | coupling FAILS for output mutation | *(paper; witness R={0,1,2})* | ✍ paper |
-| Prop 6.2 | absolute completeness $\Rightarrow$ complete for any target | `coupling` | ✅ Lean (corollary of Cor 4.1) |
+| Prop 6.1 | coupling not entailed (higher-order mutant survives) | `coupling_fails` | ✅ Lean, no `sorry`; axioms clean |
+| Prop 6.2 | absolute completeness $\Rightarrow$ complete for any target | `coupling` | ✅ Lean (corollary of Cor 4.1, not a coupling result) |
 | Prop 7.1 | program-independent subsumption $=$ footprint $\subseteq$ | `subsumes_iff_subset` | ✅ Lean, no `sorry`; axioms clean |
 | Prop 7.2 | $\mathrm{Det}(p\circ f) = f^{-1}(\mathrm{Mov}(p))$ | `det_factors` | ✅ Lean, `rfl` (no axioms) |
 | Thm 8.1 | min *observed set* $= |f(D)|$ (finite $I$); none (infinite) | `certify_lb`, `certify_ub` | ✅ Lean (observed-set core; $|T|=|O|$ by hand) |

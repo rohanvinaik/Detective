@@ -104,8 +104,10 @@ theorem ceiling (I : Set R) (O : Finset R) :
     obtain ⟨b, hbS, hbI⟩ := hSI
     exact ⟨b, Finset.mem_coe.mp (h hbI), hbS⟩
 
-/-- **Theorem 6.1 (completeness ⇒ coupling).** A family containing every value guard is complete for
-*any* target — in particular for higher-order mutants. The coupling effect as a corollary. -/
+/-- **Prop 6.2 (an absolutely complete family is complete for every target).** A family containing every value
+guard is complete for *any* target, in particular for the higher-order mutants `⟨Π⟩`. This is a corollary of
+the value-guard basis (Cor 4.1), NOT a coupling result — it holds because such a family already covers every
+footprint, so composition is irrelevant. Coupling for output mutation in fact fails (see `coupling_fails`). -/
 theorem coupling (Pi Gamma : Set (Set R)) (hfin : Pi.Finite) (hguards : ∀ b : R, ({b} : Set R) ∈ Pi) :
     Complete Pi Gamma := by
   rw [footprint_characterization Pi Gamma hfin]
@@ -282,3 +284,24 @@ theorem progComplete_characterization [DecidableEq R] (Pi Gamma : Set (R → R))
     obtain ⟨g, hg, rfl⟩ := ht
     obtain ⟨p, hpPi, hbp, hsub⟩ := h g hg b hb
     exact ⟨Mov p, ⟨p, hpPi, rfl⟩, hbp, hsub⟩
+
+/-- **Proposition 6.1 (coupling fails for output mutation).** A first-order family can score 1 while a
+non-equivalent *higher-order* mutant (a composition) survives. Witness on `Fin 3`: `a : 0 ↦ 1, 1 ↦ 0, 2 ↦ 1`,
+reachable set `I = {0,2}`, observed set `O = {0}`. Then `Mov a = ⊤` (so `a ∘ f` is killed at `0`), while
+`Mov (a ∘ a) = {2}` meets `I` (non-equivalent) and misses `O` (unkilled). So killing every first-order
+`{a}`-mutant does not entail killing the higher-order mutant `a ∘ a`. -/
+theorem coupling_fails :
+    ∃ (a : Fin 3 → Fin 3) (I : Set (Fin 3)) (O : Finset (Fin 3)),
+      ScoreAt I O (Mov '' {a}) ∧
+      ¬ ScoreAt I O (Mov '' ({a, a ∘ a} : Set (Fin 3 → Fin 3))) := by
+  refine ⟨![1, 0, 1], {0, 2}, {0}, ?_, ?_⟩
+  · rintro S ⟨p, hp, rfl⟩ _
+    rw [Set.mem_singleton_iff] at hp; subst hp
+    refine ⟨0, Finset.mem_singleton_self 0, ?_⟩
+    simp only [Mov, Set.mem_setOf_eq]; decide
+  · intro h
+    obtain ⟨b, hbO, hb⟩ := h (Mov (![1, 0, 1] ∘ ![1, 0, 1]))
+      (Set.mem_image_of_mem _ (Set.mem_insert_iff.mpr (Or.inr rfl)))
+      ⟨2, by simp only [Set.mem_inter_iff, Mov, Set.mem_setOf_eq]; exact ⟨by decide, by decide⟩⟩
+    rw [Finset.mem_singleton] at hbO; subst hbO
+    simp only [Mov, Set.mem_setOf_eq] at hb; revert hb; decide
