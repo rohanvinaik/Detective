@@ -1091,13 +1091,19 @@ exponent survivor — which B2's synth cannot reach (its `Rel(tag=1, args=[1])` 
 rendered as the valid constructor `Rel(tag=2, args=['a'])`. Also recovers the raw captured input the
 pool-poverty rescue skips when an `else`-branch scalar makes the target look `expressible`.
 
-**Still open — the irreducible representation core.** After B3, what genuinely remains is the
-**non-introspectable** object (no `dataclasses.fields`: opaque / C-extension / factory-built state — no
-field to vary and no constructor `repr` to render) and a dataclass with a **nested-object field** (whose
-render would need an import the single-class emission does not carry) — both still route to the door-3
-fixture caveat (§6), NOT a kill. B0 + B1 + B2 + B3 are the four bounded down-payments; the
-non-introspectable / nested-object residual is the representation obligation §6 fences, deliberately NOT
-claimed.
+**[Band 3b(a) CLOSED — nested-object field, `12b7cfe` #68a.]** A dataclass with a **nested-object
+field** now RENDERS recursively: the dataclass `repr` was already the recursive constructor
+(`Outer(child=Inner(...))`, round-trippable), so the fix was `_domain_constructor_imports` unioning
+every nested class's import plus the pure `domain_import_disposition` collision gate (truth-table
+pinned) — a nested introspectable domain object becomes a KILL, not a fixture hand-back. B0 + B1 + B2
++ B3 + #68a are the five bounded down-payments on Prop 6.5's bands.
+
+**Still open — the genuinely irreducible core (#68b).** What remains is the **non-introspectable**
+object (no `dataclasses.fields`: opaque / C-extension / factory-built state — no field to vary and no
+constructor `repr` to render). It still routes to the door-3 fixture caveat (§6), NOT a kill — the
+representation obligation §6 fences, deliberately NOT claimed. Not a soundness gap: `_as_domain_source`
+abstains (`None`) on a non-introspectable leaf, an import-name collision, or over-deep nesting, so no
+silently-wrong constructor is ever emitted.
 
 ### F1 — the deep-slice re-rank
 

@@ -496,7 +496,8 @@ false COMPLETE), each firing behind its own truth-table-pinned gate:
 | 2b | expressible $\setminus$ reachable | **B1** — guard-directed: the branch's *own* comparison synthesizes a reaching input (`_guard_directed_inputs`) | $L$ | `b3e7842` |
 | 3a-i | $\lnot$expressible, introspectable | **B2** — a *synthesized* dataclass with one value-bearing field varied (`_domain_object_variant_inputs`) | $L^{+}\setminus L$ | this session |
 | 3a-ii | $\lnot$expressible, introspectable, invariant-coupled | **B3** — a *captured* valid instance with one field varied, invariant kept by locality (`_captured_domain_variant_inputs`) | $L^{+}\setminus L$ | this session |
-| 3b | $\lnot$expressible, non-introspectable / nested-object | — (a hand-fixture obligation, correctly routed by the door-3 gate) | outside $L^{+}$ | irreducible |
+| 3a-iii | $\lnot$expressible, introspectable, **nested-object field** | **#68a** — recursive constructor render: `repr` is already the nested constructor, so union every nested class's import (`_domain_constructor_imports`) behind the pure collision gate (`domain_import_disposition`) | $L^{+}\setminus L$ | `12b7cfe` |
+| 3b | $\lnot$expressible, **non-introspectable** (no `dataclasses.fields`) | — (a hand-fixture obligation, correctly routed by the door-3 gate) | outside $L^{+}$ | irreducible |
 
 The two frontiers are of DIFFERENT KINDS. Band 2 is a **search** problem — the Test-Cover hardness of
 Rem. 1.3b turned inward, from "which tests" to "which $L$-literal" (NP-hard reachability); B0 (a fixed
@@ -509,12 +510,16 @@ $L^{+}$-term, so the fixture the door-3 gate would hand back is instead *auto-bu
 B3 is B2 over a *captured* base precisely because a cross-field invariant (a `Rel` whose `args` must be
 declared) makes a from-scratch synth invalid — a captured instance satisfies the invariant by construction,
 and single-field locality preserves it (the function itself is the invariant oracle: a variant that breaks
-it raises and is dropped). Only **Band 3b** — an object with no `dataclasses.fields` (opaque / C-extension /
-factory-built), or a nested-object field whose render needs an import the single-class emission cannot
-carry — is genuinely outside $L^{+}$, and it stays the representation obligation Rem. 6.3 fences. So
-Theorem 6.2's "computable" is a four-band ladder: *total automation* on band 1, a *search frontier* on
-band 2, an *automatable constructor fixture* on band 3a, and a bare *representation obligation* only on
-band 3b — an inner boundary inside $\mathrm{DOF}^{0}$ the tool now computes across all four.
+it raises and is dropped). The **nested-object** field is now band 3a-iii (built, `12b7cfe` #68a): a dataclass `repr` is
+*already* the recursive constructor (`Outer(child=Inner(...))`, round-trippable), so the only fix was
+unioning every nested class's import (`_domain_constructor_imports`) behind a pure name-collision gate
+(`domain_import_disposition`) — an introspectable nested domain object is now CONSTRUCTIBLE, an
+$L^{+}$-term, a KILL. Only **Band 3b** — an object with *no* `dataclasses.fields` (opaque / C-extension /
+factory-built) — is genuinely outside $L^{+}$, and it stays the representation obligation Rem. 6.3
+fences. So Theorem 6.2's "computable" is a graded ladder: *total automation* on band 1, a *search
+frontier* on band 2, an *automatable constructor fixture* on bands 3a-i/ii/iii, and a bare
+*representation obligation* only on band 3b — an inner boundary inside $\mathrm{DOF}^{0}$ the tool now
+computes across all of them.
 
 **Remark 6.6 (The false-equivalence hazard has two doors; only one is a synthesis problem).** A survivor
 with no witness found and no genuine equivalence is the hazard the negative sign fences: shown as
@@ -531,7 +536,8 @@ false-equivalence bug B0 closed for door (2), closed for door (3). And once the 
 inexpressible residual to a `fixture`, the **band-3a** increments (Prop. 6.5) *auto-build* that fixture for
 the introspectable-dataclass case — B2 varies a value-bearing field of a *synthesized* instance, B3 of a
 *captured* valid one, each carried as a `SourceExpr` constructor, so the hand-back becomes a synthesized
-`Cls(field=…)` kill; only the band-3b (non-introspectable / nested-object) residual is a true fixture ask.
+`Cls(field=…)` kill; the nested-object field is now band 3a-iii (built, `12b7cfe` #68a), leaving only the
+band-3b **non-introspectable** residual as a true fixture ask.
 [Status — every band BUILT and traced end-to-end to the CLI caveat this session: Prop. 6.5's
 stratification is ASSERTED (argued from the decidable $L$ / $L^{+}$ boundaries the tool computes); band 2a
 B0 (`_structural_topology_inputs`, `c898e0e`/`49b6ae0`) and band 2b B1 (`_guard_directed_inputs` /
@@ -543,7 +549,8 @@ calls it and both renderers (`_format_survivor_report`, `_format_converge_terse`
 cross-field-invariant case) are BUILT, each measured to a written constructor golden (`Cfg(base=2)` /
 `Rel(tag=2, args=['a'])`). The pure decisions are pinned: `distinct_field_value` (isolation ✓ COMPLETE
 36/38), `output_mode_applies` (8/8), and the gates/`residual_disposition`/`candidate_equivalent_caveat` by
-truth-table intent tests. Only band 3b (non-introspectable / nested-object) remains a fixture ask (§18 Q10).]
+truth-table intent tests; and `domain_import_disposition` (#68a nested render, truth-table pinned). Only
+band 3b (**non-introspectable**, no `dataclasses.fields`) remains a fixture ask (§18 Q10).]
 
 ---
 
@@ -1469,13 +1476,16 @@ these.
     (`distinct_field_value`), the invariant preserved by LOCALITY (the other fields are the test's own valid
     values), positive-only — a variant that breaks the invariant just raises and is dropped. Measured
     (`render(r)` returning `r.tag**2` behind `all(x in KNOWN for x in r.args)`): the invariant-guarded
-    exponent survivor becomes a KILL rendered as `Rel(tag=2, args=['a'])`. **Still open — the irreducible
-    representation core:** a **non-introspectable** object (no `dataclasses.fields`: opaque / C-extension /
-    factory-built state — no field to vary and no constructor `repr` to render) and a dataclass with a
-    **nested-object field** (whose render would need an import the single-class emission does not carry).
-    B0/B1/B2/B3 are the four bounded down-payments on Prop. 6.5's bands; the non-introspectable / nested
-    core is what genuinely remains — the representation obligation Rem. 6.6 fences, materially smaller than
-    the whole differential reach this ledger once called open.
+    exponent survivor becomes a KILL rendered as `Rel(tag=2, args=['a'])`. **Nested-object field — BUILT
+    (band 3a-iii, `12b7cfe` #68a):** a dataclass with a nested-dataclass field now renders recursively —
+    the `repr` was already the nested constructor (`Outer(child=Inner(...))`, round-trippable), so the fix
+    was unioning every nested class's import (`_domain_constructor_imports`) behind the pure name-collision
+    gate `domain_import_disposition` (truth-table pinned) — a KILL, not a fixture ask. **Still open — the
+    irreducible representation core:** a **non-introspectable** object (no `dataclasses.fields`: opaque /
+    C-extension / factory-built state — no field to vary and no constructor `repr` to render).
+    B0/B1/B2/B3/#68a are the five bounded down-payments on Prop. 6.5's bands; the non-introspectable core
+    is what genuinely remains — the representation obligation Rem. 6.6 fences, materially smaller than the
+    whole differential reach this ledger once called open.
 
 ---
 
