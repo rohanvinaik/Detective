@@ -2084,23 +2084,87 @@ def _guard_directed_inputs(
     return out
 
 
-def _as_domain_source(instance: Any) -> SourceExpr | None:
-    """A synthesized dataclass INSTANCE as a :class:`SourceExpr` — the live value plus the constructor
-    ``repr`` and the import that names its class — so a B2 witness renders as ``Cls(field=...)`` (#67 B2).
+# The recursion cap for nested-dataclass constructor rendering (#68a). A generous bound: real domain
+# objects nest a handful deep; beyond it we abstain to a fixture hand-back rather than risk a cyclic
+# or pathologically deep render. NOT a fitted number — a structural backstop against runaway/cycle.
+_DOMAIN_NEST_CAP = 5
 
-    ``None`` when any field value is not itself expressible (a nested object / built state). A standard
-    dataclass ``repr`` IS its own constructor source, but only the instance's OWN class import is
-    emitted, so a nested-object field would render an unresolvable name. That case is the honest
-    residual — a fixture hand-back — not something to fabricate an incomplete render for.
+
+def domain_import_disposition(imports: tuple[str, ...]) -> str:
+    """Whether a recursively-collected constructor import set renders unambiguously (#68a, pure — pinned).
+
+    A nested-dataclass witness renders as ``Outer(child=Inner(...))`` (dataclass ``repr`` is recursive
+    and round-trippable), and every class it names needs an import in the generated test header. Those
+    imports are safe ONLY if each imported NAME binds to ONE source: two distinct
+    ``from <mod> import <Name>`` lines with the SAME trailing ``Name`` collide, the second shadows the
+    first, and the bare ``Name(...)`` in the repr then binds to the wrong class — a silently wrong test.
+
+      ``"ok"``        every imported name binds a single source; the ``SourceExpr`` renders.
+      ``"collision"`` two DISTINCT sources bind the same name — abstain to a fixture hand-back (#68b).
+
+    A named code, never a bool: "renders" and "must abstain for a nameable reason" are different facts,
+    and only the collision case is a genuine representation limit (never a synthesis-tractability one).
+    Identical imports (the same class reached twice) are NOT a collision.
     """
-    if not (dataclasses.is_dataclass(instance) and not isinstance(instance, type)):
+    bound: dict[str, str] = {}
+    for imp in imports:
+        name = imp.rsplit(" import ", 1)[-1]  # "from <mod> import <Name>" -> the referenced Name
+        if name in bound and bound[name] != imp:
+            return "collision"
+        bound[name] = imp
+    return "ok"
+
+
+def _domain_constructor_imports(instance: Any, _depth: int = 0) -> tuple[str, ...] | None:
+    """Recursively collect the imports a dataclass instance's constructor ``repr`` needs (#68a).
+
+    ``None`` (an honest fixture hand-back) when a field is neither expressible NOR a nested dataclass
+    (a non-introspectable / built object — #68b's irreducible core), or nesting exceeds
+    :data:`_DOMAIN_NEST_CAP`. Otherwise the union of ``from <mod> import <Head>`` over the instance and
+    every nested dataclass it holds — the head name because a dataclass ``repr`` uses ``__qualname__``.
+    """
+    if _depth > _DOMAIN_NEST_CAP:
         return None
-    if not all(is_expressible(getattr(instance, f.name)) for f in dataclasses.fields(instance)):
+    if not (dataclasses.is_dataclass(instance) and not isinstance(instance, type)):
         return None
     cls = type(instance)
     top = cls.__qualname__.split(".")[0]  # dataclass repr uses __qualname__; import its head name
-    imports = () if cls.__module__ in ("builtins", None) else (f"from {cls.__module__} import {top}",)
-    return SourceExpr(value=instance, expr=repr(instance), imports=imports)
+    imports: list[str] = (
+        [] if cls.__module__ in ("builtins", None) else [f"from {cls.__module__} import {top}"]
+    )
+    for f in dataclasses.fields(instance):
+        value = getattr(instance, f.name)
+        if is_expressible(value):
+            continue
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            nested = _domain_constructor_imports(value, _depth + 1)
+            if nested is None:
+                return None  # a deeper field is inexpressible / too deep — the whole render abstains
+            imports.extend(nested)
+        else:
+            return None  # a non-expressible, non-dataclass leaf — the genuine fixture residual (#68b)
+    return tuple(imports)
+
+
+def _as_domain_source(instance: Any) -> SourceExpr | None:
+    """A synthesized dataclass INSTANCE as a :class:`SourceExpr` — the live value plus the constructor
+    ``repr`` and the imports that name its class(es) — so a B2/B3 witness renders as ``Cls(field=...)``,
+    now RECURSIVELY through nested-dataclass fields (#67 B2; #68a nested-object closure).
+
+    A standard dataclass ``repr`` IS its own constructor source and is recursive
+    (``Outer(child=Inner(...))``), so ``expr`` needs no change; the nested case was blocked only by the
+    flat expressibility gate and the single-class import. This walks the instance
+    (:func:`_domain_constructor_imports`) to union every nested class's import, then gates on
+    :func:`domain_import_disposition` for name collisions. ``None`` remains the honest residual — a
+    fixture hand-back — for a non-introspectable / built leaf (#68b) or an ambiguous import set.
+    """
+    imports = _domain_constructor_imports(instance)
+    if imports is None:
+        return None
+    if domain_import_disposition(imports) != "ok":
+        return None  # ambiguous import names — abstain rather than emit a silently-wrong constructor
+    deduped = tuple(dict.fromkeys(imports))  # order-preserving unique
+    return SourceExpr(value=instance, expr=repr(instance), imports=deduped)
 
 
 def _domain_variants(value: Any, cap: int = 4) -> list | None:

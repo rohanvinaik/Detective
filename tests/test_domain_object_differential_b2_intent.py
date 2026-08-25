@@ -27,9 +27,11 @@ import dataclasses
 import Detective.engine as engine
 from Detective.engine import (
     _as_domain_source,
+    _domain_constructor_imports,
     _domain_variants,
     classify_survivors,
     distinct_field_value,
+    domain_import_disposition,
     domain_variant_retry_gate,
 )
 from Detective.equivalence import SourceExpr
@@ -87,6 +89,42 @@ class _Nested:
     child: _Flat
 
 
+class _Opaque:  # not a dataclass — no fields to vary, no constructor repr (the #68b core)
+    pass
+
+
+@dataclasses.dataclass
+class _HasOpaque:
+    x: object
+
+
+@dataclasses.dataclass
+class _Rec:  # a self-nesting dataclass, to exceed the depth cap
+    child: object = None
+
+
+@dataclasses.dataclass
+class _DupX:
+    v: int
+
+
+@dataclasses.dataclass
+class _DupY:
+    v: int
+
+
+# Force an import-name collision: two DISTINCT classes whose repr both emits the bare name `_Dup`
+# from different modules — `from mod_x import _Dup` and `from mod_y import _Dup` cannot coexist.
+_DupX.__qualname__ = _DupY.__qualname__ = "_Dup"
+_DupX.__module__, _DupY.__module__ = "mod_x", "mod_y"
+
+
+@dataclasses.dataclass
+class _Holder:
+    a: object
+    b: object
+
+
 def test_as_domain_source_renders_a_flat_dataclass_as_a_constructor_sourceexpr():
     se = _as_domain_source(_Flat(name="a", weight=1))
     assert isinstance(se, SourceExpr)
@@ -95,11 +133,40 @@ def test_as_domain_source_renders_a_flat_dataclass_as_a_constructor_sourceexpr()
     assert se.value == _Flat(name="a", weight=1)  # the LIVE value rides alongside the source
 
 
-def test_as_domain_source_abstains_on_a_nested_object_field():
-    # A nested-object field would render an unresolvable name (only the top class import is emitted),
-    # so the honest limit is None — that residual stays a fixture hand-back, not a broken render.
-    assert _as_domain_source(_Nested(child=_Flat(name="a", weight=1))) is None
+def test_domain_import_disposition_flags_only_a_genuine_name_collision():
+    # The pure #68a gate (hand-pinned — converge inflates on engine.py's module-scale test surface,
+    # not a property of this function). A NAMED code, never a bool: only two DISTINCT sources binding
+    # the same imported name is a collision; identical imports (the same class reached twice) are not.
+    assert domain_import_disposition(()) == "ok"
+    assert domain_import_disposition(("from a import C",)) == "ok"
+    assert domain_import_disposition(("from a import C", "from b import D")) == "ok"  # distinct names
+    assert domain_import_disposition(("from a import C", "from a import C")) == "ok"  # identical, dedup
+    assert domain_import_disposition(("from a import C", "from b import C")) == "collision"  # ambiguous
+
+
+def test_as_domain_source_renders_a_nested_dataclass_recursively():
+    # #68a: a nested-dataclass field now RENDERS (was the abstention limit). dataclass repr is already
+    # recursive and round-trippable, so `expr` is the nested constructor; the fix is unioning EVERY
+    # class's import so the generated test resolves both names.
+    se = _as_domain_source(_Nested(child=_Flat(name="a", weight=1)))
+    assert isinstance(se, SourceExpr)
+    assert se.expr == "_Nested(child=_Flat(name='a', weight=1))"
+    imported = {imp.rsplit(" import ", 1)[-1] for imp in se.imports}
+    assert imported == {"_Nested", "_Flat"}  # BOTH classes, or the render is unresolvable
+    assert _domain_constructor_imports(_Nested(child=_Flat(name="a", weight=1))) is not None
+
+
+def test_as_domain_source_still_abstains_where_the_render_is_genuinely_irreducible():
+    # The honest residual (#68b) is preserved: a non-dataclass, a non-introspectable leaf, an
+    # import-name collision, and over-deep nesting each stay None — a fixture hand-back, never a
+    # fabricated / silently-wrong render.
     assert _as_domain_source(42) is None  # not a dataclass instance
+    assert _as_domain_source(_HasOpaque(x=_Opaque())) is None  # non-introspectable leaf (#68b)
+    assert _as_domain_source(_Holder(a=_DupX(v=1), b=_DupY(v=2))) is None  # import-name collision
+    deep = _Rec()
+    for _ in range(8):  # exceed _DOMAIN_NEST_CAP (5)
+        deep = _Rec(child=deep)
+    assert _as_domain_source(deep) is None
 
 
 def test_domain_variants_varies_one_value_bearing_field_per_variant():
