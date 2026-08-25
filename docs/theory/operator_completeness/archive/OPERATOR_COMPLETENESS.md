@@ -9,6 +9,15 @@ bibliography: "LITERATURE_PI_COMPLETENESS.md (42 sources, verified 2026-08-25)"
 
 # The Completeness of Mutation Operators
 
+> **⚠ ARCHIVED / SUPERSEDED.** This paper develops the *monoid-generation* notion of operator completeness. A
+> subsequent analysis established that generation is not the notion mutation testing requires — killing a
+> family's generators need not kill their composites, so "generates the transformation monoid" does not
+> characterize what a passing score certifies. The successor paper, `../ADEQUACY_COMPLETENESS.md`, replaces
+> generation with **adequacy-completeness** (what killing certifies, program- and suite-independently) and is the
+> active result. This document is retained for the record; its finite algebra (rank-3 basis) and infinite
+> cardinality impossibility remain correct as stated. Shared files (`LITERATURE_PI_COMPLETENESS.md`) are one
+> directory up (`../`).
+
 > **Draft notice.** **Thm A** — finite *absolute* completeness *in P* (A.2) and *relative* completeness
 > *PSPACE-complete* (A.3, Kozen 1977), with the rank-3 basis (A.1) machine-checked at its base cases in Lean 4 /
 > Mathlib (`T2_generated`, `T3_generated_rank3`; `#print axioms` clean, no `sorryAx`), general $n$ transcribed

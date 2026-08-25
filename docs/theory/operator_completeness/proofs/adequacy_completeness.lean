@@ -282,3 +282,72 @@ theorem progComplete_characterization [DecidableEq R] (Pi Gamma : Set (R → R))
     obtain ⟨g, hg, rfl⟩ := ht
     obtain ⟨p, hpPi, hbp, hsub⟩ := h g hg b hb
     exact ⟨Mov p, ⟨p, hpPi, rfl⟩, hbp, hsub⟩
+
+/-! ### Remark 2.5 formal, the absolute corollaries lifted to operators, and the infinite-impossibility. -/
+
+/-- **Remark 2.5 (every subset is a footprint).** For `[Nontrivial R]`, every `S : Set R` equals `Mov p`
+for some output operator `p`. (Corrected construction: a fixed-point-free swap-to-`a` map restricted to `S`;
+no "|R|-cycle" is needed, which would be wrong for uncountable `R`.) -/
+theorem mov_surjective [Nontrivial R] (S : Set R) : ∃ p : R → R, Mov p = S := by
+  classical
+  obtain ⟨a, b, hab⟩ := exists_pair_ne R
+  refine ⟨fun x => if x ∈ S then (if x = a then b else a) else x, ?_⟩
+  ext x
+  simp only [Mov, Set.mem_setOf_eq]
+  constructor
+  · intro hne
+    by_contra hxS
+    exact hne (if_neg hxS)
+  · intro hxS
+    rw [if_pos hxS]
+    by_cases hxa : x = a
+    · rw [if_pos hxa, hxa]; exact hab.symm
+    · rw [if_neg hxa]; exact Ne.symm hxa
+
+/-- `Mov` maps the family of *all* operators onto the family of *all* footprints. -/
+theorem mov_image_univ [Nontrivial R] : Mov '' (Set.univ : Set (R → R)) = Set.univ := by
+  ext S
+  simp only [Set.mem_image, Set.mem_univ, true_and, iff_true]
+  exact mov_surjective S
+
+/-- **Cor 4.1, over operators.** A finite operator family is absolutely (program-level) complete iff it
+contains a value guard — an operator with singleton footprint `{b}` — for every `b`. -/
+theorem progComplete_absolute_iff_guards [Nontrivial R] [DecidableEq R] (Pi : Set (R → R)) (hfin : Pi.Finite) :
+    ProgComplete Pi Set.univ ↔ ∀ b : R, ∃ p ∈ Pi, Mov p = ({b} : Set R) := by
+  rw [progComplete_iff_complete, mov_image_univ, absolute_iff_guards _ (hfin.image Mov)]
+  constructor
+  · intro h b; exact h b
+  · intro h b; exact h b
+
+/-- **Thm 6.1, over operators.** A finite operator family with a value guard for every value is complete
+for *any* operator target — the coupling effect, at the program level. -/
+theorem progComplete_coupling [DecidableEq R] (Pi Gamma : Set (R → R)) (hfin : Pi.Finite)
+    (hguards : ∀ b : R, ∃ p ∈ Pi, Mov p = ({b} : Set R)) : ProgComplete Pi Gamma := by
+  rw [progComplete_iff_complete]
+  exact coupling _ _ (hfin.image Mov) (fun b => hguards b)
+
+/-- **The infinite-impossibility (footprint level).** On an infinite codomain, no finite footprint family
+is absolutely complete: absolute completeness demands a distinct singleton footprint per value. -/
+theorem complete_univ_infinite [Infinite R] (Pi : Set (Set R)) (hfin : Pi.Finite) :
+    ¬ Complete Pi Set.univ := by
+  rw [absolute_iff_guards Pi hfin]
+  intro h
+  have hinj : Function.Injective (fun b : R => ({b} : Set R)) := fun x y hxy => by simpa using hxy
+  have hsub : Set.range (fun b : R => ({b} : Set R)) ⊆ Pi := by rintro _ ⟨b, rfl⟩; exact h b
+  exact absurd hfin ((Set.infinite_range_of_injective hinj).mono hsub)
+
+/-- **Corollary (infinite-impossibility, over operators).** On an infinite codomain, **no finite
+output-operator family is absolutely adequacy-complete.** This is the ceiling with teeth: absolute
+output-mutation completeness is not merely expensive on large types — for a finite operator family it is
+*impossible*; only relative completeness for a chosen target class remains meaningful. -/
+theorem progComplete_univ_infinite [Nontrivial R] [Infinite R] [DecidableEq R] (Pi : Set (R → R)) (hfin : Pi.Finite) :
+    ¬ ProgComplete Pi Set.univ := by
+  rw [progComplete_iff_complete, mov_image_univ]
+  exact complete_univ_infinite _ (hfin.image Mov)
+
+/-- **Theorem 8.1, infinite companion.** If the reachable set is infinite, *no finite suite* achieves an
+absolute score of 1: certification requires observing every reachable output, impossible for a finite suite. -/
+theorem certify_infinite (I : Set R) (hI : I.Infinite) (O : Finset R) :
+    ¬ ScoreAt I O (Set.univ) := by
+  intro h
+  exact hI (O.finite_toSet.subset ((ceiling I O).mp h))
