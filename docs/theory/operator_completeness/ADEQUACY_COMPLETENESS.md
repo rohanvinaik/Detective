@@ -3,16 +3,17 @@ title: "What a Mutation Score Certifies"
 subtitle: "Adequacy-completeness for output-mutation operators: a footprint characterization, the value-guard basis, and the coupling effect as a corollary"
 author: 
 date: 
-status: "DRAFT — self-contained. The main characterization (Thm 3.2) and its consequences (value-guard basis §4, ceiling §4, coupling §6, subsumption factoring §7, teaching dimension §8) are paper proofs, rigorous and elementary; the finite characterization is a natural candidate for Lean formalization (noted §11). Not peer-reviewed."
+status: "DRAFT — self-contained, and the core is MACHINE-CHECKED. The main characterization (Thm 3.2) and every consequence (value-guard basis Cor 4.1, extreme-mutation Cor 4.2, ceiling Thm 4.4, coupling Thm 6.1, subsumption Prop 7.1, detection factoring Prop 7.2, teaching dimension Thm 8.1) are fully proven in Lean 4 / Mathlib (no sorry), #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx) — see proofs/adequacy_completeness.lean. Results are elementary; the contribution is the definition and its structure. Not peer-reviewed."
 bibliography: "LITERATURE_PI_COMPLETENESS.md"
 ---
 
 # What a Mutation Score Certifies
 
-> **Draft notice.** All results are rigorous paper proofs over finite sets; none is deep, and that is the point —
-> the contribution is a *definition* (completeness measured by what a kill certifies, program- and suite-
-> independently) and the clean structure that falls out of it. The finite characterization theorem (Thm 3.2) is
-> a natural Lean-formalization target (§11). Not peer-reviewed.
+> **Draft notice.** All results are elementary; none is deep, and that is the point — the contribution is a
+> *definition* (completeness measured by what a kill certifies, program- and suite-independently) and the clean
+> structure that falls out of it. **The main theorem (Thm 3.2) and every consequence are machine-checked in
+> Lean 4 / Mathlib** (`proofs/adequacy_completeness.lean`, no `sorry`, `#print axioms` clean, no `sorryAx`) — so
+> the definition's structure is auditable to the kernel. Not peer-reviewed.
 
 ## Abstract
 
@@ -409,10 +410,14 @@ footprint characterization (Thm 3.2), the value-guard basis and its size (Cor 4.
 
 ## 11. Open problems and a formalization note
 
-1. **Formalize Theorem 3.2 for finite $R$.** It is finite-combinatorial (footprints are `Finset R`, the
-   condition a decidable predicate, the separating instance an explicit construction), so it is a natural
-   machine-checkable core — unlike a monoid-generation statement, whose content lives in infinite objects. The
-   value-guard basis (Cor 4.1) and the ceiling (Thm 4.4) would follow.
+1. **Formalize the program↔footprint bridge.** The machine-checked core (`proofs/adequacy_completeness.lean`)
+   formalizes completeness at the *footprint* level (Def 3.1 via Prop 2.4): `Complete Π Γ` quantifies over a
+   reachable set `I : Set R` and a *finite* observed set `O : Finset R` with `O ⊆ I` — the finiteness of `O`
+   being exactly the finite-suite constraint that makes the finiteness of `Π` load-bearing in Thm 3.2. Prop 2.4
+   (an output operator *is* its footprint) and realizability (every such `(I, O)` arises from a program `f = id`
+   and a suite `T = O`) are the bridge to the program-level statement; formalizing that bridge (modelling
+   `f : D → R`, `T : Finset D` explicitly) would close the last gap between the checked core and the
+   program-level Def 3.1. Everything downstream — Thm 3.2 and every consequence — is already machine-checked.
 2. **Beyond output operators.** Characterize adequacy-completeness for operator classes whose detection sets do
    *not* factor through a program-independent object (Prop 7.2) — i.e. identify the largest operator class for
    which a program-independent completeness theorem survives.
@@ -427,25 +432,31 @@ footprint characterization (Thm 3.2), the value-guard basis and its size (Cor 4.
 
 ## 12. Status ledger
 
-*Every result is a rigorous paper proof over finite sets; none is deep. The contribution is the definition
-(Def 3.1) and the structure it forces.*
+*Every result is elementary; none is deep. The contribution is the definition (Def 3.1) and the structure it
+forces — and that structure is machine-checked in Lean 4 / Mathlib (`proofs/adequacy_completeness.lean`), each
+theorem `#print axioms`-clean (`[propext, Classical.choice, Quot.sound]`, no `sorryAx`).*
 
-| Result | Statement | Proof form | Status |
+| Result | Statement | Lean name | Status |
 |---|---|---|---|
-| Prop 2.4 | operator ≡ footprint for adequacy | elementary | ✅ proven |
-| **Thm 3.2** | **footprint characterization** (the main theorem) | direct + explicit separating instance | ✅ proven (both directions) |
-| Cor 4.1 | value-guard basis, minimal size $n$ | from Thm 3.2 on singleton targets | ✅ proven |
-| Cor 4.2 | extreme mutation complete iff $n=2$ | constant footprint is $R\setminus\{c\}$ | ✅ proven |
-| Thm 4.4 | absolute score $= 1$ iff output coverage $I=O$ | from Cor 4.1 | ✅ proven |
-| Thm 5.2 | decidability spectrum (P / decidable / undecidable) | footprint containment | ✅ proven |
-| Thm 6.1 | completeness $\Rightarrow$ coupling (higher-order) | from Cor 4.1 | ✅ proven |
-| Prop 7.1 | program-independent subsumption $=$ footprint $\subseteq$ | elementary | ✅ proven |
-| Prop 7.2 | $\mathrm{Det}(p\circ f) = f^{-1}(\mathrm{Mov}(p))$ | elementary | ✅ proven |
-| Thm 8.1 | minimum certifying suite $\sigma(f) = |f(D)|$ | from Thm 4.4 | ✅ proven |
+| Prop 2.4 | operator ≡ footprint for adequacy | *(in the model: `ScoreAt` reads only footprints)* | ✅ baked into the definitions |
+| **Thm 3.2** | **footprint characterization** (the main theorem) | **`footprint_characterization`** | ✅ **Lean, no `sorry`; axioms clean** |
+| Cor 4.1 | value-guard basis | `absolute_iff_guards` | ✅ Lean, no `sorry`; axioms clean |
+| Cor 4.2 | extreme mutation complete iff $n=2$ | `constants_iff_card_two` | ✅ Lean, no `sorry`; axioms clean |
+| Thm 4.4 | absolute score $= 1$ iff output coverage $I=O$ | `ceiling` | ✅ Lean, no `sorry`; axioms clean |
+| Thm 5.2 | decidability spectrum (P / decidable / undecidable) | *(meta; the reduction is Thm 3.2)* | ✍ paper (rests on the checked Thm 3.2) |
+| Thm 6.1 | completeness $\Rightarrow$ coupling (higher-order) | `coupling` | ✅ Lean, no `sorry`; axioms clean |
+| Prop 7.1 | program-independent subsumption $=$ footprint $\subseteq$ | `subsumes_iff_subset` | ✅ Lean, no `sorry`; axioms clean |
+| Prop 7.2 | $\mathrm{Det}(p\circ f) = f^{-1}(\mathrm{Mov}(p))$ | `det_factors` | ✅ Lean, `rfl` (no axioms) |
+| Thm 8.1 | minimum certifying suite $\sigma(f) = |f(D)|$ | `certify_lb`, `certify_ub` | ✅ Lean, no `sorry`; axioms clean |
 
-**Formalization.** None of the above is yet machine-checked; Thm 3.2 (finite $R$) is the natural first target
-(§11.1) and would carry Cor 4.1 and Thm 4.4 with it. The claims are elementary enough to check by hand, but a
-Lean formalization of the finite characterization would make the core auditable in the strong sense.
+**Formalization.** The main theorem and every consequence are **fully proven in Lean 4 / Mathlib**
+(`proofs/adequacy_completeness.lean`, no `sorry`), and the `#print axioms` audit is **clean** — each depends on
+exactly `[propext, Classical.choice, Quot.sound]` (the standard base; `det_factors` on none), with **no
+`sorryAx`**. Prop 2.4 is absorbed into the model (the Lean `ScoreAt` reads only footprints); Thm 5.2's
+decidability *spectrum* is a meta-statement whose load-bearing reduction (to footprint containment) is the
+machine-checked Thm 3.2. The one remaining formalization gap is the program↔footprint bridge (§11.1), documented
+and by-hand. To reproduce: drop the `.lean` file into a Lean 4 project with Mathlib (`lake exe cache get`) and
+run `#print axioms footprint_characterization` (etc.).
 
 **Provenance.** Self-contained; grounded on standard mutation-testing theory (coupling, sufficiency, subsumption)
 and the classical teaching-dimension notion, cited in §10 and `LITERATURE_PI_COMPLETENESS.md`. Not peer-reviewed.
