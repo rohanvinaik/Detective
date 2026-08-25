@@ -3,7 +3,7 @@ title: "The Completeness of Mutation Operators"
 subtitle: "Output-mutation completeness is a transformation-monoid generation problem: a trichotomy (finite-decidable, infinite-impossible, relative-undecidable) and the post-composition ceiling"
 author: 
 date: 
-status: "DRAFT — proofs written; finite fragment machine-checked. Thm A (finite decidability + rank-3 basis) is proven; its base cases n=2,3 are machine-checked in Lean 4 (Mathlib) and #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx). Thm B (infinite impossibility) is an elementary cardinality argument. Thm C (relative undecidability) is a paper proof citing classical undecidability (Post/Markov word problem; Rice). Thm D is the trichotomy assembled from A/B/C. Conjecture E (dimension-bounded basis foreclosure) is stated as CONJECTURAL: it is contingent on a basis-to-compression bridge not established here (Doliwa 2014 is restricted to maximum classes). Prop F (ASDL coverage) is a decidable engineering invariant; the earlier 'necessary for behavioral completeness' claim is WITHDRAWN. Not peer-reviewed; do not cite as fully proven."
+status: "DRAFT — proofs written; finite fragment machine-checked. Thm A (finite decidability + rank-3 basis) is proven; its base cases n=2,3 are machine-checked in Lean 4 (Mathlib) and #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx). Thm B (infinite impossibility) is an elementary cardinality argument, also machine-checked in Lean 4 (Mathlib) and #print-axioms clean ([propext, Classical.choice, Quot.sound], no sorryAx). Thm C (relative undecidability) is a paper proof citing classical undecidability (Post/Markov word problem; Rice). Thm D is the trichotomy assembled from A/B/C. Conjecture E (dimension-bounded basis foreclosure) is stated as CONJECTURAL: it is contingent on a basis-to-compression bridge not established here (Doliwa 2014 is restricted to maximum classes). Prop F (ASDL coverage) is a decidable engineering invariant; the earlier 'necessary for behavioral completeness' claim is WITHDRAWN. Not peer-reviewed; do not cite as fully proven."
 bibliography: "LITERATURE_PI_COMPLETENESS.md (42 sources, verified 2026-08-25)"
 ---
 
@@ -12,7 +12,8 @@ bibliography: "LITERATURE_PI_COMPLETENESS.md (42 sources, verified 2026-08-25)"
 > **Draft notice.** **Thm A** (finite fragment: decidability *in P* and the rank-3 basis) is proven, with its
 > base cases machine-checked in Lean 4 / Mathlib (`T2_generated`, `T3_generated_rank3`; `#print axioms` clean,
 > no `sorryAx`) and the general $n$ transcribed from Gomes–Howie 1987. **Thm B** (infinite impossibility) is an
-> elementary cardinality argument. **Thm C** (relative undecidability) is a paper proof citing Post/Markov and
+> elementary cardinality argument, machine-checked in Lean 4 / Mathlib (`pi_incomplete_infinite`; `#print axioms`
+> clean, no `sorryAx`). **Thm C** (relative undecidability) is a paper proof citing Post/Markov and
 > Rice. **Thm D** is the trichotomy. **Conjecture E** is explicitly conjectural — the basis-to-compression
 > bridge it needs is not established here. **Prop F** (ASDL coverage) is a decidable invariant, not a logical
 > prerequisite for completeness. Not peer-reviewed; do not cite as fully proven.
@@ -259,6 +260,15 @@ $\Pi_R \cup \{\mathrm{id}\}$. The set of such words is a countable union of fini
 $|\langle \Pi_R \rangle| \le \aleph_0$. But $T(R) = |R|^{|R|}$ has cardinality at least $2^{|R|} > |R| \ge
 \aleph_0$ (Cantor), hence uncountable. A countable set cannot equal an uncountable one, so
 $\langle \Pi_R \rangle \subsetneq T(R)$. $\square$
+
+> **Machine-checked.** This is proven in Lean 4 / Mathlib as `pi_incomplete_infinite`
+> (`proofs/pi_incomplete_infinite.lean`), no `sorry`, `#print axioms` clean
+> (`[propext, Classical.choice, Quot.sound]`, no `sorryAx`): the closure of a `Finset` of maps is
+> countable (`Submonoid.exists_list_of_mem_closure` + `Set.countable_range`), while
+> `Function.End R` is uncountable for `[Infinite R]` (`Cardinal.cantor`, `Cardinal.mk_arrow`) — so
+> `closure ↑P = ⊤` is contradictory. Together with `T2_generated`/`T3_generated_rank3` (§3), **both
+> ends of the trichotomy are now machine-verified**; the undecidable middle (Thm C) is the cited
+> paper proof.
 
 **Corollary B.1 (only relative completeness survives).** On an infinite codomain, the meaningful completeness
 question is not "does $\Pi_R$ generate $T(R)$?" (always *no*) but "does $\Pi_R$ generate a given finitely-
@@ -536,7 +546,7 @@ not in Mathlib and need not be re-formalized. Conjecture E is explicitly conditi
 | Thm A.1 (general $\operatorname{rank}T_n=3$) | inherited (Gomes–Howie 1987) | paper §3 (cite) | ✍ written; n=2,3 are the machine-checked instances |
 | Thm A.2 (finite decidability **in P**) | rank argument + Schreier–Sims | paper §3 proof | ✍ written (upgrades the earlier PSPACE claim to P) |
 | Prop 2.3 (post-composition ceiling) | elementary | paper §2 | ✅ proven (one line) |
-| **Thm B (infinite impossibility)** | **cardinality** | paper §4 | ✅ proven (elementary; replaces "undecidable off finite") |
+| **Thm B (infinite impossibility): `pi_incomplete_infinite`** | **cardinality**, machine-checked | **Lean 4 / Mathlib** + paper §4 | ✅ proven, no `sorry`; `#print axioms` = `[propext, Classical.choice, Quot.sound]` (no `sorryAx`) — replaces "undecidable off finite" |
 | Thm C.1 (relative undecidability) | word-problem reduction | **paper proof §5** (Post/Markov 1947) | ✍ written + tightened (Lemma C.1a: word problem ≤ membership ≤ relative completeness); optional concrete `List A` embedding remains |
 | Thm C.2 (equivalence reduction) | inherited (Rice 1953 / Budd–Angluin 1982) | paper §5 (cite) | ✍ written |
 | Thm C.3 (boundary = presentation) | corollary (decidable word problem ⇒ decidable) | paper §5 | ✍ written |
@@ -546,16 +556,22 @@ not in Mathlib and need not be re-formalized. Conjecture E is explicitly conditi
 | Prop F (ASDL coverage) | decidable; not nec., not suff. | paper §8 | ✍ written (earlier "necessary" claim withdrawn — Rem 8.1) |
 | Open: minimal separating set | conjecture | — | open |
 
-**Lean artifacts.** In this paper's `proofs/` folder: the two closed proofs `T2_generated.lean`,
-`T3_generated_rank3.lean` — **fully proven (no `sorry`)** in Lean 4 / Mathlib, each discharging the finite
-enumeration by `decide`, `#print axioms` **clean** (`[propext, Classical.choice, Quot.sound]`, **no `sorryAx`**).
-The umbrella `operator_completeness.lean` carries **statements only**: the finite-decidability `instance` is a
-signature stub (the proof is the P-time algorithm of §3, Thm A.2, not a Lean term), and the file records **one
-cited classical fact as an axiom** — the undecidability of extensional equality of $\mathbb{N} \to \mathbb{N}$
-functions, the Rice-flavored ingredient behind Thm C.2. That axiom is **not** a formalization of the
-word-problem reduction (Thm C.1) and is not claimed to be; the reduction lives in the paper proof (§5) and
-Lemma C.1a. The honest summary: the finite basis is machine-checked; everything else is a paper proof or (for
-Conj E) an open conjecture.
+**Lean artifacts.** In this paper's `proofs/` folder: **three closed proofs** — `T2_generated.lean`,
+`T3_generated_rank3.lean` (Thm A.1, finite generation, base cases $n=2,3$, each discharging the finite
+enumeration by `decide`), and `pi_incomplete_infinite.lean` (Thm B, infinite impossibility: closure of a
+`Finset` of maps is countable via `Submonoid.exists_list_of_mem_closure` + `Set.countable_range`, while
+`Function.End R` is uncountable for `[Infinite R]` via `Cardinal.cantor` + `Cardinal.mk_arrow`). All three are
+**fully proven (no `sorry`)** in Lean 4 / Mathlib with `#print axioms` **clean** (`[propext, Classical.choice,
+Quot.sound]`, **no `sorryAx`**) — so **both ends of the trichotomy are machine-verified**: the finite
+constructive basis and the infinite impossibility. The umbrella `operator_completeness.lean` carries
+**statements only**: the finite-decidability `instance` is a signature stub (the proof is the P-time algorithm
+of §3, Thm A.2, not a Lean term), and the file records **one cited classical fact as an axiom** — the
+undecidability of extensional equality of $\mathbb{N} \to \mathbb{N}$ functions, the Rice-flavored ingredient
+behind Thm C.2. That axiom is **not** a formalization of the word-problem reduction (Thm C.1) and is not claimed
+to be; the reduction lives in the paper proof (§5) and Lemma C.1a. The honest summary: the two ends of the
+trichotomy (Thm A basis, Thm B impossibility) are machine-checked and axiom-clean; the undecidable middle
+(Thm C), the P-time decidability (Thm A.2), and everything else are paper proofs or (for Conj E) an open
+conjecture.
 
 **Provenance.** The gap this paper fills was confirmed by a source-verified literature review (42 sources,
 `LITERATURE_PI_COMPLETENESS.md`). The algebraic and computability results are classical and cited; the recasting
