@@ -105,6 +105,53 @@ def test_the_worklist_is_required_for_deep_structural():
     assert structural_input_difficulty(True, False, False) == "flat"
 
 
+# ── #67 extension: an element bound to a VARIABLE then indexed (not a chained x[i][j]) ──
+_RECORD_WORKLIST_VIA_VAR = """
+def close(items, seeds):
+    by_name = {it[0]: it for it in items}
+    reached = set()
+    frontier = list(seeds)
+    while frontier:
+        n = frontier.pop()
+        if n in reached or n not in by_name:
+            continue
+        reached.add(n)
+        rec = by_name[n]
+        for d in rec[2]:
+            frontier.append(d)
+    return sorted(reached)
+"""
+
+_ELEMENT_INDEX_NO_LOOP = """
+def first_names(items):
+    out = []
+    for it in items:
+        out.append(it[0])
+    return out
+"""
+
+
+def test_a_worklist_over_records_bound_to_a_variable_is_deep_structural():
+    # The record is pulled into `it` (a comprehension target) and indexed `it[0]` — NOT a chained
+    # `x[i][j]`, so the old chained-subscript-only test read this `flat`, and its reached-but-
+    # undistinguished survivors (an index-swap invisible on a name==source sample) mis-classed as
+    # flag-eligible `genuine_equivalent`. The element-variable-subscript branch (#67) flips it to
+    # deep_structural, so those survivors route to `structural_residual` (do NOT flag) instead.
+    assert (
+        structural_input_difficulty(**structural_shape(_func(_RECORD_WORKLIST_VIA_VAR, "close")))
+        == "deep_structural"
+    )
+
+
+def test_element_index_without_a_worklist_stays_flat():
+    # Indexing an iterated element is within synthesis's reach WITHOUT a fixpoint — the worklist gate
+    # keeps the element-variable branch from firing on ordinary element iteration (no false caveat).
+    assert (
+        structural_input_difficulty(**structural_shape(_func(_ELEMENT_INDEX_NO_LOOP, "first_names")))
+        == "flat"
+    )
+
+
 # ───────────────────────────── the CLI advisory, from intent ─────────────────────────────
 
 

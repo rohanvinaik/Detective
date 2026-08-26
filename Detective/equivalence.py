@@ -452,8 +452,26 @@ def structural_shape(node) -> dict:
         if appended & popped & test_names:
             worklist = True
             break
+    # Indexing INTO an element pulled out of a collection — two spellings (#67). (a) a chained
+    # subscript ``x[i][j]``; (b) a subscript on a NAME that is a for-/comprehension iteration target
+    # (``for it in items: … it[0]`` or ``{it[0]: it for it in items}``), i.e. an element bound to a
+    # variable and then indexed as a record. The record-worklist shape (helper_generic_clause's
+    # ``[name, source, deps]`` triples) uses (b), which the chained-subscript test alone misses — so a
+    # reached-but-undistinguished record survivor (an index-swap invisible on a name==source sample)
+    # would mis-read ``flat`` and mis-class as flag-eligible ``genuine_equivalent``. (b) closes that.
+    _iter_targets: set[str] = set()
+    for _n in ast.walk(node):
+        if isinstance(_n, (ast.For, ast.AsyncFor)) and isinstance(_n.target, ast.Name):
+            _iter_targets.add(_n.target.id)
+        elif isinstance(_n, ast.comprehension) and isinstance(_n.target, ast.Name):
+            _iter_targets.add(_n.target.id)
     indexes_into_element = any(
-        isinstance(n, ast.Subscript) and isinstance(n.value, ast.Subscript) for n in ast.walk(node)
+        isinstance(n, ast.Subscript)
+        and (
+            isinstance(n.value, ast.Subscript)
+            or (isinstance(n.value, ast.Name) and n.value.id in _iter_targets)
+        )
+        for n in ast.walk(node)
     )
     nested_container_param = any(
         isinstance(a.annotation, ast.Subscript)
