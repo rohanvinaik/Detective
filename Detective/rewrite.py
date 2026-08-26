@@ -183,7 +183,7 @@ def receipt_load_refusal(text: str, expected_schema: str) -> str:
 class RewriteVerification:
     """The typed outcome of verifying a rewrite against a receipt (#37)."""
 
-    verdict: str  # PRESERVED | CHANGED | UNREVIEWED | ABSTAIN | STALE_RECEIPT | INVALID_RECEIPT
+    verdict: str  # PRESERVED | CHANGED | UNREVIEWED | ABSTAIN | STALE_RECEIPT | BASIS_MOVED | INVALID_RECEIPT
     function: str
     proof_replayed: str  # the pytest status of replaying the old proof suite on the NEW source
     new_dimensions: tuple[str, ...]  # killable mutants the old proof does not kill on the new source
@@ -229,6 +229,40 @@ def rewrite_verdict(
     if abstentions > 0:
         return "ABSTAIN"
     return "PRESERVED"
+
+
+def verify_rewrite_exit(verdict: str) -> int:
+    """The ``detective verify-rewrite`` exit code from its verdict, on the four-valued contract
+    (CLI ``_EXIT_CODES``; pure — pinned). Each verdict is a DISTINCT epistemic state and must not
+    collapse into another: a rewrite that provably changed behaviour (a determined refusal) is not the
+    same as a receipt the tool could not measure with (a precondition to fix) nor a baseline it could
+    not trust (an invalid measurement to re-run), and a consumer branching on ``exit_meaning`` has to
+    tell them apart. The prior code returned ``0 if PRESERVED else 1`` for every ending, laundering
+    three states into "a real gap".
+
+      * ``0`` — ``PRESERVED``: preservation established on every axis.
+      * ``1`` — ``CHANGED`` / ``UNREVIEWED``: a DETERMINED negative — behaviour provably changed, or
+        the new source added a dimension the proof never covered. A real gap CI must catch.
+      * ``2`` — ``INVALID_RECEIPT`` / ``STALE_RECEIPT`` / ``BASIS_MOVED``: a PRECONDITION — the receipt
+        is unusable as given (malformed/foreign; describes no rewrite, source identical to the
+        original; or its frozen proof basis moved). Regenerate it; re-running the same command cannot
+        change the answer.
+      * ``3`` — ``ABSTAIN``: an INVALID MEASUREMENT — the baseline was not a complete verified proof,
+        classification could not run, or survivors were unresolved ("no measurement, no verdict").
+        Re-run. This is the contract's "weak receipt baseline".
+
+    An unrecognized verdict is a bug, never a pass: it returns ``1`` so CI catches it, never a false
+    ``0``.
+    """
+    return {
+        "PRESERVED": 0,
+        "CHANGED": 1,
+        "UNREVIEWED": 1,
+        "INVALID_RECEIPT": 2,
+        "STALE_RECEIPT": 2,
+        "BASIS_MOVED": 2,
+        "ABSTAIN": 3,
+    }.get(verdict, 1)
 
 
 def basis_freshness(frozen: dict[str, str], current: dict[str, str]) -> str:

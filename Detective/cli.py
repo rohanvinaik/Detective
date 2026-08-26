@@ -5321,6 +5321,7 @@ def _run_verify_rewrite(args, file, function) -> int:
         RewriteVerification,
         receipt_load_refusal,
         verify_rewrite,
+        verify_rewrite_exit,
     )
 
     def _invalid(reason: str) -> int:
@@ -5341,10 +5342,11 @@ def _run_verify_rewrite(args, file, function) -> int:
             abstentions=(),
             note=reason,
         )
+        code = verify_rewrite_exit(res.verdict)  # INVALID_RECEIPT is a precondition (2), not a gap
         if args.json:
-            return _emit_json(asdict(res), 1)
+            return _emit_json(asdict(res), code)
         print(_format_rewrite(res))
-        return 1
+        return code
 
     try:
         with open(args.receipt_path, encoding="utf-8") as fh:
@@ -5369,7 +5371,7 @@ def _run_verify_rewrite(args, file, function) -> int:
         # WRAP, not early-return: the --learn persistence below runs under --json too.
         print(
             json.dumps(
-                _with_exit(asdict(result), 0 if result.verdict == "PRESERVED" else 1),
+                _with_exit(asdict(result), verify_rewrite_exit(result.verdict)),
                 indent=2,
                 default=str,
             )
@@ -5398,9 +5400,11 @@ def _run_verify_rewrite(args, file, function) -> int:
                 f"learned {len(promoted)} censor(s) from the rejected rewrite "
                 f"({len(censors)} near-miss candidate(s)) → .detective/censors.json"
             )
-    # Only PRESERVED is a pass; every other verdict (CHANGED / UNREVIEWED / ABSTAIN / STALE) is a
-    # refusal CI must catch, so it exits non-zero.
-    return 0 if result.verdict == "PRESERVED" else 1
+    # The verdict maps onto the four-valued exit contract via `verify_rewrite_exit`: PRESERVED passes
+    # (0); CHANGED/UNREVIEWED are a determined gap (1); an unusable receipt is a precondition to
+    # regenerate (2); ABSTAIN is an invalid measurement to re-run (3). CI branches on the code, and a
+    # --json consumer on `exit_meaning` — neither is told "gap" when the truth is "fix your receipt".
+    return verify_rewrite_exit(result.verdict)
 
 
 def _run_receipt(args, file, function) -> int:
