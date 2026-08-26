@@ -606,6 +606,47 @@ class DecompositionApply:
     stdout_bytes: int = 0
 
 
+def decompose_exit(
+    apply_requested: bool,
+    applied: int,
+    proof_complete: bool,
+    budget_exhausted: bool,
+    unsafe: int,
+) -> int:
+    """The ``detective decompose`` exit code on the four-valued contract (CLI ``_EXIT_CODES``; pure —
+    pinned). Decompose has no single verdict — its outcome is structural — and the prior code returned
+    ``3 if budget_exhausted else 0``, which mapped a REFUSAL (an ``--apply`` whose proof could not
+    establish preservation) to a clean ``0``: the tool reported success for a decomposition it declined.
+    Each outcome is a distinct epistemic state a ``--json`` / CI consumer must tell apart:
+
+      * ``3`` — a CUT proof (``budget_exhausted``): the proof converge did not finish within the wall;
+        re-run.
+      * ``0`` — a decomposition was proven and applied (``applied > 0``); OR a dry-run PROPOSAL (no
+        ``--apply``), which is advisory and never a gate; OR ``--apply`` with nothing to extract
+        (already atomic): a clean no-op.
+      * ``3`` — ``--apply`` requested but the proof is NOT functionally-complete: preservation could not
+        be established, and the residual names an ``--input`` to supply, so this is an invalid
+        measurement to re-run, NOT a clean pass. (The collapse this fixes.)
+      * ``1`` — ``--apply`` requested, the proof complete, yet a block could not be safely extracted
+        (``unsafe > 0``): a determined refusal the caller asked for and did not get.
+
+    Order is load-bearing: ``budget_exhausted`` outranks all (a cut proves nothing); an applied
+    extraction is clean regardless of dry-run; only then does an unfulfilled ``--apply`` split on
+    proof-completeness and unsafe blocks.
+    """
+    if budget_exhausted:
+        return 3
+    if applied > 0:
+        return 0
+    if not apply_requested:
+        return 0
+    if not proof_complete:
+        return 3
+    if unsafe > 0:
+        return 1
+    return 0
+
+
 def preservation_admissible(functionally_complete: bool, stale: bool, candidate_equivalents: int) -> bool:
     """Whether a converge proof may authorize ``decompose --apply`` (issue #41).
 

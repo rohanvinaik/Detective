@@ -4859,7 +4859,7 @@ def _format_rewrite(r) -> str:
 
 
 def _run_decompose(args, file, function) -> int:
-    from .decompose_apply import apply_decomposition
+    from .decompose_apply import apply_decomposition, decompose_exit
 
     supplied = (
         _parse_supplied_inputs(args.input, _target_ns(file, function, args.project_root))
@@ -4878,8 +4878,15 @@ def _run_decompose(args, file, function) -> int:
         # command in the CLI, and until now the only one that printed nothing while it ran.
         notify=None if args.json else _notify_stderr,
     )
+    exit_code = decompose_exit(
+        apply_requested=bool(args.apply),
+        applied=len(result.applied),
+        proof_complete=result.proof is not None and result.proof.functionally_complete,
+        budget_exhausted=result.budget_exhausted,
+        unsafe=len(result.unsafe_blocks),
+    )
     if args.json:
-        return _emit_json(asdict(result), 3 if getattr(result, "budget_exhausted", False) else 0)
+        return _emit_json(asdict(result), exit_code)
     text = _format_decompose(result, args.apply, args.target, args.project_root)
     # Persist the full outcome — especially a REFUSAL, which otherwise leaves no
     # artifact and can only be re-diagnosed by re-running the slowest command here.
@@ -4908,9 +4915,12 @@ def _run_decompose(args, file, function) -> int:
     if rel:
         _notify_stderr(f"full report: {rel}")
     print(text)
-    # 3 on a CUT proof (issue #31), mirroring converge: the run did not complete its
-    # proof within the wall, so CI must tell it apart from a clean "nothing to decompose".
-    return 3 if getattr(result, "budget_exhausted", False) else 0
+    # The structural outcome maps onto the four-valued contract via `decompose_exit`: a CUT proof, or an
+    # `--apply` whose proof could not establish preservation, is an invalid measurement (3 — re-run /
+    # supply the residual `--input`); an `--apply` blocked by an unsafe block is a determined refusal
+    # (1); an applied extraction or a dry-run proposal is clean (0). CI must tell a refusal apart from
+    # "nothing to decompose", which the prior `3 if budget else 0` collapsed into 0.
+    return exit_code
 
 
 def _run_audit(args, file, function) -> int:
