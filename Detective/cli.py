@@ -3837,8 +3837,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "deletes a file you wrote. Without this flag the plan is printed and nothing changes",
     )
     regime_p.add_argument("--json", action="store_true", help="emit JSON")
+    _flag_help = "mark a surviving mutant equivalent (default) or a FENCE — an authored must-not"
     flag_p = sub.add_parser(
-        "flag", help="mark a surviving mutant equivalent (default) or a FENCE — an authored must-not"
+        "flag",
+        help=_flag_help,
+        # flag carries a target, so it runs the same regime resolution and refusal as the others
+        # (via `_run_live`) — its help must lead you to that word too.
+        description=f"{_headline(_flag_help)}\n\n{_REGIME_STAGE}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     flag_p.add_argument("target", help="file.py::function")
     flag_p.add_argument("mutant_id", help="the surviving mutant id (from `audit`/`diagnose`)")
@@ -3853,9 +3859,12 @@ def _build_parser() -> argparse.ArgumentParser:
     flag_p.add_argument("--project-root", default=".")
     flag_p.add_argument("--json", action="store_true", help="emit JSON")
 
+    _flag_line_help = "mark an uncovered source line as unreachable (manual oracle — line ledger only)"
     flag_line_p = sub.add_parser(
         "flag-line",
-        help="mark an uncovered source line as unreachable (manual oracle — line ledger only)",
+        help=_flag_line_help,
+        description=f"{_headline(_flag_line_help)}\n\n{_REGIME_STAGE}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     flag_line_p.add_argument("target", help="file.py::function")
     flag_line_p.add_argument(
@@ -3943,7 +3952,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "let a model (or anyone) rewrite the function; `verify-rewrite` then proves the rewrite did "
             "not change behaviour against this receipt. Converges the target first, so the recorded "
             "proof basis is real."
-        ),
+        )
+        + f"\n\n{_REGIME_STAGE}",  # receipt converges the target — the regime stage runs, so name it
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     receipt_p.add_argument("target", help="file.py::function to snapshot")
@@ -3962,7 +3972,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "proof never covered, and evaluates the OLD and NEW implementations at each distinguishing "
             "input — reporting equal / different / abstained rather than silently learning the new "
             "behaviour. PRESERVED only when all three hold; exits non-zero otherwise."
-        ),
+        )
+        + f"\n\n{_REGIME_STAGE}",  # verify-rewrite classifies the new source — the regime stage runs
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     verify_p.add_argument(
@@ -4415,7 +4426,23 @@ def _run_live(args) -> int:
             from .regime import resolve_regime
 
             regime = resolve_regime(root, _split_target(target_arg, root)[0])
-            if regime.conflicts and not getattr(args, "json", False):
+            if regime.conflicts:
+                # Refuse for BOTH channels, mirroring the wrong_interpreter / collection_errors
+                # refusals above and below: a --json consumer that only got the human text (the
+                # prior `not args.json` guard) fell through into the session and received a verdict
+                # measured against the shadowed/colliding target — exactly the number this refusal
+                # exists to withhold. The machine gets the same typed REFUSED the human gets.
+                if getattr(args, "json", False):
+                    return _emit_json(
+                        {
+                            "verdict": "REFUSED",
+                            "reason": "regime_conflict",
+                            "target": target_arg,
+                            "module": getattr(regime, "module", None),
+                            "detail": _format_conflicts(regime, target_arg).strip(),
+                        },
+                        2,
+                    )
                 sys.stdout.write(_format_conflicts(regime, target_arg))
                 return 2
         except SystemExit:
