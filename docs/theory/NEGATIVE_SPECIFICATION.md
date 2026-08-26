@@ -774,6 +774,20 @@ or **B** (requires the runtime wrapper, Def. 11.6). We enumerate $\Pi$ by codoma
 - $p_{\mathrm{stale}}: v \mapsto v_{\mathrm{prev}}$ (the previous call's return) — **the output is a pure
   function of *this* call, carrying no leaked state / accidental memoization.** [B]
 
+*Adequacy status of the universal family (reconciled 2026-08-26 with the adequacy-completeness paper's
+Def 3.1, `operator_completeness/`).* There an **output operator** is a map $p : R \to R$ post-composed as
+$p \circ f$ — it perturbs using only the returned value. $p_{\mathrm{const}}$, $p_{\mathrm{none}}$ and
+$p_{\mathrm{zero\text{-}of}}$ qualify (constant maps), and $p_{\mathrm{const}[c]}$ has footprint
+$\mathrm{Mov}(p_{\mathrm{const}[c]}) = R \setminus \{c\}$; so — by the footprint characterization
+(`footprint_characterization`, machine-checked) — killing it certifies only against faults that move
+*every value but $c$*, a weak certifier, the operator image of "constants are absolutely complete iff
+$|R| = 2$" (the value-guard basis). $p_{\mathrm{id}[i]}$ and $p_{\mathrm{stale}}$ are **not** output
+operators under that Def 3.1: they return an input argument / a prior call's value, so they depend on
+more than $f$'s current return and are not any $p \circ f$. They remain valid $\mu^-$ fences — they pin
+input-dependence and state-leak, axes the positive policy also misses — but the adequacy footprint
+theory does not govern them; they sit outside the output-recoding subspace the completeness results
+characterize.
+
 *(ii) Boolean $R$.*
 
 - $p_{\lnot}: b \mapsto \lnot b$ — the boolean is load-bearing. [A] (near-redundant with a positive
@@ -1159,8 +1173,9 @@ and DO NOT transfer to a *sparse* obligation graph — measured, the sparse rule
 with a 3.5–8× softer drop; citing the dense constants for code would be wrong by an order of magnitude.
 [`bridge_curvature_bound`: **CLOSED in Lean** (2026-08-24, `sorries_remaining: 0`), proved *locally* by
 Wayfinder — the clean geometric-contraction bound $\mathrm{opt} - \mathrm{gap}_k \ge (1 - e^{-1/(d+1)})\,\mathrm{opt}$,
-recovering $(1-1/e)$ at $d=0$; the `#print axioms` audit is the remaining gate, and $d$ on the *code*
-obstruction graph is still to be measured (§18 Q1/Q5).]
+recovering $(1-1/e)$ at $d=0$; the `#print axioms` audit PASSED clean 2026-08-26 (`[propext,
+Classical.choice, Quot.sound]`, no `sorryAx`), so the only residual is measuring $d$ on the *code*
+obstruction graph (§18 Q1/Q5).]
 
 **Proposition 14.7 (Admissibility is machine-checked, and it is the well-definedness condition).** A
 censor is admissible iff (i) it is *spine-sourced* — carved from an observed near-miss or a rejected-
@@ -1407,8 +1422,18 @@ these.
    *dimension-bounded minimal* complete basis is **conjecturally foreclosed** (the fault space is multiclass —
    Pabbaraju 2024, Hanneke–Moran–Waknine 2024, consistent with the Prop 15.6 compression retraction — but the
    generating-basis ↔ compression bridge is not yet established; Doliwa 2014 is restricted to maximum classes).
-   Full treatment, with the finite fragment Lean-verified and axiom-audited, is the standalone paper
-   `operator_completeness/OPERATOR_COMPLETENESS.md`. (Subsumes the user's fenced-off "full-40 Π" completeness item.)
+   **Superseding note (2026-08-26).** The monoid-generation framing above is the *earlier* analysis and is
+   retained in `operator_completeness/archive/` as such; the archive README records why generation is not
+   the notion mutation adequacy requires — killing a family's generators need not kill their composites, so
+   "$\Pi$ generates $T(R)$" says nothing about what a passing score certifies. The **current** answer to the
+   Π-completeness question is **adequacy-completeness**, in the standalone paper
+   `operator_completeness/ADEQUACY_COMPLETENESS.md` (LNCS form `submission/paper_lncs.tex`): a family $\Pi$ is
+   complete iff every target footprint is the union of the $\Pi$-footprints it contains
+   (`footprint_characterization`, machine-checked), and on an infinite codomain **no finite family is
+   absolutely complete** (`complete_univ_infinite` / `progComplete_univ_infinite`, machine-checked). So the
+   finite/infinite split survives as a corollary of the footprint theory, not of monoid rank — and per the
+   glossary (the formal document wins over this index), the adequacy characterization is what the design now
+   cites. (Subsumes the fenced-off "full-40 Π" completeness item.)
 5. **The bounded-curvature bound (Def. 14.6; Conj. 10.4 → Cor. 14.5, now measured).** The obstruction is
    no longer conjectured: `promotion_not_submodular` is measured constructively (Thm 14.4, $d \le 14$–$25$
    on six real pulls, the Macbeth $\kappa(\text{give}\mid\varnothing): 2\to3$ witness). Open is the
@@ -1418,7 +1443,8 @@ these.
    needed no Aristotle residual (absent from the Aristotle collection list), `sorries_remaining: 0`, the
    proved statement $\mathrm{opt}-\mathrm{gap}_k \ge (1-e^{-1/(d+1)})\mathrm{opt}$ saved to
    `Semantic_Specification_Learning/proofs/bridge_curvature_bound.lean`; the independent `#print axioms`
-   audit is the remaining gate. Measure $d$ on the *code* obligation graph once Q1 fixes it.
+   audit PASSED clean 2026-08-26 (`[propext, Classical.choice, Quot.sound]`, no `sorryAx`). The only
+   residual is to measure $d$ on the *code* obligation graph once Q1 fixes it.
 6. **Build ordering (μ⁻ realizations — largely closed).** Form A + Fork 1, Fork 2, and Form B are all
    built (Wesker `dfce857`/`bdefe56`/`bf0f179`), with Detective's two-sign consumption wired
    (`diagnose`/`converge --two-sign`) and the two channel-propagation leaks closed (Props. 11.13–11.14,
@@ -1487,6 +1513,25 @@ these.
     is what genuinely remains — the representation obligation Rem. 6.6 fences, materially smaller than the
     whole differential reach this ledger once called open.
 
+    **Design decision on the non-introspectable core (#68b; decided 2026-08-26, grounded by trace).** The
+    question the issue left open — a per-type constructor registry vs. a permanent `fixture` caveat — is
+    resolved in favour of the caveat as the *permanent general behaviour*, with a registry admissible only
+    as an opt-in escape hatch. The trace establishes the current behaviour is already sound and honest: a
+    non-introspectable / import-colliding domain object drives `_as_domain_source → None`
+    (`_domain_constructor_imports` returns `None` on a non-expressible non-dataclass leaf), which
+    `residual_disposition` maps to `fixture_residual` and `candidate_equivalent_caveat` renders as the
+    `"fixture"` caveat on **both** the terse and verbose surfaces — never `"none"`, so it never invites a
+    `flag`. Three reasons the caveat stays the default rather than a registry: (i) a registry is *unbounded
+    per type* — any plain class / C-extension / factory-built state — so it cannot be complete, only a
+    curated escape hatch; (ii) it cannot generically synthesize an object behind *private invariants* or a
+    factory (the representation obligation is genuine, not a synthesis-tractability one, Rem. 6.6); (iii)
+    the sound `fixture` hand-back already closes the only integrity concern (a false `equivalent`). So a
+    per-type constructor registry is admissible ONLY as an *opt-in, never-gating* escape hatch a user
+    registers for a specific type they care about — the same "idiom proposes, never gates" discipline
+    (Prop. 12.4) — and is deliberately **not built** as a default. #68b is therefore a *closed design
+    question with a documented permanent behaviour*, not an open build; the introspectable ladder
+    (B0–B3/#68a) is the automation, the `fixture` caveat is the honest floor beneath it.
+
 ---
 
 ## 19. Status Ledger
@@ -1503,14 +1548,17 @@ optimality and `coverage_submodular`, `marginal_antitone`, `greedy_coverage_boun
 `self_confirming_cannot_certify`, `falsifiability_pivot` (the admissibility guard, Prop. 14.7 — the SSL
 claim is now *backed in Lean this session*; see the "Machine-checked this session" block below).
 
-**Machine-checked this session (Wayfinder → Aristotle, 2026-08-24; `sorries_remaining: 0`, the `#print
-axioms` audit OWED — proved-modulo-audit, not audited).** Three Lean obligations this document cites were
-discharged this session, part of a 21-theorem SSL/Ansatz batch closed the same way:
+**Machine-checked this session (Wayfinder → Aristotle, 2026-08-24; `sorries_remaining: 0`) and `#print
+axioms`-AUDITED 2026-08-26 — now audited, not merely proved-modulo-audit.** Three Lean obligations this
+document cites were discharged, part of a 21-theorem SSL/Ansatz batch closed the same way:
 `bridge_curvature_bound` (Def. 14.6, the bounded-curvature positive bound $\mathrm{opt}-\mathrm{gap}_k \ge
 (1-e^{-1/(d+1)})\mathrm{opt}$) — closed **entirely locally** by Wayfinder, the one of the 21 needing no
 Aristotle residual; and the admissibility guard `self_confirming_cannot_certify` + `falsifiability_pivot`
-(Prop. 9.4/14.7) — closed by Aristotle from a Wayfinder-reduced residual. Until the `#print axioms` audit
-runs, the paper cites these at the proved-modulo-audit register, never as audited.
+(Prop. 9.4/14.7) — closed by Aristotle from a Wayfinder-reduced residual. The `#print axioms` audit was
+run 2026-08-26 against Mathlib `v4.28.0` (`Semantic_Specification_Learning/proofs/`, `lake env lean`):
+`bridge_curvature_bound` and `falsifiability_pivot` depend on exactly `[propext, Classical.choice,
+Quot.sound]`, and `self_confirming_cannot_certify` depends on **no axioms at all** (fully constructive);
+none carries `sorryAx`. The three claims are therefore cited at the **audited** register.
 
 **Transported (argued here from cited priors, not re-proved).** Prop. 2.2 (positive policies are
 one-sign); Prop. 2.5 (μ⁻ is a second instantiation, no new metatheory); Theorem 5.2 (channel isolation);
@@ -1585,8 +1633,8 @@ entropy-bit $L_{\mathrm{ind}}$ and consolidation-as-free-energy (Prop. 15.5, §1
 `safe_forget_preserves_sigma_sem` (Thm 15.4's transport). The `UNDEFINED` disposition (Def. 7.3), needed
 only once a degenerate-measure case lands. [κ-for-code (Q1) and the greenfield persisted contract (Q8) are
 now BUILT — see the 2026-08-23 Built block above; `bridge_curvature_bound` (Def. 14.6) and the
-admissibility guard `self_confirming_cannot_certify`/`falsifiability_pivot` are now CLOSED in Lean — see
-the "Machine-checked this session" block above (2026-08-24, `sorries_remaining: 0`, `#print axioms` owed).]
+admissibility guard `self_confirming_cannot_certify`/`falsifiability_pivot` are CLOSED in Lean AND
+`#print axioms`-audited clean 2026-08-26 — see the "Machine-checked this session" block above.]
 
 **Asserted (interpretations, argued not proved).** "σ makes SICP computable" as a *phrasing*
 (`thesis_vision.md`, not read; the *mechanism* is proved, Prop. 15.3). The identification of ESL's
