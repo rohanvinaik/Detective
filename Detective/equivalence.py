@@ -507,6 +507,231 @@ def structural_input_difficulty(
     return "flat"
 
 
+def _const_index(sl: ast.AST) -> int | None:
+    """The integer of a constant subscript index ``x[0]`` (not ``x[True]``); else ``None``."""
+    if isinstance(sl, ast.Constant) and isinstance(sl.value, int) and not isinstance(sl.value, bool):
+        return sl.value
+    return None
+
+
+def _iter_origin(node: ast.AST, origin: dict[str, str]) -> str | None:
+    """The parameter an iterable expression draws its ELEMENTS from — ``A`` / ``list(A)`` /
+    ``sorted(A)`` — through the origin map; ``None`` when it is not a traced parameter."""
+    if isinstance(node, ast.Name):
+        return origin.get(node.id)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in ("list", "set", "tuple", "sorted", "reversed")
+        and node.args
+    ):
+        return _iter_origin(node.args[0], origin)
+    return None
+
+
+def _traces_to(value: ast.AST, origin: dict[str, str]) -> str | None:
+    """The parameter a value expression originates from, through a BOUNDED def-use grammar:
+    a name; a view constructor over a traced value (``list(x)``); an element pulled from a
+    traced collection (``x.pop()``); or a comprehension whose element IS its iteration target
+    (``{y for y in A ...}`` — a re-collection of ``A``'s elements). ``None`` otherwise —
+    conservative, so a value the grammar cannot trace induces no coupling edge."""
+    if isinstance(value, ast.Name):
+        return origin.get(value.id)
+    if isinstance(value, ast.Call):
+        f = value.func
+        if isinstance(f, ast.Name) and f.id in ("list", "set", "tuple", "sorted", "reversed") and value.args:
+            return _traces_to(value.args[0], origin)
+        if isinstance(f, ast.Attribute) and f.attr == "pop" and isinstance(f.value, ast.Name):
+            return origin.get(f.value.id)  # an element of the popped list shares its origin
+    if isinstance(value, (ast.SetComp, ast.ListComp, ast.GeneratorExp)) and len(value.generators) == 1:
+        g = value.generators[0]
+        if isinstance(value.elt, ast.Name) and isinstance(g.target, ast.Name) and value.elt.id == g.target.id:
+            return _iter_origin(g.iter, origin)
+    return None
+
+
+def _key_origin(expr: ast.AST, origin: dict[str, str]) -> str | None:
+    """The parameter a KEY expression traces to — a name ``n`` or a popped element
+    ``frontier.pop()`` — for a subscript slice or a membership left operand."""
+    if isinstance(expr, ast.Name):
+        return origin.get(expr.id)
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr == "pop"
+        and isinstance(expr.func.value, ast.Name)
+    ):
+        return origin.get(expr.func.value.id)
+    return None
+
+
+def _param_origins(node: ast.FunctionDef | ast.AsyncFunctionDef, params: set[str]) -> dict[str, str]:
+    """Map each local name to the PARAMETER its value originates from, by a bounded fixpoint over
+    the function's assignments and for-targets (``frontier = list(need)`` ← ``need`` ← ``referenced``).
+    Over-approximate and conservative: a mis-trace only feeds the positive-only coupling search a
+    candidate that fails to distinguish, never a false kill."""
+    origin: dict[str, str] = {p: p for p in params}
+    stmts = list(ast.walk(node))
+    for _ in range(len(stmts) + 1):  # bounded — converges in ≤ (chain length) passes
+        changed = False
+        for n in stmts:
+            tgt = src = None
+            if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+                tgt, src = n.targets[0].id, _traces_to(n.value, origin)
+            elif isinstance(n, (ast.For, ast.AsyncFor)) and isinstance(n.target, ast.Name):
+                tgt, src = n.target.id, _iter_origin(n.iter, origin)
+            if tgt and src and origin.get(tgt) != src:
+                origin[tgt] = src
+                changed = True
+        if not changed:
+            break
+    return origin
+
+
+def conditioning_edge(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[int, int, int] | None:
+    """Extract a value-referential CONDITIONING EDGE between two parameters (#67, decidable for this
+    bounded grammar). Returns ``(collection_idx, key_field, ref_idx)`` — positional indices in the
+    ``self``/``cls``-skipped order :func:`engine._input_grids` builds grids in — when a dict is
+    comprehended from a collection parameter keyed on its elements' field ``key_field``
+    (``{e[k]: ... for e in A}``) and a value derived from a SECOND parameter is used as a key into,
+    or membership-tested against, that dict. ``None`` when no such edge is present.
+
+    This is the surface form of inter-parameter coupling. To reach the conditioned path, the
+    referencing parameter's values must be drawn from the collection's key field — a relation
+    independent-sampling synthesis cannot construct, and the reason a coupled survivor reads as an
+    unreached candidate-equivalent. It is a dataflow fact on the AST, not an inference: extractable
+    exactly because the program committed the relation to structure (a dict comprehension and a key
+    lookup), never to an implicit register. Conservative throughout — an untraceable key yields
+    ``None`` — so the coupling-aware synthesis it gates stays positive-only (a wrong extraction feeds
+    a candidate that fails to distinguish, never a false COMPLETE).
+    """
+    params = [a.arg for a in node.args.args if a.arg not in ("self", "cls")]
+    if len(params) < 2:
+        return None  # coupling is BETWEEN parameters
+    idx = {p: i for i, p in enumerate(params)}
+    origin = _param_origins(node, set(params))
+
+    keyed: dict[str, tuple[str, int]] = {}  # dict-var -> (collection param, key field)
+    for n in ast.walk(node):
+        if not (
+            isinstance(n, ast.Assign)
+            and len(n.targets) == 1
+            and isinstance(n.targets[0], ast.Name)
+            and isinstance(n.value, ast.DictComp)
+            and len(n.value.generators) == 1
+        ):
+            continue
+        g = n.value.generators[0]
+        key = n.value.key
+        coll = _iter_origin(g.iter, origin)
+        key_field = _const_index(key.slice) if isinstance(key, ast.Subscript) else None
+        if (
+            isinstance(g.target, ast.Name)
+            and coll is not None
+            and key_field is not None
+            and isinstance(key, ast.Subscript)
+            and isinstance(key.value, ast.Name)
+            and key.value.id == g.target.id
+        ):
+            keyed[n.targets[0].id] = (coll, key_field)
+    if not keyed:
+        return None
+
+    for n in ast.walk(node):
+        if isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name) and n.value.id in keyed:
+            dname, kexpr = n.value.id, n.slice
+        elif (
+            isinstance(n, ast.Compare)
+            and len(n.ops) == 1
+            and isinstance(n.ops[0], (ast.In, ast.NotIn))
+            and isinstance(n.comparators[0], ast.Name)
+            and n.comparators[0].id in keyed
+        ):
+            dname, kexpr = n.comparators[0].id, n.left
+        else:
+            continue
+        coll, key_field = keyed[dname]
+        ref = _key_origin(kexpr, origin)
+        if ref is not None and ref != coll and ref in idx and coll in idx:
+            return (idx[coll], key_field, idx[ref])
+    return None
+
+
+def _dep_field(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int | None:
+    """The record field iterated as a cross-reference list — the ``j`` in a lookup's ``[j]`` when it
+    is the iterable of a ``for``/comprehension — in BOTH spellings: the chained ``by_name[n][2]`` and
+    the intermediate-variable ``it = by_name[n]`` … ``for d in it[2]``. This is the field a coupled
+    worklist follows, so filling it (and only it) with a multi-hop graph both drives the fixpoint and
+    keeps the other fields well-typed (a deps list in a string field just makes the body raise).
+    ``None`` when the shape is absent."""
+    lookup_vars = {  # names bound to a dict/collection subscript: it = by_name[n]
+        n.targets[0].id
+        for n in ast.walk(node)
+        if isinstance(n, ast.Assign)
+        and len(n.targets) == 1
+        and isinstance(n.targets[0], ast.Name)
+        and isinstance(n.value, ast.Subscript)
+        and isinstance(n.value.value, ast.Name)
+    }
+    for n in ast.walk(node):
+        it = n.iter if isinstance(n, (ast.For, ast.AsyncFor, ast.comprehension)) else None
+        if not isinstance(it, ast.Subscript):
+            continue
+        j = _const_index(it.slice)
+        if j is None:
+            continue
+        base = it.value
+        if isinstance(base, ast.Subscript):  # chained  D[key][j]
+            return j
+        if isinstance(base, ast.Name) and base.id in lookup_vars:  # it = D[key]; it[j]
+            return j
+    return None
+
+
+def _record_arity(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """One past the largest constant field index the body reads off an element (``e[0]``, ``e[2]``)
+    — the record width a coupling-aware witness must build. ``0`` when nothing is indexed."""
+    mx = -1
+    for n in ast.walk(node):
+        if isinstance(n, ast.Subscript):
+            j = _const_index(n.slice)
+            if j is not None and j > mx:
+                mx = j
+    return mx + 1 if mx >= 0 else 0
+
+
+def coupled_topologies(arity: int, key_field: int, dep_field: int | None) -> list[tuple[list, list]]:
+    """A fixed library of ``(records, seeds)`` pairs realizing the conditioning edge (#67, pure).
+
+    Each record is a length-``arity`` list whose ``key_field`` carries a DISTINCT name ``n{i}`` (so a
+    field-index swap is observable — the sample that hides it has ``name == source``), whose
+    ``dep_field`` carries the names of other records (so a transitive-closure loop iterates), and
+    whose other fields carry distinct fillers. ``seeds`` names INTO the records, the tie an
+    independent grid cannot build. The topologies — chain, 2-cycle, branch, and a seed naming a
+    MISSING record — mirror ``engine._ADJACENCY_TOPOLOGIES`` for the string-keyed, cross-parameter
+    case. All values are ``--input``-expressible (str / list[str]), so a kill renders as a literal.
+    Empty when the shape is degenerate (``arity < 1`` or an out-of-range key field)."""
+    if arity < 1 or not (0 <= key_field < arity):
+        return []
+    df = dep_field if (dep_field is not None and 0 <= dep_field < arity and dep_field != key_field) else None
+    if df is None and arity >= 2:
+        df = (key_field + 1) % arity  # a distinct field to carry deps when the body's is unknown
+
+    def rec(i: int, deps: list[str]) -> list:
+        row: list = [f"f{i}_{k}" for k in range(arity)]  # distinct filler per (record, field)
+        row[key_field] = f"n{i}"
+        if df is not None:
+            row[df] = list(deps)
+        return row
+
+    return [
+        ([rec(0, ["n1"]), rec(1, ["n2"]), rec(2, [])], ["n0"]),  # chain n0→n1→n2
+        ([rec(0, ["n1"]), rec(1, ["n0"])], ["n0"]),  # 2-cycle n0⇄n1
+        ([rec(0, ["n1", "n2"]), rec(1, []), rec(2, [])], ["n0"]),  # branch, shared frontier
+        ([rec(0, [])], ["n0", "absent"]),  # a seed naming a MISSING record (the not-in-dict branch)
+    ]
+
+
 def residual_disposition(
     is_killable: bool,
     is_crash_only: bool,

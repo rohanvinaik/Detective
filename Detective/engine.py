@@ -51,13 +51,17 @@ from .equivalence import (
     MutantVerdict,
     SourceExpr,
     SurvivorReport,
+    _dep_field,
     _grid_for,
     _outcome,
     _reached_lines,
+    _record_arity,
     _type_of,
     ast_grid,
     bounded_product,
     classify_survivor,
+    conditioning_edge,
+    coupled_topologies,
     is_expressible,
     is_scalar_type,
     structural_input_difficulty,
@@ -1681,6 +1685,38 @@ def _structural_topology_inputs(node: ast.FunctionDef | ast.AsyncFunctionDef, na
     return bounded_product(grids)
 
 
+def _referential_inputs(node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict) -> list[tuple]:
+    """B-ref (#67): coupling-aware inputs for a value-referential CONDITIONING EDGE. When
+    :func:`conditioning_edge` finds a dict keyed on a collection parameter's field and a SECOND
+    parameter whose values key into it, fill the collection slot with cross-referential records
+    (:func:`coupled_topologies`) and the referencing slot with keys that name INTO them — the tie an
+    independent grid cannot build, which is why a coupled survivor reads as unreached. Every other
+    slot takes the ordinary grid default. Empty when there is no edge.
+
+    Positive-only, exactly as B0/B1: these are OUR fabrications, applied through the same world-effects
+    gate, and adopted only where they prove a NEW kill — a coupling that distinguishes a survivor
+    upgrades it to a proven KILL, one that does not leaves the residual exactly as it was. The records
+    and seeds are ``--input``-expressible (str / list[str]), so a coupling kill still renders as a
+    pasteable ``--input``.
+    """
+    edge = conditioning_edge(node)
+    if edge is None:
+        return []
+    coll_idx, key_field, ref_idx = edge
+    grids = _input_grids(node, namespace)
+    n = len(grids)
+    if not (0 <= coll_idx < n and 0 <= ref_idx < n and coll_idx != ref_idx):
+        return []
+    arity = max(_record_arity(node), key_field + 1)
+    out: list[tuple] = []
+    for records, seeds in coupled_topologies(arity, key_field, _dep_field(node)):
+        row = [grids[i][0] if grids[i] else None for i in range(n)]
+        row[coll_idx] = records
+        row[ref_idx] = seeds
+        out.append(tuple(row))
+    return out
+
+
 def representative_site(node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict) -> list[dict]:
     """Golden call sites: a base site (numeric/unannotated params get 1, 2, 3… for
     order-distinction, other scalars a sample value, container/dataclass params a
@@ -2819,6 +2855,30 @@ def classify_survivors(
         )
         guard_inputs = _guard_directed_inputs(node, ns, _cand_lines)
         fresh = [t for t in guard_inputs if _safely_fresh(t, inputs)]
+        if fresh:
+            retry = _classify_pool(supplied + fresh + inputs)
+            if sum(1 for v in retry[0] if v.killable) > sum(1 for v in verdicts if v.killable):
+                verdicts, unclassified, manual_equivalent, fence = retry
+                final_pool = supplied + fresh + inputs
+                note = None
+                witness_args = [v.witness.args for v in verdicts if v.killable and v.witness is not None]
+                if witness_args:
+                    expressible = all(is_expressible(a) for args in witness_args for a in args)
+
+    # B-ref (#67): coupling-aware active search — the generalization past B0/B1 to a value-referential
+    # CONDITIONING EDGE between two parameters: a dict keyed on collection A's field, and a SECOND
+    # parameter B whose values are used as its keys. Independent sampling never ties B's values to A's
+    # key field, so the coupled survivor is unreached and reads as a candidate-equivalent;
+    # `conditioning_edge` extracts the edge as a dataflow fact and `_referential_inputs` builds the tie
+    # (cross-referential records + seeds that name into them). Retry positive-only through _classify_pool
+    # (adopt only a NEW kill, so never a false COMPLETE). The extraction is decidable for this bounded
+    # grammar (dict-comprehension key + membership/subscript lookup); arbitrary conditioning stays open.
+    _ref = guard_retry_gate(
+        any(not v.killable and not v.crash_only for v in verdicts), bool(effects), _cls_exhausted()
+    )
+    if _ref == "run":
+        ref_inputs = _referential_inputs(node, ns)
+        fresh = [t for t in ref_inputs if _safely_fresh(t, inputs)]
         if fresh:
             retry = _classify_pool(supplied + fresh + inputs)
             if sum(1 for v in retry[0] if v.killable) > sum(1 for v in verdicts if v.killable):
