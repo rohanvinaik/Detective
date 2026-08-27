@@ -121,7 +121,7 @@ classifiers = [
 #   Wesker >= 0.6.0  stdout-buffer death: full report written to a dead buffer, exit 0
 #   pytest, ruff     RUNTIME deps: the product is a pytest file that must pass ruff format
 dependencies = [
-    "Wesker>=0.13.0",  # Wesker.last_collection_errors (0.13.0) + trace_evidence/covering-tests re-observation (0.12.0) — see dev/DEPENDENCY_FLOORS.md
+    "Wesker>=0.13.0",  # Wesker.pytest_discovery.last_collection_errors (0.13.0) + trace_evidence/covering-tests re-observation (0.12.0) — see dev/DEPENDENCY_FLOORS.md
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it

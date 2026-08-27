@@ -213,11 +213,11 @@ the crash, is why the pair must move together.
 
 ## Wesker >= 0.13.0
 
-`Detective.engine` imports `Wesker.last_collection_errors` at module load — the degrade-loudly floor
+`Detective.engine` imports `last_collection_errors` from `Wesker.pytest_discovery` at module load — the degrade-loudly floor
 that surfaces a live session's collection errors (a `conftest` that failed to import, a discovery
 pattern that matched nothing) as a typed REFUSAL rather than a silent zero. It first exists in Wesker
 0.13.0. A wheel resolving `Wesker>=0.12.0` from PyPI installs a Wesker without it, and `import
-Detective.engine` dies on `ImportError: cannot import name 'last_collection_errors' from 'Wesker'`
+Detective.engine` dies on `ImportError: cannot import name 'last_collection_errors' from 'Wesker.pytest_discovery'`
 before the CLI parses an argument — the same module-load death class as the 0.12.0 `trace_evidence`
 floor. The `uv.lock` git-pin hides this in dev and CI (it resolves the co-developed Wesker `main`);
 the published metadata floor is what a `pip install detective-spec` consumer actually sees, so it must
