@@ -218,6 +218,14 @@ stats.py::anomaly_score: 4 existing test(s) — incomplete   [audit reads only �
 
 ---
 
+## The other sign — a fence
+
+A `flag` has two directions, and they are opposites. The default records that a survivor is *equivalent* — a mutant the suite is right not to kill, a distinction that carries no meaning. `flag --fence` records the reverse: a mutant that **must** die — an authored *must-not*, a behavior the suite is required to forbid even though nothing catches it yet. It is the negative of a specification. Where the positive sign asks *is every killable mutant killed?*, the fence asks *does the suite forbid what it must?* — and `audit --check` stays red until it does.
+
+The two are not decoration on each other; they are the two halves of what a specification is. A complete positive score says the suite pins everything the code *does*; a fence says the suite pins something the code must *never* do. Most tools have only the first. The two-sign account — the negative degree of freedom, `μ⁻` — is developed in [`NEGATIVE_SPECIFICATION.md`](./docs/theory/NEGATIVE_SPECIFICATION.md).
+
+---
+
 ## Why it holds
 
 Two functions are the same when they draw the same distinctions — kill the same mutants, survive the same ones:
@@ -229,6 +237,8 @@ Once behavior is pinned that tightly, the form stops mattering. Rewrite it in a 
 **It subsumes MC/DC and asks for more.** The operator set forces each condition to `True` and to `False` independently (`a and b` → `True and b`, then `a and False`); killing both is exactly the MC/DC obligation — that the condition independently affects the outcome — arriving as a property of the universe rather than a separate criterion (Wesker exposes `--mcdc`). But MC/DC is a *coverage* criterion, satisfied by execution: a suite can be MC/DC-complete and pin nothing about what the function returns. Detective counts a mutant killed only when an **assertion distinguishes the output**, and reports a crash-kill separately, banking none of it toward the score. Mutation-complete-and-value-specified is strictly the more demanding claim, on the axis that matters.
 
 The guarantees are about the *method*, and they are machine-checked: choosing which mutants to test is a maximum-coverage problem whose greedy solution provably attains the `(1−1/e)` ceiling — verified in Lean against Mathlib, in [Wesker](https://github.com/rohanvinaik/Wesker). That is a proof of **adherence** — that the suite pins every behavioral dimension it claims to, and that the fast path changes no verdict — not a proof that your code is correct. `✓ COMPLETE` is exhaustive decision over a stated finite universe, with the undecidable residue held out as `UNPROVEN`. It is weaker than a theorem about your program and much stronger than sampling, and the badge says exactly which.
+
+And there is now a **theory of what the score certifies**, not only an engineering convention. An output operator *is* its **footprint** — the set of values it changes — and a mutation regime is *sufficient* to certify a class of behaviors iff every target footprint is the union of the regime-footprints it contains; a full absolute score certifies **exactly output coverage** — every value the function can return was observed — and no more (the ceiling of the technique). The core is machine-checked in Lean 4 / Mathlib, end to end from programs to the kernel. The same result draws the line Detective has always drawn in code: the **effect** — which mutants a suite kills — is mechanical and decidable; the **meaning** — which of those distinctions bear on intent — is the author's, and no amount of mutation recovers it. That is *why* the tool pins behavior and hands the intent question back, rather than a limitation it happens to have. The formal development lives in [`docs/theory/`](./docs/theory/): the operator-completeness characterization of what a mutation score certifies ([`operator_completeness/`](./docs/theory/operator_completeness/), machine-checked in Lean 4 / Mathlib), and the two-sign account of specification below ([`NEGATIVE_SPECIFICATION.md`](./docs/theory/NEGATIVE_SPECIFICATION.md)).
 
 It is also why this is fast. Detective does not profile your codebase. It asks a decidable question about one function, from two things that are already static and free — the operators in its AST, and the tests you already have. There is no repo-scale artifact to build.
 
@@ -250,6 +260,7 @@ It installs as `detective-spec`, imports as `Detective`, and runs as `detective`
 | `decompose file.py::fn --apply` | your source | split it — applied only when proven behavior-preserving |
 | `audit file.py::fn` | nothing | is the suite I have complete? minimal? what can I cut? |
 | `parsimony path/` | nothing | where does this codebase drift from the discipline? (static, advisory) |
+| `flag file.py::fn ID [--fence]` | ledger | record a survivor equivalent — or fence it as a must-not |
 | `regime` | config | how does this repo import and test — and can the suite even reach my file? |
 
 When a parameter carries meaning the code does not hold — a plan name, a lookup key, a domain object — Detective will not guess it. It shows the shape it needs; you hand it one real call (`--input "([1.0, 2.0, 10.0], 4, 1.0)"`) and it remembers your example (`.detective/inputs.json`), so every later command on that function already has it. A low number beside a residual is a question, not a failure.
@@ -267,7 +278,11 @@ detective audit     file.py::fn --check           # CI gate: exit non-zero on a 
 detective receipt   file.py::fn -o receipt.json  # snapshot BEFORE a model/arbitrary rewrite
 detective verify-rewrite receipt.json file.py::fn # prove the rewrite preserved behavior
 detective parsimony path/ [--top N]              # static repo/module/class SICP map (advisory)
-detective flag      file.py::fn MUTANT_ID        # record: this survivor is truly equivalent
+detective flag      file.py::fn MUTANT_ID        # positive sign: this survivor is truly equivalent
+detective flag      file.py::fn MUTANT_ID --fence # negative sign: an authored MUST-NOT (a fence)
+detective flag-line file.py::fn LINE             # mark an uncovered line unreachable (manual oracle)
+detective censor    path/                        # harvest population-derived censors across a corpus
+detective regime                                 # resolve + report the repo's testing regime
 detective purge                                  # delete regeneratable analysis cruft
 ```
 
@@ -289,6 +304,8 @@ learning the new behavior. Re-converging the rewrite alone only characterizes wh
 ```
 
 `--check` makes the step **fail (exit 1)** when the suite has a real *specification* gap — a killable mutant it no longer kills, a reachable uncovered line, or a failing test. A newly introduced, unspecified branch turns the step red; candidate-equivalent survivors do not (they are unproven-equivalent, resolved with `flag`). An **unclassified** survivor is a *measurement* limit, not a specification gap — the search could not run on it — so `--check` **exits 0 with a warning**, while `--check-strict` **exits 2** to fail the step on it too. Without `--check`, `audit` only records an artifact and always exits 0.
+
+Exit codes are an epistemic logic, not pass/fail, and every verb maps onto the same four: `0` clean · `1` a measured gap or a refusal ("the answer is no") · `2` a precondition or conflict ("your world is wrong — fix that, not the code") · `3` a measurement it could not trust ("re-run"). The `1`-vs-`3` split is the determined-false / cannot-determine boundary the whole tool is built on. Every `--json` result carries a self-describing `exit_meaning`, so a machine consumer reads the state without hard-coding numbers.
 
 ---
 
