@@ -337,7 +337,7 @@ dev = [
 requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0,<2" },
     { name = "pytest", specifier = ">=7" },
-    { name = "ruff", specifier = ">=0.6" },
+    { name = "ruff", specifier = ">=0.6,<0.15" },
     { name = "wesker", git = "https://github.com/rohanvinaik/Wesker.git?branch=main" },
 ]
 provides-extras = ["mcp"]

@@ -14,7 +14,16 @@ on:
 # wheel); the user-installs-from-PyPI experience is verified at RELEASE, not on every main push.
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Matrix over the Python versions the classifiers CLAIM (3.11/3.12/3.13) and two OSes. This
+    # project does fd-level capture, subprocess isolation, and in-process pytest sessions — exactly
+    # the surface that breaks across versions and platforms — so a single ubuntu/3.11 job left the
+    # classifier claims and macOS (the primary dev platform) asserted but unverified.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +36,8 @@ jobs:
 
       - name: Install dependencies
         working-directory: Detective
-        run: uv sync
+        # --python overrides the repo .python-version pin so each cell resolves its own interpreter.
+        run: uv sync --python ${{ matrix.python-version }}
 
       - name: Lint
         working-directory: Detective

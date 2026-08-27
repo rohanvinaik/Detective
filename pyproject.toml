@@ -131,7 +131,14 @@ dependencies = [
     # over 200-character AST snippets are the formatter's algorithm, not a style choice,
     # and it moves between versions. A wheel with no system toolchain; see
     # synthesis/writer._ruff_format.
-    "ruff>=0.6",
+    # CEILING, not just a floor — the same argument as `mcp<2` below. The runtime ruff exists to
+    # format generated files so they pass a consumer's `ruff format --check`, and the format
+    # ALGORITHM shifts at ruff's minor boundaries (the very reason dev pins `ruff==0.14.10` so CI
+    # cannot drift). An open-ended `>=0.6` lets a consumer resolve a ruff whose formatter disagrees
+    # with the one this release was validated against, reddening their CI on green output. Cap at the
+    # validated 0.14 line; bump the ceiling per minor as each is validated (a small, deliberate
+    # release cost — the price of the "generated files pass ruff format --check" guarantee).
+    "ruff>=0.6,<0.15",
 ]
 
 # The MCP surface is optional so the core stays Wesker + stdlib only.
@@ -184,6 +191,12 @@ packages = ["Detective"]
 # this file rather than an accident of whose machine ran `build`.
 [tool.hatch.build.targets.sdist]
 exclude = [
+  # Agent-instruction files carry absolute /Users/... paths and references to local agent-memory
+  # files — useful in the repo, a machine-identity leak in a published sdist (and ironic beside the
+  # .claude note above). The wheel never ships them (packages=["Detective"]); only an sdist reader
+  # would have seen them, and now neither does.
+  "AGENTS.md",
+  "CLAUDE.md",
   ".claude/",
   ".serena/",
   ".detective/",
