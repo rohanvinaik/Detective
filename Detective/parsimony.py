@@ -51,12 +51,17 @@ _CC_CLEAN = 5  # below median; at/below this votes +1
 _OVERLOAD_SMELL = 2.5  # ≈p90; mutation-DOF per line at/above this votes −1
 _OVERLOAD_CLEAN = 1.0  # below median; at/below this votes +1
 
-# The mined ZEROS (Wave 0 / EXP-DS-001, docs/theory/deterministic_sicp/): the five-tuple position
-# is a signed deviation from the corpus norm, and these are the norms — the MEDIANS of the same
-# 527-function Detective+Wesker calibration recorded above (2026-08-06), not new numbers. The
-# vote cutoffs above stay the ternary thresholds; the zero is what `depth` is measured FROM.
-_CC_ZERO = 3.0  # median cognitive complexity — the complexity lens's mined zero
-_OVERLOAD_ZERO = 1.29  # median mutation-DOF per line — the overload lens's mined zero
+# The mined ZEROS (docs/theory/deterministic_sicp/ §4.2): the five-tuple position is a signed
+# deviation from the corpus norm. The vote cutoffs above stay the ternary thresholds; the zero
+# is what `depth` is measured FROM. Provenance per constant — a zero changes ONLY through the
+# mine's own admissibility gate (κ-weighted, hash-parity split-validated), never by hand:
+# EXP-DS-002 (2026-08-31, 1123 fns incl. methods, tolerance 0.25) REFUSED a CC replacement —
+# halves 2.0/1.0, `drifting` (relative tolerance is brittle on a low-median integer
+# distribution; recorded lead) — so the 2026-08-06 527-function calibration median stands; the
+# overload mine VALIDATED (halves 1.0/1.304, drift 0.233 — narrow) and its κ-weighted median
+# replaced the old unweighted 1.29.
+_CC_ZERO = 3.0  # median cognitive complexity (2026-08-06 calibration; EXP-DS-002 re-mine refused)
+_OVERLOAD_ZERO = 1.1  # κ-weighted median mutation-DOF/line (EXP-DS-002, split-validated)
 
 
 @dataclass(frozen=True)

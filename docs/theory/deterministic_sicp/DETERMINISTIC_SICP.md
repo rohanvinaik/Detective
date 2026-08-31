@@ -497,9 +497,30 @@ merge its claims into this document:
   SHOULD share a signature; discrimination is owed only to operationally-different pairs); and
   **γ-seam fires rarely** (mid-band 3–4 crossings dominates) — a calibration lead for a
   population-level, split-validated pass, deliberately NOT tuned from this one look (§4.2 law 3).
-- **Wave 1 — the norms miner + the knee (EXP-DS-002).** κ-weighted, split-validated zeros for the
-  numeric banks; run the estimator corpus-wide; plot verdict-isolation cost; locate the bulk/tail
-  knee. *This is the transport's go/no-go gate.*
+- **Wave 1 — the norms miner + the knee (EXP-DS-002). SHIPPED + MEASURED (2026-08-31).**
+  `Detective/norms.py` holds the four pure decisions — `split_of` (hash-parity, seedless),
+  `weighted_median` (κ-weighted, `None` on cannot-determine), `norm_disposition`
+  (admissible/drifting/degenerate — a drifting norm is REJECTED, never tuned), and
+  `verdict_isolation_cost` (the per-region read cost, with a brute-forced invariance property
+  test). Pinned by hand-written truth tables under a **targeted, founder-granted exemption**
+  (recorded in the test module's docstring: this repo's dense-package reachability makes an
+  isolated converge trace the whole 1.6k-test suite — the exemption is scoped to these four
+  functions and this idiom, NOT a precedent). The κ-weight consumes `kappa.build_call_graph`
+  in-degree (weighting beats exclusion: dead code counts once and cannot drag, entry points
+  still count); the overload raw is mined STATICALLY (DOF = the function's mutant-universe size
+  off its own AST — the sandwich thesis's "one function's operators are static and free").
+  *Measured* (`dev/exp_ds_002_norms_knee.py`, 1,123 functions, stated tolerance 0.25):
+  **(a)** the CC re-mine was REFUSED by its own gate (halves 2.0/1.0 → drifting; relative
+  tolerance is brittle on a low-median INTEGER distribution — methodological lead recorded;
+  the 2026-08-06 calibration zero stands). **(b)** the overload mine VALIDATED (halves
+  1.0/1.304, drift 0.233 — narrow margin, recorded) and `_OVERLOAD_ZERO` was adopted at the
+  κ-weighted 1.1 with provenance. **(c)** the knee: every early decider (reads 2–5, 8.6%) is
+  flagged-side — the flag-side bulk the transport predicts — while the clean majority's cost is
+  DEGENERATE by construction (a clean verdict under the ≥2 floor cannot decide before read n−1;
+  66.3% mass at read 6 of 7 is the floor's structural bound, not a tail). Go/no-go verdict:
+  **not failed, partially informative** — the instrument must consume the interference verdict
+  (CONSTRUCTIVE/DESTRUCTIVE/AMBIGUOUS/SILENT), not the binary flag, to measure the clean side;
+  that refinement is a named deliverable of Wave 4's controller instrumentation.
 - **Wave 2 — the budget bank (EXP-DS-003).** Deterministic counters + the size-ladder read off
   the synthesis stack; paired-arm harness with the delta-0 gate. *Measurement:* re-derive a known
   optimization's payoff from the banks alone on a seeded corpus.
@@ -541,9 +562,14 @@ cross-language receipt is buildable (EXP-DS-006).
 
 **Measured (in-repo).** EXP-DS-001 (2026-08-31): static-signature distinctness 47 → 106 over
 1,119 Detective+Wesker functions on adding γ-seam + purity to the bank space; γ-seam's rare-fire
-band recorded as a calibration lead for Wave 1's split-validated norms pass.
+band recorded as a calibration lead for Wave 1's split-validated norms pass. EXP-DS-002
+(2026-08-31, 1,123 functions): the norms discipline exercised end-to-end — one re-mine REFUSED
+by its own admissibility gate (CC, drifting on a low-median integer distribution), one
+validated and adopted (`_OVERLOAD_ZERO` → κ-weighted 1.1); the knee instrument shows the
+flag-side bulk (all early deciders flagged, 8.6% by read 5) and is degenerate on the clean side
+by construction — the interference-verdict refinement is Wave 4's named deliverable.
 
-**Build.** Waves 1–5 of §12 (Wave 0 shipped 2026-08-31). Nothing else in this document is
+**Build.** Waves 2–5 of §12 (Waves 0–1 shipped 2026-08-31). Nothing else in this document is
 claimed shipped beyond the seams §1.2 names.
 
 ---

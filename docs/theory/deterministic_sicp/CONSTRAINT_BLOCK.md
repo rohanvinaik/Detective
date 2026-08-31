@@ -103,12 +103,13 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 
 ## THE NEXT ACTION — one imperative
 
-> **Build Wave 1 (EXP-DS-002): the κ-weighted, split-validated norms miner for the numeric
-> banks, then run the estimator corpus-wide and locate the bulk/tail knee — the go/no-go gate
-> for the whole transport.** Wave 0 SHIPPED + MEASURED 2026-08-31 (five-tuple lenses, γ-seam
-> bank, purity wired, audit: signatures 47 → 106 over 1,119 functions; γ-seam's rare-fire band
-> is a recorded calibration lead for exactly this wave's split-validated pass — do not tune it
-> outside that discipline).
+> **Build Wave 2 (EXP-DS-003): the budget bank — deterministic operation counters + the
+> size-ladder asymptotic read off converge's input-synthesis stack, and the paired-arm harness
+> with the behavior-delta-exactly-0 gate.** Waves 0–1 SHIPPED + MEASURED 2026-08-31: signatures
+> 47 → 106; `norms.py` pinned (truth tables, targeted founder-granted exemption — scoped, not a
+> precedent); the CC re-mine REFUSED by its own gate (integer-granularity brittleness — lead),
+> `_OVERLOAD_ZERO` adopted at κ-weighted 1.1; the knee shows the flag-side bulk and needs the
+> interference-verdict instrument (Wave 4) for the clean side. Go/no-go: not failed.
 
 **Then, in order:** Wave 2 (budget bank + delta-0 paired harness) → Wave 3 (template library v1 —
 the taste-as-recognition test) → Wave 4 (controller: orientation + interference + flow over
