@@ -574,10 +574,37 @@ merge its claims into this document:
   budget banks have different reaches, their disagreement is itself signal (the cross-network
   resolution operator's first code-domain instance), and the **C-call-counting axis is the
   named instrument-v2 deliverable**.
-- **Wave 4 — the controller (EXP-DS-005).** Orientation tables + interference + the flow plan
-  over `audit --plan` costs; the censor spine starts accumulating from gate rejections; measure d
-  on the obligation graph. *Measurement:* plan quality vs `parsimony --plan`'s unpriced queue,
-  and the first censor wave's budget refund at delta 0.
+- **Wave 4 — the controller (EXP-DS-005). SHIPPED + MEASURED (2026-08-31).**
+  `Detective/controller.py`: `orient_for_change` (a smell supports change; a clean orients to
+  **0, never opposition** — cleanliness on one axis is orthogonal to a defect on another, and
+  opposition is reserved for WARRANTS, i.e. censors/fences on their own channel);
+  `controller_verdict` (SILENT · AMBIGUOUS · CONSTRUCTIVE · DESTRUCTIVE — with sub-floor
+  support reading AMBIGUOUS at any floor, a generalization the truth-table pin forced on the
+  first draft's `==1` artifact, and a fence-vs-consensus collision escalating rather than
+  silently resolving); `plan_moves` (gated, priced, budgeted; v1-degenerate flow, stated —
+  greedy is EXACTLY optimal for independent unit arcs under one fungible pool, and the SSP
+  solver becomes warranted only with multi-resource constraints; every exclusion carries a
+  NAMED reason); `interference_isolation_cost` (the four-valued knee instrument, exhaustive-
+  completion exact). Pins: truth tables + intent suite; converge attempted against the settled
+  tree (the serial-cold sequencing lesson applied). *Measured*
+  (`dev/exp_ds_005_controller.py`, 1,140 functions, fences held at 0 — stated): **(a)** the
+  clean-side measurement Wave 1 couldn't make: SILENT 64.3% (the asymmetric-emission
+  majority), AMBIGUOUS 25.2% (the single-lens escalation queue — a real finding about the
+  floor), CONSTRUCTIVE 10.5%. **(b)** the knee instrument's second and conclusive honest
+  failure: 89.5% decide at the last read — under ANY threshold verdict over unordered reads,
+  no/low-signal isolation is structurally end-loaded; the read-cost knee is RETIRED as the
+  clean-side instrument, the verdict distribution IS the clean-side measurement, and the
+  σ_form bulk lives in move-elimination, not read-skipping. **(c)** C7 confirmed in kappa's
+  own terms: fragmented call graphs (Detective 53 components/44 singletons; Wesker 32);
+  adoption-time d stays deferred to the promotion loop per kappa's own record. **(d)** the
+  plan: 6 funded gated moves under a 500-DOF budget — including
+  `Wesker/engine.py::generate_mutants` reading as a quadratic membership scan (a live engine
+  lead) — with the full exclusion ledger. **(e)** the headline vs `parsimony --plan`: of its
+  66 flagged, the controller funds 5, defers 7 over-budget, and names **54 `no_template`** —
+  the unpriced queue points; the controller says which moves are admissible TODAY and why the
+  rest wait on library growth. Caveats stated: DESTRUCTIVE unexercised (fences at 0), costs
+  are the DOF proxy (live upgrade = `audit --plan`), queue comparison matched by bare name
+  (the call-graph merge limitation).
 - **Wave 5 — warranted cross-language emission (EXP-DS-006).** The receipt replayed against a
   pinned-environment emission; the `rewrite-in-<lang>` arc opens only when this gate is green.
 - **Throughout:** every extracted pure decision converged in isolation BEFORE wiring
@@ -615,12 +642,15 @@ validated and adopted (`_OVERLOAD_ZERO` → κ-weighted 1.1); the knee instrumen
 flag-side bulk (all early deciders flagged, 8.6% by read 5) and is degenerate on the clean side
 by construction — the interference-verdict refinement is Wave 4's named deliverable.
 
-**Build.** Waves 4–5 of §12 (Waves 0–3 shipped 2026-08-31). In-repo measured ledger now also
-carries EXP-DS-003 (both seeded optimizations re-derived blind at delta 0; the 3.14
-`f_trace_opcodes` silent-zero finding; the serial-cold pin-batch idiom) and EXP-DS-004 (5/5
-template pairs end-to-end; the taste-as-recognition claim's first supporting measurement; the
-C-blindness boundary — recognizable ≠ priceable — naming the instrument-v2 C-call axis).
-Nothing else in this document is claimed shipped beyond the seams §1.2 names.
+**Build.** Wave 5 of §12 (Waves 0–4 shipped 2026-08-31). In-repo measured ledger: EXP-DS-001
+(signatures 47→106), EXP-DS-002 (the norms discipline, one refusal by its own gate), EXP-DS-003
+(both seeded optimizations re-derived blind at delta 0; the 3.14 `f_trace_opcodes` silent-zero
+finding; the serial-cold pin-batch idiom), EXP-DS-004 (5/5 template pairs; recognizable ≠
+priceable — the C-call instrument-v2 axis named), EXP-DS-005 (the verdict distribution as THE
+clean-side measurement; the read-cost knee retired after failing honestly twice; C7 confirmed;
+the first gated priced plan, incl. a live engine lead; parsimony's 66 flags resolved into
+5 funded / 7 over-budget / 54 no_template). Nothing else in this document is claimed shipped
+beyond the seams §1.2 names.
 
 ---
 

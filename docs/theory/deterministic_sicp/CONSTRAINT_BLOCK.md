@@ -103,19 +103,20 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 
 ## THE NEXT ACTION — one imperative
 
-> **Build Wave 4 (EXP-DS-005): the controller — orientation tables + interference over the
-> banks, the flow plan priced by `audit --plan`, the censor spine accumulating from gate
-> rejections, and d measured on the obligation graph. Include the interference-verdict knee
-> instrument (the Wave-1 clean-side refinement, owed to this wave).** Waves 0–3 SHIPPED +
-> MEASURED 2026-08-31: signatures 47 → 106; the norms discipline exercised (one re-mine
-> refused by its own gate; `_OVERLOAD_ZERO` κ-weighted 1.1); the budget bank re-derived seeded
-> optimizations blind at delta exactly 0; the template library 5/5 end-to-end with the
-> discharge property. Standing facts: in-repo pin batches are serial-cold by construction (two
-> scoped truth-table exemptions granted; each future one needs its own grant); the budget
-> counter lives on `sys.monitoring` (3.14 legacy path silently dead) and ABSTAINS below 3.12;
-> **recognizable ≠ priceable** — `in <list>` quadratic work is C-invisible to the v1
-> instruction axis (measured), the C-call axis is instrument v2, and bank disagreement is
-> itself signal.
+> **Build Wave 5 (EXP-DS-006): warranted cross-language emission — the receipt's obligations
+> replayed against a pinned-environment emission; the `rewrite-in-<lang>` arc opens only when
+> this gate is green.** Waves 0–4 SHIPPED + MEASURED 2026-08-31. The controller exists and
+> measured: verdicts SILENT 64.3% / AMBIGUOUS 25.2% / CONSTRUCTIVE 10.5% over 1,140 functions
+> (fences at 0, stated); the read-cost knee is RETIRED (failed honestly twice — the verdict
+> distribution IS the clean-side measurement; the σ_form bulk lives in move-elimination); C7
+> confirmed (fragmented call graphs; adoption-time d deferred to the promotion loop); the
+> first gated priced plan funded 6 moves incl. a live engine lead
+> (`Wesker/engine.py::generate_mutants` as a quadratic membership scan); parsimony's 66 flags
+> resolved 5 funded / 7 over-budget / 54 no_template — the named residual is the value over
+> the unpriced queue. Standing facts unchanged: serial-cold pin batches (scoped exemptions
+> only, each with its own grant); the budget counter on `sys.monitoring`, abstaining below
+> 3.12; recognizable ≠ priceable (C-call axis = instrument v2); opposition requires a WARRANT
+> (censors), never a clean vote.
 
 **Then, in order:** Wave 2 (budget bank + delta-0 paired harness) → Wave 3 (template library v1 —
 the taste-as-recognition test) → Wave 4 (controller: orientation + interference + flow over
