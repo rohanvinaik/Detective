@@ -103,13 +103,17 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 
 ## THE NEXT ACTION — one imperative
 
-> **Build Wave 2 (EXP-DS-003): the budget bank — deterministic operation counters + the
-> size-ladder asymptotic read off converge's input-synthesis stack, and the paired-arm harness
-> with the behavior-delta-exactly-0 gate.** Waves 0–1 SHIPPED + MEASURED 2026-08-31: signatures
-> 47 → 106; `norms.py` pinned (truth tables, targeted founder-granted exemption — scoped, not a
-> precedent); the CC re-mine REFUSED by its own gate (integer-granularity brittleness — lead),
-> `_OVERLOAD_ZERO` adopted at κ-weighted 1.1; the knee shows the flag-side bulk and needs the
-> interference-verdict instrument (Wave 4) for the clean side. Go/no-go: not failed.
+> **Build Wave 3 (EXP-DS-004): the template library v1 — five computation-shape templates, each
+> with its deterministic transform grammar and its proof gate; the taste-as-recognition claim's
+> direct test.** Waves 0–2 SHIPPED + MEASURED 2026-08-31: signatures 47 → 106; the norms
+> discipline exercised (one re-mine refused by its own gate; `_OVERLOAD_ZERO` adopted at
+> κ-weighted 1.1); the budget bank re-derived BOTH seeded optimizations blind (dedupe
+> quadratic_plus→linear, series linear→constant, refund at delta exactly 0). Standing process
+> facts: in-repo pin batches are serial-cold by construction (converge self-invalidates per
+> writing pass; each pin's synth re-colds the next) — two scoped truth-table exemptions granted
+> (Wave 1's four, Wave 2's three; growth_class has an engine synth); each future exemption
+> needs its own grant. On 3.14 legacy `f_trace_opcodes` silently delivers zero events — the
+> budget counter lives on `sys.monitoring` and ABSTAINS below 3.12.
 
 **Then, in order:** Wave 2 (budget bank + delta-0 paired harness) → Wave 3 (template library v1 —
 the taste-as-recognition test) → Wave 4 (controller: orientation + interference + flow over

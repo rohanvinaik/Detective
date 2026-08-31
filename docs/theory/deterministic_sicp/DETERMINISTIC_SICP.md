@@ -521,9 +521,33 @@ merge its claims into this document:
   **not failed, partially informative** — the instrument must consume the interference verdict
   (CONSTRUCTIVE/DESTRUCTIVE/AMBIGUOUS/SILENT), not the binary flag, to measure the clean side;
   that refinement is a named deliverable of Wave 4's controller instrumentation.
-- **Wave 2 — the budget bank (EXP-DS-003).** Deterministic counters + the size-ladder read off
-  the synthesis stack; paired-arm harness with the delta-0 gate. *Measurement:* re-derive a known
-  optimization's payoff from the banks alone on a seeded corpus.
+- **Wave 2 — the budget bank (EXP-DS-003). SHIPPED + MEASURED (2026-08-31).** `Detective/budget.py`:
+  `growth_class` (log-log tail-slope median → five named bands, boundaries stated; n·log n lands
+  in "linear" at this instrument's width — stated, not hidden; degenerate input → "unmeasurable",
+  never a fabricated class), `budget_verdict` (class dominates ratio; the parity band keeps "no
+  payoff measured" a real outcome), `paired_disposition` (the two-ledger law as one pure decision
+  — nonzero delta → "inadmissible" outranks every payoff), `ladder_value` (sized instances of the
+  `--input`-expressible kinds only — a domain object has no mechanical ladder; consolidation with
+  the synthesis stack's typed grids deferred, that stack builds single representatives today), and
+  `count_opcodes` (the impure instrument shell). *Instrument findings, measured not assumed:*
+  **(a)** on Python 3.14 the legacy `f_trace_opcodes` path silently delivers ZERO opcode events —
+  the first harness run read 0 everywhere and the bank honestly refused to classify; the counter
+  was rebuilt on `sys.monitoring` INSTRUCTION events (probed deterministic: 322 == 322, clean
+  growth), with abstention on a missing API (3.11 floor), no free tool slot, or a crashed arm,
+  and the slot always released. **(b)** The counter's stated boundary: Python-level instructions
+  only — C-level work is invisible; reads compare arms, never Python versions. The allocation
+  axis is deferred. *Measured* (`dev/exp_ds_003_budget_bank.py`, ladder 16..512): both seeded
+  known optimizations **re-derived blind** — dedupe `quadratic_plus → linear` (refund, ratio
+  0.0079 at the top; 977,315 → 7,757 instructions) and series `linear → constant` (refund),
+  behavior-delta exactly 0 on every ladder input. *Pins:* `growth_class` carries an
+  engine-written synth (banked before the batch stop); the other three carry truth-table pins
+  under the SECOND targeted exemption (founder-granted; scope recorded in the test docstring).
+  *The wave's standing process finding:* **in-repo pin batches are serial-cold by construction**
+  — converge invalidates its own session baseline per writing pass (the `refresh_live_suite`
+  seam, load-bearing), and each pin's synth invalidates the next pin's trace cache
+  (tests-source-hash is in the key, correctly). Thrice-observed; budget for it, or grant the
+  scoped exemption — do not tool around the cache keys, whose completeness is a soundness
+  property.
 - **Wave 3 — the template library v1 + per-template grammars (EXP-DS-004).** Five templates, each
   with its deterministic transform and its gate; the taste-as-recognition claim's direct test:
   template recognition vs an expert's judgment on a held-out corpus, and transform payoff under
@@ -569,8 +593,10 @@ validated and adopted (`_OVERLOAD_ZERO` → κ-weighted 1.1); the knee instrumen
 flag-side bulk (all early deciders flagged, 8.6% by read 5) and is degenerate on the clean side
 by construction — the interference-verdict refinement is Wave 4's named deliverable.
 
-**Build.** Waves 2–5 of §12 (Waves 0–1 shipped 2026-08-31). Nothing else in this document is
-claimed shipped beyond the seams §1.2 names.
+**Build.** Waves 3–5 of §12 (Waves 0–2 shipped 2026-08-31). EXP-DS-003 added to the in-repo
+measured ledger: both seeded optimizations re-derived blind at delta exactly 0; the 3.14
+`f_trace_opcodes` silent-zero finding; the serial-cold pin-batch idiom. Nothing else in this
+document is claimed shipped beyond the seams §1.2 names.
 
 ---
 
