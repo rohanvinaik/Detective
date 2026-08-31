@@ -19,9 +19,9 @@ and your suite is still green:
 + if deviation >= threshold:      # every test passes
 ```
 
-That was a real change to what your function computes, and nothing you wrote noticed. This
-page follows one question wherever it leads — the tool, the theory, and the two strange
-companions it keeps all fall out of asking it honestly:
+That was a real change to what your function computes, and nothing you wrote noticed. The
+rest of this page follows one question wherever it goes — the tool, the theory, and the two
+strange companions it keeps are all just what happens when you ask it seriously:
 
 **What do your tests actually know about your code?**
 
@@ -54,9 +54,9 @@ The method is violent on purpose: you learn which of a thing's properties are *h
 than merely present, by trying to take each one away. A mutant your suite kills is something
 your tests genuinely know. A mutant that strolls out unharmed is a freedom — a way your
 function could change tonight with no alarm going off — and a comfortable, hand-built,
-code-reviewed function turns out, on honest measurement, to be mostly freedoms. The engine
-wastes no motion while it does this: one mutant per behavioral question, under a selection
-bound machine-checked in Lean. When it hurts you, it hurts you efficiently.
+code-reviewed function turns out, measured, to be mostly freedoms. The engine wastes no
+motion doing this: one mutant per behavioral question, never forty phrasings of the same one,
+with the selection guarantee proved in Lean. When it hurts you, it hurts you efficiently.
 
 What the violence leaves behind is a trail — *this died, this walked* — and a trail is not an
 answer. Someone has to read it.
@@ -79,8 +79,7 @@ $ detective converge stats.py::anomaly_score
     if deviation > peak:      →  >=   supply an input where deviation == peak
 ```
 
-Read the residual again, because the manner is the substance: where the trail runs out,
-Detective stops. A survivor no input distinguishes is recorded `candidate-equivalent —
+Look at the bottom half of that output. Where the trail runs out, Detective stops. A survivor no input distinguishes is recorded `candidate-equivalent —
 UNPROVEN`, and no amount of failing to kill it will ever promote it to "equivalent." A
 parameter whose meaning lives in your head is asked for — once — never invented. A function
 that reads the clock is declined outright: a test pinned to the current time is green today
@@ -113,11 +112,11 @@ cohesive, doing one thing, worth splitting. For the whole history of the field t
 has belonged to taste: the practiced eye of expensive people, encoded nowhere. Detective's
 second half puts it on the same measurement basis as the proofs. Each function is read on
 independent axes — complexity, cohesion, behavioral density per line (a signal only a mutation
-engine has), the priced cost of a split — against norms mined from your own codebase and
-validated out-of-sample, never imported from a style guide.
+engine has), the priced cost of a split — against norms mined from your own codebase, checked
+against the half of it they weren't mined from, and never imported from a style guide.
 
 The axes vote, and they are never averaged into a score, because a weighted sum of
-incommensurables is how every code-quality number before this one lied. The output is a plan
+incommensurables is how code-quality scores lie. The output is a plan
 whose every refusal is named: pointed at its own repository, it flagged 66 functions, funded
 5, deferred 7 on budget, and recorded 54 as "no safe recipe exists yet." And what no
 measurement reaches — what the code is *for*, and the cases where the evidence honestly
@@ -130,30 +129,29 @@ located.
 
 Add up the ledger. What your function does: knowable, mechanically, operator by operator.
 Whether a rewrite preserved it: knowable. Whether it is well made: measurable, priceable,
-plannable. This is the point where a page like this is supposed to reassure you that there
-will still be something left for humans, and the reassurance is usually a vibe. Here it is a
-theorem. The same mathematics that pushes mechanical knowledge to its maximum also proves the
-maximum exists — machine-checked, down to the kernel: **what a program is *for* is not in the
-program.** Not latently, not statistically, not at any scale of analysis — it was never
-written down. Text carries effects; meaning stays with authors. Every tool on this page is
-built against that line: total automation below it, a full stop at it, and every stopped
-question — the flagged survivor, the asked-for input, the ambiguous verdict — filed upward to
-the one seat the mathematics reserves. The seat is you. Nothing that runs on a CPU can fill
-it, and that is a proof, not a promise.
+plannable. This is usually the point where a page reassures you that there will still be
+something left for humans, and usually the reassurance is a vibe. Here it is a theorem,
+machine-checked in Lean: **what a program is *for* is not in the program.** When you wrote
+`price >= floor`, the file recorded your decision that an ordering matters — but *why* it
+matters, what the function is for, what would count as wrong even if every test passed: none
+of that ever made it into the text, and no analysis at any scale recovers what was never put
+there. So every tool on this page runs by one rule. Below that line, automate everything; at
+it, stop and ask. The flagged survivor, the requested input, the ambiguous verdict — each is
+the same event: the machine reaching the edge of what the file contains, and handing the
+question to the one party holding the rest. That's you. Not as a courtesy — as the theorem's
+conclusion.
 
-Which quietly settles the question of the age. If verification is mechanical and exact, the
-generator stops mattering: a cheap local model producing slop by the yard is a perfectly
-acceptable input to a gate that cannot be argued with, because what leaves the gate is no
-longer the model's code — it is code that provably does what you meant, which was the only
-thing anyone ever wanted from code. For seventy years you could have programs that were cheap,
-or programs that were right, and the entire discipline lived inside that tradeoff. It just
-ended.
+This has a cheerful consequence for the era of generated code. If verification is mechanical
+and exact, the generator stops mattering: a cheap local model producing slop by the yard is a
+perfectly acceptable input to a gate that cannot be argued with, because what leaves the gate
+is no longer the model's code — it is code that provably does what you meant. For seventy
+years, programs could be cheap or they could be right. That tradeoff had a good run.
 
 ---
 
 ## The loop, closed
 
-**[Uroboros](https://github.com/rohanvinaik/Uroboros) is that ending, taken all the way.** A
+**[Uroboros](https://github.com/rohanvinaik/Uroboros) takes that consequence all the way.** A
 process that provably cannot cross into meaning is a process you can leave alone with
 everything — so point it at a codebase and walk away. It takes one function to completion —
 pinned, or honestly handed back — then the next, then the next, until there is nothing left to
@@ -213,13 +211,12 @@ your world is wrong — fix that, not the code · `3` the measurement can't be t
 Machine consumers get the same verdicts as JSON; agents get an MCP surface
 (`detective-spec[mcp]`) whose every reply ends in `DO THIS:`, `STOP.`, or `DONE:`. The full
 command reference and the symptom→cause map live in [ARCHITECTURE.md](./ARCHITECTURE.md); the
-theorems — the ceiling, the two-sign teaching set, the effect/meaning boundary — live in
+theorems — the ceiling, the boundary between effect and meaning, and the rest — live in
 [`docs/theory/`](./docs/theory/), in full academic dress.
 
 ---
 
-*Wesker asks the question by breaking things. Detective answers what can be answered, and
-files the rest upward. Uroboros asks it of everything, forever, itself included. What cannot
-be taken from you, this system proves. Everything else, it handles.*
+*Wesker asks the question by breaking things. Detective writes down what can be known, and
+files the rest upward. Uroboros asks it of everything, forever, itself included.*
 
 *MIT — Rohan Vinaik.*
