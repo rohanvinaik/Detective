@@ -548,10 +548,32 @@ merge its claims into this document:
   (tests-source-hash is in the key, correctly). Thrice-observed; budget for it, or grant the
   scoped exemption — do not tool around the cache keys, whose completeness is a soundness
   property.
-- **Wave 3 — the template library v1 + per-template grammars (EXP-DS-004).** Five templates, each
-  with its deterministic transform and its gate; the taste-as-recognition claim's direct test:
-  template recognition vs an expert's judgment on a held-out corpus, and transform payoff under
-  Wave 2's harness.
+- **Wave 3 — the template library v1 (EXP-DS-004). SHIPPED + MEASURED (2026-08-31).**
+  `Detective/templates.py`: five conservative AST recognizers (`memoizable_pure_recursion`,
+  `quadratic_membership_scan`, `loop_invariant_recompute`, `accumulator_series`,
+  `manual_index_iteration`), each abstaining on any doubt, plus `TEMPLATE_GRAMMAR` — the §8
+  actuator law as data: every template names its transform AND its gate. Auto-application is
+  deliberately not v1. The seeded corpus (`tests/test_templates_intent.py`, founder-side expert
+  labels of record; a third-party-labeled held-out corpus is future work) carries adversarial
+  near-misses per template — and caught a real first-draft defect (the invariant recognizer
+  fired on the loop header's own `range(n)`; fixed to body-only + builtin-callee exclusion,
+  with the residual stated: user-callee purity is unverifiable at v1 granularity — recognition
+  invites, the gate decides). *Measured* (`dev/exp_ds_004_templates.py`): **5/5 pairs pass
+  end-to-end** — recognized on the naive arm, discharged on the optimized arm, delta exactly 0,
+  and payoff: memoize `quadratic_plus→linear` (refund), hoist `quadratic_plus→linear` (refund),
+  closed-form `linear→constant` (refund), direct-iteration same-class ratio 0.75 (refund via
+  the ratio branch — the band's first exercise). *Three findings, all kept as findings:*
+  **(a)** memoize's discharge is budget-only at v1 granularity — the memoized form still IS
+  pure self-recursion (measured; a cache-evidence recognizer is future population-level growth,
+  not a tweak). **(b)** a growth class is a property of (code, INPUT FAMILY), not code alone —
+  the first membership run held distinct-value cardinality constant and the quadratic never
+  manifested; the ladder must scale the dimension the shape is quadratic in. **(c)** THE
+  boundary result: `x in <list>`'s quadratic work is a C-level scan executing zero Python
+  opcodes — the v1 instruction axis is **structurally blind** to this template's payoff
+  (confirmed: both arms read linear at delta 0). Recognizable ≠ priceable; the recognition and
+  budget banks have different reaches, their disagreement is itself signal (the cross-network
+  resolution operator's first code-domain instance), and the **C-call-counting axis is the
+  named instrument-v2 deliverable**.
 - **Wave 4 — the controller (EXP-DS-005).** Orientation tables + interference + the flow plan
   over `audit --plan` costs; the censor spine starts accumulating from gate rejections; measure d
   on the obligation graph. *Measurement:* plan quality vs `parsimony --plan`'s unpriced queue,
@@ -593,10 +615,12 @@ validated and adopted (`_OVERLOAD_ZERO` → κ-weighted 1.1); the knee instrumen
 flag-side bulk (all early deciders flagged, 8.6% by read 5) and is degenerate on the clean side
 by construction — the interference-verdict refinement is Wave 4's named deliverable.
 
-**Build.** Waves 3–5 of §12 (Waves 0–2 shipped 2026-08-31). EXP-DS-003 added to the in-repo
-measured ledger: both seeded optimizations re-derived blind at delta exactly 0; the 3.14
-`f_trace_opcodes` silent-zero finding; the serial-cold pin-batch idiom. Nothing else in this
-document is claimed shipped beyond the seams §1.2 names.
+**Build.** Waves 4–5 of §12 (Waves 0–3 shipped 2026-08-31). In-repo measured ledger now also
+carries EXP-DS-003 (both seeded optimizations re-derived blind at delta 0; the 3.14
+`f_trace_opcodes` silent-zero finding; the serial-cold pin-batch idiom) and EXP-DS-004 (5/5
+template pairs end-to-end; the taste-as-recognition claim's first supporting measurement; the
+C-blindness boundary — recognizable ≠ priceable — naming the instrument-v2 C-call axis).
+Nothing else in this document is claimed shipped beyond the seams §1.2 names.
 
 ---
 

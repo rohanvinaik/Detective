@@ -103,17 +103,19 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 
 ## THE NEXT ACTION — one imperative
 
-> **Build Wave 3 (EXP-DS-004): the template library v1 — five computation-shape templates, each
-> with its deterministic transform grammar and its proof gate; the taste-as-recognition claim's
-> direct test.** Waves 0–2 SHIPPED + MEASURED 2026-08-31: signatures 47 → 106; the norms
-> discipline exercised (one re-mine refused by its own gate; `_OVERLOAD_ZERO` adopted at
-> κ-weighted 1.1); the budget bank re-derived BOTH seeded optimizations blind (dedupe
-> quadratic_plus→linear, series linear→constant, refund at delta exactly 0). Standing process
-> facts: in-repo pin batches are serial-cold by construction (converge self-invalidates per
-> writing pass; each pin's synth re-colds the next) — two scoped truth-table exemptions granted
-> (Wave 1's four, Wave 2's three; growth_class has an engine synth); each future exemption
-> needs its own grant. On 3.14 legacy `f_trace_opcodes` silently delivers zero events — the
-> budget counter lives on `sys.monitoring` and ABSTAINS below 3.12.
+> **Build Wave 4 (EXP-DS-005): the controller — orientation tables + interference over the
+> banks, the flow plan priced by `audit --plan`, the censor spine accumulating from gate
+> rejections, and d measured on the obligation graph. Include the interference-verdict knee
+> instrument (the Wave-1 clean-side refinement, owed to this wave).** Waves 0–3 SHIPPED +
+> MEASURED 2026-08-31: signatures 47 → 106; the norms discipline exercised (one re-mine
+> refused by its own gate; `_OVERLOAD_ZERO` κ-weighted 1.1); the budget bank re-derived seeded
+> optimizations blind at delta exactly 0; the template library 5/5 end-to-end with the
+> discharge property. Standing facts: in-repo pin batches are serial-cold by construction (two
+> scoped truth-table exemptions granted; each future one needs its own grant); the budget
+> counter lives on `sys.monitoring` (3.14 legacy path silently dead) and ABSTAINS below 3.12;
+> **recognizable ≠ priceable** — `in <list>` quadratic work is C-invisible to the v1
+> instruction axis (measured), the C-call axis is instrument v2, and bank disagreement is
+> itself signal.
 
 **Then, in order:** Wave 2 (budget bank + delta-0 paired harness) → Wave 3 (template library v1 —
 the taste-as-recognition test) → Wave 4 (controller: orientation + interference + flow over
