@@ -605,8 +605,32 @@ merge its claims into this document:
   rest wait on library growth. Caveats stated: DESTRUCTIVE unexercised (fences at 0), costs
   are the DOF proxy (live upgrade = `audit --plan`), queue comparison matched by bare name
   (the call-graph merge limitation).
-- **Wave 5 — warranted cross-language emission (EXP-DS-006).** The receipt replayed against a
-  pinned-environment emission; the `rewrite-in-<lang>` arc opens only when this gate is green.
+- **Wave 5 — warranted cross-language emission (EXP-DS-006). SHIPPED + MEASURED (2026-08-31).**
+  `Detective/emission.py`: `value_portability` — and **Q6's v1 answer, found rather than
+  chosen: the portability boundary IS the L boundary** minus the target's numeric-model edges
+  (bigint past i64, non-finite floats → `numeric_model_risk`, skipped AND counted; containers →
+  codec v2, named); `emission_disposition` (INVALID_MEASUREMENT / CHANGED / **VACUOUS** — an
+  empty observing set must never read preserved — / PRESERVED_MODULO_UNPORTABLE /
+  PRESERVED_PORTABLE: the certificate names its observing set, Cor 8.3 operationalized);
+  `c_literal` + `c_harness` (the codec never guesses, never renders a ledger partially);
+  `CrossLangEmission` (the LeanExpr homology: source · entrypoint · ENVIRONMENT PIN · warrant);
+  `run_c_gate` (toolchain abstention on a missing compiler; float comparison EXACT by design —
+  the conservative failure is a false CHANGED, never a false PRESERVED). Grounding reshaped the
+  design honestly: the receipt carries runnable source + a frozen proof basis, NOT (args,
+  expected) pairs — so the gate transports `verify-rewrite`'s own differential step across the
+  bridge, deriving the obligation ledger from the receipt's old implementation over a STATED
+  deterministic input family. *Measured* (`dev/exp_ds_006_emission.py`, end-to-end through the
+  REAL `detective receipt` on a seeded project — exit 0, mutation-complete, 40-mutant
+  universe): **3/3 arms** — faithful → PRESERVED_PORTABLE under the recorded clang pin;
+  non-equivalent mutant → CHANGED with the distinguishing input named ((101,1): 101 vs 100);
+  broken → INVALID_MEASUREMENT, never CHANGED. *The wave's live lesson:* the first adversarial
+  arm was itself an EQUIVALENT mutant (`>` → `>=` where the flipped boundary's term is zero) —
+  the gate correctly read PRESERVED, and the harness's own adversary demonstrated the
+  undecidable-residue shape this project studies; recorded in the harness comment. *Pin
+  upgrades landed the same close:* the engine PROVED the controller's truth-table suite
+  mutation-complete (`controller_verdict` ✓ COMPLETE 37/37, minimal cover 7 hand-written tests,
+  zero new synths — the exemption pin upgraded to an engine verdict), and the stopped Wave-1
+  batch turned out to have banked engine synths for `split_of` and `weighted_median`.
 - **Throughout:** every extracted pure decision converged in isolation BEFORE wiring
   (converge-before-wiring is a standing feedback law); hand-written intent tests beside every
   synth suite; the full pre-commit gate.
@@ -642,7 +666,14 @@ validated and adopted (`_OVERLOAD_ZERO` → κ-weighted 1.1); the knee instrumen
 flag-side bulk (all early deciders flagged, 8.6% by read 5) and is degenerate on the clean side
 by construction — the interference-verdict refinement is Wave 4's named deliverable.
 
-**Build.** Wave 5 of §12 (Waves 0–4 shipped 2026-08-31). In-repo measured ledger: EXP-DS-001
+**Build.** The §12 wave program is COMPLETE (Waves 0–5 shipped 2026-08-31, each with its
+measurement). The post-wave frontier, in priority order: the instrument-v2 C-call axis
+(recognizable ≠ priceable); template-library growth at population level (the 54 `no_template`
+regions are the mining corpus); `audit --plan` live arc costs; codec v2 (containers; the
+float/str return channels); the censor spine's first real accumulation (DESTRUCTIVE is still
+unexercised); the composed-campaign band (deferred by design, §11 Q5); CLI surface integration
+for the controller (a design task under the CLI-redesign discipline, not a bolt-on). In-repo
+measured ledger: EXP-DS-001
 (signatures 47→106), EXP-DS-002 (the norms discipline, one refusal by its own gate), EXP-DS-003
 (both seeded optimizations re-derived blind at delta 0; the 3.14 `f_trace_opcodes` silent-zero
 finding; the serial-cold pin-batch idiom), EXP-DS-004 (5/5 template pairs; recognizable ≠

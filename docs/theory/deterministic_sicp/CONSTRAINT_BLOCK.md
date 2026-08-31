@@ -103,20 +103,20 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 
 ## THE NEXT ACTION — one imperative
 
-> **Build Wave 5 (EXP-DS-006): warranted cross-language emission — the receipt's obligations
-> replayed against a pinned-environment emission; the `rewrite-in-<lang>` arc opens only when
-> this gate is green.** Waves 0–4 SHIPPED + MEASURED 2026-08-31. The controller exists and
-> measured: verdicts SILENT 64.3% / AMBIGUOUS 25.2% / CONSTRUCTIVE 10.5% over 1,140 functions
-> (fences at 0, stated); the read-cost knee is RETIRED (failed honestly twice — the verdict
-> distribution IS the clean-side measurement; the σ_form bulk lives in move-elimination); C7
-> confirmed (fragmented call graphs; adoption-time d deferred to the promotion loop); the
-> first gated priced plan funded 6 moves incl. a live engine lead
-> (`Wesker/engine.py::generate_mutants` as a quadratic membership scan); parsimony's 66 flags
-> resolved 5 funded / 7 over-budget / 54 no_template — the named residual is the value over
-> the unpriced queue. Standing facts unchanged: serial-cold pin batches (scoped exemptions
-> only, each with its own grant); the budget counter on `sys.monitoring`, abstaining below
-> 3.12; recognizable ≠ priceable (C-call axis = instrument v2); opposition requires a WARRANT
-> (censors), never a clean vote.
+> **The §12 wave program is COMPLETE (Waves 0–5 shipped + measured, 2026-08-31).** Next: pick
+> from the post-wave frontier (paper §13 Build, priority order) — instrument-v2 C-call axis ·
+> template-library growth from the 54 `no_template` regions (population-level, split-validated)
+> · `audit --plan` live arc costs · codec v2 · the censor spine's first accumulation ·
+> the composed-campaign band · controller CLI integration (a design task under the
+> CLI-redesign discipline). Wave-5 landing: the cross-language gate 3/3 end-to-end through the
+> REAL receipt (faithful PRESERVED under the recorded pin; a genuinely non-equivalent mutant
+> CHANGED with its distinguishing input; broken INVALID_MEASUREMENT); **Q6's v1 answer: the
+> portability boundary IS the L boundary** minus numeric-model edges; VACUOUS is a first-class
+> verdict (an empty observing set never reads preserved); the first adversarial arm was itself
+> an EQUIVALENT mutant — the live demonstration, recorded. Pin upgrades: `controller_verdict`
+> engine-proved ✓ COMPLETE 37/37 over the hand-written truth tables (zero new synths);
+> `split_of` + `weighted_median` engine synths banked. Standing facts unchanged (serial-cold
+> batches · sys.monitoring counter · recognizable ≠ priceable · opposition requires a warrant).
 
 **Then, in order:** Wave 2 (budget bank + delta-0 paired harness) → Wave 3 (template library v1 —
 the taste-as-recognition test) → Wave 4 (controller: orientation + interference + flow over
