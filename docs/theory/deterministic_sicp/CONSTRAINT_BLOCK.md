@@ -103,12 +103,12 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 
 ## THE NEXT ACTION — one imperative
 
-> **Build Wave 0 (EXP-DS-001): promote the seven built parsimony lenses to five-tuple positions
-> (sign · depth · mined zero · path) and add the γ-seam bank off SC Thm 3.16, then run the
-> discrimination-guarantee audit over a real corpus (signature distinctness).** It is unblocked,
-> touches no new surface, and its measurement (does the signature space discriminate?) is the
-> transport's first falsifiable checkpoint. Then Wave 1: the κ-weighted split-validated norms
-> miner + the bulk/tail knee — the go/no-go gate for the whole transport.
+> **Build Wave 1 (EXP-DS-002): the κ-weighted, split-validated norms miner for the numeric
+> banks, then run the estimator corpus-wide and locate the bulk/tail knee — the go/no-go gate
+> for the whole transport.** Wave 0 SHIPPED + MEASURED 2026-08-31 (five-tuple lenses, γ-seam
+> bank, purity wired, audit: signatures 47 → 106 over 1,119 functions; γ-seam's rare-fire band
+> is a recorded calibration lead for exactly this wave's split-validated pass — do not tune it
+> outside that discipline).
 
 **Then, in order:** Wave 2 (budget bank + delta-0 paired harness) → Wave 3 (template library v1 —
 the taste-as-recognition test) → Wave 4 (controller: orientation + interference + flow over

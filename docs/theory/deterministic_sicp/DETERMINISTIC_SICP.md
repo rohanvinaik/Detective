@@ -477,11 +477,26 @@ Binding constraints, each with its reason, none restated elsewhere:
 Waves, each landing with its paired experiment; a wave that cannot show its measurement does not
 merge its claims into this document:
 
-- **Wave 0 — the reads, consolidated (EXP-DS-001).** Promote the seven built lenses to five-tuple
-  positions (add zero_state + path to the existing votes); add the γ-seam bank (SC Thm 3.16,
-  computable from machinery `decompose` already runs). No new surface. *Measurement:* signature
-  distinctness over a real corpus (the discrimination-guarantee audit — the Wayfinder Wave 1.5
-  precedent: 62→497 signatures once surface dimensions landed).
+- **Wave 0 — the reads, consolidated (EXP-DS-001). SHIPPED + MEASURED (2026-08-31).**
+  `ParsimonyLens` promoted to the five-tuple (depth · zero_state · path, additive/defaulted; the
+  mined zeros are the already-recorded 527-function calibration MEDIANS — CC 3.0, DOF/line 1.29);
+  `deviation_depth` is the one depth rule; the γ-seam bank built (`_gamma_seam_vote` +
+  `gamma_seam_lens`, priced off the CHEAPEST candidate's crossing count, thresholds anchored to
+  decompose's own ≤4-in/≤2-out gates); `purity_lens` — found defined-but-UNWIRED — wired into the
+  fusion (verdict-invariant: its vote is structurally {0,+1}); `parsimony_map` deduplicated onto
+  the shared builders, which also fixed a latent flaw (a failed seam scan used to vote +1 clean;
+  it now abstains unmeasured). Pins: `deviation_depth`/`_gamma_seam_vote` carry hand-written
+  truth-table pins (founder-authorized cheap-out — the module's suite surface made the isolated
+  converge grind past its wall; the cut run's partial synth golden stands beside them) + the
+  intent suite `tests/test_parsimony_five_tuple.py` (verdict invariance, five-tuple population,
+  γ provenance). Gate: 1653 passed / 2 skipped; ruff clean under pinned 0.14.10; ty-clean on the
+  touched modules. *Measured* (`dev/exp_ds_001_signature_audit.py`, Detective+Wesker corpus,
+  1,119 functions): distinct static signatures **47 → 106** (set A 4 banks → set B 6 banks;
+  spaces 81/729), largest cluster 294 → 265. Two honest reads: the surviving big clusters are
+  dominated by small CLEAN functions — expected collisions (regions an expert treats the same
+  SHOULD share a signature; discrimination is owed only to operationally-different pairs); and
+  **γ-seam fires rarely** (mid-band 3–4 crossings dominates) — a calibration lead for a
+  population-level, split-validated pass, deliberately NOT tuned from this one look (§4.2 law 3).
 - **Wave 1 — the norms miner + the knee (EXP-DS-002).** κ-weighted, split-validated zeros for the
   numeric banks; run the estimator corpus-wide; plot verdict-isolation cost; locate the bulk/tail
   knee. *This is the transport's go/no-go gate.*
@@ -524,8 +539,12 @@ the granularity failure; split-validated norm generalization.
 observable (EXP-DS-003); the flow controller beats the unpriced queue (EXP-DS-005); the
 cross-language receipt is buildable (EXP-DS-006).
 
-**Build.** Everything in §12. Nothing in this document is claimed shipped beyond the seams §1.2
-names.
+**Measured (in-repo).** EXP-DS-001 (2026-08-31): static-signature distinctness 47 → 106 over
+1,119 Detective+Wesker functions on adding γ-seam + purity to the bank space; γ-seam's rare-fire
+band recorded as a calibration lead for Wave 1's split-validated norms pass.
+
+**Build.** Waves 1–5 of §12 (Wave 0 shipped 2026-08-31). Nothing else in this document is
+claimed shipped beyond the seams §1.2 names.
 
 ---
 

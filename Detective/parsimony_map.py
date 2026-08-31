@@ -26,6 +26,7 @@ from .parsimony import (
     _seam_vote,
     cohesion_lens,
     complexity_lens,
+    gamma_seam_lens_from_candidates,
     interface_width_lens,
 )
 
@@ -73,10 +74,21 @@ def _static_lenses(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[Parsimo
     try:
         from .decompose import find_extraction_candidates
 
-        seams = len(find_extraction_candidates(func))
+        cands = find_extraction_candidates(func)
     except Exception:  # noqa: BLE001 — a structural read must never fail the map
-        seams = 0
-    lenses.append(ParsimonyLens("seam", _seam_vote(seams), seams, f"{seams} seam(s)"))
+        # A failed scan ABSTAINS on both seam lenses (vote 0, unmeasured) — it must never vote
+        # clean: the old `seams = 0` fallback rendered "we could not look" as "+1 atomic body".
+        lenses.append(ParsimonyLens("seam", 0, 0, "seam scan failed", measured=False))
+        lenses.append(ParsimonyLens("gamma_seam", 0, 0, "seam scan failed", measured=False))
+        return lenses
+    seams = len(cands)
+    lenses.append(
+        ParsimonyLens(
+            "seam", _seam_vote(seams), seams, f"{seams} seam(s)", depth=float(seams), zero_state=0.0
+        )
+    )
+    # Wave 0: the γ-seam bank rides the same candidate enumeration (one scan per function).
+    lenses.append(gamma_seam_lens_from_candidates(cands))
     return lenses
 
 
