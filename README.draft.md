@@ -11,97 +11,90 @@
 
 `Deterministic · No LLM · Applies nothing it cannot prove`
 
-Your suite is green. Detective loosened a comparison in your code — `deviation > threshold`
-became `deviation >= threshold` — and the suite is still green:
+---
 
-```diff
-- if deviation > threshold:
-+ if deviation >= threshold:      # every test you wrote still passes
-```
+## The gamble
 
-That is a real change to what your function computes, and nothing you wrote noticed. Every
-refactor you have ever shipped placed its bet in that gap. So does every line a model writes
-for you. By the end of this page you will know how to close it — for one function, provably —
-and exactly what the proof does and does not promise.
+Nearly all software rests on a quiet bet. We check that programs work by testing them — running
+examples, confirming answers. But an example is not a guarantee. `assert add(1, 1) == 2` passes —
+and so does `3*a - b`, and so does `a*b + 1`, and so do infinitely many functions that are not
+addition. Every test you add leaves infinitely many impostors standing through the points. The
+suite was never a contract; nobody wrote it to be one. It accumulated — a regression here, a bug
+report there, the happy path from the afternoon the function was born. It is a residue, and every
+change you have ever shipped — every refactor, every cleanup, every line a model wrote for you —
+placed its bet in the gap between what the tests check and what the code does.
+
+Entropy wins that bet by default. Codebases rot the way all unmaintained order rots: each edit a
+small mutation, each green run a little false comfort, until the functions nobody dares touch are
+exactly the ones that most need touching. The industry's answer has been judgment — seniority,
+review, taste — which is to say: the answer has been to hope the right person is looking.
+
+This project's wager is that the gap can be closed instead of straddled. Not with more examples,
+and not with a bigger model vouching harder, but by drawing — with machine-checked mathematics —
+the exact line between **what a machine can know about a program and what only its author can
+say**, and then automating everything on the machine's side of that line. Both questions that
+matter live there: *does it do what it's supposed to?* and *is it well made?*
+
+The design is older than software. Life runs on exactly this architecture: mutation as the probe
+that reveals what an organism's structure actually commits to, selection as the filter, and — the
+part biology understood three billion years before we did — **proofreading**. DNA is carried in
+two strands so that errors can be *corrected*, not merely detected; the repair enzymes don't know
+what a gene is *for*, and they don't need to — the second copy of the information is enough to
+restore the first. One channel of evidence detects. Two channels correct. This tool is the second
+strand for code.
 
 ---
 
-## Green is not proof
+## The three agents
 
-A passing test proves your code returned the right answer once. It does not prove it returns
-*only* right answers, and no number of examples closes the difference. The smallest function
-there is shows why: `assert add(1, 1) == 2` passes — and so does `3*a - b`, and so does
-`a*b + 1`, and so do infinitely many functions that are not addition. Every example you add
-leaves infinitely many curves still standing through the points.
+The work is divided among three programs, and the division is the thesis.
 
-And the suite was never a contract in the first place. Nobody wrote it to be one. It
-accumulated — a regression here, a bug report there, the happy path from the afternoon the
-function was born. It is a residue, and you are about to stake a rewrite on it.
+**[Wesker](https://github.com/rohanvinaik/Wesker) is the mutating force.** It does not read
+intentions and it does not extend courtesy. Given one function, it derives every small way that
+function's actual operators can be perturbed — a `+` bent to a `-`, a boundary nudged, a branch
+forced — and runs each variant against the tests you have. It is a violent instrument on purpose:
+the point of breaking a thing every way it can be broken is to learn which of its properties were
+*held* and which merely *happened*. A mutant your suite kills is a commitment your tests enforce.
+A mutant that survives is a degree of freedom — behavior nothing on earth is checking — and the
+comfortable, hand-built, intuition-tested function turns out to be mostly degrees of freedom. What
+survives Wesker unbroken was never really specified. The engine's own guarantees are machine-
+checked in Lean; the violence is exact.
 
-You do not close that gap with more examples. You close it by killing the degrees of freedom
-that matter. Swap the `+` in `add` for a `-`, and every non-trivial input separates addition
-from its impostors at once. Forbid the degenerate `0 + 0 = 0`, and nothing trivial can hide.
-Two moves, and addition is pinned — for every input, provably, rather than "probably, after
-forty cases."
+**Detective reads the trail and writes the story.** It is the investigator, not the commander: it
+does not choose its missions, and it does not decide what your code is for. Handed Wesker's wreckage
+— which mutants died, which walked away — it reconstructs what the function truly commits to, writes
+the *minimal* test suite that pins every pinnable behavior, and proves any restructuring preserved
+what was pinned. Where the trail runs out, it does something almost no software does: it files an
+honest incident report and hands it up. A survivor nothing can distinguish is recorded
+`candidate-equivalent — UNPROVEN`, never promoted to fact. A value whose meaning lives in your head
+and not in the code is *asked for*, never invented. A function that reads the clock is declined —
+"no test I could write here would stay true" — rather than pinned to a lie. Every verdict states
+which of four things it is: measured and clean; measured and wrong; not measurable this run; not
+measurable by anyone. The reports are for someone higher up. That someone is you.
 
-Detective does that for your function. It reads the operators your code actually runs, takes
-the tests you already wrote, and works out the moves that pin the behavior those two things
-imply. Then it writes them.
-
-> **A suite that kills every killable mutant of a function is that function's behavioral
-> contract.** A rewrite that keeps it green preserved the behavior the contract pins.
-
-The suite is not the product. It is the receipt.
-
----
-
-## How it works: three programs, one method
-
-The idea is borrowed from the oldest debugging system there is. Biology probes what an organism
-actually commits to by mutating it and seeing what survives — and it keeps its information on
-two strands, so an error can be *corrected* against the second copy, not merely noticed. This
-project is that architecture, applied to code, split across three tools:
-
-**[Wesker](https://github.com/rohanvinaik/Wesker) mutates.** Given one function, it derives
-every small way the code's own operators can be perturbed — a `+` bent to `-`, a boundary
-nudged, a branch forced — and runs each variant against your tests. A mutant your suite kills
-is a commitment your tests enforce. A mutant that survives is a degree of freedom: behavior
-nothing is checking. Most hand-built functions turn out to be mostly degrees of freedom, which
-is the uncomfortable fact the whole method rests on. Wesker's guarantees are machine-checked
-in Lean; the mutants are derived, not sampled.
-
-**Detective investigates.** This tool — the one this page is about. Handed Wesker's results,
-it reconstructs what the function truly commits to, writes the *minimal* suite that pins every
-pinnable behavior, and proves any restructuring preserved what was pinned. Where the evidence
-runs out, it says so instead of guessing: a survivor nothing can distinguish is recorded
-`candidate-equivalent — UNPROVEN`, never promoted to fact; a value whose meaning lives in your
-head is asked for, never invented; a function that reads the clock is declined, because any
-golden test of it would be green now and red a second later. Detective does not decide what
-your code is for. It writes down what your code does, completely, and hands the intent
-questions to the one party who can answer them.
-
-**[Uroboros](https://github.com/rohanvinaik/Uroboros) runs the loop.** Point it at a codebase
-and it applies the method with nobody watching: one function driven to a pinned suite or an
-honest hand-back, then the next, until there is nothing left to prove. What needs a human — a
-domain value, a fixture, a judgment — comes back as a short list, each item a different kind
-of decision. The name is the serpent eating its own tail, and it is meant literally: the tools
-are run on the tools. Detective's own functions are pinned by Detective, and the first work
-order its planner ever produced pointed at a function inside Wesker.
-
-Once, pointed at the engine it runs on, Detective found one of that engine's functions
-unspecifiable — the return value was a set of memory addresses, different every run, so no
-assertion could ever hold. It declined to write the test. It was right, and the function was
-changed. A tool that will say that about its author's code will say anything.
+**[Uroboros](https://github.com/rohanvinaik/Uroboros) closes the loop.** Point it at a codebase
+and it runs the method with nobody watching: one function driven to a pinned suite or an honest
+residual, then the next, then the next — Wesker's force, Detective's judgment, no strong
+intelligence anywhere in the loop and no seat for one to climb into — until there is nothing left
+to prove. What can be pinned is pinned. What can be split at a proven seam is split. What needs a
+human — a domain value, a fixture, an intent — comes back as a short list a person clears over
+coffee, each item a *different kind* of decision, never blurred. The name is the oldest symbol
+there is: the serpent consuming its own tail. The loop grinds its own output through itself; the
+tools are run on the tools — Detective's functions are pinned by Detective, and the first work
+order its planner ever produced pointed at a function inside Wesker. A system that will say *that*
+about its own foundations will say anything. This is the endgame the other two exist for: not a
+report about code, but a codebase transformed — every function reduced toward the most minimal,
+most fully-specified version of what it was already trying to be, and a receipt for each step.
 
 ---
 
 ## See it, write it, prove it
 
-**`diagnose`** reads a function and tells you what your tests leave unpinned, then names the
-one thing to run next. It writes nothing.
+**`diagnose`** reads a function and tells you what your tests leave unpinned, then names the one
+thing to run next. It writes nothing.
 
-**`converge`** writes the smallest suite that pins the function, and stops where your inputs
-run out — naming what it could not reach, with the input that would:
+**`converge`** writes the smallest suite that pins the function, and stops where your inputs run
+out — naming what it could not reach, with the input that would:
 
 ```
 $ detective converge stats.py::anomaly_score
@@ -113,72 +106,92 @@ $ detective converge stats.py::anomaly_score
     if deviation > peak:      →  >=   supply an input where deviation == peak
 ```
 
-**`decompose --apply`** rewrites the function and keeps the change only if the suite proves
-the behavior held. A red baseline can never produce a proof, and nothing reaches your source
-that the re-run did not clear. Three outcomes, never blurred: `APPLIED` (proven), `rejected`
-(a test caught it — your file untouched), `unproven` (no complete suite yet — nothing tried).
+**`decompose --apply`** rewrites the function and keeps the change only if that suite proves the
+behavior held. `--apply` is a gate, not a hope: a red baseline can never produce a proof, and
+nothing reaches your source that the re-run did not clear.
 
-**`receipt` / `verify-rewrite`** bracket an *arbitrary* rewrite — including one a model wrote:
-snapshot the proof suite before, replay the obligations after, and answer `PRESERVED` /
-`CHANGED` / `UNREVIEWED`, with the distinguishing input named when the answer is `CHANGED`.
-This is the artifact the AI-coding era was missing. A green suite means nothing when the model
-wrote the tests too; that is self-certification. A receipt is evidence no fluency can fake,
-produced deterministically, on a CPU, the same bytes every run.
+**`receipt` / `verify-rewrite`** bracket an *arbitrary* rewrite — including one a model wrote, in
+whatever style it pleased, even in another language: snapshot the proof suite before, replay the
+obligations after, and answer `PRESERVED` / `CHANGED` / `UNREVIEWED` with the distinguishing input
+named. A model's confidence is not evidence; a receipt is. What lands on disk is ordinary pytest —
+no runtime dependency, every test carrying the warrant it was written under:
 
-What lands on disk is ordinary pytest — no runtime dependency on Detective, every test
-carrying the warrant it was written under, every test already in the minimal cover.
+> **A suite that kills every killable mutant of a function is that function's behavioral
+> contract.** A rewrite that keeps it green preserved the behavior the contract pins.
+
+And the guarantees are about the *method*, machine-checked where it matters: what a full mutation
+score certifies is now a theorem, not a folklore — it certifies exactly what it certifies, the
+boundary is proved in Lean down to the kernel, and the undecidable residue is held out honestly
+rather than absorbed. The formal development lives in [`docs/theory/`](./docs/theory/).
 
 ---
 
 ## The second question: is it well made?
 
-Pinning behavior settles what code *does*. Whether the code is any *good* — fast, cohesive,
-right-sized — has always belonged to taste: the practiced eye of experienced engineers,
-applied by hand, encoded nowhere. Detective's second half treats that eye as something you can
-build, and the design is three refusals:
+Pinning behavior settles what code *does*. It says nothing about whether the code is any good —
+fast, cohesive, right-sized, doing one thing — and for the whole history of the field that question
+has belonged to taste: the practiced eye of expensive people, applied by hand, encoded nowhere.
+*Structure and Interpretation of Computer Programs* wrote the aesthetic down forty years ago;
+holding to it has been a discipline of memory ever since.
 
-- **No imported thresholds.** Each function is measured on independent axes — complexity,
-  cohesion, behavioral density (a signal only the mutation engine can see: how many distinct
-  behaviors per line), the priced cost of splitting — against norms mined from the codebase
-  itself and validated out-of-sample. The axes vote and interfere; they are never averaged,
-  because a weighted sum of incommensurable things is how scoring tools lie.
-- **No judgment where recognition suffices.** The expert's "this is a lookup done the slow
-  way" is a *shape*. Shapes are recognizable — mechanically, conservatively, each with a
-  specific fix and a proof obligation attached. Recognition proposes; the proof gate decides.
-- **No scores.** The output is a plan: *these functions, these transforms, this estimated
-  cost, proofs available* — and for everything declined, the reason, named. Pointed at its own
-  codebase, the advisory layer flagged 66 functions; the plan resolved them into 5 do-now,
-  7 when-there's-budget, and 54 honest "no safe recipe exists yet."
+Detective's second half makes the aesthetic *decidable* — not by flattening it into a score, but by
+running it as a control system over the same measurement basis the proofs use:
 
-What no measurement reaches — what the code is *for*, and the cases where the evidence
-genuinely disagrees with itself — routes to a human, by name. That boundary is a theorem in
-this project, not a disclaimer: the formal development in [`docs/theory/`](./docs/theory/)
-characterizes exactly what a mutation score can certify (machine-checked in Lean, down to the
-kernel) and exactly where mechanical knowledge ends and authorship begins. Taste is not
-eliminated. It is located, and everything around it stops pretending to be taste.
+- **Measurement, not opinion.** Each function is read on independent axes — complexity, cohesion,
+  behavioral density (a signal no linter has: how many distinct behaviors the mutation engine finds
+  per line), the priced cost of splitting it — every reading taken against norms **mined from the
+  codebase itself** and validated out-of-sample, never imported from a style guide. Axes vote and
+  interfere; they are never averaged, because a weighted sum of incommensurable things is how every
+  scoring tool before this one lied.
+- **Recognition, not judgment.** The expert's "this is a lookup done the slow way" is a *shape* —
+  and shapes are recognizable, mechanically, conservatively, with a specific fix and a proof
+  obligation attached to each. Where the expert's eye was a career, the template is a library entry.
+- **A plan, not a score.** The output is a budgeted work order: *these functions, these transforms,
+  this estimated cost, proofs available* — and for everything declined, the reason, named: fenced,
+  escalated, no safe recipe yet, over budget. Pointed at its own codebase, the advisory layer flagged
+  66 functions; the controller resolved them into 5 do-now, 7 when-there's-budget, and 54 honest
+  "no recipe exists yet." A plan that cannot explain its residual is just a score with ambition.
+- **The person, seated exactly.** What no measurement reaches — what the code is *for*, and the
+  cases where the evidence genuinely disagrees with itself — routes to a human by name, because the
+  theory proves no machine can settle it. Taste is not eliminated. It is *located*, and everything
+  around it stops pretending to be taste.
 
 ---
 
-## What this is not
+## Where it stops — the human's seat
 
-The fence matters as much as the field. Detective is **not a linter** — it runs your code
-against derived variants; it holds no style opinions it can't prove or measure. It is **not
-coverage** — a covered line whose mutants survive proves nothing, and Detective counts a
-mutant killed only when an *assertion* distinguishes the output, reporting mere crashes
-separately rather than spending them on its own score. It is **not an LLM tool** — no model
-anywhere in the loop; the same input produces the same bytes. And it is **not a correctness
-prover** — it preserves behavior, not intent. If the original was wrong, the rewrite is wrong
-the same way, provably; the person who knows the difference is the one it hands the map to.
+One function at a time, deterministic, narrow on purpose. Every line here is load-bearing.
 
-The rest of the boundary, stated because the precise claim is the strong one:
-
-- **It pins to the extent the code is pure.** Clock, filesystem, environment: declined, not
+- **It preserves behavior, not correctness.** If the original was wrong, the rewrite is wrong the
+  same way — provably. Specification completeness is not correctness, and the person who knows the
+  difference is the one it hands the map to.
+- **It pins to the extent the code is pure.** Clock, filesystem, environment — declined, not
   guessed, with the remedy named.
-- **A search is not a proof of equivalence.** Undistinguishable survivors stay `UNPROVEN`;
-  `flag` records a human judgment that a later distinguishing input overrides.
-- **One function at a time — for proof.** There is no repo-scale mutation profile, and never
-  will be. The one repo-scale surface (`parsimony`) is advisory and says so; the whole-repo
-  traversal belongs to Uroboros, which does it one proven function at a time.
+- **It will not invent a domain value.** Meaning that lives in your head, you supply once; it asks
+  rather than fabricating a confident number over a guess.
+- **A search is not a proof of equivalence.** Undistinguishable survivors stay `UNPROVEN`; `flag`
+  records a human judgment that a later distinguishing input overrides.
+- **One function, not a repo — for proof.** There is no repo-scale mutation profile, and never will
+  be; the one repo-scale surface is advisory and says so. The traversal of a whole codebase belongs
+  to Uroboros, which does it one proven function at a time.
+
+These are not disclaimers. They are the point. A tool that claimed more would know less — and the
+entire value of the receipt is that it is exactly as large as the truth.
+
+---
+
+## Why now
+
+Machines now write code faster than people can review it, which means the scarce resource stopped
+being generation and became *trust*. A green suite means nothing when the model wrote the tests
+too; that is self-certification, and confidence has never been evidence. What this project makes
+is the artifact that gap was waiting for: a contract no fluency can fake, a receipt a skeptic
+cannot argue with, produced on a CPU, the same bytes every run.
+
+And it is a ratchet. Once a function is mutation-complete it cannot silently regress — the
+contract is a file on disk that stays green or goes red. Codebases normally accumulate entropy.
+This accumulates irreversible specification, one function at a time, and hands the only questions
+that ever needed a person to the person. The suite is not the product. It is the receipt.
 
 ---
 
@@ -189,7 +202,7 @@ uv add detective-spec          # or: uv pip install detective-spec
 detective diagnose path/to/your_file.py::your_function   # start here — writes nothing
 ```
 
-It installs as `detective-spec`, imports as `Detective`, runs as `detective`. Every command
+It installs as `detective-spec`, imports as `Detective`, and runs as `detective`. Every command
 closes by naming the one thing to run next.
 
 | Command | Writes | Answers |
@@ -200,32 +213,21 @@ closes by naming the one thing to run next.
 | `audit file.py::fn [--check]` | nothing | is my suite complete? minimal? (CI-gateable) |
 | `receipt` / `verify-rewrite` | ledger | bracket an arbitrary rewrite with proof |
 | `parsimony path/` | nothing | where does this codebase drift from the discipline? (advisory) |
-| `flag file.py::fn ID [--fence]` | ledger | record a survivor equivalent — or author a must-not |
+| `flag file.py::fn ID [--fence]` | ledger | record equivalence — or author a must-not |
 | `regime` | config | how does this repo import and test — and can the suite reach my file? |
 
 Exit codes are an epistemic logic, not pass/fail: `0` clean · `1` a measured gap or refusal ·
-`2` a precondition — your world is wrong, fix that · `3` a measurement it could not trust —
-re-run. Full reference, module map, and the symptom→cause debug map:
-[ARCHITECTURE.md](./ARCHITECTURE.md). For agents, the MCP surface:
-`uv pip install 'detective-spec[mcp]'` — the same library, every reply ending in `DO THIS:`,
-`STOP.`, or `DONE:`.
+`2` your world is wrong, fix that · `3` a measurement it could not trust — re-run. The
+determined-false / cannot-determine boundary the whole tool is built on, machine-readable.
+Full reference, module map, and the symptom→cause debug map: [ARCHITECTURE.md](./ARCHITECTURE.md).
+For agents, the MCP surface: `uv pip install 'detective-spec[mcp]'` — five tools over the same
+library, every reply ending in `DO THIS:`, `STOP.`, or `DONE:`.
 
 ---
 
-## What you get
+*Mutation to reveal what was never held. Investigation to write down what was. A loop that runs
+the method on everything, including itself, until what remains is the smallest true version of
+what you meant. The engine is [Wesker](https://github.com/rohanvinaik/Wesker); the endgame is
+[Uroboros](https://github.com/rohanvinaik/Uroboros); the story in the middle is Detective.*
 
-Three things, to say them again plainly. A **contract**: your function's behavior, pinned by a
-minimal suite that fails on any change — a ratchet, because once complete it cannot silently
-regress; codebases normally accumulate entropy, and this accumulates specification. A
-**receipt**: proof that a rewrite — yours or a machine's — changed nothing, which is the piece
-of paper the age of generated code was missing. And a **boundary**: a proven line between what
-a tool can know about your code and what only you can say, with the tool doing everything on
-its side and handing you, by name, the questions that were always yours.
-
----
-
-*Mutation to reveal what was never held. Investigation to write down what was. A loop that
-runs the method on everything — including itself — until what remains is the smallest true
-version of what you meant. The engine is [Wesker](https://github.com/rohanvinaik/Wesker); the
-loop is [Uroboros](https://github.com/rohanvinaik/Uroboros); the story in the middle is
-Detective. MIT — Rohan Vinaik.*
+*MIT — Rohan Vinaik.*
