@@ -153,8 +153,14 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 > batches · sys.monitoring counter · recognizable ≠ priceable · opposition requires a warrant).
 
 > **SUPERSEDED 2026-09-05 — the next action is now the §14 surface, in slice order** (slices
-> 1, 1b, 2, 3 SHIPPED 2026-09-05 — `1e201f0`, `f32b8ac`, `f0daf18`, slice 3 next commit; the
-> next action is slice 4, the renderers):
+> 1, 1b, 2, 3, 4 SHIPPED 2026-09-05 — `1e201f0`, `f32b8ac`, `f0daf18`, `b5ad349`, `3081510`;
+> slice 5 built and gated, next commit; the next action is slice 6, the judgment ledger).
+> **Standing caveat from slices 4–5:** converge's witness-pass widen GRINDS on plan.py targets
+> (51 and 54 min at 100% CPU, past `--deadline 1200`, verdict cache rewritten per test) — two
+> behavior-layer defects recorded in §14.9; `next_command` · `receipt_path` · `unexamined` ·
+> `plan_exit` stand on hand-written truth tables under the targeted-exemption protocol
+> (REQUESTED, not yet granted). Never run two converges concurrently; never run a converge
+> alongside a pytest gate.
 > (1) `behavior_status` pure decision + reader (ground whether the suite header carries the
 > function digest) → (1b) the converge certificate ledger → (2) `plan_moves` gains `unpinned`;
 > `RegionRead` gains status + cost provenance → (3) plan assembly as a library function (from

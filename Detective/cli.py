@@ -3542,6 +3542,11 @@ _COMMAND_HELP = {
     "converge": "write a complete, minimal pytest suite for a function (the flagship; writes files)",
     "decompose": "split a tangled function into helpers — applied only when PROVEN behavior-preserving",
     "audit": "assess an EXISTING suite: complete? minimal? which tests to prune",
+    # The STYLE layer's entry verb (§14.3) — co-equal with `diagnose`, on the other layer. Not in the
+    # `_build_parser` loop below (its arguments differ: a path OR a target, a budget); listed here so
+    # its one-liner obeys the same headline rule as the behavior verbs.
+    "plan": "START HERE for STYLE — what a codebase's PINNED regions could safely become: priced, gated, "
+    "every exclusion named (advisory; writes nothing)",
 }
 
 
@@ -3586,6 +3591,20 @@ _REGIME_STAGE = (
 # was never meant to scale with the suite — the unit is ONE function's tests). Converged in
 # isolation the covering set is just this function's own tests, and the complete suite lands while
 # the code is still fresh in hand. Shown on converge's own --help page (epilog).
+# The plan's epilog (§14.2 demand 4 — help as pedagogy): the epistemic ROLE of the verb, not its
+# mechanics. The reader who lands here has to learn the ordering law from this page alone.
+_PLAN_WORKFLOW = (
+    "WORKFLOW — style AFTER behavior, strictly:\n"
+    "    A style move is admissible only on a region whose converge certificate is\n"
+    "    COMPLETE for its CURRENT definition (`pinned`). Everything else — unpinned,\n"
+    "    stale, unverified, incomplete, refused — routes to `detective converge` first,\n"
+    "    and the plan says so on that row. What the plan funds, it does NOT apply: every\n"
+    "    funded row ends in the gate command that proves the move (`decompose --apply`,\n"
+    "    or `receipt` … `verify-rewrite`). AMBIGUOUS is yours — one lens, or the two signs\n"
+    "    disagree. What the plan did not propose is UNEXAMINED, not approved. Advisory:\n"
+    "    it proves nothing and writes nothing but its report."
+)
+
 _CONVERGE_WORKFLOW = (
     "WORKFLOW — converge at WRITE TIME, in isolation:\n"
     "    Write the function, converge it, THEN wire it in. Converging a function that\n"
@@ -3692,7 +3711,7 @@ def _engine_version() -> str:
 # STATIC pass (no mutant, no live pytest session), and is dispatched in `_run` ABOVE `_split_target`. One
 # named set so `_run_live`'s session bypass and `_run`'s pre-split dispatch cannot silently drift as verbs
 # are added (the dispatch-ordering fragility of the flat `_run` ladder — patched by naming the contract).
-_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor")
+_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor", "plan")
 
 # The exit-code contract, one place. Each verb's result IS its exit status (CI branches on the code, a
 # `--json` consumer on the field) — this consolidates the per-handler semantics into one discoverable map.
@@ -3702,7 +3721,7 @@ _EXIT_CODES = (
     "  1  a real gap or typed REFUSAL — audit --check spec gap; verify-rewrite not PRESERVED; a\n"
     "     collision/accounting refusal; flag: no such surviving mutant\n"
     "  2  a conflict / precondition — regime conflict, wrong interpreter, a bad --env, or\n"
-    "     audit --check-strict measurement-incomplete\n"
+    "     audit --check-strict measurement-incomplete; plan: no such function / nothing to read\n"
     "  3  INVALID MEASUREMENT, re-run — converge/decompose CUT or stale target; a weak receipt baseline"
 )
 
@@ -3760,7 +3779,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "  a finding. If a run refuses, `detective regime` is where the reason is.\n"
             "\n"
             "THEN, read-only:\n"
-            "    detective diagnose path/to/file.py::function"
+            "    detective diagnose path/to/file.py::function   # behavior — one function\n"
+            "    detective plan src/                            # style — AFTER behavior; advisory"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_EXIT_CODES,
@@ -4128,6 +4148,51 @@ def _build_parser() -> argparse.ArgumentParser:
         "nothing. Pair with --json for an agent/MCP-consumable queue; --top bounds the groups shown.",
     )
     parsimony_p.add_argument("--json", action="store_true", help="emit JSON")
+
+    plan_p = sub.add_parser(
+        "plan",
+        help=_COMMAND_HELP["plan"],
+        description=(
+            f"{_headline(_COMMAND_HELP['plan'])}\n\n"
+            "The STYLE layer's entry verb — co-equal with `diagnose`, on the other layer. Over a\n"
+            "directory or a file it reads every region (one traversal, shared with the map); over\n"
+            "`file.py::function` it reads one. STATIC: no live session, no mutant. It writes\n"
+            "nothing but its report file. Every count is a NAMED code's tally, never a score.\n"
+            "\n"
+            "For the `file.py::function` form only:\n"
+            f"{_REGIME_STAGE}"
+        ),
+        epilog=_PLAN_WORKFLOW,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    plan_p.add_argument("target", help="a .py file or a directory — or file.py::function for ONE region")
+    plan_p.add_argument("--project-root", default=".", help="project root the target is relative to")
+    plan_p.add_argument(
+        "--budget",
+        type=float,
+        default=500.0,
+        help="the attention budget, in DOF-proxy units (default 500): admissible moves are funded "
+        "strongest-agreement-first, cheapest-first, until it is spent; the rest are named over_budget",
+    )
+    plan_p.add_argument(
+        "--top",
+        type=int,
+        default=5,
+        help="funded moves to show in the terse block (default 5; all are in the report)",
+    )
+    plan_p.add_argument(
+        "--write-dir",
+        default=os.path.join("tests", "detective"),
+        help="where converge writes suites — READ (never written) for each region's behavior status "
+        "(default: tests/detective)",
+    )
+    plan_p.add_argument(
+        "--full",
+        action="store_true",
+        help="print the full report to the terminal (default: the terse block; the full report is "
+        "always written to .detective/reports/ regardless)",
+    )
+    plan_p.add_argument("--json", action="store_true", help="emit JSON")
 
     censor_p = sub.add_parser(
         "censor",
@@ -5803,6 +5868,14 @@ def _run_censor(args) -> int:
 def _run_parsimony(args) -> int:
     from .parsimony_map import parsimony_plan, score_path
 
+    # DEPRECATED as a verb (§14.3): the map is `plan`'s verdict distribution, and the --plan queue is
+    # the plan's residual. Runs UNCHANGED for one release so no consumer breaks; says so on stderr —
+    # the advisory channel — never on stdout, which stays the report / --json.
+    sys.stderr.write(
+        "detective parsimony is DEPRECATED — run `detective plan <path>`: the same static read, with every "
+        "region's verdict, behavior status, price and gate, and the residual named. This verb runs "
+        "unchanged for one release, then goes.\n"
+    )
     score = score_path(args.path, args.project_root)
     if getattr(args, "plan", False):
         # A work QUEUE, not the map (issue #51): flagged functions grouped by module (one trace
@@ -5836,6 +5909,95 @@ def _run_parsimony(args) -> int:
     else:
         print(_format_parsimony_map(score, top=args.top))
     return 0
+
+
+def _run_plan(args) -> int:
+    """`detective plan` (§14.3 / §14.7): the STYLE layer's entry verb. STATIC — no live session, no
+    mutant — over a tree (`path`) or ONE region (`file.py::function`); writes nothing but the report
+    file. The `file::fn` form resolves the regime first and REFUSES a shadowed / colliding target on
+    both channels, exactly as the live verbs do: a plan over the wrong file is a finding about nothing.
+    Exit: the pinned `plan.plan_exit` — 0 for a completed read whatever it found, 2 for a precondition,
+    never 1 (there is no gap on this layer, only a residual)."""
+    from .controller import plan_moves
+    from .plan import PlanAssembly, assemble_plan, plan_exit
+
+    root = os.path.abspath(args.project_root)
+    target = args.target
+    region_key: str | None = None
+    scope_path = target
+    file = function = ""
+    if "::" in target:
+        file, function = _split_target(target, root)
+        regime = None
+        try:
+            from .regime import resolve_regime
+
+            regime = resolve_regime(root, file)
+        except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
+            regime = None
+        if regime is not None and regime.conflicts:
+            code = plan_exit(True, False, False)
+            if args.json:
+                return _emit_json(
+                    {
+                        "verdict": "REFUSED",
+                        "reason": "regime_conflict",
+                        "target": target,
+                        "module": getattr(regime, "module", None),
+                        "detail": _format_conflicts(regime, target).strip(),
+                    },
+                    code,
+                )
+            sys.stdout.write(_format_conflicts(regime, target))
+            return code
+        full = file if os.path.isabs(file) else os.path.join(root, file)
+        region_key = f"{os.path.relpath(full, root)}::{function}"
+        scope_path = full
+
+    assembly = assemble_plan(scope_path, root, args.budget, args.write_dir)
+
+    if region_key is not None:
+        details = tuple(d for d in assembly.regions if d.read.region == region_key)
+        if not details:
+            code = plan_exit(False, True, False)
+            names = ", ".join(d.read.region.split("::", 1)[1] for d in assembly.regions) or "none"
+            msg = f"detective: no function {function!r} in {file} — regions in that file: {names}"
+            if args.json:
+                return _emit_json(
+                    {"verdict": "REFUSED", "reason": "no_such_function", "target": target, "detail": msg},
+                    code,
+                )
+            sys.stderr.write(msg + "\n")
+            return code
+        assembly = PlanAssembly(
+            scope=region_key,
+            budget=assembly.budget,
+            regions=details,
+            plan=plan_moves(tuple(d.read for d in details), assembly.budget),
+            fences_note=assembly.fences_note,
+        )
+
+    if not assembly.regions:
+        code = plan_exit(False, False, True)
+        msg = f"detective: nothing to read under {target} — no Python functions found (unmeasured, not clean)"
+        if args.json:
+            return _emit_json(
+                {"verdict": "REFUSED", "reason": "nothing_to_read", "target": target, "detail": msg}, code
+            )
+        sys.stderr.write(msg + "\n")
+        return code
+
+    # The full report is ALWAYS written (the archive; a file has no scrolling cost) — the terminal
+    # gets the terse block unless --full asks for the whole thing, the same tiering `converge` uses.
+    report_path = _write_converge_report(root, assembly.scope, _format_plan_full(assembly), prefix="plan")
+    code = plan_exit(False, False, False)
+    if args.json:
+        return _emit_json(_plan_payload(assembly, report_path), code)
+    if args.full:
+        print(_format_plan_full(assembly, report_path))
+    else:
+        print(_format_plan_terse(assembly, report_path, top=args.top))
+    return code
 
 
 def _run_regime(args) -> int:
@@ -5908,6 +6070,10 @@ def _run(args) -> int:
 
     if args.command == "censor":
         return _run_censor(args)
+
+    if args.command == "plan":
+        # Before `_split_target`: the path form has no `::` and must not fall into the separator menu.
+        return _run_plan(args)
 
     file, function = _split_target(args.target, getattr(args, "project_root", None))
 

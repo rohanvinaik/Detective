@@ -261,6 +261,19 @@ def next_command(reason: str, region: str, gate: str, move: str) -> str:
     return ""
 
 
+def plan_exit(regime_conflict: bool, region_missing: bool, nothing_read: bool) -> int:
+    """`detective plan`'s exit status (§14.7 — pure, pinned), the shared four-valued contract with the
+    advisory layer's own rule: a completed read is ``0`` whatever it found — there is no "gap" on this
+    layer, only a residual, and a residual is not a failure — so ``1`` is never returned; ``2`` is a
+    PRECONDITION: the regime says no verdict here can be trusted (a `file::fn` target that is shadowed
+    or colliding), the named function is not in the file, or there was nothing to read under the path
+    (no Python functions — not "clean", not measured). ``3`` belongs to the paired budget read on
+    `verify-rewrite --budget` (slice 7), not to this verb."""
+    if regime_conflict or region_missing or nothing_read:
+        return 2
+    return 0
+
+
 @dataclass(frozen=True)
 class PlanSummary:
     """The counts a report is made of — every one a NAMED code's tally, never a score."""

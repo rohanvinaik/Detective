@@ -958,6 +958,29 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    normally minutes earlier in the same file, so the grind is phase-specific, not file-specific.]
 5. The `plan` verb, `_COMMAND_HELP` pedagogy, `_REGIME_STAGE` on the `file::fn` form; the
    `parsimony` deprecation shim.
+   [BUILT 2026-09-05 — `cli._run_plan`, dispatched in `_run` BEFORE `_split_target` and listed in
+   `_STATIC_COMMANDS` (no live session; the path form has no `::` and must not fall into the
+   separator menu). `plan <path>` over a tree, `plan file.py::fn` over one region — the `::` form
+   resolves the regime with the same resolver and prints the same typed REFUSED (exit 2, both
+   channels) the live verbs do. The full report is ALWAYS written (`_write_converge_report(…,
+   prefix="plan")` → `.detective/reports/plan_<scope>.txt`); the terminal gets the terse block,
+   `--full` the archive, `--json` the payload through `_emit_json`. `--budget` (500 DOF-proxy
+   default), `--top`, `--write-dir` (READ for the status, never written). Exit is the pinned
+   `plan.plan_exit(regime_conflict, region_missing, nothing_read)`: 0 for a completed read
+   whatever it found, 2 for a precondition — no such function (the file's regions are named),
+   nothing to read (no Python functions: unmeasured, not clean) — never 1. Help: the one-liner in
+   `_COMMAND_HELP` ("START HERE for STYLE …"), `_PLAN_WORKFLOW` as the epilog (style AFTER
+   behavior, strictly; funded ≠ applied; AMBIGUOUS is yours; UNEXAMINED ≠ approved; advisory),
+   `_REGIME_STAGE` scoped to the `::` form; the root help's START HERE block gains the second
+   entry verb beside `diagnose`; the exit-code epilog names plan's two preconditions. `parsimony`
+   is DEPRECATED as a verb: it runs unchanged and says so on stderr (the advisory channel) with
+   the `plan` equivalent — one release, then it goes. **Run on Detective's own package:** 799
+   regions · 80 constructive · 216 ambiguous · 0 destructive · 503 silent (clean 503 · unread 0)
+   · 0 funded · residual: silent 503 · escalated 216 · unpinned 79 · pinned_unverified 1 — the
+   ordering law rendered as a converge-first list of 80. That is the honest transcript the README
+   sentence becomes in slice 9. Intent tests drive the REAL command (`cli.main`), never the
+   assembly: terse/full/json shapes, the report file, the `::` form, both preconditions on both
+   channels, the deprecation note, the help pedagogy, the static dispatch.]
 6. `flag --style`, `.detective/judgments.json`, the reopen rule (one pure decision).
 7. `verify-rewrite --budget`, exit 3 on `unmeasurable`.
 8. MCP `_render_plan`.
