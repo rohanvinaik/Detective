@@ -1091,9 +1091,23 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    untouched and `plan` then reading `judged_leave`, `proceed` → the ordering law → funded once
    certified, the four malformed shapes as STOPs that record nothing and open no session.]
 9. README: the 66/5/7/54 sentence becomes a real `plan` transcript (flagged until then).
+   [DRAFTED 2026-09-05 in `README.draft.md` ONLY — the README is the founder's voice and
+   `README.md` is what the founder promotes; nothing there was touched. The "flagged 66 functions,
+   funded 5, deferred 7 on budget, and recorded 54" sentence was EXP-DS-005's output (`parsimony`'s
+   flags fed to the controller in a dev experiment), never a `plan` run, and it stated funded moves
+   over functions nothing had pinned — the exact claim the ordering law forbids. It now reads the
+   real transcript from the MCP `plan` tool on Detective's own tree: 822 functions · 517 clean by
+   measurement · 82 the axes agreed should change · 223 where the axes disagreed · none of the 82
+   funded, "not one had a current contract, so the plan's first word was `converge`" — the ordering
+   law stated in the prose, and the 223 named as the cases routed to a person. The command table
+   gains `plan path/` and `flag … --style --leave|--proceed`, `verify-rewrite` gains `[--budget]`,
+   and the deprecated `parsimony` row is gone; the MCP sentence names `YOURS:` as the fourth
+   closing, "when what remains is a judgment and not a task". For the founder to read, in the
+   house voice, before any promotion.]
 
 [Status: DESIGN settled with the founder 2026-09-05; slices 1–8 BUILT the same day (see the BUILT
-notes above); slice 9 pending.]
+notes above); slice 9 drafted in README.draft.md, pending the founder's read. The hand-table pin
+exemptions for the §14 pure decisions remain REQUESTED, not granted.]
 
 ---
 

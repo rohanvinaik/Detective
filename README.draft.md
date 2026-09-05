@@ -122,12 +122,14 @@ engine has), the priced cost of a split — against norms mined from your own co
 against the half of it they weren't mined from, and never imported from a style guide.
 
 The axes vote, and they are never averaged into a score, because a weighted sum of
-incommensurables is how code-quality scores lie. The output is a plan
-whose every refusal is named: pointed at its own repository, it flagged 66 functions, funded
-5, deferred 7 on budget, and recorded 54 as "no safe recipe exists yet." And what no
-measurement reaches — what the code is *for*, and the cases where the evidence honestly
-disagrees with itself — is routed, explicitly, to a person. Taste is not eliminated. It is
-located.
+incommensurables is how code-quality scores lie. The output is a plan whose every refusal is
+named. Pointed at its own repository, it read 822 functions: 517 clean by measurement, 82 the
+axes agreed should change, 223 where the axes disagreed. It funded none of the 82. Not one had
+a current contract, so the plan's first word was `converge` — style waits for behavior,
+strictly, because a refactor for form under a function nothing pins can break what nothing
+would catch. And what no measurement reaches — what the code is *for*, and those 223 cases
+where the evidence honestly disagrees with itself — is routed, explicitly, to a person. Taste is
+not eliminated. It is located.
 
 ---
 
@@ -257,15 +259,17 @@ input, a flag, a fence, and the suite that results was written by neither of you
 | `converge file.py::fn` | test files | the complete, minimal suite |
 | `decompose file.py::fn --apply` | your source | split it — only under proof |
 | `audit file.py::fn [--check]` | nothing | is my suite complete? minimal? (CI-gateable) |
-| `receipt` / `verify-rewrite` | ledger | bracket an arbitrary rewrite with proof |
-| `parsimony path/` | nothing | where does this codebase drift? (advisory) |
+| `receipt` / `verify-rewrite [--budget]` | ledger | bracket an arbitrary rewrite with proof — and price it, in opcodes |
+| `plan path/` | a report | what should change here, in what order — and what is yours to decide? (advisory) |
 | `flag file.py::fn ID [--fence]` | ledger | record an equivalence — or author a must-not |
+| `flag file.py::fn --style --leave\|--proceed` | ledger | answer a plan's open question, on the record |
 | `regime` | config | can a verdict here even be trusted? |
 
 Exit codes are epistemics, not pass/fail: `0` clean · `1` a measured gap, or a refusal · `2`
 your world is wrong — fix that, not the code · `3` the measurement can't be trusted — re-run.
 Machine consumers get the same verdicts as JSON; agents get an MCP surface
-(`detective-spec[mcp]`) whose every reply ends in `DO THIS:`, `STOP.`, or `DONE:`. The full
+(`detective-spec[mcp]`) whose every reply ends in `DO THIS:`, `STOP.`, `DONE:` — or `YOURS:`,
+when what remains is a judgment and not a task. The full
 command reference and the symptom→cause map live in [ARCHITECTURE.md](./ARCHITECTURE.md); the
 theorems — the ceiling, the boundary between effect and meaning, and the rest — live in
 [`docs/theory/`](./docs/theory/), in full academic dress.

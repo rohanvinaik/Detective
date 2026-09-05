@@ -153,10 +153,11 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 > batches · sys.monitoring counter · recognizable ≠ priceable · opposition requires a warrant).
 
 > **SUPERSEDED 2026-09-05 — the next action is now the §14 surface, in slice order** (slices
-> 1, 1b, 2, 3, 4, 5, 6, 7 SHIPPED 2026-09-05 — `1e201f0`, `f32b8ac`, `f0daf18`, `b5ad349`,
-> `3081510`, `18b1513`, `c6cb215`, `0c65e37`; slice 8 (MCP `plan` + `flag(style=True)`) built and
-> gated, next commit; the next action is slice 9, the README `plan` transcript — flagged for the
-> founder, not applied unasked).
+> 1, 1b, 2, 3, 4, 5, 6, 7, 8 SHIPPED 2026-09-05 — `1e201f0`, `f32b8ac`, `f0daf18`, `b5ad349`,
+> `3081510`, `18b1513`, `c6cb215`, `0c65e37`, `55f2003`; slice 9 DRAFTED in `README.draft.md`
+> only — `README.md` untouched, the founder promotes. The §14 surface is BUILT end to end; what
+> remains open on it is (a) the founder's GRANT of the hand-table pin exemptions listed below,
+> (b) the two widen-grind defects, (c) the surfaced-not-built seam-driven `extract` template).
 > **Standing caveat from slices 4–5:** converge's witness-pass widen GRINDS on plan.py targets
 > (51 and 54 min at 100% CPU, past `--deadline 1200`, verdict cache rewritten per test) — two
 > behavior-layer defects recorded in §14.9; `next_command` · `receipt_path` · `unexamined` ·
