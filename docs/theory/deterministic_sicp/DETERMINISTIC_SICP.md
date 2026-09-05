@@ -1042,9 +1042,58 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    parameter names the remedy — `unmeasurable` when the gate passed, `inadmissible` when it did
    not (the fixture's first draft assumed PRESERVED; the gate's word was consumed instead).]
 8. MCP `_render_plan`.
+   [BUILT 2026-09-05 — the agent surface of the style layer, and the reason it exists in these
+   terms: if the driver can be a model, the model must be able to RECEIVE escalations. Two tools.
+   `plan(target, project_root, budget=500, top=5, full=False)` — STATIC, registered WITHOUT the
+   live-session wrapper every behavior tool rides in (`_rendered` is never entered; the tests
+   monkeypatch it to raise and call the tool). `flag` gained `style · leave · proceed` (`mutant_id`
+   and `why` now optional; `project_root` still required) and routes `style=True` AROUND the session
+   the same way. ONE resolver and ONE actuator serve both surfaces so they cannot drift:
+   `plan.resolve_plan(target, root, budget, write_dir)` → `PlanResolution(refusal, assembly, detail,
+   regime, file, function)` with refusal ∈ "" · regime_conflict · no_such_function · nothing_to_read
+   (the CLI's `_run_plan` now consumes it and only spells the two channels; `_split_target` is kept
+   for the CLI's own menu on a malformed `::`), and `judgments.record_style_judgment(root, file, fn,
+   has_mutant_id, leave, proceed, note)` → `StyleRecording(refusal, region, disposition,
+   controller_verdict, function_digest, note, regions_in_file, regime)` (the CLI's `_run_flag_style`
+   consumes it). Two pure decisions: `plan.next_move(reason, gate)` → decompose_apply ·
+   receipt_bracket · converge · judge · audit_plan · "" — `next_command` is now its CLI spelling and
+   `mcp_server._plan_call` its MCP spelling, so a move exists on both surfaces or neither; and
+   `plan.plan_closing(funded, waiting, escalated)` → do_funded · do_converge · yours · done — WHICH
+   line a tool result ends with is a decision, not a rendering choice, in the order the epistemics
+   dictate (a gate is the plan's own next call; else converge — the ordering law; else the AMBIGUOUS
+   queue as the driver's DECISION; else done). `_render_plan`: the header tallies · funded moves
+   with their gate in call syntax · the residual with every reason · `converge first` · `yours` ·
+   `reopened` · the unexamined line · the report pointer · ONE closing. `YOURS:` is a fourth closing
+   on this surface beside DO THIS / STOP / DONE, deliberately: a judgment is never rendered as a task,
+   and the model is handed the two `flag(..., style=True, leave=True|proceed=True, why=…)` calls to
+   choose between, not a `DO THIS`. A gate this surface lacks — the receipt → verify-rewrite bracket,
+   `audit --plan` — is NOT paraphrased into a tool that does not exist: the closing says "hand the
+   user this bracket — it runs in a TERMINAL" and spells the three CLI lines verbatim;
+   `_CLI_REPORT_HEADER` now names those two commands as the only exceptions to "every action here is
+   a tool". The three queues moved into plan.py (`converge_first` · `escalated_regions` ·
+   `reopened_regions`) and the CLI's terse block consumes them too — ONE behaviour change on the CLI
+   from that: a region whose driver said PROCEED and which is then excluded `unpinned` now appears
+   in `· converge first` (before, only CONSTRUCTIVE regions did; an answered ambiguity waiting on a
+   contract is exactly what that row is for). **Transcript on the fixture repo** (smelly = CONSTRUCTIVE
+   unpinned · scan = AMBIGUOUS one-lens with a recognized move · quiet = SILENT clean): `pkg — plan · 3
+   region(s) · 1 constructive · 1 ambiguous · 0 destructive · 1 silent (clean 1 · unread 0)` · `funded 0`
+   · `residual — every exclusion named: escalated 1 · silent 1 · unpinned 1` · `converge first: 1
+   region(s) … pkg/smelly.py::dedupe_many` · `yours: 1 AMBIGUOUS … pkg/scan.py::dedupe` · the
+   unexamined block · `DO THIS: converge(file='pkg/smelly.py', function='dedupe_many',
+   project_root=…)`. Pins: `next_move` (20 rows) and `plan_closing` (8 rows) on hand truth tables
+   under the exemption request, with `next_command` asserted to be the CLI spelling row by row; the
+   renderers and the two shared functions are unit-guarded on the fixture repo (all four closings
+   reached; converge-first outranks yours and includes an answered PROCEED); and through the REAL
+   server (`build_server()` + FastMCP `call_tool`, `mcp` 1.27): tool registration and schema (`style`
+   present, `mutant_id` optional), plan end-to-end writing only the report, `full=True` under the
+   header, the three refusals as STOPs that read nothing, a colliding regime refused in this surface's
+   words, `flag(style=True, leave=True)` recorded in `judgments.json` with `equivalents.json`
+   untouched and `plan` then reading `judged_leave`, `proceed` → the ordering law → funded once
+   certified, the four malformed shapes as STOPs that record nothing and open no session.]
 9. README: the 66/5/7/54 sentence becomes a real `plan` transcript (flagged until then).
 
-[Status: DESIGN, settled with the founder 2026-09-05. Nothing in this section is built.]
+[Status: DESIGN settled with the founder 2026-09-05; slices 1–8 BUILT the same day (see the BUILT
+notes above); slice 9 pending.]
 
 ---
 

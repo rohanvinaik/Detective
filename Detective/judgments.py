@@ -147,3 +147,85 @@ def judgment_for(root: str, func_key: str) -> StyleJudgment | None:
     """The recorded judgment for ``func_key``, or ``None``. Object handling only; the standing —
     whether it still applies — is :func:`judgment_standing`'s decision."""
     return load_judgments(root).get(func_key)
+
+
+STYLE_REGIME_CONFLICT = "regime_conflict"
+STYLE_NO_SUCH_FUNCTION = "no_such_function"
+
+
+@dataclass(frozen=True)
+class StyleRecording:
+    """What one `flag --style` / `flag(style=True)` call did: a typed refusal (nothing written), or
+    the judgment as recorded. ONE actuator for both surfaces (§14.5 / §14.9 slice 8), so the CLI and
+    the MCP tool cannot drift on what is refused, what the judgment is keyed to, and what is written.
+
+    ``refusal``: "" · mutant_id_with_style · no_disposition · both_dispositions (the three malformed
+    shapes, `style_flag_refusal`) · regime_conflict · no_such_function.
+    """
+
+    refusal: str
+    region: str = ""
+    disposition: str = ""
+    controller_verdict: str = ""
+    function_digest: str = ""
+    note: str = ""
+    regions_in_file: tuple[str, ...] = ()  # on no_such_function: the file's regions, bare names
+    regime: object = None  # on regime_conflict: the surface renders the conflicts in its own idiom
+
+
+def record_style_judgment(
+    project_root: str,
+    file: str,
+    function: str,
+    has_mutant_id: bool,
+    leave: bool,
+    proceed: bool,
+    note: str = "",
+) -> StyleRecording:
+    """Record the driver's answer to an AMBIGUOUS region — LEAVE or PROCEED — in the style ledger.
+    STATIC: no live session, no mutant (a judgment about form never profiles anything). Refuses, in
+    order: the three malformed shapes (`style_flag_refusal`); a regime conflict (the same resolver
+    the live verbs use — a judgment about the wrong file is about nothing); a function the file does
+    not define (the file's regions are named). Otherwise keyed to the CURRENT definition (its digest)
+    and the CURRENT reading (the controller verdict now), so an edit or a changed reading reopens it.
+    """
+    from . import pins
+    from .parsimony_map import iter_functions
+    from .plan import assemble_plan
+
+    refusal = style_flag_refusal(has_mutant_id, leave, proceed)
+    if refusal:
+        return StyleRecording(refusal)
+    root = os.path.abspath(project_root)
+    regime = None
+    try:
+        from .regime import resolve_regime
+
+        regime = resolve_regime(root, file)
+    except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
+        regime = None
+    if regime is not None and regime.conflicts:
+        return StyleRecording(STYLE_REGIME_CONFLICT, regime=regime)
+    full = file if os.path.isabs(file) else os.path.join(root, file)
+    func_key = f"{os.path.relpath(full, root)}::{function}"
+    node = next((n for k, n, _m in iter_functions(full, root) if k == func_key), None)
+    assembly = assemble_plan(full, root)
+    detail_row = next((d for d in assembly.regions if d.read.region == func_key), None)
+    if node is None or detail_row is None:
+        return StyleRecording(
+            STYLE_NO_SUCH_FUNCTION,
+            region=func_key,
+            regions_in_file=tuple(d.read.region.split("::", 1)[1] for d in assembly.regions),
+        )
+    disposition = LEAVE if leave else PROCEED
+    judgment = add_judgment(
+        root, func_key, pins.function_digest(node), detail_row.read.verdict, disposition, note
+    )
+    return StyleRecording(
+        "",
+        region=func_key,
+        disposition=disposition,
+        controller_verdict=detail_row.read.verdict,
+        function_digest=judgment.function_digest,
+        note=note,
+    )

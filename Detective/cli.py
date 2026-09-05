@@ -462,8 +462,7 @@ def _format_plan_terse(assembly, report_path: str = "", top: int = 5) -> str:
     """`detective plan`'s default block: verdict counts · the funded moves with their next command ·
     the residual with EVERY reason named · the converge-first list (the ordering law, visible) · the
     driver's queue · the unexamined line · the report pointer — then the FINAL banner, LAST."""
-    from .controller import CONSTRUCTIVE
-    from .plan import _STATUS_REASONS, FUNDED, summarize
+    from .plan import FUNDED, converge_first, escalated_regions, reopened_regions, summarize
 
     s = summarize(assembly)
     v, c = dict(s.verdicts), dict(s.clean)
@@ -498,11 +497,9 @@ def _format_plan_terse(assembly, report_path: str = "", top: int = 5) -> str:
     lines.append("")
     named = " · ".join(f"{reason} {n}" for reason, n in s.reasons) or "none"
     lines.append(_row("residual", f"every exclusion named: {named}"))
-    waiting = [
-        region
-        for region, reason in assembly.plan.excluded
-        if reason in _STATUS_REASONS and by_region[region].read.verdict == CONSTRUCTIVE
-    ]
+    # ONE definition of each queue, shared with the MCP `_render_plan` (plan.py) — the two surfaces
+    # must name the same regions for the same reasons.
+    waiting = converge_first(assembly)
     if waiting:
         more = f"  (+{len(waiting) - 3} more in the report)" if len(waiting) > 3 else ""
         lines.append(
@@ -512,7 +509,7 @@ def _format_plan_terse(assembly, report_path: str = "", top: int = 5) -> str:
                 f"{', '.join(waiting[:3])}{more}",
             )
         )
-    escalated = [region for region, reason in assembly.plan.excluded if reason == "escalated"]
+    escalated = escalated_regions(assembly)
     if escalated:
         lines.append(
             _row(
@@ -521,7 +518,7 @@ def _format_plan_terse(assembly, report_path: str = "", top: int = 5) -> str:
                 "record it with `flag <region> --style --leave|--proceed`, or ground it with converge",
             )
         )
-    reopened = [d.read.region for d in assembly.regions if d.judgment.startswith("reopened")]
+    reopened = reopened_regions(assembly)
     if reopened:
         lines.append(
             _row(
@@ -5540,57 +5537,49 @@ def _run_flag_style(args, file, function) -> int:
     """`flag --style` (§14.5): record the driver's answer to an AMBIGUOUS `plan` row — LEAVE or
     PROCEED — for a whole REGION, in the style ledger (`.detective/judgments.json`). STATIC: no live
     session — the behavior layer's `flag` profiles the target; this one never does, because it is a
-    judgment about form, not a verdict about a mutant. Same regime refusal as `plan file::fn`. Keyed
-    to the definition AND its current reading: an edit, or a changed verdict, reopens it; a fence
-    always outranks it."""
-    from . import pins
-    from .judgments import LEAVE, PROCEED, add_judgment, style_flag_refusal
-    from .parsimony_map import iter_functions
-    from .plan import assemble_plan
+    judgment about form, not a verdict about a mutant. The refusals, the regime check and the write
+    are `judgments.record_style_judgment`, shared with the MCP `flag(style=True)` tool so the two
+    surfaces cannot drift; this function only spells the outcome on the terminal's two channels."""
+    from .judgments import LEAVE, record_style_judgment
 
-    root = os.path.abspath(args.project_root)
     target = args.target
-    refusal = style_flag_refusal(args.mutant_id is not None, bool(args.leave), bool(args.proceed))
-    if refusal:
+    rec = record_style_judgment(
+        args.project_root,
+        file,
+        function,
+        args.mutant_id is not None,
+        bool(args.leave),
+        bool(args.proceed),
+        args.note or "",
+    )
+    if rec.refusal in ("mutant_id_with_style", "no_disposition", "both_dispositions"):
         detail = {
             "mutant_id_with_style": "--style judges a REGION, not a mutant — drop the mutant id",
             "no_disposition": "--style needs exactly one of --leave / --proceed",
             "both_dispositions": "--style needs exactly one of --leave / --proceed, not both",
-        }[refusal]
+        }[rec.refusal]
         if args.json:
             return _emit_json(
-                {"verdict": "REFUSED", "reason": refusal, "target": target, "detail": detail}, 2
+                {"verdict": "REFUSED", "reason": rec.refusal, "target": target, "detail": detail}, 2
             )
         sys.stderr.write(f"detective: {detail}\n")
         return 2
-    regime = None
-    try:
-        from .regime import resolve_regime
-
-        regime = resolve_regime(root, file)
-    except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
-        regime = None
-    if regime is not None and regime.conflicts:
+    if rec.refusal == "regime_conflict":
         if args.json:
             return _emit_json(
                 {
                     "verdict": "REFUSED",
                     "reason": "regime_conflict",
                     "target": target,
-                    "module": getattr(regime, "module", None),
-                    "detail": _format_conflicts(regime, target).strip(),
+                    "module": getattr(rec.regime, "module", None),
+                    "detail": _format_conflicts(rec.regime, target).strip(),
                 },
                 2,
             )
-        sys.stdout.write(_format_conflicts(regime, target))
+        sys.stdout.write(_format_conflicts(rec.regime, target))
         return 2
-    full = file if os.path.isabs(file) else os.path.join(root, file)
-    func_key = f"{os.path.relpath(full, root)}::{function}"
-    node = next((n for k, n, _m in iter_functions(full, root) if k == func_key), None)
-    assembly = assemble_plan(full, root)
-    detail_row = next((d for d in assembly.regions if d.read.region == func_key), None)
-    if node is None or detail_row is None:
-        names = ", ".join(d.read.region.split("::", 1)[1] for d in assembly.regions) or "none"
+    if rec.refusal == "no_such_function":
+        names = ", ".join(rec.regions_in_file) or "none"
         msg = f"detective: no function {function!r} in {file} — regions in that file: {names}"
         if args.json:
             return _emit_json(
@@ -5598,10 +5587,7 @@ def _run_flag_style(args, file, function) -> int:
             )
         sys.stderr.write(msg + "\n")
         return 2
-    disposition = LEAVE if args.leave else PROCEED
-    judgment = add_judgment(
-        root, func_key, pins.function_digest(node), detail_row.read.verdict, disposition, args.note
-    )
+    func_key, disposition = rec.region, rec.disposition
     if args.json:
         return _emit_json(
             {
@@ -5609,8 +5595,8 @@ def _run_flag_style(args, file, function) -> int:
                 "kind": "style_judgment",
                 "region": func_key,
                 "disposition": disposition,
-                "controller_verdict": detail_row.read.verdict,
-                "function_digest": judgment.function_digest,
+                "controller_verdict": rec.controller_verdict,
+                "function_digest": rec.function_digest,
                 "note": args.note,
             },
             0,
@@ -5619,7 +5605,7 @@ def _run_flag_style(args, file, function) -> int:
     print(f"{func_key} — flag --style")
     print("")
     print(_row("✓ recorded", f"style judgment — {disposition}{suffix}"))
-    print(_row("", f"keyed to this exact definition and its current reading ({detail_row.read.verdict}) —"))
+    print(_row("", f"keyed to this exact definition and its current reading ({rec.controller_verdict}) —"))
     print(_row("", "an edit, or a changed verdict, REOPENS it; a fence outranks it."))
     print("")
     if disposition == LEAVE:
@@ -6171,83 +6157,48 @@ def _run_parsimony(args) -> int:
 def _run_plan(args) -> int:
     """`detective plan` (§14.3 / §14.7): the STYLE layer's entry verb. STATIC — no live session, no
     mutant — over a tree (`path`) or ONE region (`file.py::function`); writes nothing but the report
-    file. The `file::fn` form resolves the regime first and REFUSES a shadowed / colliding target on
-    both channels, exactly as the live verbs do: a plan over the wrong file is a finding about nothing.
-    Exit: the pinned `plan.plan_exit` — 0 for a completed read whatever it found, 2 for a precondition,
-    never 1 (there is no gap on this layer, only a residual)."""
-    from .controller import plan_moves
-    from .plan import PlanAssembly, assemble_plan, plan_exit
+    file. The resolution — the regime check on the `::` form, the narrowing to one region, the
+    preconditions — is `plan.resolve_plan`, shared with the MCP `plan` tool so the two surfaces cannot
+    drift; this function spells the refusals and the report on the terminal's two channels. Exit: the
+    pinned `plan.plan_exit` — 0 for a completed read whatever it found, 2 for a precondition, never 1
+    (there is no gap on this layer, only a residual)."""
+    from .plan import NO_SUCH_FUNCTION, NOTHING_TO_READ, REGIME_CONFLICT, plan_exit, resolve_plan
 
     root = os.path.abspath(args.project_root)
     target = args.target
-    region_key: str | None = None
-    scope_path = target
-    file = function = ""
     if "::" in target:
-        file, function = _split_target(target, root)
-        regime = None
-        try:
-            from .regime import resolve_regime
-
-            regime = resolve_regime(root, file)
-        except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
-            regime = None
-        if regime is not None and regime.conflicts:
-            code = plan_exit(True, False, False)
-            if args.json:
-                return _emit_json(
-                    {
-                        "verdict": "REFUSED",
-                        "reason": "regime_conflict",
-                        "target": target,
-                        "module": getattr(regime, "module", None),
-                        "detail": _format_conflicts(regime, target).strip(),
-                    },
-                    code,
-                )
-            sys.stdout.write(_format_conflicts(regime, target))
-            return code
-        full = file if os.path.isabs(file) else os.path.join(root, file)
-        region_key = f"{os.path.relpath(full, root)}::{function}"
-        scope_path = full
-
-    assembly = assemble_plan(scope_path, root, args.budget, args.write_dir)
-
-    if region_key is not None:
-        details = tuple(d for d in assembly.regions if d.read.region == region_key)
-        if not details:
-            code = plan_exit(False, True, False)
-            names = ", ".join(d.read.region.split("::", 1)[1] for d in assembly.regions) or "none"
-            msg = f"detective: no function {function!r} in {file} — regions in that file: {names}"
-            if args.json:
-                return _emit_json(
-                    {"verdict": "REFUSED", "reason": "no_such_function", "target": target, "detail": msg},
-                    code,
-                )
-            sys.stderr.write(msg + "\n")
-            return code
-        assembly = PlanAssembly(
-            scope=region_key,
-            budget=assembly.budget,
-            regions=details,
-            plan=plan_moves(tuple(d.read for d in details), assembly.budget),
-            fences_note=assembly.fences_note,
-        )
-
-    if not assembly.regions:
-        code = plan_exit(False, False, True)
-        msg = f"detective: nothing to read under {target} — no Python functions found (unmeasured, not clean)"
+        _split_target(target, root)  # the CLI's own menu on a malformed `::` target (SystemExit)
+    res = resolve_plan(target, root, args.budget, args.write_dir)
+    code = plan_exit(
+        res.refusal == REGIME_CONFLICT, res.refusal == NO_SUCH_FUNCTION, res.refusal == NOTHING_TO_READ
+    )
+    if res.refusal == REGIME_CONFLICT:
         if args.json:
             return _emit_json(
-                {"verdict": "REFUSED", "reason": "nothing_to_read", "target": target, "detail": msg}, code
+                {
+                    "verdict": "REFUSED",
+                    "reason": REGIME_CONFLICT,
+                    "target": target,
+                    "module": getattr(res.regime, "module", None),
+                    "detail": _format_conflicts(res.regime, target).strip(),
+                },
+                code,
+            )
+        sys.stdout.write(_format_conflicts(res.regime, target))
+        return code
+    if res.refusal or res.assembly is None:
+        msg = f"detective: {res.detail}"
+        if args.json:
+            return _emit_json(
+                {"verdict": "REFUSED", "reason": res.refusal, "target": target, "detail": msg}, code
             )
         sys.stderr.write(msg + "\n")
         return code
+    assembly = res.assembly
 
     # The full report is ALWAYS written (the archive; a file has no scrolling cost) — the terminal
     # gets the terse block unless --full asks for the whole thing, the same tiering `converge` uses.
     report_path = _write_converge_report(root, assembly.scope, _format_plan_full(assembly), prefix="plan")
-    code = plan_exit(False, False, False)
     if args.json:
         return _emit_json(_plan_payload(assembly, report_path), code)
     if args.full:

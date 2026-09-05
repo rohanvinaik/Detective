@@ -48,6 +48,7 @@ first and what it is told to do next. That is the whole of its remit.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -626,6 +627,228 @@ def _render_decompose(r: Any, file: str, function: str, wrote: bool) -> str:
     return "\n".join(out)
 
 
+def _plan_call(move_code: str, region: str, project_root: str, move: str = "") -> str:
+    """One region's next move, spelled in THIS surface's call syntax — the MCP twin of the CLI's
+    `plan.next_command`. Both consume `plan.next_move`; neither re-derives it. A move whose gate has
+    no tool here (the receipt → verify-rewrite bracket; `audit --plan`) is NOT paraphrased into a
+    tool that does not exist: the caller is told to hand the user the terminal command, verbatim."""
+    from .plan import AUDIT_PLAN, CONVERGE, DECOMPOSE_APPLY, JUDGE, RECEIPT_BRACKET, receipt_path
+
+    file, function = region.rsplit("::", 1) if "::" in region else (region, "")
+    args = f"file={file!r}, function={function!r}, project_root={project_root!r}"
+    if move_code == DECOMPOSE_APPLY:
+        return f"decompose({args}, apply=True)"
+    if move_code == CONVERGE:
+        return f"converge({args})"
+    if move_code == JUDGE:
+        return f"flag({args}, style=True, leave=True, why=<why it stays>)   # or proceed=True"
+    if move_code == RECEIPT_BRACKET:
+        path = receipt_path(region)
+        return (
+            "hand the user this bracket — it runs in a TERMINAL (no receipt / verify-rewrite tool here):\n"
+            f"      detective receipt '{region}' -o {path}\n"
+            f"      # apply the '{move}' transform (that edit may be yours), then:\n"
+            f"      detective verify-rewrite {path} '{region}'"
+        )
+    if move_code == AUDIT_PLAN:
+        return f"hand the user: detective audit '{region}' --plan   (a TERMINAL command; not a tool here)"
+    return ""
+
+
+def _render_plan(assembly: Any, project_root: str, top: int = 5, report_path: str = "") -> str:
+    """plan, for a caller (§14.6 / §14.9 slice 8). STATIC and advisory — no mutant ran, nothing is
+    proven, nothing was written but the report file. The same tallies as the CLI (`plan.summarize`),
+    the same three queues (`plan.converge_first` · `escalated_regions` · `reopened_regions`), the same
+    next move per region (`plan.next_move`) spelled in this surface's syntax — and it closes the way
+    every tool here closes, with ONE line, chosen by `plan.plan_closing`: the first funded gate; else
+    the first region the ordering law says to converge; else the AMBIGUOUS queue handed to the driver
+    as ITS decision (YOURS — a judgment is never rendered as a task); else done."""
+    from .cli import _plan_move
+    from .plan import (
+        CONVERGE,
+        DO_CONVERGE,
+        DO_FUNDED,
+        FUNDED,
+        YOURS,
+        converge_first,
+        escalated_regions,
+        next_move,
+        plan_closing,
+        reopened_regions,
+        summarize,
+    )
+
+    s = summarize(assembly)
+    v, c = dict(s.verdicts), dict(s.clean)
+    by_region = {d.read.region: d for d in assembly.regions}
+    out = [
+        f"{assembly.scope} — plan · {s.regions} region(s) · {v.get('CONSTRUCTIVE', 0)} constructive · "
+        f"{v.get('AMBIGUOUS', 0)} ambiguous · {v.get('DESTRUCTIVE', 0)} destructive · "
+        f"{v.get('SILENT', 0)} silent (clean {c.get('clean', 0)} · unread {c.get('unread', 0)})",
+        "  advisory — STATIC: no mutant ran, nothing here is proven, nothing was written but the report.",
+        "  Every count is a named code's tally; none of them is a number to move.",
+        "",
+        f"funded {s.funded} · budget {assembly.budget:g} DOF-proxy · spent {s.spent:g}",
+    ]
+    funded = list(assembly.plan.funded)
+    for r in funded[:top]:
+        d = by_region[r.region]
+        out.append(
+            f"  {r.region}   agreement {r.agreement} · {r.template} → {_plan_move(d)} · "
+            f"cost {r.cost:g} ({r.cost_provenance})"
+        )
+        out.append(
+            f"    gate: {_plan_call(next_move(FUNDED, d.gate), r.region, project_root, _plan_move(d))}"
+        )
+    if len(funded) > top:
+        out.append(f"  … {len(funded) - top} more funded — all in the report")
+    if not funded:
+        out.append("  nothing funded — every constructive region is excluded below, by name")
+
+    out.append("")
+    named = " · ".join(f"{reason} {n}" for reason, n in s.reasons) or "none"
+    out.append(f"residual — every exclusion named: {named}")
+    waiting = converge_first(assembly)
+    escalated = escalated_regions(assembly)
+    reopened = reopened_regions(assembly)
+
+    def _some(regions: tuple[str, ...]) -> str:
+        more = f"  (+{len(regions) - 3} more in the report)" if len(regions) > 3 else ""
+        return ", ".join(regions[:3]) + more
+
+    if waiting:
+        out.append(
+            f"  converge first: {len(waiting)} region(s) have no current behaviour contract — style WAITS "
+            f"for behaviour: {_some(waiting)}"
+        )
+    if escalated:
+        out.append(
+            f"  yours: {len(escalated)} AMBIGUOUS — one lens each, or the two signs disagree; the controller "
+            f"will not decide them: {_some(escalated)}"
+        )
+    if reopened:
+        out.append(
+            f"  reopened: {len(reopened)} style judgment(s) no longer apply — the code or its reading moved: "
+            f"{_some(reopened)}"
+        )
+    out.append("")
+    out.append(f"unexamined: {s.unexamined[0]}")
+    out += [f"  {item}" for item in s.unexamined[1:]]
+    if report_path:
+        out.append(f"full report: {report_path}")
+
+    out.append("")
+    closing = plan_closing(len(funded), len(waiting), len(escalated))
+    if closing == DO_FUNDED:
+        r = funded[0]
+        d = by_region[r.region]
+        out.append(f"DO THIS: {_plan_call(next_move(FUNDED, d.gate), r.region, project_root, _plan_move(d))}")
+        out.append("")
+        out.append("  Funded is not applied. The gate proves the move behaviour-preserving or refuses it,")
+        out.append("  and only the gate writes. A refusal there is the tool working, not an obstacle.")
+    elif closing == DO_CONVERGE:
+        out.append(f"DO THIS: {_plan_call(CONVERGE, waiting[0], project_root)}")
+        out.append("")
+        out.append(f"  {len(waiting)} region(s) this plan would consider have no current behaviour contract.")
+        out.append("  Style AFTER behaviour, strictly: a refactor for form under an unpinned function can")
+        out.append("  break what nothing pins. converge pins it. Then call plan again.")
+    elif closing == YOURS:
+        file, function = escalated[0].rsplit("::", 1)
+        args = f"file={file!r}, function={function!r}, project_root={project_root!r}, style=True"
+        out.append(
+            f"YOURS: {len(escalated)} AMBIGUOUS region(s) — the controller will not decide them; you do."
+        )
+        out.append("  Read the region. Then record ONE answer per region, with your reason as `why`:")
+        out.append(f"    flag({args}, leave=True, why=<why it stays as it is>)")
+        out.append(f"    flag({args}, proceed=True, why=<why it is a case for change>)")
+        out.append("  LEAVE excludes it by your decision; PROCEED sends it down the gate chain — behaviour")
+        out.append("  still first, so an unpinned region then asks for converge. Unanswered, it re-escalates")
+        out.append("  unchanged on every run: that is the question standing, not a fault.")
+    else:
+        out.append("DONE: nothing funded, nothing waiting on a contract, nothing escalated.")
+        silent, clean, unread = v.get("SILENT", 0), c.get("clean", 0), c.get("unread", 0)
+        out.append(
+            f"  {silent} silent region(s) (clean {clean} · unread {unread}) — clean is measured, unread is"
+        )
+        out.append("  not-measured, and neither is approval. Nothing to run. Nothing to derive.")
+    return "\n".join(out)
+
+
+def _render_flag_style(rec: Any, file: str, function: str, project_root: str) -> str:
+    """`flag(style=True)`, for a caller: a typed refusal (nothing recorded) or the recorded judgment,
+    with `plan` as the one next call. Same refusal codes as the CLI (`judgments.record_style_judgment`
+    is the shared actuator); the wording is this surface's."""
+    head = f"{file}::{function} — flag · style"
+    if rec.refusal == "mutant_id_with_style":
+        return "\n".join(
+            [
+                head,
+                "",
+                "STOP. style=True judges a REGION, not a mutant — drop mutant_id. The two ledgers are",
+                "  never addressed in one call. Nothing was recorded.",
+            ]
+        )
+    if rec.refusal == "no_disposition":
+        return "\n".join(
+            [
+                head,
+                "",
+                "STOP. style=True needs exactly one of leave=True / proceed=True. Nothing was recorded.",
+            ]
+        )
+    if rec.refusal == "both_dispositions":
+        return "\n".join(
+            [
+                head,
+                "",
+                "STOP. leave=True and proceed=True together is not an answer — a judgment is ONE answer.",
+                "  Nothing was recorded.",
+            ]
+        )
+    if rec.refusal == "regime_conflict":
+        from .cli import _format_conflicts
+
+        return "\n".join(
+            [
+                head,
+                "",
+                "STOP. The testing regime says no verdict about this file can be trusted, so a judgment",
+                "  about it would be about nothing. Nothing was recorded.",
+                "",
+                _format_conflicts(rec.regime, f"{file}::{function}").rstrip(),
+            ]
+        )
+    if rec.refusal == "no_such_function":
+        names = ", ".join(rec.regions_in_file) or "none"
+        return "\n".join(
+            [
+                head,
+                "",
+                f"STOP. No function {function!r} in {file} — regions in that file: {names}.",
+                "  Nothing was recorded.",
+            ]
+        )
+    suffix = f" ({rec.note})" if rec.note else ""
+    out = [
+        head,
+        "",
+        f"  recorded: style judgment — {rec.disposition}{suffix}",
+        f"  keyed to this exact definition and its current reading ({rec.controller_verdict}) — an edit, or",
+        "  a changed reading, REOPENS it; a fence outranks it. It never touches the behaviour layer.",
+        "",
+    ]
+    if rec.disposition == "leave":
+        out.append("DONE: plan excludes this region by your decision (judged_leave) until the code or its")
+        out.append("  reading moves.")
+    else:
+        out.append("DONE: plan treats this AMBIGUOUS region as a case for change — down the gate chain,")
+        out.append(
+            "  behaviour first (an unpinned region asks for converge before any style move is funded)."
+        )
+    out.append(f"  Next: plan(target={rec.region!r}, project_root={project_root!r})")
+    return "\n".join(out)
+
+
 # ── the live session ─────────────────────────────────────────────────────────────────
 
 
@@ -807,10 +1030,14 @@ _CLI_REPORT_HEADER = (
     "ℹ This is the CLI's full report, rendered for a human. Read it for the detail — every\n"
     "  survivor, its exact diff, the scores. Its `DO THIS:` lines are NOT for you: a line\n"
     "  starting `detective <verb>` is terminal syntax. Do not run it, and do not shell out\n"
-    "  to it — every action it names exists here as a tool. `detective converge 'f::g'` is\n"
-    '  converge(file="f", function="g"); `--input "(...)"` is inputs=["(...)"];\n'
-    "  `--apply` is apply=True; `detective flag 'f::g' ID` is flag(..., mutant_id=\"ID\",\n"
-    "  why=<your proof>). Translate, never execute.\n"
+    "  to it — every action it names is a tool here, bar the two named below.\n"
+    '  `detective converge \'f::g\'` is converge(file="f", function="g"); `--input "(...)"` is\n'
+    "  inputs=[\"(...)\"]; `--apply` is apply=True; `detective flag 'f::g' ID` is\n"
+    '  flag(..., mutant_id="ID", why=<your proof>); `detective plan <path>` is plan(target=<path>);\n'
+    "  `detective flag 'f::g' --style --leave|--proceed` is flag(..., style=True, leave=True |\n"
+    "  proceed=True). Translate, never execute. The two exceptions: `detective receipt …` and\n"
+    "  `detective verify-rewrite …` — a plan's rewrite bracket — have NO tool here. Hand those\n"
+    "  two, and only those, to the user to run in a terminal.\n"
 )
 
 
@@ -1057,12 +1284,74 @@ def build_server() -> Any:
         )
 
     @server.tool()
+    def plan(
+        target: str,
+        project_root: str,
+        budget: float = 500.0,
+        top: int = 5,
+        full: bool = False,
+    ) -> str:
+        """START HERE for STYLE — and only AFTER behaviour. Writes nothing but a report file.
+
+        STATIC: no mutant runs, no session opens, nothing is proven. Reads every function under
+        ``target`` — a path (a tree) or ``file.py::function`` (one region) — through the parsimony
+        banks, prices each region, checks its BEHAVIOUR STATUS against the certificate ledger, and
+        returns: the moves it can fund (each with its gate), the residual with EVERY exclusion
+        named, the AMBIGUOUS queue that is yours to decide, and the line naming what it could not
+        examine. Then ONE closing line: the first funded gate; else the first region the ordering
+        law says to converge (style waits for behaviour — a refactor for form under an unpinned
+        function can break what nothing pins); else the AMBIGUOUS queue, handed to you; else done.
+
+        Funded is NOT applied. The gate proves a move behaviour-preserving or refuses it, and only
+        the gate writes. Some gates (`receipt`, then `verify-rewrite`) have no tool here — the
+        response says so and hands you the terminal bracket for the user. Do not improvise the
+        edit without the receipt taken first: without it the rewrite cannot be verified.
+
+        There is no score here and nothing to optimise: every count is a named code's tally;
+        `clean` is measured (a region every bank passed), `unread` is not-measured, and neither is
+        approval. ``full=True`` returns the CLI's archive — every region, every lens that voted,
+        every reason. ``budget`` is in DOF-proxy units (static mutant-universe size), not time.
+        Pass project_root as an ABSOLUTE path; the report lands under it.
+        """
+        from .cli import _format_conflicts, _format_plan_full, _write_converge_report
+        from .plan import REGIME_CONFLICT, resolve_plan
+
+        if "::" in target and not all(target.rsplit("::", 1)):
+            return (
+                f"STOP. target must be a path, or 'file.py::function' with both halves — got {target!r}. "
+                "Nothing was read."
+            )
+        res = resolve_plan(target, project_root, budget)
+        if res.refusal == REGIME_CONFLICT:
+            return "\n".join(
+                [
+                    f"{target} — plan",
+                    "",
+                    "STOP. The testing regime says no verdict about this file can be trusted, so a plan",
+                    "  over it would be a finding about nothing. Nothing was read.",
+                    "",
+                    _format_conflicts(res.regime, target).rstrip(),
+                ]
+            )
+        if res.refusal or res.assembly is None:
+            return f"{target} — plan\n\nSTOP. {res.detail}. Nothing was read."
+        assembly = res.assembly
+        root = os.path.abspath(project_root)
+        report_path = _write_converge_report(root, assembly.scope, _format_plan_full(assembly), prefix="plan")
+        if full:
+            return _CLI_REPORT_HEADER + "\n" + _format_plan_full(assembly, report_path)
+        return _render_plan(assembly, project_root, top, report_path)
+
+    @server.tool()
     def flag(
         file: str,
         function: str,
-        mutant_id: str,
-        why: str,
         project_root: str,
+        mutant_id: str = "",
+        why: str = "",
+        style: bool = False,
+        leave: bool = False,
+        proceed: bool = False,
     ) -> str:
         """Record that a surviving mutant is TRULY EQUIVALENT — it cannot change behaviour, so
         no test could ever kill it. Use when you can PROVE that, not when you want the number down.
@@ -1100,9 +1389,33 @@ def build_server() -> Any:
 
         Returns the recorded flag, or an error naming the survivors if `mutant_id` is not one —
         ids come from `audit`/`converge`. Pass project_root as an ABSOLUTE path.
+
+        TWO LEDGERS, ONE VERB. ``style=True`` records a DIFFERENT kind of judgment: your answer to
+        a region `plan` marked AMBIGUOUS — ``leave=True`` (it stays as it is) or ``proceed=True``
+        (treat it as a case for change) — in `.detective/judgments.json`. That is a judgment about
+        FORM, not a verdict about a mutant: no ``mutant_id`` (giving one is refused), no session
+        opens, nothing is profiled, and it never affects converge, audit, decompose, or any
+        behaviour-layer verdict. It is keyed to the definition and its current reading — an edit,
+        or a changed reading, REOPENS it — and ``why`` is your reason, kept beside it. A style
+        judgment needs no proof, only a reason: it is the driver's call by design, and `plan`
+        re-asks it, unchanged, until one is recorded.
         """
         from .engine import profile
         from .equivalents import add_flag
+
+        if style:
+            # STATIC — outside `_rendered`: a judgment about form never opens a live session.
+            from .judgments import record_style_judgment
+
+            rec = record_style_judgment(
+                project_root, file, function, bool(mutant_id), leave, proceed, why.strip()
+            )
+            return _render_flag_style(rec, file, function, project_root)
+        if not mutant_id:
+            return (
+                "STOP. flag needs a surviving mutant id (from audit / converge) — or style=True to judge "
+                "the REGION's form. Nothing was recorded."
+            )
 
         def _go() -> str:
             reason = why.strip()

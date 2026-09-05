@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from . import pins
 from .certify import read_behavior_status
 from .controller import (
+    CONSTRUCTIVE,
     COST_STATIC_DOF_PROXY,
     COST_UNMEASURED,
     SILENT,
@@ -41,7 +42,7 @@ from .controller import (
     orient_for_change,
     plan_moves,
 )
-from .judgments import DISPOSITIONS, judgment_for, judgment_standing
+from .judgments import DISPOSITIONS, PROCEED, judgment_for, judgment_standing
 from .parsimony import (
     _LENS_PRIORITY,
     _OVERLOAD_ZERO,
@@ -215,6 +216,82 @@ def assemble_plan(
     return PlanAssembly(scope=scope, budget=budget, regions=details, plan=plan)
 
 
+REGIME_CONFLICT = "regime_conflict"
+NO_SUCH_FUNCTION = "no_such_function"
+NOTHING_TO_READ = "nothing_to_read"
+
+
+@dataclass(frozen=True)
+class PlanResolution:
+    """What `plan <target>` resolved to, BEFORE any rendering: the assembly, or a typed refusal.
+    ONE resolver for both surfaces (CLI `_run_plan`, MCP `plan`), so the regime check, the narrowing
+    to one region and the three preconditions cannot drift between them. ``detail`` carries a
+    refusal's message without a channel prefix; ``regime`` rides along on a conflict so the surface
+    renders the conflicts in its own idiom."""
+
+    refusal: str  # "" · regime_conflict · no_such_function · nothing_to_read
+    assembly: PlanAssembly | None
+    detail: str = ""
+    regime: object = None
+    file: str = ""
+    function: str = ""
+
+
+def resolve_plan(
+    target: str, project_root: str = ".", budget: float = 500.0, write_dir: str = "tests/detective"
+) -> PlanResolution:
+    """Resolve a `plan` target — a path (a tree) or `file.py::function` (one region) — to its
+    assembly, or refuse (§14.3 / §14.7). The `::` form resolves the testing regime FIRST and refuses
+    a shadowed / colliding target exactly as the live verbs do: a plan over the wrong file is a
+    finding about nothing. Then the preconditions in `plan_exit`'s order: no such function (the
+    file's regions are named) · nothing to read (no Python functions — unmeasured, not clean).
+    STATIC: no live session, no mutant; reads the ledgers and the suite, writes nothing."""
+    root = os.path.abspath(project_root)
+    file = function = ""
+    region_key: str | None = None
+    scope_path = target
+    if "::" in target:
+        file, function = target.rsplit("::", 1)
+        regime = None
+        try:
+            from .regime import resolve_regime
+
+            regime = resolve_regime(root, file)
+        except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
+            regime = None
+        if regime is not None and regime.conflicts:
+            return PlanResolution(REGIME_CONFLICT, None, regime=regime, file=file, function=function)
+        full = file if os.path.isabs(file) else os.path.join(root, file)
+        region_key = f"{os.path.relpath(full, root)}::{function}"
+        scope_path = full
+    assembly = assemble_plan(scope_path, root, budget, write_dir)
+    if region_key is not None:
+        details = tuple(d for d in assembly.regions if d.read.region == region_key)
+        if not details:
+            names = ", ".join(d.read.region.split("::", 1)[1] for d in assembly.regions) or "none"
+            return PlanResolution(
+                NO_SUCH_FUNCTION,
+                None,
+                f"no function {function!r} in {file} — regions in that file: {names}",
+                file=file,
+                function=function,
+            )
+        assembly = PlanAssembly(
+            scope=region_key,
+            budget=assembly.budget,
+            regions=details,
+            plan=plan_moves(tuple(d.read for d in details), assembly.budget),
+            fences_note=assembly.fences_note,
+        )
+    if not assembly.regions:
+        return PlanResolution(
+            NOTHING_TO_READ,
+            None,
+            f"nothing to read under {target} — no Python functions found (unmeasured, not clean)",
+        )
+    return PlanResolution("", assembly, file=file, function=function)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # The communication side (§14.3 / §14.6): what a region's row SAYS the driver does next, and the
 # counts a report is made of. Pure over literals and tuples — what the renderers consume.
@@ -240,45 +317,79 @@ def receipt_path(region: str) -> str:
     return os.path.join(".detective", "receipts", f"{safe}.json")
 
 
-def next_command(reason: str, region: str, gate: str, move: str) -> str:
-    """The ONE next command for a region, from its plan reason (§14.3 — pure, pinned). Every funded
-    move ends by naming its gate invocation, the way `converge` ends by naming its next step; every
-    non-admission names the driver's move — and a verb that does not exist yet is never named,
-    because the surface must not point at a command it lacks. "" means nothing to run.
+# The move a region's plan reason calls for (§14.3 — named codes, consumed by BOTH surfaces). The
+# CLI spells each as a `detective …` line (`next_command`); the MCP surface spells each as a tool
+# call (`mcp_server._plan_call`). Neither re-derives the decision from the reason: a surface that
+# did could name a move the other does not, and the two would drift.
+DECOMPOSE_APPLY = "decompose_apply"  # funded, gate `decompose …` — the split, applied under proof
+RECEIPT_BRACKET = "receipt_bracket"  # funded, gate `receipt …` — receipt, transform, verify-rewrite
+CONVERGE = "converge"  # a behaviour-status reason — the ordering law: style waits
+JUDGE = "judge"  # escalated — AMBIGUOUS is the driver's; record the answer, or ground it first
+AUDIT_PLAN = "audit_plan"  # unpriced — a measured price for what the static instrument could not size
 
-      "funded", gate starting "decompose"   → `decompose … --apply` — the split, applied under proof
-      "funded", gate starting "receipt"     → `receipt … -o <path>`, then the named transform by hand
-                                              or model, then `verify-rewrite <path> …` — the bracket
-      "funded", any other gate              → "" (the grammar names a gate this surface cannot spell)
-      a behavior-status reason             → `converge …` — the ordering law: style waits
-        (unpinned · pinned_stale · pinned_unverified · pinned_incomplete · refused)
-      "escalated"                          → `flag … --style --leave|--proceed` — AMBIGUOUS is the
-                                              driver's, and the answer is RECORDED (§14.5) so it does
-                                              not re-escalate; grounding it with `converge` first is
-                                              named beside it, the one move that is never wrong
-      "unpriced"                           → `audit … --plan` — a measured price for what the static
-                                              instrument could not size
-      fenced · judged_leave · silent · no_template · no_gate · over_budget · anything else → ""
-        (nothing to run; the reason itself is the message)
+
+def next_move(reason: str, gate: str) -> str:
+    """The ONE move a region's plan reason calls for (§14.3 — pure, pinned), as a named code:
+
+    "funded", gate starting "decompose"   → DECOMPOSE_APPLY
+    "funded", gate starting "receipt"     → RECEIPT_BRACKET
+    "funded", any other gate              → ""  (the grammar names a gate no surface can spell)
+    a behaviour-status reason             → CONVERGE  (unpinned · pinned_stale · pinned_unverified ·
+                                                        pinned_incomplete · refused)
+    "escalated"                           → JUDGE
+    "unpriced"                            → AUDIT_PLAN
+    fenced · judged_leave · silent · no_template · no_gate · over_budget · anything else → ""
+      (nothing to run; the reason itself is the message)
     """
     if reason == FUNDED:
         if gate.startswith("decompose"):
-            return f"detective decompose '{region}' --apply"
+            return DECOMPOSE_APPLY
         if gate.startswith("receipt"):
-            path = receipt_path(region)
-            return (
-                f"detective receipt '{region}' -o {path}"
-                f"   # apply the '{move}' transform, then: detective verify-rewrite {path} '{region}'"
-            )
+            return RECEIPT_BRACKET
         return ""
     if reason in _STATUS_REASONS:
-        return f"detective converge '{region}'"
+        return CONVERGE
     if reason == "escalated":
+        return JUDGE
+    if reason == "unpriced":
+        return AUDIT_PLAN
+    return ""
+
+
+def next_command(reason: str, region: str, gate: str, move: str) -> str:
+    """The ONE next command for a region — the CLI's spelling of `next_move` (§14.3 — pure, pinned).
+    Every funded move ends by naming its gate invocation, the way `converge` ends by naming its next
+    step; every non-admission names the driver's move — and a verb that does not exist yet is never
+    named, because the surface must not point at a command it lacks. "" means nothing to run.
+
+      DECOMPOSE_APPLY   → `decompose … --apply` — the split, applied under proof
+      RECEIPT_BRACKET   → `receipt … -o <path>`, then the named transform by hand or model, then
+                          `verify-rewrite <path> …` — the bracket
+      CONVERGE          → `converge …` — the ordering law: style waits
+      JUDGE             → `flag … --style --leave|--proceed` — AMBIGUOUS is the driver's, and the
+                          answer is RECORDED (§14.5) so it does not re-escalate; grounding it with
+                          `converge` first is named beside it, the one move that is never wrong
+      AUDIT_PLAN        → `audit … --plan` — a measured price for what the static instrument could
+                          not size
+      ""                → "" (nothing to run; the reason itself is the message)
+    """
+    move_code = next_move(reason, gate)
+    if move_code == DECOMPOSE_APPLY:
+        return f"detective decompose '{region}' --apply"
+    if move_code == RECEIPT_BRACKET:
+        path = receipt_path(region)
+        return (
+            f"detective receipt '{region}' -o {path}"
+            f"   # apply the '{move}' transform, then: detective verify-rewrite {path} '{region}'"
+        )
+    if move_code == CONVERGE:
+        return f"detective converge '{region}'"
+    if move_code == JUDGE:
         return (
             f"detective flag '{region}' --style --leave --note \"why\""
             f"   # or --proceed; to ground it first: detective converge '{region}'"
         )
-    if reason == "unpriced":
+    if move_code == AUDIT_PLAN:
         return f"detective audit '{region}' --plan"
     return ""
 
@@ -294,6 +405,54 @@ def plan_exit(regime_conflict: bool, region_missing: bool, nothing_read: bool) -
     if regime_conflict or region_missing or nothing_read:
         return 2
     return 0
+
+
+# The closing an AGENT-FACING render ends with (§14.6 / §14.9 slice 8 — pure, pinned). The CLI's
+# block lists everything and ends with a banner of counts; a tool result must end with ONE line the
+# caller acts on, and WHICH line is a decision, not a rendering choice:
+DO_FUNDED = "do_funded"  # a gated move exists — name its gate: the plan's own next call
+DO_CONVERGE = "do_converge"  # nothing funded, but regions wait on a contract — the ordering law
+YOURS = "yours"  # nothing to fund or converge; AMBIGUOUS regions remain — the driver's decision
+DONE = "done"  # nothing funded, nothing waiting, nothing escalated
+
+
+def plan_closing(funded: int, waiting: int, escalated: int) -> str:
+    """Which closing an agent-facing plan render ends with (pure — pinned), in the order the
+    epistemics dictate: a FUNDED move first (its gate is the plan's own next call, and only the gate
+    writes); else a region WAITING on a behaviour contract (style after behaviour, strictly —
+    `converge` is the one move that is never wrong); else the AMBIGUOUS queue handed over as the
+    driver's DECISION (the automation boundary: the controller will not decide it, and a tool must
+    not render a judgment as a task); else done. Counts in, a code out: the renderer names things."""
+    if funded > 0:
+        return DO_FUNDED
+    if waiting > 0:
+        return DO_CONVERGE
+    if escalated > 0:
+        return YOURS
+    return DONE
+
+
+def converge_first(assembly: PlanAssembly) -> tuple[str, ...]:
+    """The regions the ordering law holds back: excluded for a BEHAVIOUR-STATUS reason while the
+    banks read CONSTRUCTIVE — or while the driver has already said PROCEED (an answered ambiguity is
+    a case for change, and behaviour still comes first). ONE definition, consumed by both surfaces."""
+    by_region = {d.read.region: d for d in assembly.regions}
+    return tuple(
+        region
+        for region, reason in assembly.plan.excluded
+        if reason in _STATUS_REASONS
+        and (by_region[region].read.verdict == CONSTRUCTIVE or by_region[region].judgment == PROCEED)
+    )
+
+
+def escalated_regions(assembly: PlanAssembly) -> tuple[str, ...]:
+    """The AMBIGUOUS queue — every region excluded as `escalated`, in plan order."""
+    return tuple(region for region, reason in assembly.plan.excluded if reason == "escalated")
+
+
+def reopened_regions(assembly: PlanAssembly) -> tuple[str, ...]:
+    """Every region whose recorded style judgment no longer applies (`reopened_*`), in plan order."""
+    return tuple(d.read.region for d in assembly.regions if d.judgment.startswith("reopened"))
 
 
 @dataclass(frozen=True)
