@@ -806,13 +806,19 @@ human located at disagreement · the unproposed is unexamined, never approved):
 | behavior status | pinned · pinned_stale · pinned_unverified · unpinned (· refused — deferred) | `certify.behavior_status` (BUILT, slice 1) |
 | clean | clean · unread · not clean | 14.2 demand 1 — one new pure decision |
 | move + gate | the `TEMPLATE_GRAMMAR` entries · `no_template` | `template_matches` (built) |
-| cost provenance | static_dof_proxy · audit_plan_measured | `RegionRead` + one new field |
-| exclusion reason | fenced · escalated · silent · no_template · no_gate · over_budget · **unpinned** | `plan_moves` + ONE new reason |
+| cost provenance | static_dof_proxy · audit_plan_measured | `RegionRead.cost_provenance` (BUILT, slice 2; no default) |
+| exclusion reason | fenced · escalated · silent · verdict_unknown · **unpinned · pinned_stale · pinned_unverified** · status_unknown · no_template · no_gate · admissible; plus over_budget (plan-level) | `controller.admission_reason` (BUILT, slice 2 — extracted from `plan_moves` so the decision is over literals) |
 | budget verdict | refund · parity · regression · unmeasurable · inadmissible | `budget_verdict`, `paired_disposition` (built) |
 | emission | the five dispositions | `run_c_gate` (built) |
 
-The one change to the controller is `unpinned` as a seventh exclusion reason — the ordering law
-made visible in the residual. Everything else is rendering what already exists.
+The ordering law made visible in the residual: a CONSTRUCTIVE region without a current contract
+is excluded under its STATUS CODE — three reasons, not one, because `unpinned`, `pinned_stale`
+and `pinned_unverified` are three facts with one remedy (`converge`) and collapsing them would
+lose which fact held (slice 2 amended the "one new reason" of the first draft). Two further
+codes exist so nothing is admitted by fall-through: `verdict_unknown` and `status_unknown`. The
+behavior-status vocabulary is spelled ONCE, in `pins.py` (`BEHAVIOR_STATUSES`), imported by both
+layers so that neither layer imports the other — the founder's condition that the division never
+blur, kept at the import graph. Everything else is rendering what already exists.
 
 ### 14.5 The judgment ledger — separate from the equivalence ledger, by construction
 

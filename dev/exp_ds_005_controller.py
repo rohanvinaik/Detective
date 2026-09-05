@@ -29,6 +29,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from Detective.certify import read_behavior_status  # noqa: E402
 from Detective.controller import (  # noqa: E402
     RegionRead,
     controller_verdict,
@@ -91,6 +92,10 @@ def main(targets: list[str]) -> None:
     reads: list[RegionRead] = []
     knee = Counter()
     for target in targets:
+        # The target is a PACKAGE dir; its project root (where `tests/detective/` lives and where
+        # converge's func_keys are relative to) is one level up. §14.1: the behavior status is
+        # read off the real generated suite, so the plan funds only what is actually pinned.
+        root = os.path.abspath(os.path.join(target, os.pardir))
         for path in _py_files(target):
             try:
                 with open(path, encoding="utf-8") as fh:
@@ -99,6 +104,8 @@ def main(targets: list[str]) -> None:
                 continue
             for qualname, node, is_method in _functions(tree):
                 span = (node.end_lineno or node.lineno) - node.lineno + 1
+                func_key = f"{os.path.relpath(path, root)}::{qualname}"
+                status = read_behavior_status(root, os.path.join("tests", "detective"), func_key, node)
                 dof = _static_dof(node, is_method)
                 density_vote = _overload_vote(dof / max(1, span)) if dof is not None else 0
                 votes = {
@@ -124,6 +131,8 @@ def main(targets: list[str]) -> None:
                         template=template,
                         gate_exists=template in TEMPLATE_GRAMMAR if template else False,
                         cost=float(dof) if dof is not None else 999.0,
+                        status=status,
+                        cost_provenance="static_dof_proxy",
                     )
                 )
 

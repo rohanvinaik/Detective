@@ -59,6 +59,18 @@ _FIELDS = (
 )
 
 
+# The behavior-status vocabulary (DETERMINISTIC_SICP §14.1) — ONE spelling, imported by BOTH
+# layers so neither depends on the other: the behavior layer's reader (`certify.behavior_status`)
+# produces it, the taste layer's controller (`controller.admission_reason`) consumes it. It lives
+# here because it is a statement about a pin's currency, and this module owns the function's
+# content identity. Only PINNED arms a style gate; every other state routes to `converge`.
+PINNED = "pinned"
+PINNED_STALE = "pinned_stale"
+PINNED_UNVERIFIED = "pinned_unverified"
+UNPINNED = "unpinned"
+BEHAVIOR_STATUSES = (PINNED, PINNED_STALE, PINNED_UNVERIFIED, UNPINNED)
+
+
 def function_digest(node: ast.AST) -> str:
     """Content identity of the target function, matching ``verdict_cache``'s construction.
 

@@ -807,12 +807,12 @@ def behavior_status(owned: bool, has_function_digest: bool, digest_matches: bool
     yet, and the report file is keyed by bare qualname, so it cannot serve as one.
     """
     if not owned:
-        return "unpinned"
+        return pins.UNPINNED
     if edited:
-        return "pinned_stale"
+        return pins.PINNED_STALE
     if not has_function_digest:
-        return "pinned_unverified"
-    return "pinned" if digest_matches else "pinned_stale"
+        return pins.PINNED_UNVERIFIED
+    return pins.PINNED if digest_matches else pins.PINNED_STALE
 
 
 def read_behavior_status(root: str, write_dir: str, func_key: str, node: ast.AST) -> str:

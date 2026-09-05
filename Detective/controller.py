@@ -32,6 +32,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .pins import BEHAVIOR_STATUSES, PINNED
+
 SILENT = "SILENT"
 CONSTRUCTIVE = "CONSTRUCTIVE"
 AMBIGUOUS = "AMBIGUOUS"
@@ -76,7 +78,12 @@ def controller_verdict(supports: int, fence_opposes: int, support_min: int = 2) 
 @dataclass(frozen=True)
 class RegionRead:
     """One region's controller-facing read: the verdict, its strength, the recognized move
-    (template) if any, whether that move's gate exists, and the region's cost estimate."""
+    (template) if any, whether that move's gate exists, the region's cost estimate and WHERE it
+    came from, and the region's BEHAVIOR status (§14.1 — style after behavior, strictly).
+
+    `status` and `cost_provenance` carry NO defaults on purpose: a default status would let a
+    producer that never checked the contract pass as admissible, and a cost without provenance
+    is a number, not a measurement. Every constructor states both."""
 
     region: str
     verdict: str
@@ -84,6 +91,8 @@ class RegionRead:
     template: str | None  # the recognized move family, None when the library abstained
     gate_exists: bool  # §8: no gate, no arc
     cost: float  # the arc-price estimate (v1: the static DOF proxy; live: `audit --plan`)
+    status: str  # `certify.behavior_status` (pins.BEHAVIOR_STATUSES); only PINNED arms a gate
+    cost_provenance: str  # "static_dof_proxy" | "audit_plan_measured"
 
 
 @dataclass(frozen=True)
@@ -96,38 +105,67 @@ class Plan:
     budget_spent: float
 
 
-def plan_moves(regions: tuple[RegionRead, ...], budget: float) -> Plan:
-    """The gated, priced, budgeted plan (pure — pinned). Admission: CONSTRUCTIVE ∧ a recognized
-    template ∧ its gate exists. Order: strongest agreement first, then cheapest, then name (a
-    deterministic total order — no wall-clock, no randomness). Funding: greedy under the budget
-    — EXACTLY optimal here, not merely approximate, because the arcs are independent and the
-    budget is one fungible pool (the degenerate transportation case; the flow solver becomes
-    warranted with multi-resource constraints, recorded in the module docstring). Every
-    exclusion carries its reason:
+def admission_reason(verdict: str, status: str, has_template: bool, gate_exists: bool) -> str:
+    """Why one region is, or is not, admissible to the plan (§14.1 / §14.4 — pure, pinned).
 
-      "fenced"        DESTRUCTIVE — censor-grade elimination, warrant on the censor ledger
-      "escalated"     AMBIGUOUS — the driver's queue, not the plan's
-      "silent"        no case for change
-      "no_template"   CONSTRUCTIVE but no recognized move — a library gap, grown at population
-                      level (never a reason to loosen a recognizer)
-      "no_gate"       a recognized move whose transform has no proof gate — no arc (§8)
+    Extracted from `plan_moves` so the decision is over literals (`RegionRead` is a domain object
+    input synthesis cannot express). The residual must explain itself, so every non-admission is
+    a NAMED reason, checked in the order the laws rank them: the taste verdict first, then the
+    BEHAVIOR status — style after behavior, strictly: a CONSTRUCTIVE region with no current
+    contract is a `converge` target whatever move the library recognized — then the move, then
+    its gate:
+
+      "fenced"             DESTRUCTIVE — censor-grade elimination, warrant on the censor ledger
+      "escalated"          AMBIGUOUS — the driver's queue, not the plan's
+      "silent"             SILENT — no case for change
+      "verdict_unknown"    a verdict outside the four — named, never admitted by fall-through
+      "unpinned" · "pinned_stale" · "pinned_unverified"
+                           CONSTRUCTIVE but no CURRENT Detective contract: the status code IS the
+                           reason, because the three collapse into one otherwise and they are
+                           three different facts (§14.1); next command `converge`
+      "status_unknown"     a status outside `pins.BEHAVIOR_STATUSES` — named, never admitted
+      "no_template"        CONSTRUCTIVE ∧ pinned, but no recognized move — a library gap, grown
+                           at population level (never a reason to loosen a recognizer)
+      "no_gate"            a recognized move whose transform has no proof gate — no arc (§8)
+      "admissible"         CONSTRUCTIVE ∧ pinned ∧ recognized ∧ gated — may carry flow
+    """
+    if verdict == DESTRUCTIVE:
+        return "fenced"
+    if verdict == AMBIGUOUS:
+        return "escalated"
+    if verdict == SILENT:
+        return "silent"
+    if verdict != CONSTRUCTIVE:
+        return "verdict_unknown"
+    if status != PINNED:
+        return status if status in BEHAVIOR_STATUSES else "status_unknown"
+    if not has_template:
+        return "no_template"
+    if not gate_exists:
+        return "no_gate"
+    return "admissible"
+
+
+def plan_moves(regions: tuple[RegionRead, ...], budget: float) -> Plan:
+    """The gated, priced, budgeted plan (pure over `RegionRead`s; the per-region decision is the
+    pinned :func:`admission_reason`). Admission: CONSTRUCTIVE ∧ PINNED ∧ a recognized template ∧
+    its gate exists. Order: strongest agreement first, then cheapest, then name (a deterministic
+    total order — no wall-clock, no randomness). Funding: greedy under the budget — EXACTLY
+    optimal here, not merely approximate, because the arcs are independent and the budget is one
+    fungible pool (the degenerate transportation case; the flow solver becomes warranted with
+    multi-resource constraints, recorded in the module docstring). Every exclusion carries its
+    reason — the `admission_reason` codes, plus the one only the plan can decide:
+
       "over_budget"   admissible but unfunded this cycle
     """
     admissible = []
     excluded: list[tuple[str, str]] = []
     for r in regions:
-        if r.verdict == DESTRUCTIVE:
-            excluded.append((r.region, "fenced"))
-        elif r.verdict == AMBIGUOUS:
-            excluded.append((r.region, "escalated"))
-        elif r.verdict == SILENT:
-            excluded.append((r.region, "silent"))
-        elif r.template is None:
-            excluded.append((r.region, "no_template"))
-        elif not r.gate_exists:
-            excluded.append((r.region, "no_gate"))
-        else:
+        reason = admission_reason(r.verdict, r.status, r.template is not None, r.gate_exists)
+        if reason == "admissible":
             admissible.append(r)
+        else:
+            excluded.append((r.region, reason))
     admissible.sort(key=lambda r: (-r.agreement, r.cost, r.region))
     funded: list[RegionRead] = []
     spent = 0.0
