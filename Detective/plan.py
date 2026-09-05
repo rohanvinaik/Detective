@@ -29,6 +29,7 @@ import ast
 import os
 from dataclasses import dataclass
 
+from . import pins
 from .certify import read_behavior_status
 from .controller import (
     COST_STATIC_DOF_PROXY,
@@ -196,3 +197,120 @@ def assemble_plan(
     rel = os.path.relpath(target, root_abs)
     scope = rel if rel != "." else (os.path.basename(root_abs) or "repo")
     return PlanAssembly(scope=scope, budget=budget, regions=details, plan=plan)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The communication side (§14.3 / §14.6): what a region's row SAYS the driver does next, and the
+# counts a report is made of. Pure over literals and tuples — what the renderers consume.
+# ─────────────────────────────────────────────────────────────────────────────
+
+FUNDED = "funded"
+_STATUS_REASONS = (
+    pins.PINNED_STALE,
+    pins.PINNED_UNVERIFIED,
+    pins.PINNED_INCOMPLETE,
+    pins.REFUSED,
+    pins.UNPINNED,
+)
+
+
+def receipt_path(region: str) -> str:
+    """Where the plan SUGGESTS a region's receipt live — `.detective/receipts/<key>.json` (pure —
+    pinned). A suggestion, not a ledger: `receipt -o` takes any path and `verify-rewrite` takes it
+    back explicitly; this only makes the two commands the plan prints agree with each other. Not
+    under `purge`: a receipt is a deliberate snapshot taken BEFORE a rewrite and cannot be
+    regenerated once the source has moved."""
+    safe = region.replace("::", "__").replace("/", "_").replace("\\", "_").replace(".", "_")
+    return os.path.join(".detective", "receipts", f"{safe}.json")
+
+
+def next_command(reason: str, region: str, gate: str, move: str) -> str:
+    """The ONE next command for a region, from its plan reason (§14.3 — pure, pinned). Every funded
+    move ends by naming its gate invocation, the way `converge` ends by naming its next step; every
+    non-admission names the driver's move — and a verb that does not exist yet is never named,
+    because the surface must not point at a command it lacks. "" means nothing to run.
+
+      "funded", gate starting "decompose"   → `decompose … --apply` — the split, applied under proof
+      "funded", gate starting "receipt"     → `receipt … -o <path>`, then the named transform by hand
+                                              or model, then `verify-rewrite <path> …` — the bracket
+      "funded", any other gate              → "" (the grammar names a gate this surface cannot spell)
+      a behavior-status reason             → `converge …` — the ordering law: style waits
+        (unpinned · pinned_stale · pinned_unverified · pinned_incomplete · refused)
+      "escalated"                          → `converge …` — AMBIGUOUS is the driver's; grounding it is
+                                              the one command that is never wrong first (the recorded
+                                              style judgment is slice 6, so it is NOT named yet)
+      "unpriced"                           → `audit … --plan` — a measured price for what the static
+                                              instrument could not size
+      fenced · silent · no_template · no_gate · over_budget · anything else → "" (nothing to run;
+        the reason itself is the message)
+    """
+    if reason == FUNDED:
+        if gate.startswith("decompose"):
+            return f"detective decompose '{region}' --apply"
+        if gate.startswith("receipt"):
+            path = receipt_path(region)
+            return (
+                f"detective receipt '{region}' -o {path}"
+                f"   # apply the '{move}' transform, then: detective verify-rewrite {path} '{region}'"
+            )
+        return ""
+    if reason in _STATUS_REASONS or reason == "escalated":
+        return f"detective converge '{region}'"
+    if reason == "unpriced":
+        return f"detective audit '{region}' --plan"
+    return ""
+
+
+@dataclass(frozen=True)
+class PlanSummary:
+    """The counts a report is made of — every one a NAMED code's tally, never a score."""
+
+    regions: int
+    verdicts: tuple[
+        tuple[str, int], ...
+    ]  # (verdict, count), fixed order: CONSTRUCTIVE · AMBIGUOUS · DESTRUCTIVE · SILENT
+    clean: tuple[tuple[str, int], ...]  # (clean · unread · not_clean, count)
+    reasons: tuple[tuple[str, int], ...]  # (exclusion reason, count), most frequent first, then name
+    funded: int
+    spent: float
+    unexamined: tuple[str, ...]  # what this plan did NOT examine, said in words
+
+
+_VERDICT_ORDER = ("CONSTRUCTIVE", "AMBIGUOUS", "DESTRUCTIVE", SILENT)
+_CLEAN_ORDER = (CLEAN, UNREAD, NOT_CLEAN)
+
+
+def unexamined(fences_note: str, template_count: int) -> tuple[str, ...]:
+    """The line every plan report ends its findings with (§14.2 demand 4 — pure, pinned): what
+    this plan did NOT propose is UNEXAMINED, not approved. Three standing items and the sentence
+    that frames them; a new bank or a grown library changes the items, never the sentence."""
+    return (
+        "what this plan did not propose is UNEXAMINED, not approved",
+        "regime — unread: it needs a live mutation profile this static plan never runs",
+        fences_note,
+        f"recognizers — {template_count} template(s); a region with no match is a library gap, "
+        "not a clean bill",
+    )
+
+
+def summarize(assembly: PlanAssembly) -> PlanSummary:
+    """Tally one assembly (pure over its tuples). Counts only — the residual's every reason, the
+    verdict distribution, clean / unread / not-clean — so the renderers print codes, never sums."""
+    verdicts = {v: 0 for v in _VERDICT_ORDER}
+    clean = {c: 0 for c in _CLEAN_ORDER}
+    for d in assembly.regions:
+        verdicts[d.read.verdict] = verdicts.get(d.read.verdict, 0) + 1
+        clean[d.clean] = clean.get(d.clean, 0) + 1
+    reasons: dict[str, int] = {}
+    for _region, reason in assembly.plan.excluded:
+        reasons[reason] = reasons.get(reason, 0) + 1
+    return PlanSummary(
+        regions=len(assembly.regions),
+        verdicts=tuple((v, verdicts[v]) for v in _VERDICT_ORDER)
+        + tuple((v, n) for v, n in verdicts.items() if v not in _VERDICT_ORDER),
+        clean=tuple((c, clean[c]) for c in _CLEAN_ORDER),
+        reasons=tuple(sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
+        funded=len(assembly.plan.funded),
+        spent=assembly.plan.budget_spent,
+        unexamined=unexamined(assembly.fences_note, len(TEMPLATE_GRAMMAR)),
+    )

@@ -416,6 +416,225 @@ def _format_parsimony_plan(score, top: int = 10) -> str:
     return "\n".join(lines)
 
 
+# ── the `plan` surface (DETERMINISTIC_SICP §14.3 / §14.6) ───────────────────────────────────────
+# The taste layer's report. Everything printed here is a NAMED code's tally or a named region's row:
+# no score, no percentage but clean% (defined: clean / measured), every exclusion by reason, and the
+# next command per region from the ONE pinned decision (`plan.next_command`). Advisory — static,
+# proves nothing, writes nothing — and it says so in the header, the unexamined line, and the banner.
+
+
+def _plan_reason_index(assembly) -> dict[str, str]:
+    """region → its plan reason (`funded` for the funded list) — one lookup for every renderer, so
+    the terse block, the full report and the JSON cannot disagree about why a region is where it is."""
+    from .plan import FUNDED
+
+    reasons = {region: reason for region, reason in assembly.plan.excluded}
+    for r in assembly.plan.funded:
+        reasons[r.region] = FUNDED
+    return reasons
+
+
+def _plan_move(detail) -> str:
+    from .templates import TEMPLATE_GRAMMAR
+
+    template = detail.read.template
+    return TEMPLATE_GRAMMAR[template][0] if template in TEMPLATE_GRAMMAR else ""
+
+
+def _plan_region_command(detail, reason: str) -> str:
+    from .plan import next_command
+
+    return next_command(reason, detail.read.region, detail.gate, _plan_move(detail))
+
+
+def _plan_final_banner(summary, scope: str) -> str:
+    """The greppable, ALWAYS-LAST line of a plan report — counts of named codes, and the word
+    advisory, so a `tail` never mistakes a plan for a proof."""
+    v, c = dict(summary.verdicts), dict(summary.clean)
+    return (
+        f"FINAL plan {scope}: {summary.funded} funded · {v.get('CONSTRUCTIVE', 0)} constructive · "
+        f"{v.get('AMBIGUOUS', 0)} escalated · {v.get('DESTRUCTIVE', 0)} fenced · {v.get('SILENT', 0)} silent "
+        f"(clean {c.get('clean', 0)} · unread {c.get('unread', 0)}) · advisory — writes nothing"
+    )
+
+
+def _format_plan_terse(assembly, report_path: str = "", top: int = 5) -> str:
+    """`detective plan`'s default block: verdict counts · the funded moves with their next command ·
+    the residual with EVERY reason named · the converge-first list (the ordering law, visible) · the
+    driver's queue · the unexamined line · the report pointer — then the FINAL banner, LAST."""
+    from .controller import CONSTRUCTIVE
+    from .plan import _STATUS_REASONS, FUNDED, summarize
+
+    s = summarize(assembly)
+    v, c = dict(s.verdicts), dict(s.clean)
+    by_region = {d.read.region: d for d in assembly.regions}
+    lines = [
+        _RULE,
+        f"{assembly.scope} — plan · {s.regions} regions · {v.get('CONSTRUCTIVE', 0)} constructive · "
+        f"{v.get('AMBIGUOUS', 0)} ambiguous · {v.get('DESTRUCTIVE', 0)} destructive · "
+        f"{v.get('SILENT', 0)} silent (clean {c.get('clean', 0)} · unread {c.get('unread', 0)})"
+        "   (advisory — static, writes nothing)",
+        "",
+        _row(
+            "funded",
+            f"{s.funded} of {v.get('CONSTRUCTIVE', 0)} constructive · "
+            f"budget {assembly.budget:g} DOF-proxy · spent {s.spent:g}",
+        ),
+    ]
+    for r in assembly.plan.funded[:top]:
+        d = by_region[r.region]
+        lines.append(
+            _row(
+                "",
+                f"{r.region}   agreement {r.agreement} · {r.template} → {_plan_move(d)} · "
+                f"cost {r.cost:g} ({r.cost_provenance})",
+            )
+        )
+        lines.append(_row("  DO THIS", _plan_region_command(d, FUNDED)))
+    if len(assembly.plan.funded) > top:
+        lines.append(_row("", f"… {len(assembly.plan.funded) - top} more funded — all in the report"))
+    if not assembly.plan.funded:
+        lines.append(_row("", "nothing funded — every constructive region is excluded below, by name"))
+    lines.append("")
+    named = " · ".join(f"{reason} {n}" for reason, n in s.reasons) or "none"
+    lines.append(_row("residual", f"every exclusion named: {named}"))
+    waiting = [
+        region
+        for region, reason in assembly.plan.excluded
+        if reason in _STATUS_REASONS and by_region[region].read.verdict == CONSTRUCTIVE
+    ]
+    if waiting:
+        more = f"  (+{len(waiting) - 3} more in the report)" if len(waiting) > 3 else ""
+        lines.append(
+            _row(
+                "· converge first",
+                f"{len(waiting)} constructive region(s) have no current contract — style waits: "
+                f"{', '.join(waiting[:3])}{more}",
+            )
+        )
+    escalated = [region for region, reason in assembly.plan.excluded if reason == "escalated"]
+    if escalated:
+        lines.append(
+            _row(
+                "· yours",
+                f"{len(escalated)} AMBIGUOUS — one lens each, or the two signs disagree; the driver's call "
+                "(a recorded style judgment is not yet a command — ground it with converge)",
+            )
+        )
+    lines.append("")
+    lines.append(_row("· unexamined", s.unexamined[0]))
+    for item in s.unexamined[1:]:
+        lines.append(_row("", item))
+    if report_path:
+        lines.append(_row("· full report", report_path))
+    lines.append("")
+    lines.append(_plan_final_banner(s, assembly.scope))
+    return "\n".join(lines)
+
+
+def _format_plan_full(assembly, report_path: str = "") -> str:
+    """The archive: every region, one block each — funded first, then by verdict, strongest agreement
+    first — with every lens that voted −1, every lens that could NOT be measured, the reason, and the
+    next command. Written to `.detective/reports/` on every run; printed with `--full`."""
+    from .plan import FUNDED, summarize
+
+    s = summarize(assembly)
+    reasons = _plan_reason_index(assembly)
+    order = {"CONSTRUCTIVE": 1, "AMBIGUOUS": 2, "DESTRUCTIVE": 3, "SILENT": 4}
+
+    def key(d):
+        reason = reasons.get(d.read.region, "")
+        return (0 if reason == FUNDED else order.get(d.read.verdict, 5), -d.read.agreement, d.read.region)
+
+    lines = [
+        _RULE,
+        f"{assembly.scope} — plan (full) · {s.regions} regions · "
+        f"budget {assembly.budget:g} DOF-proxy · spent {s.spent:g}",
+        "",
+    ]
+    for d in sorted(assembly.regions, key=key):
+        r = d.read
+        reason = reasons.get(r.region, "")
+        smells = " · ".join(f"{lens.name} ({lens.detail})" for lens in d.lenses if lens.vote == -1) or "—"
+        unmeasured = ", ".join(lens.name for lens in d.lenses if not lens.measured)
+        lines.append(f"  {r.region}")
+        lines.append(
+            _row("", f"{r.verdict} · {reason} · status {r.status} · {d.clean} · agreement {r.agreement}")
+        )
+        lines.append(_row("", f"smells: {smells}"))
+        if unmeasured:
+            lines.append(_row("", f"unmeasured: {unmeasured}"))
+        if r.template:
+            lines.append(
+                _row(
+                    "",
+                    f"template {r.template} → {_plan_move(d)} · gate {d.gate or 'none'} · "
+                    f"{d.template_evidence}",
+                )
+            )
+        lines.append(_row("", f"cost {r.cost:g} ({r.cost_provenance})"))
+        cmd = _plan_region_command(d, reason)
+        if cmd:
+            lines.append(_row("  next", cmd))
+        lines.append("")
+    lines.append(_row("· unexamined", s.unexamined[0]))
+    for item in s.unexamined[1:]:
+        lines.append(_row("", item))
+    if report_path:
+        lines.append(_row("· full report", report_path))
+    lines.append("")
+    lines.append(_plan_final_banner(s, assembly.scope))
+    return "\n".join(lines)
+
+
+def _plan_payload(assembly, report_path: str = "") -> dict:
+    """The `--json` shape: the same tallies and the same per-region rows the human sees, every
+    region in `funded` or `excluded` with its reason and next command — wrapped by `_emit_json` so
+    the exit field rides along. The taste CLAIMS live in `verdicts` / `clean` / `reasons`, never in
+    the exit label (§14.7)."""
+    from .plan import FUNDED, summarize
+
+    s = summarize(assembly)
+    by_region = {d.read.region: d for d in assembly.regions}
+
+    def region_json(d, reason: str) -> dict:
+        r = d.read
+        return {
+            "region": r.region,
+            "verdict": r.verdict,
+            "reason": reason,
+            "status": r.status,
+            "clean": d.clean,
+            "agreement": r.agreement,
+            "template": r.template,
+            "move": _plan_move(d) or None,
+            "gate": d.gate or None,
+            "template_evidence": d.template_evidence or None,
+            "cost": r.cost,
+            "cost_provenance": r.cost_provenance,
+            "smells": [{"lens": lens.name, "detail": lens.detail} for lens in d.lenses if lens.vote == -1],
+            "unmeasured": [lens.name for lens in d.lenses if not lens.measured],
+            "next_command": _plan_region_command(d, reason) or None,
+        }
+
+    return {
+        "kind": "plan",
+        "note": "advisory — static, proves nothing, writes nothing; every count is a named code's tally",
+        "scope": assembly.scope,
+        "budget": assembly.budget,
+        "spent": s.spent,
+        "regions": s.regions,
+        "verdicts": dict(s.verdicts),
+        "clean": dict(s.clean),
+        "reasons": dict(s.reasons),
+        "funded": [region_json(by_region[r.region], FUNDED) for r in assembly.plan.funded],
+        "excluded": [region_json(by_region[region], reason) for region, reason in assembly.plan.excluded],
+        "unexamined": list(s.unexamined),
+        "fences_note": assembly.fences_note,
+        "report": report_path or None,
+    }
+
+
 def _format_censor_proposal(rows: list, total: int, top: int) -> str:
     """The ranked censor PROPOSAL render (read-only): each near-miss with its marginal-κ and the
     per-censor disposition (propose / abstain_low_kappa / refuse_inadmissible). Advisory — nothing

@@ -920,6 +920,42 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    fund; one lens escalates; clean is measured, not assumed).]
 4. Renderers — terse / full / JSON; `.detective/reports/plan_*.txt`; the unexamined line; clean
    defined per 14.2 (one pure decision).
+   [BUILT 2026-09-05 — `cli._format_plan_terse` / `_format_plan_full` / `_plan_payload`, beside the
+   other formatters, all consuming `plan.summarize` (named-code tallies only: verdicts · clean /
+   unread / not_clean · every exclusion reason) and ONE pinned decision for the next command,
+   `plan.next_command(reason, region, gate, move)`: a funded move ends by naming its gate
+   invocation (`decompose … --apply`, or `receipt … -o <path>` then the named transform then
+   `verify-rewrite <path> …` — the bracket), every behavior-status reason and `escalated` name
+   `converge` (the ordering law; and a recorded style judgment is NOT named because `flag --style`
+   is slice 6 — the surface never points at a verb it lacks), `unpriced` names `audit … --plan`,
+   the rest name nothing. `plan.receipt_path` suggests `.detective/receipts/<key>.json` — a
+   suggestion the two printed commands agree on, not a ledger, and not under `purge` (a receipt is
+   a deliberate pre-rewrite snapshot). The terse block: header counts · funded moves with DO THIS
+   · the residual with every reason named · "converge first" (constructive regions with no
+   current contract — the ordering law, visible) · "yours" (the AMBIGUOUS queue) · the unexamined
+   line (`plan.unexamined`: the sentence, regime unread, the fences note, the recognizer count) ·
+   the report pointer · the FINAL banner LAST with the word advisory. The full report: every
+   region once, funded first then by verdict, with every −1 lens, every unmeasured lens, the
+   reason and the next command. The JSON: the same rows and tallies, wrapped by `_emit_json`, the
+   taste claims in `verdicts` / `clean` / `reasons`, never in the exit label. No percentage
+   anywhere; no word "score". The renderers are the unit-guarded shell with intent tests over a
+   hand-built assembly. The report FILE write and the verb are slice 5.
+   **Pins — the grind, recorded (2026-09-05).** `converge` on `plan.py::next_command` (4 str
+   params) ran 51 minutes at 100% CPU in the witness pass ("searching richer inputs") with no
+   output and was killed; `plan.py::receipt_path` (ONE str param, every mutant already killed in
+   pass 1) then ran 54 minutes in the same phase and was killed. Both carried `--deadline 1200`.
+   Not memory (RSS < 200 MB), not a lock, no children: `.detective/verdict_cache.json` was being
+   rewritten every few minutes and grew 1.7 → 4.3 MB — the speculative widen was profiling the
+   mutants against test after test across the suite, cost scaling with the SUITE for a target
+   ROUTED to one test. **Two behavior-layer defects, surfaced for the founder, not fixed here:**
+   (i) the aggregate `--deadline` is not honored inside the witness pass's widen (the help
+   promises every phase draws from the one wall; `classify_survivors` takes `deadline_s`, yet
+   the loop ran 3× past it); (ii) the widen's candidate set is not bounded by the target's
+   reachability, so a one-test function pays the whole suite. The three plan.py decisions
+   (`next_command` · `receipt_path` · `unexamined`) therefore stand on their HAND-WRITTEN truth
+   tables (tests/test_plan_render_intent.py) under the founder's targeted-exemption protocol —
+   exemption REQUESTED, each needs its own grant. `clean_disposition` (slice 3) converged
+   normally minutes earlier in the same file, so the grind is phase-specific, not file-specific.]
 5. The `plan` verb, `_COMMAND_HELP` pedagogy, `_REGIME_STAGE` on the `file::fn` form; the
    `parsimony` deprecation shim.
 6. `flag --style`, `.detective/judgments.json`, the reopen rule (one pure decision).
