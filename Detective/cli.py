@@ -4309,6 +4309,18 @@ def _build_parser() -> argparse.ArgumentParser:
     verify_p.add_argument("--project-root", default=".", help="project root the target is relative to")
     verify_p.add_argument("--json", action="store_true", help="emit the verification as JSON")
     verify_p.add_argument(
+        "--budget",
+        action="store_true",
+        help="ALSO read the rewrite's payoff, in OPCODES (never wall-clock): both implementations run "
+        "along a size ladder built from the function's parameter annotations (int · str · list[int] · "
+        "list[str] · set[int] · dict[str,int]); each arm's growth class, the ratio at the top, and a "
+        "verdict — refund · parity · regression · unmeasurable — under the two-ledger law: the "
+        "preservation verdict owns validity (a rewrite that changed behaviour is INADMISSIBLE whatever "
+        "its counts), the budget is only ever the payoff. A parameter with no supported annotation, or "
+        "an interpreter without sys.monitoring (< 3.12), reads UNMEASURABLE with the reason — and a "
+        "PRESERVED rewrite whose budget could not be measured exits 3, never 0.",
+    )
+    verify_p.add_argument(
         "--learn",
         action="store_true",
         help="on a CHANGED verdict, SOURCE censors from the rejected rewrite (§9's second spine "
@@ -5793,6 +5805,83 @@ def _run_flag(args, file, function) -> int:
     return 0
 
 
+def _paired_budget(receipt, file: str, function: str, project_root: str, gate_preserved: bool):
+    """Both arms of the paired opcode read (§7, §14.3 slice 7): the OLD implementation from the
+    receipt's recorded source, the NEW from disk — the same loaders `verify_rewrite` uses — over a
+    ladder shaped by the NEW definition's parameter annotations. Never a number for a shape it cannot
+    ladder: a method (no receiver ladder at v1), an unannotated parameter, or an arm that will not
+    load all read UNMEASURABLE with the reason named."""
+    import ast as _ast
+
+    from .budget import PairedBudgetRead, ladder_kinds, paired_budget_read, paired_disposition
+    from .engine import _load_original
+    from .rewrite import _function_source, _load_old_callable
+
+    def _unmeasurable(note: str) -> PairedBudgetRead:
+        return PairedBudgetRead(
+            (),
+            (),
+            (),
+            "unmeasurable",
+            "unmeasurable",
+            0.0,
+            gate_preserved,
+            "unmeasurable",
+            paired_disposition(gate_preserved, "unmeasurable"),
+            note=note,
+        )
+
+    if "." in function:
+        return _unmeasurable("a method has no receiver ladder at v1 — the paired read covers functions")
+    root = os.path.abspath(project_root)
+    full = file if os.path.isabs(file) else os.path.join(root, file)
+    fs = _function_source(full, function)
+    if fs is None:
+        return _unmeasurable(f"function {function!r} not found in {file}")
+    node = fs[1]
+    params = [a for a in node.args.args if a.arg not in ("self", "cls")]
+    kinds = ladder_kinds(
+        tuple(_ast.unparse(a.annotation) if a.annotation is not None else "" for a in params)
+    )
+    new_fn = _load_original(full, function)
+    old_fn = (
+        _load_old_callable(receipt, getattr(new_fn, "__globals__", {}) or {}, function) if new_fn else None
+    )
+    if new_fn is None or old_fn is None:
+        return _unmeasurable(
+            "could not load both implementations (the receipt's recorded source, or the new module)"
+        )
+    return paired_budget_read(old_fn, new_fn, kinds, gate_preserved)
+
+
+def _format_budget_block(b) -> str:
+    """The paired budget read (§7): both arms in OPCODES — the instrument's stated unit, printed with
+    every number — their growth classes, the ratio at the top of the ladder, the delta gate, and the
+    disposition. Rendered beneath the verdict it rides on; it never changes that verdict."""
+    lines = [
+        "",
+        _row(f"· budget ({b.unit})", f"ladder {list(b.sizes)}" if b.sizes else "no ladder could be run"),
+    ]
+    if b.sizes:
+        lines.append(_row("", f"old: {list(b.incumbent_counts)} → {b.incumbent_class}"))
+        lines.append(_row("", f"new: {list(b.candidate_counts)} → {b.candidate_class}"))
+        lines.append(
+            _row("", f"ratio at top: {b.ratio_at_top:.3f}  (new / old, {b.unit}; Python-level work only)")
+        )
+    gate = (
+        "0 on every ladder input, and the verdict is PRESERVED" if b.delta_zero else "NONZERO — inadmissible"
+    )
+    lines.append(_row("", f"delta gate: {gate}"))
+    lines.append(_row("", f"disposition: {b.disposition}"))
+    if b.note:
+        lines.append(_row("", b.note))
+    if b.disposition == "unmeasurable":
+        lines.append("")
+        lines.append("       the paired read could not measure — see the note above; a PRESERVED rewrite")
+        lines.append("       with an unmeasurable payoff exits 3 (invalid measurement), never 0.")
+    return "\n".join(lines)
+
+
 def _run_verify_rewrite(args, file, function) -> int:
     from .rewrite import (
         _RECEIPT_SCHEMA,
@@ -5846,17 +5935,27 @@ def _run_verify_rewrite(args, file, function) -> int:
     result = verify_rewrite(
         receipt, file, function, args.project_root, notify=None if args.json else _notify_stderr
     )
+    # The verdict maps onto the four-valued exit contract via `verify_rewrite_exit`. With --budget
+    # (§14.3 slice 7) the paired opcode read rides BENEATH that verdict and can only ever move a
+    # PRESERVED 0 to a 3 — "the payoff could not be measured" — never a 1 to anything else: the
+    # gate owns validity, the budget is only ever the payoff (`budget_exit`, pinned).
+    code = verify_rewrite_exit(result.verdict)
+    budget = None
+    if getattr(args, "budget", False):
+        from .budget import budget_exit
+
+        budget = _paired_budget(receipt, file, function, args.project_root, result.verdict == "PRESERVED")
+        code = budget_exit(code, budget.disposition)
     if args.json:
         # WRAP, not early-return: the --learn persistence below runs under --json too.
-        print(
-            json.dumps(
-                _with_exit(asdict(result), verify_rewrite_exit(result.verdict)),
-                indent=2,
-                default=str,
-            )
-        )
+        payload = asdict(result)
+        if budget is not None:
+            payload["budget"] = asdict(budget)
+        print(json.dumps(_with_exit(payload, code), indent=2, default=str))
     else:
         print(_format_rewrite(result))
+        if budget is not None:
+            print(_format_budget_block(budget))
     # --learn (#17): a CHANGED rewrite is §9's SECOND spine source. `learn_disposition` is the
     # pure gate (flag off → skip_disabled; not CHANGED → skip_unchanged); only "learn" harvests
     # the near-misses, κ-scores them over the call graph via the SAME corpus fixpoint `censor
@@ -5879,11 +5978,11 @@ def _run_verify_rewrite(args, file, function) -> int:
                 f"learned {len(promoted)} censor(s) from the rejected rewrite "
                 f"({len(censors)} near-miss candidate(s)) → .detective/censors.json"
             )
-    # The verdict maps onto the four-valued exit contract via `verify_rewrite_exit`: PRESERVED passes
-    # (0); CHANGED/UNREVIEWED are a determined gap (1); an unusable receipt is a precondition to
-    # regenerate (2); ABSTAIN is an invalid measurement to re-run (3). CI branches on the code, and a
-    # --json consumer on `exit_meaning` — neither is told "gap" when the truth is "fix your receipt".
-    return verify_rewrite_exit(result.verdict)
+    # PRESERVED passes (0); CHANGED/UNREVIEWED are a determined gap (1); an unusable receipt is a
+    # precondition to regenerate (2); ABSTAIN — or a PRESERVED rewrite whose --budget read could not
+    # measure — is an invalid measurement to re-run (3). CI branches on the code, and a --json
+    # consumer on `exit_meaning` — neither is told "gap" when the truth is "fix your receipt".
+    return code
 
 
 def _run_receipt(args, file, function) -> int:

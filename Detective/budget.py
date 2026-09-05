@@ -23,6 +23,7 @@ from __future__ import annotations
 import math
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 
 # The growth-class boundaries — the measurement's stated parameters, not truths. Log-log tail
 # slope m maps to a COARSE named band; n·log n sits in "linear" at these widths (stated, not
@@ -137,6 +138,162 @@ def ladder_value(kind: str, size: int):
     if kind == "dict[str,int]":
         return {f"k{i}": i for i in range(size)}
     return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The paired read as a library (§14.3 slice 7 — `verify-rewrite --budget`): EXP-DS-003's harness
+# made a function the gate can call. Every claim it makes is in OPCODES and says so.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The size ladder the paired read climbs — EXP-DS-003's, stated. Six points, doubling: enough for
+# a median tail slope; small enough that a quadratic arm finishes in seconds.
+LADDER: tuple[int, ...] = (16, 32, 64, 128, 256, 512)
+
+UNIT = "opcodes"
+
+# Annotation text (as `ast.unparse` renders it, spaces removed) → the `ladder_value` kind it
+# denotes. EXACT matches only: a bare `list` or an unknown class has no ladder — guessing an element
+# type would price the wrong function (see `ladder_kinds`).
+_ANNOTATION_KINDS = {
+    "int": "int",
+    "str": "str",
+    "list[int]": "list[int]",
+    "list[str]": "list[str]",
+    "set[int]": "set[int]",
+    "dict[str,int]": "dict[str,int]",
+}
+
+
+def ladder_kinds(annotations: tuple[str, ...]) -> tuple[str, ...] | None:
+    """The size-ladder kind for each parameter, from its annotation text (pure — pinned), or
+    ``None`` when the read cannot be built honestly:
+
+      * a parameter with no supported annotation (``list`` bare, ``Foo``, ``""``): its size axis is
+        not knowable here, and a guessed element type would price a different function — refuse;
+      * no parameters at all: nothing to scale, a growth class would be meaningless — refuse.
+
+    Spaces are ignored (``dict[str, int]`` and ``dict[str,int]`` are one annotation). The caller
+    renders ``None`` as UNMEASURABLE with the remedy named — annotate, or skip ``--budget`` — never
+    as a number.
+    """
+    if not annotations:
+        return None
+    kinds: list[str] = []
+    for text in annotations:
+        kind = _ANNOTATION_KINDS.get(text.replace(" ", ""))
+        if kind is None:
+            return None
+        kinds.append(kind)
+    return tuple(kinds)
+
+
+def budget_exit(verify_exit: int, disposition: str) -> int:
+    """`verify-rewrite --budget`'s exit (§14.7 — pure, pinned): the verify verdict's own code stands —
+    a determined negative (1) or a precondition (2) outranks anything the budget read has to say —
+    EXCEPT that a PRESERVED verdict (0) whose paired read could not measure (``"unmeasurable"``)
+    exits ``3``: cannot-determine must never render as determined (founder ruling 2026-09-05).
+    ``inadmissible`` under a 0 cannot occur (the gate said preserved), and if it ever did the 0
+    would stand: the gate owns validity, the budget is only ever the payoff."""
+    if verify_exit == 0 and disposition == "unmeasurable":
+        return 3
+    return verify_exit
+
+
+@dataclass(frozen=True)
+class PairedBudgetRead:
+    """One paired read: both arms' counts along the ladder, their growth classes, the ratio at the
+    top, the delta gate, and the verdict the two-ledger law lets stand. ``unit`` is the instrument's
+    stated boundary, printed with every number."""
+
+    sizes: tuple[int, ...]
+    incumbent_counts: tuple[int, ...]
+    candidate_counts: tuple[int, ...]
+    incumbent_class: str
+    candidate_class: str
+    ratio_at_top: float
+    delta_zero: bool
+    verdict: str  # budget_verdict: refund · parity · regression · unmeasurable
+    disposition: str  # paired_disposition: the verdict, or "inadmissible" when delta ≠ 0
+    unit: str = UNIT
+    note: str = ""
+
+
+def paired_budget_read(
+    incumbent: Callable,
+    candidate: Callable,
+    kinds: tuple[str, ...] | None,
+    gate_preserved: bool,
+    ladder: tuple[int, ...] = LADDER,
+) -> PairedBudgetRead:
+    """Run both arms along the ladder and read the payoff (the I/O-free instrument shell — unit-
+    guarded, not pinned). The two-ledger law holds twice: ``gate_preserved`` is the proof gate's
+    word (a rewrite the gate did not pass is inadmissible whatever its counts), and every ladder
+    input is ALSO compared arm-to-arm — a disagreement there is a distinguishing input the gate
+    missed, and it is reported in ``note`` rather than averaged away. ``kinds=None`` (no honest
+    ladder) and a counter that cannot run (no ``sys.monitoring``) both read UNMEASURABLE with the
+    reason named; neither ever reads as a number."""
+    from .equivalence import _outcome
+
+    if kinds is None:
+        return PairedBudgetRead(
+            (),
+            (),
+            (),
+            "unmeasurable",
+            "unmeasurable",
+            0.0,
+            gate_preserved,
+            "unmeasurable",
+            paired_disposition(gate_preserved, "unmeasurable"),
+            note="no size ladder: a parameter lacks a supported annotation (int · str · list[int] · "
+            "list[str] · set[int] · dict[str,int]) — annotate it, or skip --budget",
+        )
+    sizes: list[int] = []
+    inc_counts: list[int] = []
+    cand_counts: list[int] = []
+    delta_zero = gate_preserved
+    disagreement = ""
+    counter_missing = False
+    for size in ladder:
+        args_inc = tuple(ladder_value(kind, size) for kind in kinds)
+        args_cand = tuple(ladder_value(kind, size) for kind in kinds)
+        if _outcome(incumbent, tuple(ladder_value(kind, size) for kind in kinds)) != _outcome(
+            candidate, tuple(ladder_value(kind, size) for kind in kinds)
+        ):
+            delta_zero = False
+            disagreement = disagreement or f"old ≠ new at ladder size {size}"
+        ci = count_opcodes(incumbent, args_inc)
+        cc = count_opcodes(candidate, args_cand)
+        if ci is None or cc is None:
+            counter_missing = True
+            continue
+        sizes.append(size)
+        inc_counts.append(ci)
+        cand_counts.append(cc)
+    inc_class = growth_class([float(s) for s in sizes], [float(c) for c in inc_counts])
+    cand_class = growth_class([float(s) for s in sizes], [float(c) for c in cand_counts])
+    ratio = cand_counts[-1] / inc_counts[-1] if inc_counts and inc_counts[-1] > 0 else 0.0
+    verdict = budget_verdict(inc_class, cand_class, ratio)
+    note = disagreement
+    if counter_missing and not sizes:
+        note = (
+            "the opcode counter could not run (sys.monitoring needs Python ≥ 3.12, "
+            "or every tool slot is taken)"
+        )
+    elif counter_missing:
+        note = (note + "; " if note else "") + "some ladder sizes could not be counted"
+    return PairedBudgetRead(
+        tuple(sizes),
+        tuple(inc_counts),
+        tuple(cand_counts),
+        inc_class,
+        cand_class,
+        ratio,
+        delta_zero,
+        verdict,
+        paired_disposition(delta_zero, verdict),
+        note=note,
+    )
 
 
 def count_opcodes(fn: Callable, args: tuple) -> int | None:

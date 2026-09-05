@@ -1011,6 +1011,36 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    reopened_digest, reason escalated again, the `· reopened` row; the four malformed shapes as
    typed refusals that open no session and write nothing; the help teaches the division.]
 7. `verify-rewrite --budget`, exit 3 on `unmeasurable`.
+   [BUILT 2026-09-05 — the paired read rides the gate it belongs to (§7). `budget.py`:
+   `paired_budget_read(incumbent, candidate, kinds, gate_preserved, ladder=LADDER)` →
+   `PairedBudgetRead` (both arms' counts along the six-point ladder, growth classes, ratio at the
+   top, the delta gate, `budget_verdict`, `paired_disposition`, `unit="opcodes"`, note) — EXP-DS-003's
+   harness as a library function. The two-ledger law holds twice: `gate_preserved` is the
+   preservation verdict's word (a rewrite the gate did not pass is INADMISSIBLE whatever its
+   counts) AND every ladder input is compared arm-to-arm via `_outcome` — a disagreement is a
+   distinguishing input the gate missed, reported in the note, never averaged away. Two pure
+   decisions: `ladder_kinds(annotations)` maps the NEW definition's parameter annotations to
+   ladder kinds by EXACT match (int · str · list[int] · list[str] · set[int] · dict[str,int];
+   spaces ignored) and refuses — `None` — on a bare `list`, an unknown class, an unannotated
+   parameter, or no parameters (a guessed element type would price a different function);
+   `budget_exit(verify_exit, disposition)` moves a PRESERVED 0 to 3 when the read is
+   `unmeasurable` (cannot-determine must never render as determined — founder ruling) and
+   otherwise lets the verify code stand (a determined 1 or a precondition 2 outranks the budget's
+   silence). CLI: `verify-rewrite … --budget`; `_paired_budget` loads the OLD arm from the
+   receipt's recorded source and the NEW from disk with the same loaders `verify_rewrite` uses,
+   reads UNMEASURABLE with the reason for a method (no receiver ladder at v1), a missing function,
+   an unloadable arm, or no honest ladder; `_format_budget_block` prints every number in OPCODES
+   and never the word cost; the JSON carries the read under `budget` and the exit field reflects
+   `budget_exit`. Under an interpreter without `sys.monitoring` (< 3.12) the counter declines and
+   the read is unmeasurable with that reason — the CI matrix's 3.11 cells exercise exactly this.
+   Pins: hand truth tables (9 + 20 rows) under the exemption request; the instrument shell is
+   unit-guarded with EXP-DS-003's two pairs (quadratic_plus → linear re-derived blind at delta 0
+   on 3.12+), a failed gate → inadmissible, a ladder disagreement → inadmissible + named, no
+   honest ladder → unmeasurable + the remedy; and through the command path against a REAL
+   receipt (`make_receipt` on a tmp repo, then the rewrite): the block rides beneath the verdict,
+   the exit equals `budget_exit(verify_rewrite_exit(verdict), disposition)`, and an unannotated
+   parameter names the remedy — `unmeasurable` when the gate passed, `inadmissible` when it did
+   not (the fixture's first draft assumed PRESERVED; the gate's word was consumed instead).]
 8. MCP `_render_plan`.
 9. README: the 66/5/7/54 sentence becomes a real `plan` transcript (flagged until then).
 
