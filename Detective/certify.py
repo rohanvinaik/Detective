@@ -16,10 +16,11 @@ import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from . import pins
 from .decompose import DecompositionPlan, decompose
 from .engine import _resolve, profile
 from .scope import ScopeMap, scope_from_profiling
-from .synthesis.writer import synthesize_test_module
+from .synthesis.writer import FUNCTION_DIGEST_PREFIX, synthesize_test_module
 
 
 @dataclass(frozen=True)
@@ -470,7 +471,13 @@ def certify(
 
     source = ""
     if not at_ceiling:
-        source = synthesize_test_module(func_key, node, result.value_survivor_records, call_site_inputs)
+        source = synthesize_test_module(
+            func_key,
+            node,
+            result.value_survivor_records,
+            call_site_inputs,
+            function_digest=pins.function_digest(node),
+        )
 
     # Entangled functions get a decomposition plan alongside the synthesized tests.
     plan = None
@@ -754,6 +761,76 @@ def witness_origin_of_nodeid(root: str, test_id: str) -> str:
     if rel.startswith("legacy:"):
         rel = rel[len("legacy:") :]
     return witness_origin_of(rel if os.path.isabs(rel) else os.path.join(os.path.abspath(root), rel))
+
+
+def generated_function_digest(path: str) -> str:
+    """The function content digest a generated file RECORDS, or "" when it records none (§14.1).
+
+    Read from the header grammar `render_module` writes (`FUNCTION_DIGEST_PREFIX`, the header's
+    second line), never inferred from anything else. A file written before the header carried the
+    field records no fact, and "" is the honest answer: the caller renders it ``pinned_unverified``
+    — never ``pinned`` (a currency it cannot show) and never ``pinned_stale`` (a movement nobody
+    measured). Unreadable or unparseable is likewise "": no record, no claim.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename=path)
+    except (OSError, SyntaxError):
+        return ""
+    doc = ast.get_docstring(tree)
+    if not doc:
+        return ""
+    for line in doc.strip().splitlines():
+        if line.startswith(FUNCTION_DIGEST_PREFIX) and line.endswith("."):
+            return line[len(FUNCTION_DIGEST_PREFIX) : -1]
+    return ""
+
+
+def behavior_status(owned: bool, has_function_digest: bool, digest_matches: bool, edited: bool) -> str:
+    """Where a function stands on the BEHAVIOR layer, read off its generated suite (§14.1 — pure, pinned).
+
+    The ordering law — style after behavior, strictly — needs one fact per region: does a current,
+    unedited Detective contract exist for this function? Four facts the suite artifact carries, four
+    named states, because "the digest moved" and "no digest was ever recorded" are different facts
+    and must not collapse (the `content_edited` discipline, applied to identity):
+
+      "unpinned"           no Detective-owned suite for this func_key (absent, or another owner's)
+      "pinned_stale"       a suite exists, but the function's content digest has moved since it was
+                           written, or a human has edited the suite (it is intent now, not this
+                           definition's characterization) — re-converge
+      "pinned_unverified"  a suite exists and records NO function digest (written before the header
+                           carried one) — currency cannot be determined; re-converge to stamp it
+      "pinned"             a Detective-owned suite exists at this function's CURRENT digest, unedited
+
+    Only "pinned" arms a style gate. Every other state routes to `converge` first. A `refused`
+    state (the last converge declined the target) is deferred: no structured refusal record exists
+    yet, and the report file is keyed by bare qualname, so it cannot serve as one.
+    """
+    if not owned:
+        return "unpinned"
+    if edited:
+        return "pinned_stale"
+    if not has_function_digest:
+        return "pinned_unverified"
+    return "pinned" if digest_matches else "pinned_stale"
+
+
+def read_behavior_status(root: str, write_dir: str, func_key: str, node: ast.AST) -> str:
+    """The behavior status of ``func_key``, whose current definition is ``node`` (§14.1 — accessor
+    over the pinned :func:`behavior_status`; the accessor keeps the I/O, the decision holds no I/O).
+
+    Consults the suite at its primary location only (`synth_filename` under ``write_dir``); the
+    pre-#21 legacy location is not read — a file there predates the digest field and would read
+    ``pinned_unverified`` in any case, and `converge` is the remedy either way.
+    """
+    target = write_dir if os.path.isabs(write_dir) else os.path.join(os.path.abspath(root), write_dir)
+    path = os.path.join(target, synth_filename(func_key))
+    if not os.path.exists(path):
+        return behavior_status(False, False, False, False)
+    owned = generated_owner(path) == func_key
+    recorded = generated_function_digest(path)
+    edited = content_edited(*_content_digest_status(path))
+    return behavior_status(owned, bool(recorded), recorded == pins.function_digest(node), edited)
 
 
 def _write(source: str, write_dir: str, func_key: str, project_root: str | None = None) -> str:

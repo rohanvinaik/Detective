@@ -719,17 +719,36 @@ region carries a **behavior status**, read from what `certify` already maintains
 suite's ownership header and content-digest stamp; the function's content identity,
 `pins.function_digest`):
 
-    pinned          a Detective-owned suite exists for this function at its CURRENT digest, unedited
-    pinned_stale    a suite exists, but the function digest has moved or the suite was hand-edited
-    unpinned        no Detective-owned suite
-    refused         the last converge refused (regime · impurity · needs-fixture) — recorded, not silent
+    pinned             a Detective-owned suite exists for this function at its CURRENT digest, unedited
+    pinned_stale       a suite exists, but the function digest has moved or the suite was hand-edited
+    pinned_unverified  a suite exists and records NO function digest (written before the header
+                       carried one) — currency cannot be determined; re-converge to stamp it
+    unpinned           no Detective-owned suite (absent, or another target's file at this path)
+    refused            DEFERRED — the last converge declined the target; see the slice-1 finding below
 
 A style move is ADMISSIBLE only on a `pinned` region. For every other status the plan's next
 command is the behavior path — `detective converge file::fn` — never `decompose --apply`. This
-strengthens §8: no gate, no arc; **no pin, no gate armed.** [Build note: whether the suite header
-carries the FUNCTION digest (as distinct from the func_key digest in the filename and the
-file-content digest in the stamp) is slice 1's grounding; if not, the header grows the field —
-a one-line render plus a pure reader.]
+strengthens §8: no gate, no arc; **no pin, no gate armed.**
+
+[Slice 1, built 2026-09-05.] Grounded: the suite header carried the func_key (line 0, read by two
+readers — `certify.generated_owner` and the writer's `_HEADER_RE`) and the FILE-content digest
+(the `_stamp_content_digest` line), but NOT the function's content identity. The header now
+carries it as line 1 under `writer.FUNCTION_DIGEST_PREFIX`, opt-in (`render_module(...,
+function_digest=)` — with `None` the output is byte-identical, so the exact-output writer test and
+every digest-less suite are undisturbed); `_converge_impl` passes the `fn_digest` it already
+computed at all three render sites, `certify()` passes `pins.function_digest(node)`. One reader,
+`certify.generated_function_digest`. The pure decision `certify.behavior_status(owned,
+has_function_digest, digest_matches, edited)` and its accessor `read_behavior_status(root,
+write_dir, func_key, node)` sit beside `witness_origin_of`. **Two findings the build forced:**
+(i) a FIFTH state was necessary — every pre-existing generated suite records no function digest,
+and calling that `pinned_stale` would collapse "the digest moved" into "no digest was ever
+recorded", the exact conflation `content_edited` forbids; hence `pinned_unverified`, never
+admissible, remedy `converge`. (ii) `refused` is DEFERRED: no structured refusal record exists —
+a regime refusal exits 2 before any artifact, and the converge report is written to
+`.detective/reports/converge_<bare qualname>.txt`, keyed by the bare function name, so two
+targets named `load` share one file and it cannot serve as a per-target record. The honest v1:
+a declined target reads `unpinned` (or stale/unverified), its next command is `converge`, and
+the refusal is surfaced live. A structured refusal record is a behavior-layer slice, not this one.
 
 ### 14.2 The four demands — the advisory analogues of MECHANICAL_LAYER §7
 
@@ -784,7 +803,7 @@ human located at disagreement · the unproposed is unexamined, never approved):
 | claim | codes | source |
 |---|---|---|
 | region verdict | SILENT · CONSTRUCTIVE · AMBIGUOUS · DESTRUCTIVE | `controller_verdict` (built) |
-| behavior status | pinned · pinned_stale · unpinned · refused | 14.1 — one new pure reader |
+| behavior status | pinned · pinned_stale · pinned_unverified · unpinned (· refused — deferred) | `certify.behavior_status` (BUILT, slice 1) |
 | clean | clean · unread · not clean | 14.2 demand 1 — one new pure decision |
 | move + gate | the `TEMPLATE_GRAMMAR` entries · `no_template` | `template_matches` (built) |
 | cost provenance | static_dof_proxy · audit_plan_measured | `RegionRead` + one new field |

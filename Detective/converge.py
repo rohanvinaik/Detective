@@ -1613,7 +1613,7 @@ def _converge_impl(
         new_sound = [p for p in sound if property_identity(p) not in accumulated]
         for p in new_sound:
             accumulated[property_identity(p)] = p
-        source = render_module(func_key, list(accumulated.values()))
+        source = render_module(func_key, list(accumulated.values()), function_digest=fn_digest)
         if source and write_dir:
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, func_key, root) or None
@@ -1731,7 +1731,7 @@ def _converge_impl(
                 "(crash-only survivor reached by no existing test)"
             )
         if witnessed:
-            source = render_module(func_key, list(accumulated.values()))
+            source = render_module(func_key, list(accumulated.values()), function_digest=fn_digest)
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, func_key, root) or None
             say(f"witness pass: +{n_witnessed} distinguishing kill test(s) auto-written")
@@ -1810,7 +1810,7 @@ def _converge_impl(
             accumulated = {k: v for k, v in accumulated.items() if k not in drop}
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             if accumulated:
-                source = render_module(func_key, list(accumulated.values()))
+                source = render_module(func_key, list(accumulated.values()), function_digest=fn_digest)
                 written_path = _write(source, target, func_key, root) or None
             elif written_path:
                 # Every generated property was redundant against stable user evidence:
