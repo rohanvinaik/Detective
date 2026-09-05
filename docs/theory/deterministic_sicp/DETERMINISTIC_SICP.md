@@ -842,9 +842,9 @@ human located at disagreement · the unproposed is unexamined, never approved):
 | behavior status | pinned · pinned_incomplete · refused · pinned_stale · pinned_unverified · unpinned | `certify.behavior_status` over the certificate ledger + the suite (BUILT, slices 1 + 1b) |
 | certificate standing | complete · incomplete · unverified · stale · ungateable | `converge.certificate_standing` (built), recorded verbatim by `certificates.record_certificate` (BUILT, slice 1b) |
 | certificate refusal | "" · needs_receiver:… · environment_gated:… | `certificates.certificate_refusal` (BUILT, slice 1b) |
-| clean | clean · unread · not clean | 14.2 demand 1 — one new pure decision |
+| clean | clean · unread · not_clean | `plan.clean_disposition` (BUILT, slice 3): SILENT ∧ every lens measured; SILENT with an unmeasured lens is `unread` |
 | move + gate | the `TEMPLATE_GRAMMAR` entries · `no_template` | `template_matches` (built) |
-| cost provenance | static_dof_proxy · audit_plan_measured | `RegionRead.cost_provenance` (BUILT, slice 2; no default) |
+| cost provenance | static_dof_proxy · audit_plan_measured · unmeasured | `controller.COST_*` (BUILT, slices 2–3; no default); `unmeasured` is excluded as **unpriced** by `plan_moves` — a move is never funded on a guessed number |
 | exclusion reason | fenced · escalated · silent · verdict_unknown · **unpinned · pinned_stale · pinned_unverified** · status_unknown · no_template · no_gate · admissible; plus over_budget (plan-level) | `controller.admission_reason` (BUILT, slice 2 — extracted from `plan_moves` so the decision is over literals) |
 | budget verdict | refund · parity · regression · unmeasurable · inadmissible | `budget_verdict`, `paired_disposition` (built) |
 | emission | the five dispositions | `run_c_gate` (built) |
@@ -903,6 +903,21 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
 2. `plan_moves` gains `unpinned`; `RegionRead` gains `status` and `cost_provenance`; re-pin both.
 3. Plan assembly, the impure shell: tree → `RegionRead`s (lenses · template · gate · status ·
    cost). This is `exp_ds_005.main` made a library function, with the experiment's stated proxies.
+   [BUILT 2026-09-05 — `Detective/plan.py`: `assemble_plan(path, project_root, budget, write_dir)
+   -> PlanAssembly` (scope · budget · `RegionDetail`s · `Plan` · `FENCES_NOTE`). ONE traversal
+   shared with the map — `parsimony_map.module_functions` / `iter_functions`, and the map's
+   `_module_scope` now consumes the same generator, so the two surfaces cannot disagree about
+   what a region is; nested functions are not regions. Banks: `parsimony_map.static_lenses`
+   (made public; one seam scan) + purity + an overload read off the static DOF proxy, in
+   `_LENS_PRIORITY` order with `regime` absent by construction (needs a live profile — a named
+   non-measurement). Price: `static_dof_proxy` (Wesker's static universe), provenance
+   `static_dof_proxy`; unpriceable → `unmeasured` → excluded `unpriced`. Fences held at 0, stated
+   on every assembly. `RegionDetail` carries the lenses with their `measured` flags, the clean
+   disposition, the template evidence, and the gate prose — what slice 4 renders. Pin:
+   `clean_disposition` converged; the rest is the unit-guarded shell with intent tests end to
+   end over a real tree (a smelly template-matching region excluded `unpinned` until a complete
+   certificate exists for its current definition, funded after; a stale certificate does not
+   fund; one lens escalates; clean is measured, not assumed).]
 4. Renderers — terse / full / JSON; `.detective/reports/plan_*.txt`; the unexamined line; clean
    defined per 14.2 (one pure decision).
 5. The `plan` verb, `_COMMAND_HELP` pedagogy, `_REGIME_STAGE` on the `file::fn` form; the

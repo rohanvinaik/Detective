@@ -69,7 +69,10 @@ def _clean_pct(flagged: int, total: int) -> int:
     return round((total - flagged) * 100 / total)
 
 
-def _static_lenses(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ParsimonyLens]:
+def static_lenses(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ParsimonyLens]:
+    """Every AST-only lens for one function, ONE seam scan: complexity · cohesion · interface width,
+    then seam and γ-seam off the same `find_extraction_candidates` enumeration. Shared by this map
+    and by the plan (`plan.region_lenses`, §14.3) — one reader of the static banks, not two."""
     lenses = [lens(func) for lens in _STATIC_LENSES]
     try:
         from .decompose import find_extraction_candidates
@@ -95,7 +98,7 @@ def _static_lenses(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[Parsimo
 def read_function(func: ast.FunctionDef | ast.AsyncFunctionDef, qualname: str) -> FunctionRead:
     """Static per-function read: the AST lens votes, fused by the same ≥2-agreement rule (reusing
     the pinned ``_agreement`` / ``_flagged``). Attribution kept for the offenders list."""
-    lenses = _static_lenses(func)
+    lenses = static_lenses(func)
     votes = tuple(lens.vote for lens in lenses)
     agree = _agreement(votes)
     detail = " · ".join(f"{lens.name} ({lens.detail})" for lens in lenses if lens.vote == -1)
@@ -116,24 +119,36 @@ def _read(func: ast.FunctionDef | ast.AsyncFunctionDef, qualname: str) -> Functi
         return None
 
 
-def _module_scope(tree: ast.Module, module_name: str) -> ScopeScore:
-    reads: list[FunctionRead] = []
-    children: list[ScopeScore] = []
+def module_functions(tree: ast.Module, module_name: str):
+    """Every REGION in a module, in source order — the ONE traversal this map (`_module_scope`)
+    and the plan (`plan.assemble_plan`, §14.3) share, so the two surfaces can never disagree
+    about what a region is. Yields ``(func_key, node, is_method, class_key | None)`` where
+    ``func_key`` is ``module::name`` or ``module::Class.method`` — the same key `converge`
+    writes, so a plan's next command pastes. Nested functions are not regions: no proof gate
+    addresses them (converge targets are module-level functions and methods)."""
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if (r := _read(node, f"{module_name}::{node.name}")) is not None:
-                reads.append(r)
+            yield f"{module_name}::{node.name}", node, False, None
         elif isinstance(node, ast.ClassDef):
-            methods = [
-                r
-                for m in node.body
-                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and (r := _read(m, f"{module_name}::{node.name}.{m.name}")) is not None
-            ]
-            if methods:
-                children.append(_scope(f"{module_name}::{node.name}", "class", methods, ()))
+            for m in node.body:
+                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    yield f"{module_name}::{node.name}.{m.name}", m, True, f"{module_name}::{node.name}"
+
+
+def _module_scope(tree: ast.Module, module_name: str) -> ScopeScore:
+    reads: list[FunctionRead] = []
+    by_class: dict[str, list[FunctionRead]] = {}
+    for func_key, node, is_method, class_key in module_functions(tree, module_name):
+        r = _read(node, func_key)
+        if r is None:
+            continue
+        if is_method and class_key is not None:
+            by_class.setdefault(class_key, []).append(r)
+        else:
+            reads.append(r)
+    children = tuple(_scope(cls, "class", methods, ()) for cls, methods in by_class.items())
     all_reads = reads + [r for c in children for r in c.reads]
-    return _scope(module_name, "module", all_reads, tuple(children))
+    return _scope(module_name, "module", all_reads, children)
 
 
 def _python_files(target: str) -> list[str]:
@@ -169,6 +184,22 @@ def parsimony_plan(score: ScopeScore) -> tuple[tuple[str, tuple[FunctionRead, ..
             groups.append((module.name, flagged))
     groups.sort(key=lambda g: (*_group_rank(max(r.smells for r in g[1]), len(g[1])), g[0]))
     return tuple(groups)
+
+
+def iter_functions(path: str, project_root: str = "."):
+    """Every region under ``path`` (a file or directory), project-root-relative func_keys, via the
+    same file walk and the same per-module traversal the map uses. Yields ``(func_key, node,
+    is_method)``. Unreadable or unparseable files are skipped, not fatal — advisory: what cannot
+    be read is not counted, and is never reported as anything."""
+    root_abs = os.path.abspath(project_root)
+    for f in _python_files(os.path.abspath(path)):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read(), filename=f)
+        except (OSError, SyntaxError):
+            continue
+        for func_key, node, is_method, _cls in module_functions(tree, os.path.relpath(f, root_abs)):
+            yield func_key, node, is_method
 
 
 def score_path(path: str, project_root: str = ".") -> ScopeScore:

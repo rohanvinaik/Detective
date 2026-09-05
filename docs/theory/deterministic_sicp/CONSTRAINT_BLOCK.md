@@ -152,10 +152,13 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 > `split_of` + `weighted_median` engine synths banked. Standing facts unchanged (serial-cold
 > batches · sys.monitoring counter · recognizable ≠ priceable · opposition requires a warrant).
 
-> **SUPERSEDED 2026-09-05 — the next action is now the §14 surface, in slice order:**
+> **SUPERSEDED 2026-09-05 — the next action is now the §14 surface, in slice order** (slices
+> 1, 1b, 2, 3 SHIPPED 2026-09-05 — `1e201f0`, `f32b8ac`, `f0daf18`, slice 3 next commit; the
+> next action is slice 4, the renderers):
 > (1) `behavior_status` pure decision + reader (ground whether the suite header carries the
-> function digest) → (2) `plan_moves` gains `unpinned`; `RegionRead` gains status + cost
-> provenance → (3) plan assembly as a library function (from `exp_ds_005.main`) → (4) renderers
+> function digest) → (1b) the converge certificate ledger → (2) `plan_moves` gains `unpinned`;
+> `RegionRead` gains status + cost provenance → (3) plan assembly as a library function (from
+> `exp_ds_005.main`) → (4) renderers
 > terse/full/JSON + `.detective/reports/plan_*` + the unexamined line + clean defined → (5) the
 > `plan` verb, help pedagogy, regime stage, `parsimony` deprecation shim → (6) `flag --style` +
 > `judgments.json` + the reopen rule → (7) `verify-rewrite --budget`, exit 3 on unmeasurable →

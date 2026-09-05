@@ -39,6 +39,13 @@ CONSTRUCTIVE = "CONSTRUCTIVE"
 AMBIGUOUS = "AMBIGUOUS"
 DESTRUCTIVE = "DESTRUCTIVE"
 
+# The cost-provenance vocabulary (§14.2 demand 2): where a region's arc price came from. Spelled
+# once here, the owner of `RegionRead`. A cost with UNMEASURED provenance is not a price and is
+# excluded as "unpriced" — never funded on a guessed number.
+COST_STATIC_DOF_PROXY = "static_dof_proxy"  # the static mutant-universe size (v1)
+COST_AUDIT_PLAN_MEASURED = "audit_plan_measured"  # `audit --plan`'s measured tier-2 estimate
+COST_UNMEASURED = "unmeasured"  # the instrument could not price this region
+
 
 def orient_for_change(vote: int) -> int:
     """One bank vote, oriented toward the attention question (pure — pinned): a smell (−1)
@@ -154,18 +161,22 @@ def plan_moves(regions: tuple[RegionRead, ...], budget: float) -> Plan:
     optimal here, not merely approximate, because the arcs are independent and the budget is one
     fungible pool (the degenerate transportation case; the flow solver becomes warranted with
     multi-resource constraints, recorded in the module docstring). Every exclusion carries its
-    reason — the `admission_reason` codes, plus the one only the plan can decide:
+    reason — the `admission_reason` codes, plus the two only the plan can decide:
 
-      "over_budget"   admissible but unfunded this cycle
+      "unpriced"      admissible, but the instrument could not price it (`COST_UNMEASURED`) — a
+                      move is never funded on a guessed number
+      "over_budget"   admissible and priced, but unfunded this cycle
     """
     admissible = []
     excluded: list[tuple[str, str]] = []
     for r in regions:
         reason = admission_reason(r.verdict, r.status, r.template is not None, r.gate_exists)
-        if reason == "admissible":
-            admissible.append(r)
-        else:
+        if reason != "admissible":
             excluded.append((r.region, reason))
+        elif r.cost_provenance == COST_UNMEASURED:
+            excluded.append((r.region, "unpriced"))
+        else:
+            admissible.append(r)
     admissible.sort(key=lambda r: (-r.agreement, r.cost, r.region))
     funded: list[RegionRead] = []
     spent = 0.0
