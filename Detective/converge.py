@@ -342,6 +342,11 @@ class ConvergeResult:
     # orthogonal validity gates: stale / verification / gateable the sandwich basis does not carry).
     # None on an older/directly-built result. `asdict` carries it to `converge --json` for free.
     function_basis: FunctionBasis | None = None
+    # The target's content identity (`pins.function_digest`) at the time of THIS run (§14.1): the
+    # key under which the certificate ledger records `standing`, so a later static reader can tell
+    # a verdict about this definition from one about an earlier one. "" on a result built without
+    # the node (older callers, direct construction) — and a "" identity is never recorded.
+    function_digest: str = ""
 
     @property
     def mutation_score(self) -> float:
@@ -388,16 +393,21 @@ class ConvergeResult:
         verifying against a moved source), which left ``verification is None`` and fell straight
         through to the mutation and line axes. The delegation below is what stops the two from
         drifting again."""
-        return (
-            certificate_standing(
-                self.functionally_complete,
-                self.line_complete,
-                self.stale_target,
-                self.verification is not None,
-                self.verification is not None and self.verification.ok,
-                self.admits_certificate,
-            )
-            == "complete"
+        return self.standing == "complete"
+
+    @property
+    def standing(self) -> str:
+        """The ONE code this result is entitled to claim — `certificate_standing`, consumed with this
+        result's own fields (#17/#38/#60). Exposed as data so the certificate ledger (§14.1) records
+        it VERBATIM and `complete` reduces it to a boolean; a third caller re-deriving the arguments
+        is the drift these two seams exist to prevent."""
+        return certificate_standing(
+            self.functionally_complete,
+            self.line_complete,
+            self.stale_target,
+            self.verification is not None,
+            self.verification is not None and self.verification.ok,
+            self.admits_certificate,
         )
 
 
@@ -1331,7 +1341,22 @@ def converge(
             progress=progress,
             notify=notify,
         )
-    return replace(result, stdout_bytes=_sink.bytes_written) if _sink.bytes_written else result
+    result = replace(result, stdout_bytes=_sink.bytes_written) if _sink.bytes_written else result
+    # §14.1 — record the terminal verdict per (target, definition): the certificate a static reader
+    # (`certify.read_behavior_status`) consults. A run that finds the hand-written suite already
+    # complete writes NO synth and would otherwise leave no artifact at all. Recorded HERE, after
+    # every path through the impl, so the CLI, decompose, receipt and the MCP all leave the same
+    # record. Best-effort like the report: a failed ledger write never fails the run.
+    from .certificates import certificate_refusal, record_certificate
+
+    record_certificate(
+        project_root,
+        result.function,
+        result.function_digest,
+        result.standing,
+        certificate_refusal(result.needs_receiver or "", tuple(result.environment_gated)),
+    )
+    return result
 
 
 def _converge_impl(
@@ -2157,5 +2182,6 @@ def _converge_impl(
         needs_receiver=_receiver_refusal,
         receiver_identity=_receiver_identity,
         capability_identity=capability_identity(clock, env),
+        function_digest=fn_digest,
         # stdout_bytes is stamped by the ``converge`` containment shell, which owns the sink.
     )

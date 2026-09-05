@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from . import pins
+from .certificates import load_certificate
 from .decompose import DecompositionPlan, decompose
 from .engine import _resolve, profile
 from .scope import ScopeMap, scope_from_profiling
@@ -786,51 +787,98 @@ def generated_function_digest(path: str) -> str:
     return ""
 
 
-def behavior_status(owned: bool, has_function_digest: bool, digest_matches: bool, edited: bool) -> str:
-    """Where a function stands on the BEHAVIOR layer, read off its generated suite (§14.1 — pure, pinned).
+# The `certificate_standing` codes that are VERDICTS ABOUT THE FUNCTION. "stale" and "ungateable"
+# are invalid MEASUREMENTS (the run described a moved source, or was cut / uncontained) and assert
+# nothing about the definition; "" is no record at all.
+_TERMINAL_STANDINGS = ("complete", "incomplete", "unverified")
 
-    The ordering law — style after behavior, strictly — needs one fact per region: does a current,
-    unedited Detective contract exist for this function? Four facts the suite artifact carries, four
-    named states, because "the digest moved" and "no digest was ever recorded" are different facts
-    and must not collapse (the `content_edited` discipline, applied to identity):
 
-      "unpinned"           no Detective-owned suite for this func_key (absent, or another owner's)
-      "pinned_stale"       a suite exists, but the function's content digest has moved since it was
-                           written, or a human has edited the suite (it is intent now, not this
-                           definition's characterization) — re-converge
-      "pinned_unverified"  a suite exists and records NO function digest (written before the header
-                           carried one) — currency cannot be determined; re-converge to stamp it
-      "pinned"             a Detective-owned suite exists at this function's CURRENT digest, unedited
+def behavior_status(
+    cert_standing: str,
+    cert_current: bool,
+    cert_refused: bool,
+    suite_owned: bool,
+    suite_has_digest: bool,
+    suite_digest_matches: bool,
+    suite_edited: bool,
+) -> str:
+    """Where a function stands on the BEHAVIOR layer (§14.1 — pure, pinned).
 
-    Only "pinned" arms a style gate. Every other state routes to `converge` first. A `refused`
-    state (the last converge declined the target) is deferred: no structured refusal record exists
-    yet, and the report file is keyed by bare qualname, so it cannot serve as one.
+    The ordering law — style after behavior, strictly — needs one fact per region: has converge
+    certified THIS definition complete, and is the basis it rested on still what it was? Two
+    artifacts carry the answer. The CERTIFICATE (the `certificates` ledger) is primary: it is the
+    only record a run leaves when the hand-written suite already kills every mutant, which is
+    exactly the best-tested case. The generated SUITE refines it: a human edit or an older
+    digest on the suite means the recorded basis is gone.
+
+      cert_standing         the ledger's recorded `certificate_standing` code — "" when no entry
+      cert_current          the recorded function digest equals the current definition's
+      cert_refused          that run DECLINED (receiver / fixture it could not build), not just fell short
+      suite_owned           a Detective-generated suite for this func_key exists at its path
+      suite_has_digest      its header records a function digest
+      suite_digest_matches  that recorded digest equals the current definition's
+      suite_edited          a human edited the suite since Detective wrote it
+
+    Six named states — each a different fact with a different remedy, none allowed to collapse
+    (the `content_edited` discipline: "we did not measure this" ≠ "we measured it and it moved"):
+
+      "pinned"             a terminal COMPLETE verdict for THIS definition, and no edited suite —
+                           the ONLY state that arms a style gate
+      "pinned_incomplete"  a terminal verdict for this definition that fell short (an honest gap,
+                           or a proof basis red under pytest) — converge; supply what it asks
+      "refused"            the run for this definition DECLINED (needs a receiver / a fixture) — the
+                           remedy converge named, never more inputs
+      "pinned_stale"       the certificate or the suite belongs to an OLDER definition, or a human
+                           edited the generated suite — re-converge
+      "pinned_unverified"  a generated suite exists but NO valid certificate for this definition
+                           does (never recorded; or the last run was stale / cut) — what it pins is
+                           undetermined; re-converge to find out
+      "unpinned"           no certificate ever, and no generated suite
+
+    Slice 1 read `pinned` off a current-digest suite alone; slice 1b makes the certificate primary
+    and demotes that case to `pinned_unverified` — a suite is evidence that tests were written,
+    a certificate is evidence of what they pin, and only the second is the law's fact.
     """
-    if not owned:
-        return pins.UNPINNED
-    if edited:
+    if suite_owned and suite_edited:
         return pins.PINNED_STALE
-    if not has_function_digest:
-        return pins.PINNED_UNVERIFIED
-    return pins.PINNED if digest_matches else pins.PINNED_STALE
+    if cert_standing in _TERMINAL_STANDINGS:
+        if not cert_current:
+            return pins.PINNED_STALE
+        if cert_standing == "complete":
+            return pins.PINNED
+        if cert_standing == "incomplete" and cert_refused:
+            return pins.REFUSED
+        return pins.PINNED_INCOMPLETE
+    if not suite_owned:
+        return pins.UNPINNED
+    if suite_has_digest and not suite_digest_matches:
+        return pins.PINNED_STALE
+    return pins.PINNED_UNVERIFIED
 
 
 def read_behavior_status(root: str, write_dir: str, func_key: str, node: ast.AST) -> str:
     """The behavior status of ``func_key``, whose current definition is ``node`` (§14.1 — accessor
     over the pinned :func:`behavior_status`; the accessor keeps the I/O, the decision holds no I/O).
 
-    Consults the suite at its primary location only (`synth_filename` under ``write_dir``); the
-    pre-#21 legacy location is not read — a file there predates the digest field and would read
-    ``pinned_unverified`` in any case, and `converge` is the remedy either way.
+    Reads the certificate ledger (`certificates.load_certificate`) and the generated suite at its
+    primary location (`synth_filename` under ``write_dir``). The pre-#21 legacy suite location is
+    not read — a file there predates the digest field and `converge` is the remedy either way.
     """
+    current = pins.function_digest(node)
+    cert = load_certificate(root, func_key)
+    cert_standing = str(cert.get("standing", "")) if cert else ""
+    cert_current = bool(cert) and cert.get("function_digest") == current
+    cert_refused = bool(cert) and bool(cert.get("refusal"))
     target = write_dir if os.path.isabs(write_dir) else os.path.join(os.path.abspath(root), write_dir)
     path = os.path.join(target, synth_filename(func_key))
     if not os.path.exists(path):
-        return behavior_status(False, False, False, False)
+        return behavior_status(cert_standing, cert_current, cert_refused, False, False, False, False)
     owned = generated_owner(path) == func_key
     recorded = generated_function_digest(path)
     edited = content_edited(*_content_digest_status(path))
-    return behavior_status(owned, bool(recorded), recorded == pins.function_digest(node), edited)
+    return behavior_status(
+        cert_standing, cert_current, cert_refused, owned, bool(recorded), recorded == current, edited
+    )
 
 
 def _write(source: str, write_dir: str, func_key: str, project_root: str | None = None) -> str:

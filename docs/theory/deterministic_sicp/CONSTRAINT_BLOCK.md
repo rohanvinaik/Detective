@@ -66,9 +66,15 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 
 10. **Style after behavior, STRICTLY** *(founder ruling 2026-09-05: two layers, and the second
     runs only over ground the first secured — a refactor for form can break a guarantee only
-    where none exists; §14.1)*. Every region carries a behavior status (pinned · pinned_stale ·
-    unpinned · refused); a style move is admissible only on `pinned`; for anything else the next
-    command is `converge`, never `decompose --apply`. No pin, no gate armed.
+    where none exists; §14.1)*. Every region carries a behavior status — SIX codes, spelled once
+    in `pins.BEHAVIOR_STATUSES`: pinned · pinned_incomplete · refused · pinned_stale ·
+    pinned_unverified · unpinned — read PRIMARILY off the converge certificate ledger
+    (`.detective/certificates.json`, written by the `converge()` wrapper on every run, slice 1b)
+    and refined by the generated suite (an edit or an older suite digest outranks any
+    certificate). A style move is admissible only on `pinned`; for anything else the next command
+    is `converge`, never `decompose --apply`. No pin, no gate armed. A current-digest suite with no
+    certificate is `pinned_unverified`, NOT pinned: a suite is evidence tests were written, a
+    certificate is evidence of what they pin.
 
 11. **The taste surface is DERIVED, not bolted on** *(the CLI is a communication surface — the
     intent half of the work is done THROUGH it, so it is half the computation; §14)*. Four
@@ -107,6 +113,10 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
   `controller`/`templates`/`budget`/`norms`/`emission` are reached only from `dev/exp_ds_*` and
   the intent tests. The README's "66 flagged / 5 funded / 7 deferred / 54 no recipe" is an
   experiment's output until `plan` ships — flagged, not hidden.
+- **The certificate is the converge verdict ledger, not the suite and not the receipt** (founder
+  ruling 2026-09-05, after the real run showed ✓ COMPLETE functions with zero synth reading
+  `unpinned`): `certificates.record_certificate` records `ConvergeResult.standing` verbatim per
+  (func_key, function digest); regenerable, purge deletes it; deterministic bytes. §14.1 slice 1b.
 - **The surface decisions are SETTLED** (2026-09-05; §14): new verb `plan`, not a grown
   `parsimony --plan` · "clean" kept and defined · judgment ledger via `flag --style` with strict
   file/reader separation · exit 3 for an unmeasurable paired budget read · advisory never exits 1

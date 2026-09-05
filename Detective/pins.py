@@ -65,10 +65,12 @@ _FIELDS = (
 # here because it is a statement about a pin's currency, and this module owns the function's
 # content identity. Only PINNED arms a style gate; every other state routes to `converge`.
 PINNED = "pinned"
+PINNED_INCOMPLETE = "pinned_incomplete"
+REFUSED = "refused"
 PINNED_STALE = "pinned_stale"
 PINNED_UNVERIFIED = "pinned_unverified"
 UNPINNED = "unpinned"
-BEHAVIOR_STATUSES = (PINNED, PINNED_STALE, PINNED_UNVERIFIED, UNPINNED)
+BEHAVIOR_STATUSES = (PINNED, PINNED_INCOMPLETE, REFUSED, PINNED_STALE, PINNED_UNVERIFIED, UNPINNED)
 
 
 def function_digest(node: ast.AST) -> str:

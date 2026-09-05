@@ -719,12 +719,18 @@ region carries a **behavior status**, read from what `certify` already maintains
 suite's ownership header and content-digest stamp; the function's content identity,
 `pins.function_digest`):
 
-    pinned             a Detective-owned suite exists for this function at its CURRENT digest, unedited
-    pinned_stale       a suite exists, but the function digest has moved or the suite was hand-edited
-    pinned_unverified  a suite exists and records NO function digest (written before the header
-                       carried one) — currency cannot be determined; re-converge to stamp it
-    unpinned           no Detective-owned suite (absent, or another target's file at this path)
-    refused            DEFERRED — the last converge declined the target; see the slice-1 finding below
+    pinned             a terminal COMPLETE certificate for THIS definition, and no edited suite —
+                       the ONLY state that arms a style gate
+    pinned_incomplete  a terminal verdict for this definition that fell short (an honest gap, or a
+                       proof basis red under pytest) — converge; supply what it asks
+    refused            the run for this definition DECLINED (needs a receiver / a fixture) — the
+                       remedy converge named, never more inputs
+    pinned_stale       the certificate or the suite belongs to an OLDER definition, or a human edited
+                       the generated suite — re-converge
+    pinned_unverified  a generated suite exists but NO valid certificate for this definition does
+                       (never recorded; or the last run was stale / cut) — what it pins is
+                       undetermined; re-converge to find out
+    unpinned           no certificate ever, and no generated suite
 
 A style move is ADMISSIBLE only on a `pinned` region. For every other status the plan's next
 command is the behavior path — `detective converge file::fn` — never `decompose --apply`. This
@@ -749,6 +755,36 @@ a regime refusal exits 2 before any artifact, and the converge report is written
 targets named `load` share one file and it cannot serve as a per-target record. The honest v1:
 a declined target reads `unpinned` (or stale/unverified), its next command is `converge`, and
 the refusal is surfaced live. A structured refusal record is a behavior-layer slice, not this one.
+
+[Slice 1b, built 2026-09-05 — the certificate ledger; founder ruling.] Running the controller
+through its real command over Detective's own 772 functions exposed slice 1's premise error: a
+function whose converge said ✓ COMPLETE with ZERO synth written (its hand-written tests already
+kill every mutant — the best-tested case) leaves no artifact the suite-reader can see, so
+`behavior_status`, `admission_reason` and `controller_verdict` themselves read `unpinned` the day
+after they were certified, and would be sent to `converge` forever (which writes nothing again).
+The suite was the wrong certificate. Of three fixes — (i) converge records a per-target verdict
+ledger, (ii) receipts become the certificate (they carry the digest, completeness and the frozen
+basis, but have no canonical location), (iii) accept the false negative — the founder chose (i).
+**Built:** `Detective/certificates.py` — `.detective/certificates.json`, `{func_key:
+{function_digest, standing, refusal}}`, written by the `converge()` wrapper after EVERY path
+through the impl (CLI, decompose, receipt, MCP all leave the same record), best-effort like the
+report, deterministic bytes (no clock, sorted keys), never recorded without an identity, deleted
+by `purge`. `standing` is `certificate_standing`'s code recorded VERBATIM via a new
+`ConvergeResult.standing` property (`complete` now reduces to `standing == "complete"` — one
+derivation, three consumers, no re-derivation); `ConvergeResult.function_digest` carries the
+identity. `certificate_refusal(needs_receiver, environment_gated)` (pure) names a decline apart
+from a gap, receiver first. **The pure decision grew** to `behavior_status(cert_standing,
+cert_current, cert_refused, suite_owned, suite_has_digest, suite_digest_matches, suite_edited)`,
+SIX states: the certificate is primary, the suite refines (a human edit or an older suite digest
+outranks any certificate — the recorded basis is gone); "stale"/"ungateable" standings are invalid
+MEASUREMENTS, not verdicts about the function, and fall through to the suite. **One demotion:** a
+current-digest suite with no certificate read `pinned` in slice 1 and reads `pinned_unverified`
+now — a suite is evidence tests were written, a certificate is evidence of what they pin, and only
+the second is the law's fact. `refused` is no longer deferred: it is `incomplete` + a recorded
+refusal. The vocabulary is spelled once in `pins.BEHAVIOR_STATUSES` (six codes); `admission_reason`
+consumes it unchanged, so `pinned_incomplete` and `refused` are exclusion reasons by construction.
+NOT closed: a regime refusal (exit 2 before any run) still records nothing — it is a repo fact,
+not a per-function one, and `plan`'s `file::fn` form runs the same regime check itself.
 
 ### 14.2 The four demands — the advisory analogues of MECHANICAL_LAYER §7
 
@@ -803,7 +839,9 @@ human located at disagreement · the unproposed is unexamined, never approved):
 | claim | codes | source |
 |---|---|---|
 | region verdict | SILENT · CONSTRUCTIVE · AMBIGUOUS · DESTRUCTIVE | `controller_verdict` (built) |
-| behavior status | pinned · pinned_stale · pinned_unverified · unpinned (· refused — deferred) | `certify.behavior_status` (BUILT, slice 1) |
+| behavior status | pinned · pinned_incomplete · refused · pinned_stale · pinned_unverified · unpinned | `certify.behavior_status` over the certificate ledger + the suite (BUILT, slices 1 + 1b) |
+| certificate standing | complete · incomplete · unverified · stale · ungateable | `converge.certificate_standing` (built), recorded verbatim by `certificates.record_certificate` (BUILT, slice 1b) |
+| certificate refusal | "" · needs_receiver:… · environment_gated:… | `certificates.certificate_refusal` (BUILT, slice 1b) |
 | clean | clean · unread · not clean | 14.2 demand 1 — one new pure decision |
 | move + gate | the `TEMPLATE_GRAMMAR` entries · `no_template` | `template_matches` (built) |
 | cost provenance | static_dof_proxy · audit_plan_measured | `RegionRead.cost_provenance` (BUILT, slice 2; no default) |

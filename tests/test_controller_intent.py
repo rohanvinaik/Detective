@@ -39,7 +39,7 @@ from Detective.controller import (
     orient_for_change,
     plan_moves,
 )
-from Detective.pins import PINNED, PINNED_STALE, PINNED_UNVERIFIED, UNPINNED
+from Detective.pins import PINNED, PINNED_INCOMPLETE, PINNED_STALE, PINNED_UNVERIFIED, REFUSED, UNPINNED
 
 # ── orient_for_change ────────────────────────────────────────────────────────────────────────
 
@@ -148,8 +148,15 @@ def test_behavior_is_checked_before_style() -> None:
 
 
 def test_only_pinned_can_ever_be_admissible() -> None:
-    for status in (UNPINNED, PINNED_STALE, PINNED_UNVERIFIED, "mystery", ""):
+    for status in (UNPINNED, PINNED_STALE, PINNED_UNVERIFIED, PINNED_INCOMPLETE, REFUSED, "mystery", ""):
         assert admission_reason(CONSTRUCTIVE, status, True, True) != "admissible"
+
+
+def test_incomplete_and_refused_are_their_own_reasons() -> None:
+    # Slice 1b: a measured gap and a decline are different facts with different remedies; the
+    # residual names which (never "unpinned" for a function converge has in fact measured).
+    assert admission_reason(CONSTRUCTIVE, PINNED_INCOMPLETE, True, True) == "pinned_incomplete"
+    assert admission_reason(CONSTRUCTIVE, REFUSED, True, True) == "refused"
 
 
 def test_region_read_has_no_status_or_provenance_default() -> None:
