@@ -64,6 +64,22 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 9. **Decisions land in the paper WITH their deduction; this block is re-issued when it changes**
    *(the founder is a self-declared unreliable oracle; the doc is the stable ground; §0)*.
 
+10. **Style after behavior, STRICTLY** *(founder ruling 2026-09-05: two layers, and the second
+    runs only over ground the first secured — a refactor for form can break a guarantee only
+    where none exists; §14.1)*. Every region carries a behavior status (pinned · pinned_stale ·
+    unpinned · refused); a style move is admissible only on `pinned`; for anything else the next
+    command is `converge`, never `decompose --apply`. No pin, no gate armed.
+
+11. **The taste surface is DERIVED, not bolted on** *(the CLI is a communication surface — the
+    intent half of the work is done THROUGH it, so it is half the computation; §14)*. Four
+    demands: four-valued advisory verdict never a score (clean KEPT and DEFINED: SILENT ∧ all
+    lenses measured — unread is never clean) · every finding carries warrant + residual · the
+    AMBIGUOUS list is the typed human channel · the unexamined is named, never implied approved.
+    One entry verb `plan` (tree or `file::fn`), co-equal with `diagnose`; `parsimony` deprecated
+    as a VERB (module stays — it is the bank, not a line counter); `verify-rewrite --budget`;
+    `flag --style` writing a SEPARATE ledger the behavior layer never reads; exit 0/2/3 only,
+    never 1; the MCP gets the same verb.
+
 ## Resolved — state AS RESOLVED, never as open
 
 - **Home**: `docs/theory/deterministic_sicp/` inside Detective. NOT a new repo/tool.
@@ -87,6 +103,14 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
   `audit --plan` (arc costs), `decompose --apply`, `receipt`/`verify-rewrite`, `censor`/`kappa`/
   `promotion_ledger`, `flag --fence`, Peitho `otp`/`position`/`flow`, converge's input synthesis
   (feeds the size-ladder read).
+- **The wave library has ZERO production consumers** (grounded 2026-09-05, reference graph):
+  `controller`/`templates`/`budget`/`norms`/`emission` are reached only from `dev/exp_ds_*` and
+  the intent tests. The README's "66 flagged / 5 funded / 7 deferred / 54 no recipe" is an
+  experiment's output until `plan` ships — flagged, not hidden.
+- **The surface decisions are SETTLED** (2026-09-05; §14): new verb `plan`, not a grown
+  `parsimony --plan` · "clean" kept and defined · judgment ledger via `flag --style` with strict
+  file/reader separation · exit 3 for an unmeasurable paired budget read · advisory never exits 1
+  · emission is vocabulary, not a verb, this pass.
 
 ## Still genuinely open (do not state as resolved)
 
@@ -118,12 +142,18 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 > `split_of` + `weighted_median` engine synths banked. Standing facts unchanged (serial-cold
 > batches · sys.monitoring counter · recognizable ≠ priceable · opposition requires a warrant).
 
-**Then, in order:** Wave 2 (budget bank + delta-0 paired harness) → Wave 3 (template library v1 —
-the taste-as-recognition test) → Wave 4 (controller: orientation + interference + flow over
-`audit --plan` costs; start the censor spine; measure d) → Wave 5 (warranted cross-language
-emission; the `rewrite-in-<lang>` arc opens only when green). Every extracted pure decision is
-converged **in isolation before wiring** (standing feedback law), with hand-written intent tests
-beside every synth suite.
+> **SUPERSEDED 2026-09-05 — the next action is now the §14 surface, in slice order:**
+> (1) `behavior_status` pure decision + reader (ground whether the suite header carries the
+> function digest) → (2) `plan_moves` gains `unpinned`; `RegionRead` gains status + cost
+> provenance → (3) plan assembly as a library function (from `exp_ds_005.main`) → (4) renderers
+> terse/full/JSON + `.detective/reports/plan_*` + the unexamined line + clean defined → (5) the
+> `plan` verb, help pedagogy, regime stage, `parsimony` deprecation shim → (6) `flag --style` +
+> `judgments.json` + the reopen rule → (7) `verify-rewrite --budget`, exit 3 on unmeasurable →
+> (8) MCP `_render_plan` → (9) the README line becomes a transcript.
+
+Every extracted pure decision is converged **in isolation before wiring** (standing feedback law),
+with hand-written intent tests beside every synth suite. The waves paragraph that stood here is
+history: Waves 0–5 shipped 2026-08-31.
 
 ## The sources that can contradict this block — and they WIN
 
@@ -138,5 +168,6 @@ beside every synth suite.
 | `~/Projects/Peitho` (DESIGN/ARCHITECTURE + pinned source) | the estimator/controller hardware |
 | `~/Projects/Wayfinder/docs/Research_Paper/THE_REFOUNDING.md` + `THE_DETERMINISTIC_CORE.md` | the transport license, the loop disciplines, the measured failures |
 
-**Nothing in this layer is built beyond the seams named as existing.** A summary that reports any
-wave as shipped has drifted.
+**Waves 0–5 are built as LIBRARY code with intent tests and dev experiments; the §14 surface is
+NOT built.** A summary that reports `detective plan`, `flag --style`, or `verify-rewrite --budget`
+as shipped has drifted. A summary that reports the waves as unbuilt has drifted the other way.

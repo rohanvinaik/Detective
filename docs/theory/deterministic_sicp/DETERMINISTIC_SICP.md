@@ -683,6 +683,174 @@ the first gated priced plan, incl. a live engine lead; parsimony's 66 flags reso
 5 funded / 7 over-budget / 54 no_template). Nothing else in this document is claimed shipped
 beyond the seams §1.2 names.
 
+## 14. The Communication Surface — the taste side's CLI, derived (2026-09-05)
+
+The founder's framing that fixes this section's object: the CLI is not a computing surface but a
+communication one — the half of the work the automation boundary (NEG_SPEC Thm 6.2) reserves for
+the party holding intent is DONE THROUGH the interface, so the interface is half of the
+computation. The behavior layer's surface was derived and audited against four demands
+(MECHANICAL_LAYER §7). The taste layer's surface was built as experiments and never derived.
+This section derives it.
+
+### 14.0 Grounding (reference graph, 2026-09-05)
+
+The five wave modules — `controller`, `templates`, `budget`, `norms`, `emission` — have **zero
+production consumers**: every entry point is referenced only from `dev/exp_ds_00N` and
+`tests/test_*_intent.py` (Serena `find_referencing_symbols`, per symbol). Nothing in `cli.py`,
+`engine.py`, `parsimony_map.py`, or `mcp_server.py` calls them. The surface that exists:
+`parsimony <path>` (static map — flagged count, clean% per module/class, worst offenders with lens
+attribution; exit 0 and `exit_meaning: clean` regardless of flags), `parsimony --plan` (an
+unpriced, ungated queue), `diagnose`'s per-function ≥2-lens rows, `censor` (the only taste-side
+write, via `--promote`), `audit --plan` (a per-function cost estimate nothing consumes), and an
+MCP server with no taste render at all. The README's "flagged 66, funded 5, deferred 7, 54 no
+recipe" line is `dev/exp_ds_005`'s output, not a command's — flagged, to become a transcript.
+
+Confirmed against the founder's recollection: `parsimony` is **not** a line counter. The static
+map fuses cognitive complexity, def-use cohesion, interface width, structural seams, and γ-seam
+crossings by ≥2-lens agreement (`parsimony_map._STATIC_LENSES` + the seam pair), and the lens
+module IS the estimator's bank — `exp_ds_005` imports the lenses from it. The VERB is the
+hand-wave; the module stays.
+
+### 14.1 The ordering law — style after behavior, strictly (founder ruling, 2026-09-05)
+
+The two halves are two LAYERS, and the second runs only over ground the first has secured: a
+refactor for form can break a guarantee only where no guarantee exists. Operationally, every
+region carries a **behavior status**, read from what `certify` already maintains (the generated
+suite's ownership header and content-digest stamp; the function's content identity,
+`pins.function_digest`):
+
+    pinned          a Detective-owned suite exists for this function at its CURRENT digest, unedited
+    pinned_stale    a suite exists, but the function digest has moved or the suite was hand-edited
+    unpinned        no Detective-owned suite
+    refused         the last converge refused (regime · impurity · needs-fixture) — recorded, not silent
+
+A style move is ADMISSIBLE only on a `pinned` region. For every other status the plan's next
+command is the behavior path — `detective converge file::fn` — never `decompose --apply`. This
+strengthens §8: no gate, no arc; **no pin, no gate armed.** [Build note: whether the suite header
+carries the FUNCTION digest (as distinct from the func_key digest in the filename and the
+file-content digest in the stamp) is slice 1's grounding; if not, the header grows the field —
+a one-line render plus a pure reader.]
+
+### 14.2 The four demands — the advisory analogues of MECHANICAL_LAYER §7
+
+Derived from the advisory epistemology (recognition ≠ warrant · interference, never sums · the
+human located at disagreement · the unproposed is unexamined, never approved):
+
+1. **A four-valued advisory verdict per region, never a score.** SILENT / CONSTRUCTIVE /
+   AMBIGUOUS / DESTRUCTIVE (§5.1), each with its voting lenses as attribution. Aggregates are
+   verdict COUNTS. **"Clean" is kept** — it is Sussman's word (founder ruling) — and DEFINED:
+   clean ⟺ SILENT ∧ every lens measured. A lens with `measured=False` votes 0 and makes the
+   region "unread", never clean; `clean%` = clean / measured regions. The informational zero
+   survives the vocabulary.
+2. **Every finding carries its warrant and its residual.** A CONSTRUCTIVE region names its
+   recognized move and the gate that licenses it (`TEMPLATE_GRAMMAR`), or `no_template`. A funded
+   move names its cost AND the cost's provenance (`static_dof_proxy` | `audit_plan_measured`).
+   Every exclusion carries one of the controller's named reasons. A plan that cannot explain what
+   it excluded is a ranking.
+3. **The human's channel is the AMBIGUOUS list, typed.** Each escalation states WHY (one lens
+   alone | a fence colliding with a consensus) and the driver's three moves: record a judgment
+   (14.5), author a fence (`flag --fence` / `censor --promote`), or send it through the proof
+   gate. This is the taste side's `--input`: the place the meaning half is supplied.
+4. **The surface names what it did not examine.** The `no_template` count is printed as the
+   library's gap; recognizer thresholds are stated constants with their calibration corpus; an
+   unmeasured lens says so. What the plan did not propose is UNEXAMINED, and the report uses the
+   word — never a silence that reads as approval.
+
+### 14.3 The verbs
+
+- **`detective plan <path>`** — the controller over a tree: banks → verdicts → templates → gates
+  → behavior status → cost → the funded list and the NAMED residual. **`detective plan
+  file.py::fn`** — one region's full read. Writes nothing. Every funded move ends by naming its
+  exact next command — the gate invocation (`decompose --apply`, or `receipt` + `verify-rewrite`)
+  — the way `converge` ends by naming its next step; every non-pinned region's next command is
+  `converge`. Co-equal with `diagnose` as an ENTRY verb, on the other layer.
+- **`parsimony` is DEPRECATED as a verb**, absorbed by `plan` (the map = `plan`'s verdict
+  distribution; `parsimony --plan` = the unpriced seed, §5.2). Deprecation, not deletion: for one
+  release the verb prints its `plan` equivalent and runs it, then goes. `parsimony.py` and
+  `parsimony_map.py` — the bank and the roll-up — STAY.
+- **`verify-rewrite --budget`** — the paired opcode read rides the gate it belongs to (§7): both
+  arms' growth class, the top-of-ladder ratio, `refund | parity | regression | unmeasurable`, and
+  `inadmissible` when the behavior delta is not 0. Reported in OPCODES, never as "cost" (the
+  bank's stated boundary). No separate verb.
+- **`flag --style file.py::fn [--note]`** — the judgment ledger (14.5).
+- **MCP `_render_plan`** — the same verb on the agent surface, every reply ending `DO THIS:` /
+  `STOP.` / `DONE:`. If the driver can be a model, the model must be able to receive escalations.
+- **Cross-language emission: vocabulary only.** Its dispositions (`PRESERVED_PORTABLE` ·
+  `PRESERVED_MODULO_UNPORTABLE` · `CHANGED` · `INVALID_MEASUREMENT` · `VACUOUS`) are reported when
+  that gate runs; no dedicated verb this pass.
+
+### 14.4 The vocabulary of claims (closed; each a named string code, pinned)
+
+| claim | codes | source |
+|---|---|---|
+| region verdict | SILENT · CONSTRUCTIVE · AMBIGUOUS · DESTRUCTIVE | `controller_verdict` (built) |
+| behavior status | pinned · pinned_stale · unpinned · refused | 14.1 — one new pure reader |
+| clean | clean · unread · not clean | 14.2 demand 1 — one new pure decision |
+| move + gate | the `TEMPLATE_GRAMMAR` entries · `no_template` | `template_matches` (built) |
+| cost provenance | static_dof_proxy · audit_plan_measured | `RegionRead` + one new field |
+| exclusion reason | fenced · escalated · silent · no_template · no_gate · over_budget · **unpinned** | `plan_moves` + ONE new reason |
+| budget verdict | refund · parity · regression · unmeasurable · inadmissible | `budget_verdict`, `paired_disposition` (built) |
+| emission | the five dispositions | `run_c_gate` (built) |
+
+The one change to the controller is `unpinned` as a seventh exclusion reason — the ordering law
+made visible in the residual. Everything else is rendering what already exists.
+
+### 14.5 The judgment ledger — separate from the equivalence ledger, by construction
+
+The driver's answer to an AMBIGUOUS is recorded, or it re-escalates every run. `flag --style
+file::fn --note "…"` writes `.detective/judgments.json` — a DIFFERENT file from the
+mutant-equivalence ledger — with `{region, function_digest, verdict_at_judgment, disposition:
+leave | proceed, note, date}`. The division rules (the founder's condition for sharing the verb):
+a style judgment is never read by `converge`, `audit`, `decompose`, or `certify`; it never affects
+✓ COMPLETE, `audit --check`, or any exit code on the behavior layer; it is DEFEASIBLE — a changed
+function digest, a later fence, or a later measured budget read reopens it, and the plan prints
+"reopened: digest moved". The behavior layer's `flag` (equivalence / fence) and the style layer's
+`flag --style` share a verb because both mean "a recorded, defeasible human judgment". They share
+nothing else — not a file, not a reader, not a consumer.
+
+### 14.6 Where and when it is reported
+
+`plan` prints the terse block — verdict counts · funded moves with their next commands · the
+escalation list · the residual counts · the unexamined line — and writes the full report to
+`.detective/reports/plan_<scope>.txt`, with `--json` carrying the same fields (the tiering
+`converge` already uses). The escalation list is "the short list a person clears" — Uroboros's
+existing review bucket — so the plan's residual and the crawl's residual are one artifact type.
+The behavior-status column makes the ordering law visible on every row.
+
+### 14.7 Exit semantics — the shared four-valued contract, unchanged
+
+`0` a completed advisory read — `exit_meaning: clean` keeps its shared meaning ("clean run /
+success"); the taste CLAIMS live in the report's `verdicts` and `clean` fields, never in the exit
+label. `2` a precondition — unparseable path, missing tree, or a regime conflict on a `file::fn`
+target. `3` an invalid measurement — a paired budget read that could not measure (`unmeasurable`:
+no `sys.monitoring`, no free tool slot, a crashed arm) exits 3 on `verify-rewrite --budget`,
+because cannot-determine must never render as determined (founder ruling 2026-09-05). Advisory
+never exits 1: there is no "gap" on this layer, only a residual, and a residual is not a failure.
+
+### 14.8 Not built, by the laws (no new decision)
+
+No score. No repo-scale mutation — the plan's costs are the static proxy unless `audit --plan`
+is paid per function. No path from plan to source. No model ranking. No wall-clock. No `--apply`
+on `plan`, ever: the actuators are the behavior layer's gates, and only they write.
+
+### 14.9 Build order (each slice: Serena-probe → extract the pure decision → converge in isolation → wire → intent tests → gate)
+
+1. `behavior_status` — the pure decision over (owned, digest_matches, edited, last_refusal) and
+   its reader; ground whether the suite header carries the function digest; add the field if not.
+2. `plan_moves` gains `unpinned`; `RegionRead` gains `status` and `cost_provenance`; re-pin both.
+3. Plan assembly, the impure shell: tree → `RegionRead`s (lenses · template · gate · status ·
+   cost). This is `exp_ds_005.main` made a library function, with the experiment's stated proxies.
+4. Renderers — terse / full / JSON; `.detective/reports/plan_*.txt`; the unexamined line; clean
+   defined per 14.2 (one pure decision).
+5. The `plan` verb, `_COMMAND_HELP` pedagogy, `_REGIME_STAGE` on the `file::fn` form; the
+   `parsimony` deprecation shim.
+6. `flag --style`, `.detective/judgments.json`, the reopen rule (one pure decision).
+7. `verify-rewrite --budget`, exit 3 on `unmeasurable`.
+8. MCP `_render_plan`.
+9. README: the 66/5/7/54 sentence becomes a real `plan` transcript (flagged until then).
+
+[Status: DESIGN, settled with the founder 2026-09-05. Nothing in this section is built.]
+
 ---
 
 *The first half of Detective made "specified" a checkable property with a stated boundary. This
