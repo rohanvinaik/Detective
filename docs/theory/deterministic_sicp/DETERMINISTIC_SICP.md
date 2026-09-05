@@ -982,6 +982,34 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    assembly: terse/full/json shapes, the report file, the `::` form, both preconditions on both
    channels, the deprecation note, the help pedagogy, the static dispatch.]
 6. `flag --style`, `.detective/judgments.json`, the reopen rule (one pure decision).
+   [BUILT 2026-09-05 — `Detective/judgments.py`: `StyleJudgment(func_key, function_digest,
+   verdict, disposition, note)` in `.detective/judgments.json` (USER DATA — `purge` never touches
+   it; a DIFFERENT file, reader and consumer from `equivalents.json`, never read by the behavior
+   layer). Two pure decisions: `judgment_standing(recorded_digest, current_digest,
+   recorded_verdict, current_verdict, disposition)` → "" · reopened_digest · reopened_verdict ·
+   disposition_unknown · leave · proceed (a moved definition or a changed reading REOPENS the
+   judgment — reported, never silently honoured or dropped), and `style_flag_refusal(has_mutant_id,
+   leave, proceed)` → "" · mutant_id_with_style · no_disposition · both_dispositions (the
+   division-blurring mistake named first). `admission_reason` gained `judgment=""` (a default that
+   admits nothing): a warrant outranks any judgment; LEAVE on an AMBIGUOUS or CONSTRUCTIVE region
+   → `judged_leave` (an authored exclusion); PROCEED on AMBIGUOUS answers the ambiguity and the
+   region continues down the chain — still under the ordering law (pinned first); a reopened
+   judgment is no judgment. `RegionRead.judgment` (defaulted) carries only a STANDING disposition;
+   `RegionDetail.judgment` carries the standing itself so the renderers print `reopened_*`. CLI:
+   `flag <region> --style --leave|--proceed [--note]` — `mutant_id` became optional; `_run_live`
+   routes `--style` (and a malformed id-less flag) AROUND the live session (a judgment about form
+   never profiles a mutant); `_run_flag_style` resolves the regime like `plan file::fn`, refuses
+   the three malformed shapes and a missing function (exit 2, both channels), records the judgment
+   keyed to the current digest and the current controller verdict, and names `plan` as the next
+   command. The plan's `escalated` row now names BOTH driver moves — `flag … --style --leave|
+   --proceed` and `converge` — and a `judged_leave` row names nothing; the terse block adds a
+   `· reopened` row; the full report and the JSON carry the judgment standing per region. Pins:
+   NOT attempted by converge this slice (the widen grind is a known defect on this tree; the two
+   decisions stand on exhaustive hand tables — 10 and 8 rows — under the exemption request).
+   Intent tests drive the real command: leave → judged_leave and the equivalence ledger untouched;
+   proceed → unpinned, then funded once a complete certificate exists; a moved definition →
+   reopened_digest, reason escalated again, the `· reopened` row; the four malformed shapes as
+   typed refusals that open no session and write nothing; the help teaches the division.]
 7. `verify-rewrite --budget`, exit 3 on `unmeasurable`.
 8. MCP `_render_plan`.
 9. README: the 66/5/7/54 sentence becomes a real `plan` transcript (flagged until then).

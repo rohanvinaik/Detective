@@ -41,6 +41,7 @@ from .controller import (
     orient_for_change,
     plan_moves,
 )
+from .judgments import DISPOSITIONS, judgment_for, judgment_standing
 from .parsimony import (
     _LENS_PRIORITY,
     _OVERLOAD_ZERO,
@@ -131,6 +132,11 @@ class RegionDetail:
     clean: str  # clean | unread | not_clean
     template_evidence: str  # "line N: …" or ""
     gate: str  # the TEMPLATE_GRAMMAR gate for the recognized move, "" when none
+    # The recorded style judgment's STANDING (§14.5 — `judgments.judgment_standing`): "" when none,
+    # leave / proceed when it applies, reopened_digest / reopened_verdict when the code or the
+    # reading moved since. The renderer prints a reopened judgment as such — never silently
+    # honoured, never silently dropped. `read.judgment` carries only a standing disposition.
+    judgment: str = ""
 
 
 @dataclass(frozen=True)
@@ -160,6 +166,14 @@ def region_detail(
     matches = template_matches(node)
     template = matches[0].template if matches else None
     gate_exists = template in TEMPLATE_GRAMMAR
+    recorded = judgment_for(root, func_key)
+    standing = judgment_standing(
+        recorded.function_digest if recorded else "",
+        pins.function_digest(node),
+        recorded.verdict if recorded else "",
+        verdict,
+        recorded.disposition if recorded else "",
+    )
     read = RegionRead(
         region=func_key,
         verdict=verdict,
@@ -169,6 +183,7 @@ def region_detail(
         cost=float(dof) if dof is not None else 0.0,
         status=read_behavior_status(root, write_dir, func_key, node),
         cost_provenance=COST_STATIC_DOF_PROXY if dof is not None else COST_UNMEASURED,
+        judgment=standing if standing in DISPOSITIONS else "",
     )
     return RegionDetail(
         read=read,
@@ -176,6 +191,7 @@ def region_detail(
         clean=clean_disposition(verdict, all(lens.measured for lens in lenses)),
         template_evidence=f"line {matches[0].line}: {matches[0].evidence}" if matches else "",
         gate=TEMPLATE_GRAMMAR[template][1] if gate_exists and template is not None else "",
+        judgment=standing,
     )
 
 
@@ -236,13 +252,14 @@ def next_command(reason: str, region: str, gate: str, move: str) -> str:
       "funded", any other gate              → "" (the grammar names a gate this surface cannot spell)
       a behavior-status reason             → `converge …` — the ordering law: style waits
         (unpinned · pinned_stale · pinned_unverified · pinned_incomplete · refused)
-      "escalated"                          → `converge …` — AMBIGUOUS is the driver's; grounding it is
-                                              the one command that is never wrong first (the recorded
-                                              style judgment is slice 6, so it is NOT named yet)
+      "escalated"                          → `flag … --style --leave|--proceed` — AMBIGUOUS is the
+                                              driver's, and the answer is RECORDED (§14.5) so it does
+                                              not re-escalate; grounding it with `converge` first is
+                                              named beside it, the one move that is never wrong
       "unpriced"                           → `audit … --plan` — a measured price for what the static
                                               instrument could not size
-      fenced · silent · no_template · no_gate · over_budget · anything else → "" (nothing to run;
-        the reason itself is the message)
+      fenced · judged_leave · silent · no_template · no_gate · over_budget · anything else → ""
+        (nothing to run; the reason itself is the message)
     """
     if reason == FUNDED:
         if gate.startswith("decompose"):
@@ -254,8 +271,13 @@ def next_command(reason: str, region: str, gate: str, move: str) -> str:
                 f"   # apply the '{move}' transform, then: detective verify-rewrite {path} '{region}'"
             )
         return ""
-    if reason in _STATUS_REASONS or reason == "escalated":
+    if reason in _STATUS_REASONS:
         return f"detective converge '{region}'"
+    if reason == "escalated":
+        return (
+            f"detective flag '{region}' --style --leave --note \"why\""
+            f"   # or --proceed; to ground it first: detective converge '{region}'"
+        )
     if reason == "unpriced":
         return f"detective audit '{region}' --plan"
     return ""

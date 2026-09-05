@@ -152,6 +152,29 @@ def test_only_pinned_can_ever_be_admissible() -> None:
         assert admission_reason(CONSTRUCTIVE, status, True, True) != "admissible"
 
 
+@pytest.mark.parametrize(
+    "verdict, status, judgment, expected",
+    [
+        (AMBIGUOUS, PINNED, "leave", "judged_leave"),  # the driver's recorded answer excludes it
+        (CONSTRUCTIVE, PINNED, "leave", "judged_leave"),  # …and may exclude a constructive region too
+        (AMBIGUOUS, PINNED, "proceed", "admissible"),  # the answer resolves the ambiguity: down the chain
+        (AMBIGUOUS, UNPINNED, "proceed", "unpinned"),  # …which still obeys the ordering law
+        (AMBIGUOUS, PINNED, "", "escalated"),  # no standing judgment: yours
+        (AMBIGUOUS, PINNED, "reopened_digest", "escalated"),  # a reopened judgment is no judgment
+        (DESTRUCTIVE, PINNED, "proceed", "fenced"),  # a warrant outranks any judgment
+        (SILENT, PINNED, "leave", "silent"),  # nothing to judge
+        (CONSTRUCTIVE, PINNED, "proceed", "admissible"),  # proceed on constructive is a no-op
+    ],
+)
+def test_a_standing_judgment_is_consumed_in_its_place(verdict, status, judgment, expected) -> None:
+    assert admission_reason(verdict, status, True, True, judgment) == expected
+
+
+def test_judgment_defaults_to_none_and_admits_nothing_by_itself() -> None:
+    assert RegionRead("r", AMBIGUOUS, 1, "t", True, 1.0, PINNED, "static_dof_proxy").judgment == ""
+    assert admission_reason(AMBIGUOUS, PINNED, True, True) == "escalated"
+
+
 def test_incomplete_and_refused_are_their_own_reasons() -> None:
     # Slice 1b: a measured gap and a decline are different facts with different remedies; the
     # residual names which (never "unpinned" for a function converge has in fact measured).

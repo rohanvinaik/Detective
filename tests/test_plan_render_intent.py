@@ -120,7 +120,8 @@ def _assembly(budget: float = 100.0) -> PlanAssembly:
         (pins.PINNED_UNVERIFIED, GATE, "detective converge 'm.py::f'"),
         (pins.PINNED_INCOMPLETE, GATE, "detective converge 'm.py::f'"),
         (pins.REFUSED, GATE, "detective converge 'm.py::f'"),
-        ("escalated", GATE, "detective converge 'm.py::f'"),
+        ("escalated", GATE, "detective flag 'm.py::f' --style --leave"),
+        ("judged_leave", GATE, ""),
         ("unpriced", GATE, "detective audit 'm.py::f' --plan"),
         ("fenced", GATE, ""),
         ("silent", GATE, ""),
@@ -148,9 +149,16 @@ def test_a_receipt_gate_brackets_the_rewrite_with_both_commands() -> None:
 
 
 def test_no_command_names_a_verb_that_does_not_exist() -> None:
-    for reason in ("escalated", "funded", pins.UNPINNED, "unpriced", "fenced", "no_template"):
-        cmd = next_command(reason, "m.py::f", GATE, "x")
-        assert "flag --style" not in cmd and "plan " not in cmd
+    # `plan` never tells the driver to run `plan`; and the escalation names BOTH of the driver's
+    # moves — record the judgment (slice 6's `flag --style`) or ground it first with converge.
+    for reason in ("escalated", "funded", pins.UNPINNED, "unpriced", "fenced", "no_template", "judged_leave"):
+        assert "detective plan" not in next_command(reason, "m.py::f", GATE, "x")
+    escalated = next_command("escalated", "m.py::f", GATE, "x")
+    assert (
+        "--style --leave" in escalated
+        and "--proceed" in escalated
+        and "detective converge 'm.py::f'" in escalated
+    )
 
 
 def test_receipt_path_is_a_safe_suggestion() -> None:

@@ -517,8 +517,17 @@ def _format_plan_terse(assembly, report_path: str = "", top: int = 5) -> str:
         lines.append(
             _row(
                 "· yours",
-                f"{len(escalated)} AMBIGUOUS — one lens each, or the two signs disagree; the driver's call "
-                "(a recorded style judgment is not yet a command — ground it with converge)",
+                f"{len(escalated)} AMBIGUOUS — one lens each, or the two signs disagree; the driver's call: "
+                "record it with `flag <region> --style --leave|--proceed`, or ground it with converge",
+            )
+        )
+    reopened = [d.read.region for d in assembly.regions if d.judgment.startswith("reopened")]
+    if reopened:
+        lines.append(
+            _row(
+                "· reopened",
+                f"{len(reopened)} style judgment(s) no longer apply — the code or its reading moved: "
+                f"{', '.join(reopened[:3])}{'  (+more in the report)' if len(reopened) > 3 else ''}",
             )
         )
     lines.append("")
@@ -561,6 +570,8 @@ def _format_plan_full(assembly, report_path: str = "") -> str:
         lines.append(
             _row("", f"{r.verdict} · {reason} · status {r.status} · {d.clean} · agreement {r.agreement}")
         )
+        if d.judgment:
+            lines.append(_row("", f"judgment: {d.judgment}"))
         lines.append(_row("", f"smells: {smells}"))
         if unmeasured:
             lines.append(_row("", f"unmeasured: {unmeasured}"))
@@ -612,6 +623,7 @@ def _plan_payload(assembly, report_path: str = "") -> dict:
             "template_evidence": d.template_evidence or None,
             "cost": r.cost,
             "cost_provenance": r.cost_provenance,
+            "judgment": d.judgment or None,
             "smells": [{"lens": lens.name, "detail": lens.detail} for lens in d.lenses if lens.vote == -1],
             "unmeasured": [lens.name for lens in d.lenses if not lens.measured],
             "next_command": _plan_region_command(d, reason) or None,
@@ -4086,14 +4098,44 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     flag_p.add_argument("target", help="file.py::function")
-    flag_p.add_argument("mutant_id", help="the surviving mutant id (from `audit`/`diagnose`)")
-    flag_p.add_argument("--note", default="", help="why it is equivalent, or why it must not survive")
+    flag_p.add_argument(
+        "mutant_id",
+        nargs="?",
+        default=None,
+        help="the surviving mutant id (from `audit`/`diagnose`) — omitted with --style, which judges "
+        "the region",
+    )
+    flag_p.add_argument(
+        "--note", default="", help="why it is equivalent, or why it must not survive — or, with --style, why"
+    )
     flag_p.add_argument(
         "--fence",
         action="store_true",
         help="record a FENCE, not an equivalent: this survival is a BUG — an authored MUST-NOT (a "
         "two-sign negative degree of freedom) the suite does not yet enforce. Reported as an "
         "unenforced gap that fails `audit --check` and blocks ✓COMPLETE, never suppressed as valid.",
+    )
+    # The STYLE layer's use of the shared verb (§14.5). Same word — "a recorded, defeasible human
+    # judgment" — different ledger, different reader, different consumer; nothing else shared.
+    flag_p.add_argument(
+        "--style",
+        action="store_true",
+        help="record a STYLE judgment for the whole REGION instead of a verdict on a mutant: the driver's "
+        "answer to an AMBIGUOUS `plan` row, --leave or --proceed, with --note. A SEPARATE ledger "
+        "(.detective/judgments.json) the behavior layer never reads — it never affects ✓COMPLETE or "
+        "`audit --check` — and it is REOPENED when the function or its reading changes. Static: no "
+        "live session, no mutant. Takes no mutant id.",
+    )
+    flag_p.add_argument(
+        "--leave",
+        action="store_true",
+        help="with --style: leave this region alone — an authored exclusion from the plan",
+    )
+    flag_p.add_argument(
+        "--proceed",
+        action="store_true",
+        help="with --style: treat this AMBIGUOUS region as a case for change — it continues down the "
+        "gate chain",
     )
     flag_p.add_argument("--project-root", default=".")
     flag_p.add_argument("--json", action="store_true", help="emit JSON")
@@ -4680,7 +4722,14 @@ def _run_live(args) -> int:
     # `purge` runs no tests; `regime` READS the setup and must answer even when that setup is
     # what is broken — opening a live session to report that a live session cannot open would
     # be the one command guaranteed to fail exactly when it is needed.
-    if getattr(args, "command", None) in _STATIC_COMMANDS or not root:
+    # `flag --style` is the style layer's use of the verb (§14.5): a judgment about a REGION, recorded
+    # statically — it never profiles a mutant, so it never pays for a session. A `flag` with no mutant
+    # id and no --style is malformed and refused inside `_run_flag` before any profile; it must not
+    # open a session either.
+    static_flag = getattr(args, "command", None) == "flag" and (
+        getattr(args, "style", False) or getattr(args, "mutant_id", None) is None
+    )
+    if getattr(args, "command", None) in _STATIC_COMMANDS or not root or static_flag:
         return _run(args)
     context = _execution_context()
     if context.disposition == "wrong_interpreter":
@@ -5475,6 +5524,102 @@ def _run_converge(args, file, function) -> int:
     )
 
 
+def _run_flag_style(args, file, function) -> int:
+    """`flag --style` (§14.5): record the driver's answer to an AMBIGUOUS `plan` row — LEAVE or
+    PROCEED — for a whole REGION, in the style ledger (`.detective/judgments.json`). STATIC: no live
+    session — the behavior layer's `flag` profiles the target; this one never does, because it is a
+    judgment about form, not a verdict about a mutant. Same regime refusal as `plan file::fn`. Keyed
+    to the definition AND its current reading: an edit, or a changed verdict, reopens it; a fence
+    always outranks it."""
+    from . import pins
+    from .judgments import LEAVE, PROCEED, add_judgment, style_flag_refusal
+    from .parsimony_map import iter_functions
+    from .plan import assemble_plan
+
+    root = os.path.abspath(args.project_root)
+    target = args.target
+    refusal = style_flag_refusal(args.mutant_id is not None, bool(args.leave), bool(args.proceed))
+    if refusal:
+        detail = {
+            "mutant_id_with_style": "--style judges a REGION, not a mutant — drop the mutant id",
+            "no_disposition": "--style needs exactly one of --leave / --proceed",
+            "both_dispositions": "--style needs exactly one of --leave / --proceed, not both",
+        }[refusal]
+        if args.json:
+            return _emit_json(
+                {"verdict": "REFUSED", "reason": refusal, "target": target, "detail": detail}, 2
+            )
+        sys.stderr.write(f"detective: {detail}\n")
+        return 2
+    regime = None
+    try:
+        from .regime import resolve_regime
+
+        regime = resolve_regime(root, file)
+    except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
+        regime = None
+    if regime is not None and regime.conflicts:
+        if args.json:
+            return _emit_json(
+                {
+                    "verdict": "REFUSED",
+                    "reason": "regime_conflict",
+                    "target": target,
+                    "module": getattr(regime, "module", None),
+                    "detail": _format_conflicts(regime, target).strip(),
+                },
+                2,
+            )
+        sys.stdout.write(_format_conflicts(regime, target))
+        return 2
+    full = file if os.path.isabs(file) else os.path.join(root, file)
+    func_key = f"{os.path.relpath(full, root)}::{function}"
+    node = next((n for k, n, _m in iter_functions(full, root) if k == func_key), None)
+    assembly = assemble_plan(full, root)
+    detail_row = next((d for d in assembly.regions if d.read.region == func_key), None)
+    if node is None or detail_row is None:
+        names = ", ".join(d.read.region.split("::", 1)[1] for d in assembly.regions) or "none"
+        msg = f"detective: no function {function!r} in {file} — regions in that file: {names}"
+        if args.json:
+            return _emit_json(
+                {"verdict": "REFUSED", "reason": "no_such_function", "target": target, "detail": msg}, 2
+            )
+        sys.stderr.write(msg + "\n")
+        return 2
+    disposition = LEAVE if args.leave else PROCEED
+    judgment = add_judgment(
+        root, func_key, pins.function_digest(node), detail_row.read.verdict, disposition, args.note
+    )
+    if args.json:
+        return _emit_json(
+            {
+                "verdict": "RECORDED",
+                "kind": "style_judgment",
+                "region": func_key,
+                "disposition": disposition,
+                "controller_verdict": detail_row.read.verdict,
+                "function_digest": judgment.function_digest,
+                "note": args.note,
+            },
+            0,
+        )
+    suffix = f" ({args.note})" if args.note else ""
+    print(f"{func_key} — flag --style")
+    print("")
+    print(_row("✓ recorded", f"style judgment — {disposition}{suffix}"))
+    print(_row("", f"keyed to this exact definition and its current reading ({detail_row.read.verdict}) —"))
+    print(_row("", "an edit, or a changed verdict, REOPENS it; a fence outranks it."))
+    print("")
+    if disposition == LEAVE:
+        print("DONE:  `plan` excludes this region by your decision (judged_leave) until the code")
+        print("       or its reading moves. It never touches the behavior layer.")
+    else:
+        print("DONE:  `plan` treats this AMBIGUOUS region as a case for change: it continues down")
+        print("       the gate chain (pinned → recognized move → gate) and is funded like any other.")
+    print(f"       Next: detective plan '{func_key}'")
+    return 0
+
+
 def _run_flag_line(args, file, function) -> int:
     from Wesker.ci import walk_functions as _walk
 
@@ -5586,6 +5731,19 @@ def _run_flag(args, file, function) -> int:
     from .engine import profile
     from .equivalents import add_flag
 
+    if getattr(args, "style", False):
+        return _run_flag_style(args, file, function)
+    if args.mutant_id is None:
+        msg = (
+            "detective: flag needs a surviving mutant id (from `audit`/`diagnose`) — "
+            "or --style to judge the region"
+        )
+        if args.json:
+            return _emit_json(
+                {"verdict": "REFUSED", "reason": "no_mutant_id", "target": args.target, "detail": msg}, 2
+            )
+        sys.stderr.write(msg + "\n")
+        return 2
     result = profile(file, function, args.project_root)
     # Match against value-survivors — the SAME set audit/classify report from — so a
     # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-

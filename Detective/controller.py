@@ -100,6 +100,10 @@ class RegionRead:
     cost: float  # the arc-price estimate (v1: the static DOF proxy; live: `audit --plan`)
     status: str  # `certify.behavior_status` (pins.BEHAVIOR_STATUSES); only PINNED arms a gate
     cost_provenance: str  # "static_dof_proxy" | "audit_plan_measured"
+    # The driver's STANDING style judgment for this region (§14.5): "" (none, or reopened — the
+    # plan passes only a judgment that still applies), "leave", or "proceed". Defaulted, because
+    # the absence of a judgment is itself the honest default and admits nothing on its own.
+    judgment: str = ""
 
 
 @dataclass(frozen=True)
@@ -112,19 +116,26 @@ class Plan:
     budget_spent: float
 
 
-def admission_reason(verdict: str, status: str, has_template: bool, gate_exists: bool) -> str:
-    """Why one region is, or is not, admissible to the plan (§14.1 / §14.4 — pure, pinned).
+def admission_reason(
+    verdict: str, status: str, has_template: bool, gate_exists: bool, judgment: str = ""
+) -> str:
+    """Why one region is, or is not, admissible to the plan (§14.1 / §14.4 / §14.5 — pure, pinned).
 
     Extracted from `plan_moves` so the decision is over literals (`RegionRead` is a domain object
     input synthesis cannot express). The residual must explain itself, so every non-admission is
-    a NAMED reason, checked in the order the laws rank them: the taste verdict first, then the
-    BEHAVIOR status — style after behavior, strictly: a CONSTRUCTIVE region with no current
-    contract is a `converge` target whatever move the library recognized — then the move, then
-    its gate:
+    a NAMED reason, checked in the order the laws rank them: the warrant first, then the driver's
+    standing judgment, then the taste verdict, then the BEHAVIOR status — style after behavior,
+    strictly: a region with no current contract is a `converge` target whatever move the library
+    recognized — then the move, then its gate:
 
-      "fenced"             DESTRUCTIVE — censor-grade elimination, warrant on the censor ledger
-      "escalated"          AMBIGUOUS — the driver's queue, not the plan's
-      "silent"             SILENT — no case for change
+      "fenced"             DESTRUCTIVE — censor-grade elimination, warrant on the censor ledger;
+                           a warrant outranks any judgment
+      "judged_leave"       the driver recorded LEAVE for this region (§14.5) — an authored
+                           exclusion, on an AMBIGUOUS or a CONSTRUCTIVE region
+      "escalated"          AMBIGUOUS with no standing judgment — the driver's queue, not the
+                           plan's; a standing PROCEED answers the ambiguity and the region
+                           continues down the chain as a case for change
+      "silent"             SILENT — no case for change (a judgment has nothing to say here)
       "verdict_unknown"    a verdict outside the four — named, never admitted by fall-through
       "unpinned" · "pinned_stale" · "pinned_unverified"
                            CONSTRUCTIVE but no CURRENT Detective contract: the status code IS the
@@ -138,11 +149,13 @@ def admission_reason(verdict: str, status: str, has_template: bool, gate_exists:
     """
     if verdict == DESTRUCTIVE:
         return "fenced"
-    if verdict == AMBIGUOUS:
+    if judgment == "leave" and verdict in (AMBIGUOUS, CONSTRUCTIVE):
+        return "judged_leave"
+    if verdict == AMBIGUOUS and judgment != "proceed":
         return "escalated"
     if verdict == SILENT:
         return "silent"
-    if verdict != CONSTRUCTIVE:
+    if verdict not in (CONSTRUCTIVE, AMBIGUOUS):
         return "verdict_unknown"
     if status != PINNED:
         return status if status in BEHAVIOR_STATUSES else "status_unknown"
@@ -170,7 +183,7 @@ def plan_moves(regions: tuple[RegionRead, ...], budget: float) -> Plan:
     admissible = []
     excluded: list[tuple[str, str]] = []
     for r in regions:
-        reason = admission_reason(r.verdict, r.status, r.template is not None, r.gate_exists)
+        reason = admission_reason(r.verdict, r.status, r.template is not None, r.gate_exists, r.judgment)
         if reason != "admissible":
             excluded.append((r.region, reason))
         elif r.cost_provenance == COST_UNMEASURED:

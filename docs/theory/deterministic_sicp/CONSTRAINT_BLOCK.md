@@ -153,8 +153,9 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 > batches · sys.monitoring counter · recognizable ≠ priceable · opposition requires a warrant).
 
 > **SUPERSEDED 2026-09-05 — the next action is now the §14 surface, in slice order** (slices
-> 1, 1b, 2, 3, 4 SHIPPED 2026-09-05 — `1e201f0`, `f32b8ac`, `f0daf18`, `b5ad349`, `3081510`;
-> slice 5 built and gated, next commit; the next action is slice 6, the judgment ledger).
+> 1, 1b, 2, 3, 4, 5 SHIPPED 2026-09-05 — `1e201f0`, `f32b8ac`, `f0daf18`, `b5ad349`, `3081510`,
+> `18b1513`; slice 6 built and gated, next commit; the next action is slice 7, `verify-rewrite
+> --budget`).
 > **Standing caveat from slices 4–5:** converge's witness-pass widen GRINDS on plan.py targets
 > (51 and 54 min at 100% CPU, past `--deadline 1200`, verdict cache rewritten per test) — two
 > behavior-layer defects recorded in §14.9; `next_command` · `receipt_path` · `unexamined` ·
