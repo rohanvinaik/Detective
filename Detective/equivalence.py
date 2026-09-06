@@ -32,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from Wesker.interrupt import abandon as _abandon
+from Wesker.interrupt import bounded_join as _bounded_join
 
 
 def _type_of(ann) -> str | None:
@@ -1093,13 +1093,15 @@ def _outcome(fn: Callable[..., Any], args: tuple, timeout_s: float = _CLASSIFY_T
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    thread.join(timeout_s)
-    if thread.is_alive():
-        # A non-terminating mutant re-executed here used to hang the classifier FOREVER. Stop the
-        # runaway (abandon unwinds pure-Python loops) and report a distinct timeout outcome, which
-        # `_pair_disposition` maps to 'blocked' — an unclassified mutant, never a value-witness (#42).
-        _abandon(thread)
-        thread.join(_CLASSIFY_UNWIND_S)
+    # A non-terminating mutant re-executed here used to hang the classifier FOREVER. Stop the
+    # runaway (abandon unwinds pure-Python loops) and report a distinct timeout outcome, which
+    # `_pair_disposition` maps to 'blocked' — an unclassified mutant, never a value-witness (#42).
+    # `bounded_join` stops it on EVERY exit from the wait — including THIS thread being abandoned
+    # while parked in the join, which is what the traced baseline does to a test that runs the
+    # classifier (2026-09-06: a `join; if alive: abandon` here orphaned the runaway, which then
+    # hogged the GIL for the rest of the process).
+    timed_out, _contained = _bounded_join(thread, timeout_s, unwind_s=_CLASSIFY_UNWIND_S)
+    if timed_out:
         return _OUTCOME_TIMEOUT
     return box.get("v", _OUTCOME_TIMEOUT)
 
@@ -1162,10 +1164,7 @@ def _reached_lines(
         per_call = max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - time.monotonic()))
         thread = threading.Thread(target=_run, args=(args,), daemon=True)
         thread.start()
-        thread.join(per_call)
-        if thread.is_alive():
-            _abandon(thread)
-            thread.join(_CLASSIFY_UNWIND_S)
+        _bounded_join(thread, per_call, unwind_s=_CLASSIFY_UNWIND_S)  # stopped on every exit, see _outcome
     return frozenset(hit)
 
 
