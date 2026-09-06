@@ -185,6 +185,41 @@ PYTHONPATH=$PP python3 -m pytest 2>&1 | tail -3
 Run pytest twice — once with `-q` to see failures, once bare with `| tail -1` to capture the
 exact count that goes into the commit body.
 
+### Before every PUSH: pylint-as-Sonar, then the REAL Sonar, locally
+
+Ruff is the commit gate; a push needs two more passes, in this order, and neither is optional
+(2026-09-06: both were skipped once and the founder noticed):
+
+1. `uvx pylint Detective` — reproducible from `[tool.pylint]` in pyproject (tuned to Sonar's
+   ruleset, not pylint's defaults). Fix what is genuine in the code you wrote; the house
+   `except Exception:  # noqa: BLE001 — <reason>` guard, the big orchestrators' statement counts
+   and the `sys.monitoring` E1101s under 3.11 are known residue, not findings.
+2. The local SonarQube — the persistent Docker container `peitho-sonar` at `localhost:9000`
+   (shared with Peitho and Wesker; creds in `~/.config/detective/sonar-local.env`, minted once —
+   never re-mint per session). Coverage first, then the scanner, then read the gate by API:
+
+   ```bash
+   uv run --no-sync python -m pytest tests/ --cov=Detective --cov-report=xml:coverage.xml -q
+   set -a && . ~/.config/detective/sonar-local.env && set +a
+   docker run --rm -e SONAR_HOST_URL=http://host.docker.internal:9000 -e SONAR_TOKEN="$SONAR_TOKEN" \
+     -v "$PWD:/usr/src" sonarsource/sonar-scanner-cli -Dsonar.organization=
+   curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=rohanvinaik_Detective"
+   ```
+
+   The scanner returns before the server has processed the report — poll the task the scanner
+   names (`api/ce/task?id=<id>` from its last log lines) until `SUCCESS` before reading the gate;
+   `api/ce/component` can answer with the PREVIOUS task's SUCCESS (measured: an unchanged
+   verdict read back as if the rescan had run).
+   **House form for a suppression comment: `# noqa: CODE — <reason>` with NO COMMA in the
+   reason** — Sonar (S7632) parses text after a comma as a second suppression code; semicolons
+   and colons are fine. Both repos were swept clean of the comma form on 2026-09-06.
+   `sonar-project.properties` is read; `relative_files = true` in `[tool.coverage.run]` is what
+   lets the container resolve the report. **Bar: gate `OK`, 0 bugs, 0 vulnerabilities, 0
+   hotspots.** Expected residue, handled by API transition WITH a comment, never silently:
+   S3776 on the intentional essential-complexity orchestrators (`accept`); S5863 on the
+   deliberate `f(x) == f(x)` determinism checks in tests (`falsepositive`). Composite-assertion
+   smells (S9073) are a Quality Profile decision for the founder, not a per-session fix.
+
 ## Commits
 
 Heredoc essay, never `-m`. Subject `fix(#NN):` / `feat(#NN):` describing the behaviour change.

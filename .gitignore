@@ -19,3 +19,5 @@ coverage.xml
 .claude/
 .env
 .env.*
+# SonarQube scanner work dir (local pre-push scan)
+.scannerwork/

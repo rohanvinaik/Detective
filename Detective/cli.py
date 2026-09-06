@@ -180,7 +180,7 @@ def _reachable_paths(
             import_roots=import_roots,
             testpaths=testpaths,
         )
-    except Exception:  # noqa: BLE001 — scoping is an optimisation; degrade to full, but NAME it
+    except Exception:  # noqa: BLE001 — scoping is an optimisation; degrade to full but NAME it
         return PathScope(None, reachable_disposition(1, raised=True, scoped_count=None))
     scoped_count = len(paths) if paths is not None else None
     return PathScope(paths, reachable_disposition(1, raised=False, scoped_count=scoped_count))
@@ -544,7 +544,7 @@ def _format_plan_terse(assembly, report_path: str = "", top: int = 5) -> str:
     for item in s.unexamined[1:]:
         lines.append(_row("", item))
     if report_path:
-        lines.append(_row("· full report", report_path))
+        lines.append(_row(_FULL_REPORT_ROW, report_path))
     lines.append("")
     lines.append(_plan_final_banner(s, assembly.scope))
     return "\n".join(lines)
@@ -601,7 +601,7 @@ def _format_plan_full(assembly, report_path: str = "") -> str:
     for item in s.unexamined[1:]:
         lines.append(_row("", item))
     if report_path:
-        lines.append(_row("· full report", report_path))
+        lines.append(_row(_FULL_REPORT_ROW, report_path))
     lines.append("")
     lines.append(_plan_final_banner(s, assembly.scope))
     return "\n".join(lines)
@@ -2117,7 +2117,7 @@ def _format_converge_terse(
     if stale:
         lines.append(_row("⚠ stale", "the target file changed while the run was measuring it"))
         if report_path:
-            lines.append(_row("· full report", f"{report_path} (measurement invalid)"))
+            lines.append(_row(_FULL_REPORT_ROW, f"{report_path} (measurement invalid)"))
         lines.append("")
         lines.append("DO THIS:  re-run the same converge on the now-stable file — nothing")
         lines.append("       below the edit was measured; this run's numbers describe a")
@@ -2143,7 +2143,7 @@ def _format_converge_terse(
                 )
             )
         if report_path:
-            lines.append(_row("· full report", f"{report_path} (measurement partial)"))
+            lines.append(_row(_FULL_REPORT_ROW, f"{report_path} (measurement partial)"))
         lines.append("")
         lines.append("DO THIS:  re-run with a larger wall, e.g. --deadline 900 — or 0 to")
         lines.append("       disable it — on a target that genuinely needs longer. If the")
@@ -2287,7 +2287,7 @@ def _format_converge_terse(
             )
         )
     if report_path:
-        lines.append(_row("· full report", report_path))
+        lines.append(_row(_FULL_REPORT_ROW, report_path))
     lines.append("")
     lines += _converge_action(result, rep, root, report_path, session_reason, attempted_inputs)
     lines.append("")
@@ -2600,6 +2600,9 @@ _LABEL_W = 21
 # text, and a reader cannot tell which lines they are meant to act on — the progress narration
 # reads as findings. Rendered wide enough to survive a wrapped terminal.
 _RULE = "─" * 78
+# The two row labels every report shares — one spelling each, so the renderers cannot drift.
+_FULL_REPORT_ROW = "· full report"
+_RECORDED_ROW = "✓ recorded"
 
 # How many derived requirements one command carries. `--input` is repeatable and each call kills
 # whatever it reaches, so the interface imposes no ceiling — this is only a wall-of-text guard.
@@ -4676,7 +4679,7 @@ def main(argv: list[str] | None = None) -> int:
             from Wesker.memory_guard import telemetry
 
             sys.stderr.write(f"  [{telemetry()}]\n")
-        except Exception:  # noqa: BLE001 — telemetry is advisory, never fatal
+        except Exception:  # noqa: BLE001 — telemetry is advisory and never fatal
             pass
     return code
 
@@ -5635,7 +5638,7 @@ def _run_flag_style(args, file, function) -> int:
     suffix = f" ({args.note})" if args.note else ""
     print(f"{func_key} — flag --style")
     print("")
-    print(_row("✓ recorded", f"style judgment — {disposition}{suffix}"))
+    print(_row(_RECORDED_ROW, f"style judgment — {disposition}{suffix}"))
     print(_row("", f"keyed to this exact definition and its current reading ({rec.controller_verdict}) —"))
     print(_row("", "an edit, or a changed verdict, REOPENS it; a fence outranks it."))
     print("")
@@ -5744,7 +5747,7 @@ def _run_flag_line(args, file, function) -> int:
     suffix = f" ({args.note})" if args.note else ""
     print(f"{func_key} — flag-line · line {args.line}")
     print("")
-    print(_row("✓ recorded", f"unreachable{suffix}: {flag.source}"))
+    print(_row(_RECORDED_ROW, f"unreachable{suffix}: {flag.source}"))
     print(_row("", "keyed to this exact statement — an edit un-flags it."))
     print("")
     # The two ledgers stay orthogonal: this closes a LINE residual and nothing else.
@@ -5801,7 +5804,7 @@ def _run_flag(args, file, function) -> int:
         # must-not the suite does not enforce. It is a GAP (fails `audit --check`, blocks
         # ✓COMPLETE), never suppressed — so a witness that KILLS it SATISFIES the fence, it does
         # not override a mistaken judgement.
-        print(_row("✓ recorded", f"fence — an unenforced must-not{suffix}"))
+        print(_row(_RECORDED_ROW, f"fence — an unenforced must-not{suffix}"))
         print(_row("", "keyed to this exact code — an edit un-flags it."))
         print("")
         print("DONE:  future audit/converge runs report it as an UNENFORCED must-not — a gap")
@@ -5811,7 +5814,7 @@ def _run_flag(args, file, function) -> int:
     # A flag is a CLAIM, and the one place a human overrides the engine. Say what it does
     # and what still outranks it: a real distinguishing witness. Otherwise it reads as a
     # way to silence a survivor, which is how a green board gets flagged into existence.
-    print(_row("✓ recorded", f"equivalent{suffix}"))
+    print(_row(_RECORDED_ROW, f"equivalent{suffix}"))
     print(_row("", "keyed to this exact code — an edit un-flags it."))
     print("")
     print("DONE:  future audit/converge runs treat it as equivalent — unless a witness")

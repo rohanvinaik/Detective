@@ -75,7 +75,7 @@ def _ruff_format(source: str) -> str:
     import sys
 
     try:
-        proc = subprocess.run(  # noqa: S603 — fixed argv, no shell, input via stdin
+        proc = subprocess.run(  # noqa: S603 — fixed argv with no shell and input via stdin
             [
                 sys.executable,
                 "-m",

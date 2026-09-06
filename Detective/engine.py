@@ -234,7 +234,7 @@ def _resolve_origin(module: str, root: str, extra_path: list[str]) -> str | None
         # site-packages and failed 10 tests, and `regime` called it "resolves cleanly".
         # `extra_path` is the suite's path, computed by `_suite_path`; it is the ONLY thing that
         # should be on there. (3.11+, which this package requires.)
-        done = subprocess.run(  # noqa: S603 — our own script, our own interpreter
+        done = subprocess.run(  # noqa: S603 — our own script under our own interpreter
             [sys.executable, "-B", "-P", "-c", script],
             check=False,
             capture_output=True,
@@ -2302,7 +2302,7 @@ def _captured_domain_variant_inputs(captured: Sequence[tuple], cap: int = 24) ->
                 new_row = tuple(var if j == i else row[j] for j in range(len(row)))
                 try:
                     key = repr(new_row)
-                except Exception:  # noqa: BLE001 — an unrepr-able row counts as fresh, never a crash
+                except Exception:  # noqa: BLE001 — an unrepr-able row counts as fresh and never crashes
                     key = None
                 if key is not None and key in seen:
                     continue

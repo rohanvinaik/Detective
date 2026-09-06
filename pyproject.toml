@@ -240,6 +240,10 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.coverage.run]
 source = ["Detective"]
+# Relative paths in coverage.xml, so the report resolves both in CI and inside the local
+# SonarQube scanner container (which mounts the repo at /usr/src, not the host path).
+relative_files = true
+branch = true
 omit = ["Detective/cli.py", "Detective/__main__.py", "Detective/__init__.py"]
 
 # Point the type checker at the venv Detective actually runs in. Without it Wesker resolves

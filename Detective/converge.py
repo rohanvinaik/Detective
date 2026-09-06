@@ -538,7 +538,7 @@ def property_holds(setup_code: str, assertion_code: str, project_root: str) -> b
         return True
     except (KeyboardInterrupt, SystemExit):
         raise  # never swallow interrupt/exit — only property failures are "unsound"
-    except BaseException:  # noqa: BLE001 — pytest's Failed inherits BaseException, not Exception
+    except BaseException:  # noqa: BLE001 — pytest's Failed inherits BaseException rather than Exception
         return False
     finally:
         for p in added:

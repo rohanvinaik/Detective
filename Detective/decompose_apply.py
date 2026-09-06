@@ -45,7 +45,7 @@ def _kill_matrix(file: str, function: str, project_root: str) -> dict[str, list[
 
     try:
         return profile(file, function, project_root).kill_matrix
-    except Exception:  # noqa: BLE001 — no profile -> no proof suite -> propose, never apply
+    except Exception:  # noqa: BLE001 — no profile -> no proof suite -> propose and never apply
         return {}
 
 

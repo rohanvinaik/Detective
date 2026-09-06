@@ -88,7 +88,7 @@ def static_dof_proxy(node: ast.FunctionDef | ast.AsyncFunctionDef, is_method: bo
         from .purity import is_pure
 
         return len(generate_mutants(node, filter_categories(node, is_pure(node, is_method=is_method))))
-    except Exception:  # noqa: BLE001 — the plan is advisory; a region the engine chokes on is unpriced, not fatal
+    except Exception:  # noqa: BLE001 — the plan is advisory; a region the engine chokes on is unpriced rather than fatal
         return None
 
 
@@ -490,8 +490,8 @@ def unexamined(fences_note: str, template_count: int) -> tuple[str, ...]:
 def summarize(assembly: PlanAssembly) -> PlanSummary:
     """Tally one assembly (pure over its tuples). Counts only — the residual's every reason, the
     verdict distribution, clean / unread / not-clean — so the renderers print codes, never sums."""
-    verdicts = {v: 0 for v in _VERDICT_ORDER}
-    clean = {c: 0 for c in _CLEAN_ORDER}
+    verdicts: dict[str, int] = dict.fromkeys(_VERDICT_ORDER, 0)
+    clean: dict[str, int] = dict.fromkeys(_CLEAN_ORDER, 0)
     for d in assembly.regions:
         verdicts[d.read.verdict] = verdicts.get(d.read.verdict, 0) + 1
         clean[d.clean] = clean.get(d.clean, 0) + 1

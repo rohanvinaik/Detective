@@ -394,7 +394,7 @@ def _load_old_callable(
     name = function.split(".")[-1]
     ns: dict[str, Any] = dict(new_globals)
     try:
-        exec(compile(receipt.original_source, "<receipt-original>", "exec"), ns)  # noqa: S102 — the receipt's own recorded source, under the user's control
+        exec(compile(receipt.original_source, "<receipt-original>", "exec"), ns)  # noqa: S102 — the receipt's own recorded source under the user's control
     except Exception:  # noqa: BLE001
         return None
     fn = ns.get(name)

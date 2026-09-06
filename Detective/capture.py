@@ -48,6 +48,20 @@ def harvest_disposition(have_enough: bool, deadline_passed: bool) -> str:
     return HARVEST
 
 
+def _run_for_effects(test: Callable[..., Any]) -> None:
+    """Run one discovered test for its SIDE EFFECTS on the active profile hook — the harvest wants
+    the calls it makes, never its verdict. A failing, erroring or skipped test is swallowed
+    (pytest's ``Skipped``/``Failed`` derive from ``BaseException``, so ``Exception`` is too narrow);
+    the operator's interrupt is the one thing that is never swallowed.
+    """
+    try:
+        test()
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 — the harvest swallows a test's verdict and never the operator's interrupt
+        pass
+
+
 def capture_call_inputs(
     original: Callable[..., Any],
     tests: list[Callable[..., Any]],
@@ -111,10 +125,7 @@ def capture_call_inputs(
                     != HARVEST
                 ):
                     break
-                try:
-                    t()
-                except BaseException:  # noqa: BLE001 — harvest inputs, not the verdict
-                    pass
+                _run_for_effects(t)
         finally:
             sys.setprofile(prev)
     return captured[:max_samples]
@@ -158,10 +169,7 @@ def capture_return_types(
             for t in tests:
                 if len(names) >= max_samples:
                     break
-                try:
-                    t()
-                except BaseException:  # noqa: BLE001 — harvest the return type, not the verdict
-                    pass
+                _run_for_effects(t)
         finally:
             sys.setprofile(prev)
     return frozenset(names)

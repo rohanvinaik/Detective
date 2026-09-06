@@ -374,7 +374,7 @@ def audit_suite(
         # blocks mutant-completeness exactly as they do; never treated as a discharged equivalent.
         mutant_complete = not report.killable and not report.unclassified and not report.authored_fence
         classified = True
-    except Exception:  # noqa: BLE001 — classification is advisory, never fails the audit
+    except Exception:  # noqa: BLE001 — classification is advisory and never fails the audit
         killable_gaps = tuple(
             f"{r.get('category', '?')} [{r.get('mutant_id', '?')}]" for r in result.value_survivor_records
         )

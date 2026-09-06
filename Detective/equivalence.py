@@ -237,11 +237,11 @@ def parse_input_expression(s: str, ns: dict[str, Any] | None = None) -> tuple:
         reject_unsafe_expression(elt, src, target_ns)
         try:
             # Grammar checked above, builtins emptied here: BOTH are required.
-            value = eval(  # noqa: S307 — grammar-checked, allowlisted, no builtins
+            value = eval(  # noqa: S307 — grammar-checked and allowlisted with no builtins
                 compile(ast.Expression(body=elt), "<input>", "eval"),
                 {"__builtins__": {}, **INPUT_MODULES, **target_ns},
             )
-        except Exception as exc:  # noqa: BLE001 — a bad input is a usage error, not a crash
+        except Exception as exc:  # noqa: BLE001 — a bad input is a usage error rather than a crash
             raise InputExpressionError(f"failed to evaluate {src!r}: {exc}") from None
         try:
             ast.literal_eval(elt)
@@ -309,7 +309,7 @@ def synth_ast_input(type_name: str | None) -> SourceExpr | None:
         return None
     snippet, accessor = _AST_SAMPLE.get(type_name, _AST_SAMPLE["ast.AST"])
     expr = f"ast.parse({snippet!r})" + (f".{accessor}" if accessor else "")
-    value = eval(expr, {"ast": ast})  # noqa: S307 — Detective-synthesized expr, not user input
+    value = eval(expr, {"ast": ast})  # noqa: S307 — Detective-synthesized expr rather than user input
     return SourceExpr(value=value, expr=expr, imports=("import ast",))
 
 
@@ -386,7 +386,7 @@ def _ast_source_expr(snippet: str, accessor: str) -> SourceExpr:
     live input and its emitted source cannot disagree.
     """
     expr = f"ast.parse({snippet!r})" + (f".{accessor}" if accessor else "")
-    value = eval(expr, {"ast": ast})  # noqa: S307 — Detective-synthesized expr, not user input
+    value = eval(expr, {"ast": ast})  # noqa: S307 — Detective-synthesized expr rather than user input
     return SourceExpr(value=value, expr=expr, imports=("import ast",))
 
 
