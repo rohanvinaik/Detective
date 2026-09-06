@@ -126,6 +126,15 @@ class SuiteAudit:
     # classify, so reads 0 equivalents) would wrongly say `gap` for an all-equivalent survivor set.
     # None only on an older result or a direct construction. `asdict` carries it to `audit --json`.
     function_basis: FunctionBasis | None = None
+    # Why the survivor search could not RUN over the target (Finding E), carried from the classify
+    # report so audit's next action names the SAME escape converge does — the module would not import
+    # (`load_failed` + the exception in `note`), or no synthesized input reached the function
+    # (`inputs_expressible`: False = a param with no literal form; None = unknown, every candidate
+    # raised -> a real sample is needed). Defaulted, so a direct construction / older result is
+    # unchanged and `asdict` carries them to `audit --json`.
+    load_failed: bool = False
+    inputs_expressible: bool | None = None
+    note: str = ""
 
     @property
     def complete(self) -> bool:
@@ -356,11 +365,20 @@ def audit_suite(
     crash_only_equivalent = 0
     unclassified = 0
     classified = False
+    # The measurement-block signals (Finding E), carried onto the audit so its next action names the
+    # SAME escape converge does via `measurement_block_route`. Defaulted here so the advisory
+    # except-fallback below leaves them at "measurement ran, nothing blocked".
+    _load_failed = False
+    _report_expressible: bool | None = None
+    _report_note = ""
     try:
         # Reuse THIS profile (#65): classify the survivors of the exact measurement whose counts the
         # partition below checks, so the two can never come from two divergent profiles and crash the
         # assertion. `classify_survivors` re-profiles only when no compatible result is handed to it.
         report = classify_survivors(file, function, project_root, profile_result=result)
+        _load_failed = bool(report.load_failed)
+        _report_expressible = report.inputs_expressible
+        _report_note = report.note or ""
         # Whether a killable gap may name the input to kill it with — see `_gap_desc`.
         expressible = bool(report.inputs_expressible)
         killable_gaps = tuple(_gap_desc(v, expressible) for v in report.killable)
@@ -463,6 +481,9 @@ def audit_suite(
         characterized_tests=_origins["characterization"],
         unattributed_tests=_origins["unattributed"],
         function_basis=_basis,
+        load_failed=_load_failed,
+        inputs_expressible=_report_expressible,
+        note=_report_note,
     )
 
 

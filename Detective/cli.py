@@ -2411,24 +2411,15 @@ def converge_next_action(
         return "install_pytest"
     if session_reason:
         # The BASELINE suite did not collect — but naming that as the remedy is only right if it is
-        # still the operative cause by the END of the run. Three later facts each override it with
-        # its own escape (all default off, so a caller/Wesker that supplies none keeps the previous
-        # behaviour — the #60 unnamed-capability contract), in order of what outranks what:
-        #   · the module would not IMPORT (a missing dep, a broken sibling). `regime --migrate`
-        #     cannot fix an import and no --input runs without the module — name WHY instead.
-        if load_failed:
-            return "fix_load"
-        #   · the search RAN but the input has no literal form (an ndarray/object param): the move
-        #     is a real-sample TEST, which `close_the_gap` renders (`_derived_input` 'test' kind),
-        #     never collection repair. `inputs_expressible is False` is that measured fact.
-        if inputs_expressible is False:
-            return "close_the_gap"
-        #   · the module loaded and the search RAN, but NO input reached the function (an unannotated
-        #     ndarray/object param — every candidate raised, so expressibility is UNKNOWN, not False).
-        #     migrate cannot help (the search ran in-process, not via pytest); the survivor report
-        #     already names the move — a real sample — so surface THAT, not a collection remedy.
-        if needs_sample:
-            return "provide_sample"
+        # still the operative cause by the END of the run. A measurement that could not RUN over the
+        # target has its own escape (module would not import -> fix_load; a param with no literal form
+        # -> close_the_gap; a loaded module no input reached -> provide_sample), shared with audit via
+        # `measurement_block_route` so the two commands can never diverge on the same report (Finding
+        # E). All signals default off, so a caller/Wesker that supplies none keeps the previous
+        # behaviour (#60 unnamed-capability contract).
+        _block = measurement_block_route(load_failed, inputs_expressible, needs_sample)
+        if _block:
+            return _block
         #   · THIS run synthesized and wrote a runnable suite, so the empty-baseline reason is now
         #     STALE: the residual is closable by --input exactly as if a suite had pre-existed.
         #     This is the arc-dsl run-1 spiral — migrate re-prescribed over a suite just written.
@@ -2476,6 +2467,39 @@ def repair_measurement_route(
     if "budget_exhausted" in cut_reasons or budget_exhausted:
         return "deadline"
     return "trace_budget"
+
+
+def measurement_block_route(
+    load_failed: bool,
+    inputs_expressible: bool | None,
+    needs_sample: bool,
+) -> str:
+    """The next action when the MEASUREMENT could not run over the target (#E, pure — pinned).
+
+    Shared by converge (`converge_next_action`) AND audit (`_audit_action`) so the two commands can
+    never diverge on the same survivor report — the sibling-path drift Finding E found, where audit
+    said the generic "converge writes the missing tests" on an unloadable module while converge named
+    the missing dependency. Both consult THIS one derivation.
+
+    Returns a named block code, most-blocking first, or ``""`` when nothing blocks the measurement (the
+    caller then proceeds to its OWN next-action ladder):
+      * ``fix_load``       — the module would not IMPORT (a missing dep / broken sibling). Nothing ran;
+                             no ``--input`` runs without the module, and ``regime --migrate`` cannot fix it.
+      * ``close_the_gap``  — the search ran but a param has no literal form (``inputs_expressible`` is
+                             False): the move is a real-sample TEST, which the caller's gap renderer
+                             handles, never a collection remedy.
+      * ``provide_sample`` — the module loaded and the search ran in-process, but NO input reached the
+                             function (``inputs_expressible`` UNKNOWN — every candidate raised): the
+                             survivor report names the move, a real sample.
+      * ``""``             — the measurement ran; nothing blocks it. Proceed to the normal ladder.
+    """
+    if load_failed:
+        return "fix_load"
+    if inputs_expressible is False:
+        return "close_the_gap"
+    if needs_sample:
+        return "provide_sample"
+    return ""
 
 
 def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> list[str]:
@@ -3674,12 +3698,50 @@ def _audit_action(a, removing: bool = False) -> list[str]:
     pre-action state. The measurement stays; the recommendation yields to the removal
     result the caller prints next.
 
-    A failing test outranks everything: the suite contradicts the code, so every other number
-    here was measured against a suite that does not pass, and acting on them first is acting on
-    sand. Then real gaps (converge writes them), then bloat, then the equivalents — last,
+    A measurement that could not RUN over the target outranks everything (Finding E): a load
+    failure, or an input that never reached the function, makes every count below unreliable — and
+    it is routed through the SAME `measurement_block_route` converge uses, so the two commands
+    cannot diverge on the same report. Then a failing test: the suite contradicts the code, so every
+    other number here was measured against a suite that does not pass, and acting on them first is
+    acting on sand. Then real gaps (converge writes them), then bloat, then the equivalents — last,
     because `flag` is the one claim a human makes against the engine and it must never be
     suggested while a real gap is open.
     """
+    # A measurement that could not RUN (the module would not import, or no input reached the
+    # function) blocks every count below — name the real escape, the SAME routing converge renders,
+    # never the generic "converge writes the missing tests" that sent an unloadable module to a
+    # converge that also cannot run (Finding E).
+    _needs_sample = (
+        getattr(a, "inputs_expressible", None) is None
+        and not getattr(a, "load_failed", False)
+        and bool(getattr(a, "note", ""))
+    )
+    _block = measurement_block_route(
+        bool(getattr(a, "load_failed", False)),
+        getattr(a, "inputs_expressible", None),
+        _needs_sample,
+    )
+    if _block == "fix_load":
+        reason = getattr(a, "note", "") or "the target module could not be imported"
+        return [
+            f"STOP:  {reason}",
+            "",
+            _row("· Why first", "the module would not import, so nothing ran — a 0-kill here is"),
+            _row("", "blindness, not a result. No --input runs without the module, and"),
+            _row("", "`regime --migrate` cannot fix a missing import."),
+            _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
+            _row("", f"(detective regime names the one in use), then: detective audit '{a.function}'"),
+        ]
+    if _block == "provide_sample":
+        note = getattr(a, "note", "") or "no synthesized input reached the function"
+        return [
+            f"AUTHOR INPUT:  {note}",
+            "",
+            _row("· Why not migrate", "the module loaded and the search RAN in-process — the suite is"),
+            _row("", "empty only because no input reached the function, which"),
+            _row("", "`regime --migrate` cannot change. A real sample can."),
+            _row("· Then", f"detective converge '{a.function}'"),
+        ]
     if a.failing_tests:
         # The one branch with no single command, and legitimately so: the next move is a
         # decision only a human has standing to make (is the CODE wrong, or the TEST?), and
