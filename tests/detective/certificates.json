@@ -39,6 +39,11 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/equivalence.py::_traces_to": {
+    "function_digest": "98fa6dd4ee69d9d5",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/judgments.py::judgment_standing": {
     "function_digest": "9134e00bbdc6aa17",
     "refusal": "",
@@ -92,11 +97,11 @@
   "Detective/purity.py::_SideEffectVisitor.visit_Call": {
     "function_digest": "c47597908cebe385",
     "refusal": "",
-    "standing": "incomplete"
+    "standing": "complete"
   },
   "Detective/synthesis/typed_synthesis.py::_extract": {
     "function_digest": "7cd9190bc2dabe35",
     "refusal": "",
-    "standing": "incomplete"
+    "standing": "complete"
   }
 }

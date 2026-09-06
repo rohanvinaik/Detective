@@ -927,6 +927,13 @@ class Witness:
     # mis-reported as a sound-but-non-killing witness. Carried, never rendered; ``compare=False``
     # for the same reason as ``original_value``.
     mutant_value: Any = field(default=None, compare=False)
+    # A receiver-STATE witness (#25 fallback): the (attribute, literal-repr) pairs the emitted test
+    # asserts on the receiver AFTER the call, for a method whose mutation changed only instance state
+    # and left the return identical (a visitor appending to ``self.reasons`` returns None either way,
+    # so no return observation can pin it). None for an ordinary value witness; its presence routes
+    # rendering to the state form (``recv = make(); recv.m(args); assert recv.attr == <lit>``).
+    # ``compare=False`` — a rendering payload, like the live values, not part of witness identity.
+    state_pins: tuple[tuple[str, str], ...] | None = field(default=None, compare=False)
 
 
 # A memory address inside an exception message ("<Foo object at 0x10a3f2b50>") differs every
@@ -986,6 +993,40 @@ def _observe(value: Any) -> str:
     return f"<iter {name} exhausted {prefix}>"
 
 
+def _raised_marker(exc: BaseException) -> str:
+    """The observable outcome of a raise — ``<raised Type: message>``, or ``<raised Type>`` when the
+    message is empty or carries a memory address (an unstable message fabricates a witness that then
+    fails ``property_holds``; a coarse type-only marker still earns the type-level kill). One
+    definition, so ``_outcome``'s two raising branches (a blocked speculative write, and any other
+    exception) render identically — the equality that makes a writing function yield no false
+    value-witness."""
+    message = str(exc)
+    if not message or _VOLATILE_IN_MESSAGE.search(message):
+        return f"<raised {type(exc).__name__}>"
+    return f"<raised {type(exc).__name__}: {message}>"
+
+
+def _with_receiver_state(fn: Callable[..., Any], obs: str) -> str:
+    """Append the receiver's post-call state to an observed outcome (#25 fallback), when ``fn`` built
+    one — a no-op for a plain function / static method (no receiver). Kept out of ``_outcome``'s
+    worker so the observed-outcome path stays a single expression."""
+    receiver = getattr(fn, "last_receiver", None)
+    return obs if receiver is None else f"{obs} · state={_observe_receiver_state(receiver)}"
+
+
+def _observe_receiver_state(receiver: Any) -> str:
+    """An address-free observation of a receiver's instance state — the fallback outcome for a
+    receiver-bound target whose RETURN the mutation does not change (#25 void/state methods). Sorted
+    attributes, each value through :func:`_observe`, so an addressed repr or a one-shot iterator does
+    not manufacture a phantom difference. ``<no __dict__>`` for a ``__slots__`` receiver — no
+    observable instance state, so the fallback simply finds nothing there."""
+    try:
+        state = vars(receiver)
+    except TypeError:
+        return "<no __dict__>"
+    return "{" + ", ".join(f"{k!r}: {_observe(state[k])}" for k in sorted(state)) + "}"
+
+
 def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
     """How one input distinguishes a mutant, from the ORIGINAL's and the MUTANT's outcomes.
 
@@ -1026,9 +1067,21 @@ def _outcome_budget_s(deadline: float | None) -> float:
     return max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - _t.monotonic()))
 
 
-def _outcome(fn: Callable[..., Any], args: tuple, timeout_s: float = _CLASSIFY_TIMEOUT_S) -> str:
+def _outcome(
+    fn: Callable[..., Any],
+    args: tuple,
+    timeout_s: float = _CLASSIFY_TIMEOUT_S,
+    *,
+    observe_state: bool = False,
+) -> str:
     """The repr of ``fn(*args)``, or a raised-marker — so a mutant that starts
     raising (or stops raising) counts as an observable difference, not a crash.
+
+    ``observe_state`` (the #25 fallback) appends an address-free observation of the receiver's
+    post-call instance state (``· state={…}``) when ``fn`` is receiver-bound — so a method whose
+    mutation changes only ``self`` and returns the same value is still distinguishable. Off in the
+    ordinary value search; the fallback pass in :func:`_search_witness` is the only caller that sets
+    it, so a return-distinguishable method never pays the extra observation.
 
     ``timeout_s`` bounds this single call (default the per-call cap); the witness search passes the
     remaining aggregate wall so one classification cannot overrun the command deadline by a full cap.
@@ -1065,7 +1118,8 @@ def _outcome(fn: Callable[..., Any], args: tuple, timeout_s: float = _CLASSIFY_T
     def _run() -> None:
         try:
             with block_fs_writes():
-                box["v"] = _observe(fn(*(unwrap(a) for a in args)))
+                obs = _observe(fn(*(unwrap(a) for a in args)))
+                box["v"] = _with_receiver_state(fn, obs) if observe_state else obs
         except _CaptureWriteBlocked as exc:
             # A speculative write was PREVENTED (#30). The guard now sits above `Exception` so the
             # target's own `except Exception` can never swallow it — but that means OUR handler below
@@ -1073,19 +1127,9 @@ def _outcome(fn: Callable[..., Any], args: tuple, timeout_s: float = _CLASSIFY_T
             # abandon-unwind and read as a timeout. Render it as the deterministic observable outcome
             # it is (identical for original and mutant, so a writing function yields no false witness),
             # exactly as the generic raised-outcome branch would have.
-            message = str(exc)
-            box["v"] = (
-                f"<raised {type(exc).__name__}>"
-                if (not message or _VOLATILE_IN_MESSAGE.search(message))
-                else f"<raised {type(exc).__name__}: {message}>"
-            )
+            box["v"] = _raised_marker(exc)
         except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
-            message = str(exc)
-            box["v"] = (
-                f"<raised {type(exc).__name__}>"
-                if (not message or _VOLATILE_IN_MESSAGE.search(message))
-                else f"<raised {type(exc).__name__}: {message}>"
-            )
+            box["v"] = _raised_marker(exc)
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException:  # noqa: BLE001 — the abandon unwind (#42); exit the worker quietly
@@ -1179,6 +1223,73 @@ def _outcome_value(fn: Callable[..., Any], args: tuple) -> Any:
         return fn(*(unwrap(a) for a in args))
     except Exception:  # noqa: BLE001 — a raise carries no value; `_outcome` already marked it
         return None
+
+
+def _is_receiver_bound(fn: Any) -> bool:
+    """Whether ``fn`` is a :class:`binding.ReceiverBound` — i.e. calling it builds a receiver whose
+    post-call state the #25 fallback can observe. Duck-typed on ``last_receiver`` to avoid an import
+    cycle (binding imports nothing from here, but the check is one attribute either way)."""
+    return hasattr(fn, "last_receiver")
+
+
+def state_witness_attrs(original_post: dict[str, str], mutant_post: dict[str, str]) -> tuple[str, ...]:
+    """Receiver attributes on which the original's and the mutant's post-call state DIFFER (#25 —
+    pure, pinned). Both receivers start from the SAME fresh factory, so a differing post value is a
+    behaviour the mutation caused; asserting the original's value there kills the mutant. Sorted for a
+    deterministic emitted test; an attribute present on only one side counts as differing — a mutation
+    that stops setting (or newly sets) an attribute is a real, pinnable change."""
+    return tuple(
+        sorted(k for k in set(original_post) | set(mutant_post) if original_post.get(k) != mutant_post.get(k))
+    )
+
+
+def _renderable_repr(value: Any) -> str | None:
+    """``repr(value)`` when it round-trips as a literal (so an emitted ``== <repr>`` is sound), else
+    None — a state attribute that is an object / AST node cannot be pinned by an equality literal and
+    stays a fixture residual, never a test green only on the run that captured it."""
+    try:
+        rendered = repr(value)
+        return rendered if ast.literal_eval(rendered) == value else None
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return None
+
+
+def _receiver_state_after(fn: Callable[..., Any], args: tuple) -> dict[str, Any] | None:
+    """The receiver's instance ``vars`` after ONE live ``fn(*args)`` — for rendering a state witness.
+    Runs the call once (like :func:`_outcome_value`), then reads the receiver ``ReceiverBound`` kept.
+    None when the call raised or built no receiver (nothing clean to pin)."""
+    try:
+        fn(*(unwrap(a) for a in args))
+    except Exception:  # noqa: BLE001 — a raise leaves no clean post-state to pin
+        return None
+    receiver = getattr(fn, "last_receiver", None)
+    if receiver is None:
+        return None
+    try:
+        return dict(vars(receiver))
+    except TypeError:  # __slots__ — no instance dict to render
+        return None
+
+
+def _state_witness_pins(
+    original: Callable[..., Any], mutant: Callable[..., Any], args: tuple
+) -> tuple[tuple[str, str], ...]:
+    """The ``(attribute, literal-repr)`` pins a state witness asserts (#25 fallback): the receiver
+    attributes where original and mutant post-call state differ AND the original's value round-trips
+    as a literal. Empty when nothing differs renderably — an object-valued state change is a real
+    distinction the SEARCH sees but no literal assertion can pin, so it stays a fixture residual."""
+    original_state = _receiver_state_after(original, args)
+    mutant_state = _receiver_state_after(mutant, args)
+    if original_state is None or mutant_state is None:
+        return ()
+    original_obs = {k: _observe(v) for k, v in original_state.items()}
+    mutant_obs = {k: _observe(v) for k, v in mutant_state.items()}
+    pins: list[tuple[str, str]] = []
+    for attr in state_witness_attrs(original_obs, mutant_obs):
+        rendered = _renderable_repr(original_state.get(attr))
+        if rendered is not None:
+            pins.append((attr, rendered))
+    return tuple(pins)
 
 
 def find_witness(
@@ -1323,7 +1434,48 @@ def _search_witness(
             None,
             blocked,
         )
-    return None, crash_witness, blocked
+    # FALLBACK — receiver STATE (#25, "fallback only"): the value search found no witness, so retry
+    # observing the receiver's post-call state. Extracted whole so this function's job (the value
+    # search) stays one loop; see :func:`_state_fallback_witness`.
+    state_witness, state_blocked = _state_fallback_witness(
+        original, mutant, candidate_inputs, deadline=deadline
+    )
+    return state_witness, crash_witness, blocked or state_blocked
+
+
+def _state_fallback_witness(
+    original: Callable[..., Any],
+    mutant: Callable[..., Any],
+    candidate_inputs: list[tuple],
+    *,
+    deadline: float | None,
+) -> tuple[Witness | None, bool]:
+    """The receiver-STATE witness search (#25, "fallback only" per the founder) — the second pass
+    :func:`_search_witness` runs ONLY when the value search found nothing and the target is
+    receiver-bound. A method whose mutation changes only ``self`` returns the same value either way,
+    so no return observation can distinguish it (a visitor that appends to ``self.reasons`` returns
+    None under original and mutant alike); this observes post-call state instead.
+
+    Returns ``(witness, blocked)``. ``witness`` is a state Witness when an input distinguishes the
+    receivers on a literal-renderable attribute, else None — a state change no literal can assert (an
+    object-valued attribute) yields no pins and stays a fixture residual, never a false
+    candidate-equivalent. ``blocked`` is True when the aggregate wall (#31) cut the search short."""
+    if not (_is_receiver_bound(original) and _is_receiver_bound(mutant)):
+        return None, False
+    for args in candidate_inputs:
+        if deadline is not None and time.monotonic() >= deadline:
+            return None, True
+        if not _binds(original, args):
+            continue
+        budget = _outcome_budget_s(deadline)
+        original_outcome = _outcome(original, args, budget, observe_state=True)
+        mutant_outcome = _outcome(mutant, args, budget, observe_state=True)
+        if _pair_disposition(original_outcome, mutant_outcome) != "witness":
+            continue
+        state_pins = _state_witness_pins(original, mutant, args)
+        if state_pins:
+            return Witness(tuple(args), original_outcome, mutant_outcome, state_pins=state_pins), False
+    return None, False
 
 
 @dataclass(frozen=True)

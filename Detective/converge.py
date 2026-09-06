@@ -739,6 +739,47 @@ def _witness_property(
     )
 
 
+def _state_witness_property(
+    func_key: str,
+    witness,
+    root: str | None = None,
+    *,
+    receiver_render: str | None = None,
+    method_attr: str | None = None,
+    owner: str | None = None,
+    factory_import: str | None = None,
+) -> ExecutableProperty | None:
+    """A test that pins a receiver-STATE witness (#25 fallback): construct a fresh receiver, call the
+    method (its return the mutation does NOT change, so ``result is None`` pins nothing), then assert
+    on the instance attributes the mutation DOES change —
+    ``recv = Owner(); recv.m(args); assert recv.attr == <literal>``.
+
+    None when the receiver cannot be rendered (no owner/render, or the search found no
+    literal-renderable differing attribute) — a needs-fixture residual, never a test green only on
+    the run that captured it. ``witness.state_pins`` carries the (attribute, literal-repr) pairs,
+    already filtered to values that round-trip (:func:`equivalence._renderable_repr`).
+
+    The import is the factory's when explicit (``--receiver-factory``), else the OWNER class from the
+    target module — so ``_setup_with_imports`` receives ``owner`` as the name to import and adds any
+    argument imports (e.g. ``import ast``) on top."""
+    if not receiver_render or not method_attr or not owner or not witness.state_pins:
+        return None
+    mod, _fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
+    call_line = _render_call(f"recv.{method_attr}", witness.args, ())
+    lines = [f"recv = {receiver_render}", call_line]
+    lines += [f"assert recv.{attr} == {rendered}" for attr, rendered in witness.state_pins]
+    return ExecutableProperty(
+        category="STATE",
+        inputs={},
+        setup_code=_setup_with_imports(mod, owner, witness.args, root, import_stmt=factory_import),
+        assertion_code="\n".join(lines),
+        preconditions=["receiver-state witness (equivalence search, fallback)"],
+        confidence=0.95,
+        source_lenses=["witness", "receiver-state"],
+        needs_oracle=False,
+    )
+
+
 def _raises_witness_property(
     func_key: str,
     witness,
@@ -1716,6 +1757,15 @@ def _converge_impl(
     # need the receiver-aware form. Reuses `_exec_binding`; defaults to the function form.
     _render_call_expr = _exec_binding.call_expr if _exec_binding is not None else None
     _render_import_stmt = _exec_binding.import_stmt if _exec_binding is not None else None
+    # For a receiver-STATE witness (#25 fallback), the emitted test keeps a HANDLE to the receiver
+    # (`recv = <make>; recv.m(args); assert recv.attr == …`) rather than the throwaway `make().m(...)`
+    # value form. The receiver's render is the plan's (`Owner()` / `make()`); its import is the
+    # factory import when explicit, else the owner class from the target module.
+    _receiver_render = (
+        _exec_binding.plan.render if (_exec_binding is not None and _exec_binding.plan is not None) else None
+    )
+    _method_attr = _exec_binding.binding.attribute if _exec_binding is not None else None
+    _owner = _exec_binding.binding.owner if _exec_binding is not None else None
     if write_dir:
         say("witness pass: searching richer inputs for a distinguishing kill…")
         pre = classify_survivors(
@@ -1743,15 +1793,26 @@ def _converge_impl(
             # An env-coupled value golden is declined (#39); the raises form is not a value.
             if not _capturable and not is_raises:
                 continue
-            prop = (
-                _raises_witness_property(
+            if w.state_pins:
+                # A receiver-STATE witness (#25 fallback): the mutation changed only `self`, so the
+                # test asserts on the receiver after the call, not on the (unchanged) return.
+                prop = _state_witness_property(
+                    func_key,
+                    w,
+                    root,
+                    receiver_render=_receiver_render,
+                    method_attr=_method_attr,
+                    owner=_owner,
+                    factory_import=_render_import_stmt,
+                )
+            elif is_raises:
+                prop = _raises_witness_property(
                     func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
                 )
-                if is_raises
-                else _witness_property(
+            else:
+                prop = _witness_property(
                     func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
                 )
-            )
             if prop is None:
                 continue
             if property_identity(prop) not in accumulated and property_holds(

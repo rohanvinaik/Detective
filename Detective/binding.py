@@ -283,6 +283,11 @@ class ReceiverBound:
     def __init__(self, fn: Callable[..., Any], make_receiver: Callable[[], Any]) -> None:
         self._fn = fn
         self._make = make_receiver
+        # The receiver the most recent __call__ built, kept so the equivalence search can observe its
+        # POST-CALL state (#25 fallback): a method whose mutation changes only instance state returns
+        # the same value either way, so the return-value observer cannot distinguish it. None until the
+        # first call. Read by `equivalence._outcome` / `_receiver_state_after`, never by the call proper.
+        self.last_receiver: Any = None
         self.__globals__ = getattr(fn, "__globals__", {})  # type: ignore[attr-defined]
         self.__name__ = getattr(fn, "__name__", "receiver_bound")
         self.__qualname__ = getattr(fn, "__qualname__", self.__name__)
@@ -291,7 +296,9 @@ class ReceiverBound:
             self.__signature__ = sig  # consumed by inspect.signature → _binds arity check
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self._fn(self._make(), *args, **kwargs)
+        receiver = self._make()
+        self.last_receiver = receiver
+        return self._fn(receiver, *args, **kwargs)
 
 
 def wrap_callable(fn: Any, make_receiver: Callable[[], Any] | None) -> Any:
