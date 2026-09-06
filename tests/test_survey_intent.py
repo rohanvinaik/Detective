@@ -109,11 +109,21 @@ def test_no_false_positive_on_aliased_primitives_and_higher_order():
     assert survey_source(src) == [], "aliases / Callable / Any must not be flagged"
 
 
-def test_an_unannotated_array_param_is_the_disclosed_recall_gap():
-    # GofL Game.update_cell shape: an unannotated param used as a 2-D array. Expressibility is UNKNOWN
-    # without call-site type inference, so the survey stays SILENT rather than guess — the disclosed
-    # recall bound. If a future change starts flagging this, that is a decision to make deliberately.
+def test_an_unannotated_array_param_is_now_caught_by_usage_inference():
+    # GofL Game.update_cell shape: `step` is unannotated, but `step[xy[0], xy[1]]` — a tuple subscript
+    # no list/str/dict accepts — types it as ndarray via USAGE inference. This DELIBERATELY flips the
+    # old recall-gap silence: the survey now flags it. The old test pinned the silence precisely so
+    # this flip had to be a conscious decision (the type-inference work, step 2), not a drift.
     src = "def update_cell(step, xy):\n    return step[xy[0], xy[1]]\n"
+    by_name = {f.qualname: f.disposition for f in survey_source(src)}
+    assert by_name.get("update_cell") == "extractable_core"
+
+
+def test_the_recall_bound_narrows_but_does_not_vanish():
+    # Usage inference emits only HIGH-confidence types, so an unannotated param with AMBIGUOUS usage
+    # (a plain subscript could be list/dict/ndarray; arithmetic could be int/ndarray) is STILL not
+    # flagged — the survey does not guess. The recall bound narrowed; it did not disappear.
+    src = "def f(xs):\n    return xs[0] + 1\n"
     assert survey_source(src) == []
 
 

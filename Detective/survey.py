@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
+from .call_sites import _param_usages, usage_inferred_type
 from .purity import world_effects
 
 # Modules whose mere top-level import makes a file expensive or IMPOSSIBLE to load for a greenfield
@@ -140,20 +141,26 @@ def _references_names(func: ast.FunctionDef | ast.AsyncFunctionDef, names: froze
     return any(isinstance(node, ast.Name) and node.id in names for node in ast.walk(func))
 
 
-def _param_annotations(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
-    """Every parameter's annotation as source text ("" when unannotated); `self`/`cls` skipped."""
+def _param_inexpressible(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True if any parameter clearly has no literal `--input` form — from its ANNOTATION, or, for an
+    UNANNOTATED param, from USAGE inference (how the body uses it: a tuple subscript -> ndarray). The
+    usage half is what closes the recall gap on GofL `Game.update_cell(step, xy)`: `step` is
+    unannotated, but `step[xy[0], xy[1]]` types it. Reuses the same `_annotation_inexpressible`
+    denylist for both an annotation string and an inferred type-name. `self`/`cls` skipped."""
     args = func.args
     all_args = [*args.posonlyargs, *args.args, *args.kwonlyargs]
     if args.vararg:
         all_args.append(args.vararg)
     if args.kwarg:
         all_args.append(args.kwarg)
-    out: list[str] = []
     for arg in all_args:
         if arg.arg in ("self", "cls"):
             continue
-        out.append(ast.unparse(arg.annotation) if arg.annotation is not None else "")
-    return out
+        annotation = ast.unparse(arg.annotation) if arg.annotation is not None else ""
+        recovered = annotation or usage_inferred_type(_param_usages(func, arg.arg))
+        if recovered and _annotation_inexpressible(recovered):
+            return True
+    return False
 
 
 def survey_source(source: str) -> list[SurveyFinding]:
@@ -174,8 +181,7 @@ def survey_source(source: str) -> list[SurveyFinding]:
                 if module_heavy and _references_names(child, bound):
                     _walk(child, f"{qual}.")
                     continue
-                annotations = _param_annotations(child)
-                any_inexpressible = any(_annotation_inexpressible(a) for a in annotations)
+                any_inexpressible = _param_inexpressible(child)
                 effects = world_effects(child)
                 disp = survey_disposition(any_inexpressible, bool(effects), module_heavy)
                 if disp != "reachable":
@@ -218,8 +224,6 @@ def render_survey(path: str, findings: list[SurveyFinding]) -> list[str]:
         out.append(f"  {f.lineno:>5}  {f.qualname}")
         out.append(f"         {f.disposition} — {f.detail}")
     out.append("")
-    out.append("  · Recall bound   an UNANNOTATED param used as an object/array is NOT flagged —")
-    out.append(
-        "                   expressibility is unknown without call-site type inference (not a clean bill)."
-    )
+    out.append("  · Recall bound   an unannotated param with AMBIGUOUS usage (a plain subscript or")
+    out.append("                   arithmetic) is not flagged — only high-confidence usage is inferred.")
     return out
