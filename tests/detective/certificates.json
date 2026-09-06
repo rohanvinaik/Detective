@@ -29,6 +29,11 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/converge.py::regression_recovery": {
+    "function_digest": "7e75a398531f11cd",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/engine.py::widen_admission": {
     "function_digest": "73cedde34adfb8a2",
     "refusal": "",

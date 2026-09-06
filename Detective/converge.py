@@ -1299,6 +1299,33 @@ def _target_changed(full_path: str, snapshot: str) -> bool:
     return current != snapshot
 
 
+SHIP = "ship"
+RETRY_UNMINIMIZED = "retry_unminimized"
+RESTORE_PRIOR = "restore_prior"
+
+
+def regression_recovery(regressed: bool, minimized: bool, retried: bool) -> str:
+    """What the regression guard ships (#62 — pure, pinned). The guard compares this run's suite to
+    the one already on disk as obligation sets; `old ⊆ new` is the invariant. Named codes:
+
+      "ship"               nothing regressed — ship what this run built
+      "retry_unminimized"  the MINIMIZED suite regressed and the superset built before trimming has
+                           not been tried: write that instead. It holds every test the prior suite
+                           pinned plus this run's new witnesses, so a wrong redundancy call (a live-
+                           session kill matrix is noisy) costs minimality, never the witnesses
+      "restore_prior"      regressed with nothing left to try — keep the file already on disk
+
+    Before this decision the guard restored the prior file on ANY regression, which discarded the
+    witnesses a run had just found whenever minimization was the thing that regressed: the same
+    "N killable — a witness exists for each" every run, forever (measured 2026-09-06).
+    """
+    if not regressed:
+        return SHIP
+    if minimized and not retried:
+        return RETRY_UNMINIMIZED
+    return RESTORE_PRIOR
+
+
 def converge(
     file: str,
     function: str,
@@ -1516,6 +1543,9 @@ def _converge_impl(
     # different obligations; keying on the text dropped the second as a duplicate and silently
     # unpinned a real behaviour. Nor an ordinal: generated test names and pytest parameter ids
     # shift on every insertion, so anything positional makes two runs incomparable.
+    # The suite as built BEFORE minimization trimmed it, kept only when trimming happened — the
+    # regression guard's retry candidate (`regression_recovery`).
+    pre_minimal: dict[str, ExecutableProperty] | None = None
     accumulated: dict[str, ExecutableProperty] = {
         property_identity(p): p for p in pins.load(root, func_key, fn_digest, verify=property_holds)
     }
@@ -1840,6 +1870,11 @@ def _converge_impl(
             if row and int(row.group(1)) < len(golden_rows):
                 drop.add(property_identity(golden_rows[int(row.group(1))]))
         if drop:
+            # The superset this run built BEFORE trimming — the regression guard below retries it when
+            # the trimmed suite turns out to pin less than the prior one did (a redundancy call made on
+            # a live-session kill matrix can be wrong, and a wrong drop must cost minimality, never the
+            # witnesses this run found).
+            pre_minimal = dict(accumulated)
             accumulated = {k: v for k, v in accumulated.items() if k not in drop}
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             if accumulated:
@@ -1869,6 +1904,7 @@ def _converge_impl(
             )
             if final_result.budget_exhausted and not budget_cut:
                 budget_cut, cut_phase = True, "minimization"
+
     # The check the accumulator cannot make on a cold start: is the suite we are about to ship
     # WORSE than the one we replaced? Compared as an obligation SET, not a count (#62). A count
     # cannot express WHICH behaviours are pinned, so {A,B} -> {B,C} held the total at 2 while A
@@ -1878,43 +1914,82 @@ def _converge_impl(
     # fallback below.
     # Foreign-stripped (#62 mechanism-2): the shipped suite's obligations, minus any owned SOLELY by
     # a sibling's generated test — those may have accelerated the run but cannot own the certificate.
-    final_killed_ids, final_line_ids, final_arc_ids, final_contract_ids = _self_owned_obligation_ids(
-        final_result, _foreign_names
-    )
-    lost = regressed_obligations(baseline_killed_ids, final_killed_ids) if baseline_killed_ids else []
-    # Every obligation CLASS compared apart, by stable id (#62). The killed set alone misses a value
-    # pin downgraded to a crash-only kill (the mutant stays killed), a lost proof line, and a lost
-    # branch edge — each of which is a real regression the theory invariant `old ⊆ new` forbids.
-    lost_lines = regressed_obligations(baseline_line_ids, final_line_ids)
-    lost_arcs = regressed_obligations(baseline_arc_ids, final_arc_ids)
-    lost_contracts = regressed_obligations(baseline_contract_ids, final_contract_ids)
-    # Named by class so the message says WHAT stopped being pinned; a `contract:` loss keeps the
-    # mutant in the killed set, which is exactly why it is invisible to the kill comparison alone.
-    named_lost = (
-        [f"kill:{m}" for m in lost]
-        + [f"contract:{m}" for m in lost_contracts]
-        + list(lost_lines)
-        + list(lost_arcs)
-    )
-    regressed = bool(prior_suite_source) and (
-        bool(named_lost)
-        # No per-mutant records to compare — an engine that does not supply them has not said
-        # the suite is equivalent, only that it cannot say. Falling back to the prior count rule
-        # preserves the previous behaviour rather than silently dropping the guard entirely.
-        or (
-            not baseline_killed_ids
-            and baseline_killed is not None
-            and final_result.total_killed < baseline_killed
+    def _regression() -> tuple[bool, list[str]]:
+        """This run's suite against the prior one, as obligation SETS (#62) — over whatever
+        `final_result` currently is, so the same comparison serves the retry below."""
+        final_killed_ids, final_line_ids, final_arc_ids, final_contract_ids = _self_owned_obligation_ids(
+            final_result, _foreign_names
         )
-    )
+        lost = regressed_obligations(baseline_killed_ids, final_killed_ids) if baseline_killed_ids else []
+        # Every obligation CLASS compared apart, by stable id (#62). The killed set alone misses a value
+        # pin downgraded to a crash-only kill (the mutant stays killed), a lost proof line, and a lost
+        # branch edge — each of which is a real regression the theory invariant `old ⊆ new` forbids.
+        lost_lines = regressed_obligations(baseline_line_ids, final_line_ids)
+        lost_arcs = regressed_obligations(baseline_arc_ids, final_arc_ids)
+        lost_contracts = regressed_obligations(baseline_contract_ids, final_contract_ids)
+        # Named by class so the message says WHAT stopped being pinned; a `contract:` loss keeps the
+        # mutant in the killed set, which is exactly why it is invisible to the kill comparison alone.
+        named = (
+            [f"kill:{m}" for m in lost]
+            + [f"contract:{m}" for m in lost_contracts]
+            + list(lost_lines)
+            + list(lost_arcs)
+        )
+        worse = bool(prior_suite_source) and (
+            bool(named)
+            # No per-mutant records to compare — an engine that does not supply them has not said
+            # the suite is equivalent, only that it cannot say. Falling back to the prior count rule
+            # preserves the previous behaviour rather than silently dropping the guard entirely.
+            or (
+                not baseline_killed_ids
+                and baseline_killed is not None
+                and final_result.total_killed < baseline_killed
+            )
+        )
+        return worse, named
+
+    def _named(lost: list[str]) -> str:
+        return ", ".join(lost[:3]) + (f" (+{len(lost) - 3} more)" if len(lost) > 3 else "")
+
+    regressed, named_lost = _regression()
+    if (
+        regression_recovery(regressed, pre_minimal is not None, False) == RETRY_UNMINIMIZED
+        and pre_minimal is not None
+        and write_dir
+    ):
+        # The TRIMMED suite pins less than the prior one — but this run also found witnesses, and
+        # restoring the prior file would throw them away with the bad trim. Measured 2026-09-06 on
+        # `typed_synthesis._extract`: the witness pass wrote 4 distinguishing tests, minimization
+        # dropped 3 as redundant, the guard saw `contract:LOGICAL_42de79ad` lost, kept the prior
+        # suite — and the run ended "5 killable, a witness exists for each", identically, three
+        # runs in a row: a loop with no exit. The superset built before trimming contains every
+        # test the prior pinned AND the new witnesses; minimality is the price, never the proof.
+        say(
+            f"minimization would stop pinning {len(named_lost)} obligation(s) the suite on disk pins: "
+            f"{_named(named_lost)} — retrying the un-minimized suite"
+        )
+        accumulated = pre_minimal
+        target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
+        source = render_module(func_key, list(accumulated.values()), function_digest=fn_digest)
+        written_path = _write(source, target, func_key, root) or None
+        final_result = profile(
+            file,
+            function,
+            project_root,
+            budget_ms=_budget_ms(),
+            extra_test_dirs=extra_test_dirs,
+            progress=progress,
+            include_shaped=include_shaped,
+            two_sign=two_sign,
+        )
+        if final_result.budget_exhausted and not budget_cut:
+            budget_cut, cut_phase = True, "regression-retry"
+        regressed, named_lost = _regression()
     if regressed:
         if named_lost:
-            named = ", ".join(named_lost[:3]) + (
-                f" (+{len(named_lost) - 3} more)" if len(named_lost) > 3 else ""
-            )
             say(
                 f"kept the suite already on disk — this run's would stop pinning "
-                f"{len(named_lost)} obligation(s) it currently pins: {named}"
+                f"{len(named_lost)} obligation(s) it currently pins: {_named(named_lost)}"
             )
         else:
             say(
