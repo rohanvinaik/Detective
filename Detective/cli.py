@@ -3852,7 +3852,7 @@ def _engine_version() -> str:
 # STATIC pass (no mutant, no live pytest session), and is dispatched in `_run` ABOVE `_split_target`. One
 # named set so `_run_live`'s session bypass and `_run`'s pre-split dispatch cannot silently drift as verbs
 # are added (the dispatch-ordering fragility of the flat `_run` ladder — patched by naming the contract).
-_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor", "plan")
+_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor", "plan", "survey")
 
 # The exit-code contract, one place. Each verb's result IS its exit status (CI branches on the code, a
 # `--json` consumer on the field) — this consolidates the per-handler semantics into one discoverable map.
@@ -4364,6 +4364,26 @@ def _build_parser() -> argparse.ArgumentParser:
         "always written to .detective/reports/ regardless)",
     )
     plan_p.add_argument("--json", action="store_true", help="emit JSON")
+
+    survey_p = sub.add_parser(
+        "survey",
+        help="STATIC scan for pure decisions trapped behind an impure boundary (advisory)",
+        description=(
+            "Find functions that hide a pinnable PURE decision behind an impure boundary — an "
+            "inexpressible param (ndarray/object/Any), a body entangled with I/O (torch/np/open/"
+            "plt), or a pure function trapped in a module whose top-level imports are the heavy "
+            "stack (jax/torch/matplotlib). For each, NAME the extraction that would let converge "
+            "REACH and pin it.\n\n"
+            "STATIC (AST only, no execution), ADVISORY, and it WRITES NOTHING: it PROPOSES an "
+            "extraction, never performs it. Extract by hand, then converge the pure decision in "
+            "isolation the normal way — the unit stays ONE function. It widens WHERE to point "
+            "Detective; it does not change what a pin means."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    survey_p.add_argument("path", help="a .py file or a directory to scan")
+    survey_p.add_argument("--project-root", default=".", help="project root the path is relative to")
+    survey_p.add_argument("--json", action="store_true", help="emit JSON")
 
     censor_p = sub.add_parser(
         "censor",
@@ -6282,6 +6302,73 @@ def _run_parsimony(args) -> int:
     return 0
 
 
+def _run_survey(args) -> int:
+    from .survey import render_survey, survey_source
+
+    if os.path.isdir(args.path):
+        paths = sorted(
+            os.path.join(dirpath, name)
+            for dirpath, _dirs, files in os.walk(args.path)
+            for name in files
+            if name.endswith(".py")
+        )
+    else:
+        paths = [args.path]
+
+    scanned: list[tuple[str, list]] = []
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                source = handle.read()
+            findings = survey_source(source)
+        except (OSError, SyntaxError):
+            # A file we cannot read or parse is disclosed by omission, never a crash; the survey is
+            # advisory and one unreadable file must not sink the scan of the rest.
+            continue
+        scanned.append((path, findings))
+
+    if args.json:
+        return _emit_json(
+            {
+                "kind": "survey",
+                "note": "static advisory — proposes extractions, performs none, writes nothing",
+                "trapped": sum(len(f) for _p, f in scanned),
+                "files": [
+                    {
+                        "path": path,
+                        "findings": [
+                            {
+                                "qualname": f.qualname,
+                                "lineno": f.lineno,
+                                "disposition": f.disposition,
+                                "detail": f.detail,
+                            }
+                            for f in findings
+                        ],
+                    }
+                    for path, findings in scanned
+                ],
+            },
+            0,
+        )
+
+    single = len(scanned) == 1
+    blocks: list[str] = []
+    for path, findings in scanned:
+        # For a directory, show only the files that trapped something; for one file, always report
+        # (so "nothing trapped" is a stated clean bill, not silence).
+        if findings or single:
+            blocks.extend(render_survey(path, findings))
+            blocks.append("")
+    if not blocks:
+        blocks = [
+            f"{args.path} — survey · 0 trapped pure decisions across "
+            f"{len(scanned)} file(s)   (static advisory)"
+        ]
+    print("\n".join(blocks).rstrip())
+    return 0
+
+
 def _run_plan(args) -> int:
     """`detective plan` (§14.3 / §14.7): the STYLE layer's entry verb. STATIC — no live session, no
     mutant — over a tree (`path`) or ONE region (`file.py::function`); writes nothing but the report
@@ -6410,6 +6497,10 @@ def _run(args) -> int:
     if args.command == "plan":
         # Before `_split_target`: the path form has no `::` and must not fall into the separator menu.
         return _run_plan(args)
+
+    if args.command == "survey":
+        # Path form (no `::`), like plan — dispatch before `_split_target`.
+        return _run_survey(args)
 
     file, function = _split_target(args.target, getattr(args, "project_root", None))
 
