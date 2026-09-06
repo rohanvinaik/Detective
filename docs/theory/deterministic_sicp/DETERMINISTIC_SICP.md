@@ -986,9 +986,15 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    (10 codes) and `harvest_disposition` (4 rows) on hand tables; the harvest backstop unit-guarded;
    end to end through the real command on a fixture with 1,000 no-path tests: uncut under `--deadline
    60`, `not_consulted == 1000`, the equivalent survivor still reported as candidate-equivalent.
-   **Follow-ups, Wesker side, not done here:** `next_routing_action`'s docstring says "sound because
-   the unknown set is exhausted" — it is now the APPLICABLE set; `trace_cache.save` (json + fsync of
-   the whole cache) runs once per single-test `expand` — O(n²) over a widen, should be once per widen.
+   **Wesker follow-ups — DONE (Wesker `25f1b96`, 2026-09-06):** the widen now persists its trace-cache
+   cells ONCE per widen (`build_session_baseline(persist=False)` → `PendingPersist` on the result;
+   `LazySessionBaseline.expand(persist=False)` accumulates; `flush()` writes once, on every exit from
+   the loop, cut included) — measured before the fix: one save is ~96 ms at 1,600 cells, two per
+   step, ~5 minutes of the 42-minute Sep 5 run, O(n²) in the widen's length; a closure without the
+   batching parameters degrades to the per-step save, never to a lost cell. And every Wesker
+   docstring that said a gap is "sound because the unknown set is exhausted" (`next_routing_action`,
+   both widen loops, `route_test_item`, `partition_live_callables`, `_unknown_stratum_rank`) now says
+   the router TAGS and the driver DECIDES what to trace: sound relative to the driver's APPLICABLE set.
    **The exemption request is WITHDRAWN (2026-09-06):** with the bound in place every §14 hand-table
    decision converged ✓ COMPLETE under `--deadline 300` — `next_command` 40/40 modulo 2 in 26 s (the
    51-minute grind), `receipt_path` 22/23 modulo 1 in 154 s (the 54-minute one), `unexamined` 5/5,

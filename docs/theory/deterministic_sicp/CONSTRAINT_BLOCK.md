@@ -173,9 +173,11 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 > `style_flag_refusal` 11/11 · `ladder_kinds` 12/14 modulo 2 · `budget_exit` 15/15 ·
 > `widen_admission` 5/5 · `harvest_disposition` 3/3 — each 5–17 s. The hand tables stay as the
 > intent tests beside the engine synths. Never run two converges concurrently; never run a
-> converge alongside a pytest gate. Wesker follow-ups (not done here): `next_routing_action`'s
-> soundness docstring ("unknown set exhausted" → "applicable set exhausted"); `trace_cache.save`
-> once per widen, not once per single-test expand.
+> converge alongside a pytest gate. Wesker follow-ups DONE (Wesker `25f1b96`): the widen persists
+> its trace-cache cells once per widen (`PendingPersist` · `expand(persist=False)` · `flush()`), and
+> every soundness docstring now reads "the driver's applicable set", not "the unknown set". The
+> uv.lock Wesker pin still points at `981e8b2`; bump it after the Wesker push (the push sequence:
+> Wesker → `uv lock --upgrade-package wesker` → Detective).
 > (1) `behavior_status` pure decision + reader (ground whether the suite header carries the
 > function digest) → (1b) the converge certificate ledger → (2) `plan_moves` gains `unpinned`;
 > `RegionRead` gains status + cost provenance → (3) plan assembly as a library function (from
