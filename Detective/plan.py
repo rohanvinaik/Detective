@@ -432,27 +432,56 @@ def plan_closing(funded: int, waiting: int, escalated: int) -> str:
     return DONE
 
 
+def queue_order(rows: list[tuple[str, int, float]]) -> list[str]:
+    """A driver's queue in the plan's ONE total order (§14.3, pure — pinned): strongest agreement
+    first, then cheapest, then name — the same law `controller.plan_moves` funds by. Each row is
+    ``(region, agreement, cost)``; the regions come back in the order a driver should take them.
+
+    The funder sorts only what it FUNDS; its exclusions come out in traversal order (the file walk,
+    alphabetical). A queue built straight from them named the first file's region as the next move
+    while the plan's own strongest case sat lower in the report — measured on this repo
+    (2026-09-06, the first `plan Detective/` with nothing funded): `binding.py::classify_target`,
+    agreement 2, was named before `engine.py::classify_survivors`, agreement 5. A driver reads a
+    queue top-down, so the top must be the plan's strongest case by the plan's own law, or the
+    surface says one thing and the law another. Split out over literals so the order is pinnable
+    apart from the assembly it serves.
+    """
+    return [region for region, _, _ in sorted(rows, key=lambda row: (-row[1], row[2], row[0]))]
+
+
+def _in_plan_order(assembly: PlanAssembly, regions: list[str]) -> tuple[str, ...]:
+    """``regions`` (names) as a driver's queue — :func:`queue_order` over the assembly's reads."""
+    by_region = {d.read.region: d.read for d in assembly.regions}
+    return tuple(queue_order([(r, by_region[r].agreement, by_region[r].cost) for r in regions]))
+
+
 def converge_first(assembly: PlanAssembly) -> tuple[str, ...]:
     """The regions the ordering law holds back: excluded for a BEHAVIOUR-STATUS reason while the
     banks read CONSTRUCTIVE — or while the driver has already said PROCEED (an answered ambiguity is
-    a case for change, and behaviour still comes first). ONE definition, consumed by both surfaces."""
+    a case for change, and behaviour still comes first). ONE definition, consumed by both surfaces,
+    in the plan's order (:func:`queue_order`): the first name is the strongest case."""
     by_region = {d.read.region: d for d in assembly.regions}
-    return tuple(
+    waiting = [
         region
         for region, reason in assembly.plan.excluded
         if reason in _STATUS_REASONS
         and (by_region[region].read.verdict == CONSTRUCTIVE or by_region[region].judgment == PROCEED)
-    )
+    ]
+    return _in_plan_order(assembly, waiting)
 
 
 def escalated_regions(assembly: PlanAssembly) -> tuple[str, ...]:
-    """The AMBIGUOUS queue — every region excluded as `escalated`, in plan order."""
-    return tuple(region for region, reason in assembly.plan.excluded if reason == "escalated")
+    """The AMBIGUOUS queue — every region excluded as `escalated`, in the plan's order."""
+    return _in_plan_order(
+        assembly, [region for region, reason in assembly.plan.excluded if reason == "escalated"]
+    )
 
 
 def reopened_regions(assembly: PlanAssembly) -> tuple[str, ...]:
-    """Every region whose recorded style judgment no longer applies (`reopened_*`), in plan order."""
-    return tuple(d.read.region for d in assembly.regions if d.judgment.startswith("reopened"))
+    """Every region whose recorded style judgment no longer applies (`reopened_*`), in the plan's order."""
+    return _in_plan_order(
+        assembly, [d.read.region for d in assembly.regions if d.judgment.startswith("reopened")]
+    )
 
 
 @dataclass(frozen=True)
