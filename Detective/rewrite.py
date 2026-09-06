@@ -231,6 +231,41 @@ def rewrite_verdict(
     return "PRESERVED"
 
 
+def verify_rewrite_replay_row_shown(proof_replayed: str) -> str:
+    """Whether the "· proof replay" row describes a replay that actually RAN (#C, pure — pinned).
+
+    Split out because `_format_rewrite` printed the row UNCONDITIONALLY — so an early-return verdict,
+    which never replays anything, rendered "the original suite ran skipped on the rewritten source":
+    misleading on both counts (no replay ran, and on a STALE_RECEIPT there is no rewritten source).
+
+    Named code, not a bool:
+      * ``ran``     — a replay produced a status ("passed" / "failed" / "no_tests"): show the row.
+      * ``skipped`` — no replay ran: an early-return verdict (STALE_RECEIPT / BASIS_MOVED carry
+                      ``proof_replayed="skipped"``) or a pre-replay refusal (INVALID_RECEIPT carries
+                      ``proof_replayed=""``). The row would describe a replay that did not happen.
+    """
+    return "ran" if proof_replayed and proof_replayed != "skipped" else "skipped"
+
+
+def verify_rewrite_note_shown(verdict: str) -> str:
+    """Whether the trailing note LINE adds information beyond the verdict message (#C, pure — pinned).
+
+    STALE_RECEIPT set BOTH a verdict message ("nothing was rewritten — the current source is identical
+    to the receipt's original") AND a note that is the same fact reversed ("the current source is
+    identical to the receipt's original — nothing was rewritten"), so `_format_rewrite` printed the
+    claim twice. The note stays in the data (it is real, and `--json` carries it); this gates only the
+    rendered line.
+
+    Named code, not a bool:
+      * ``show``      — the note carries information the verdict message defers to (INVALID_RECEIPT's
+                        message ends "see the reason below") or IS the only message (BASIS_MOVED has no
+                        verdict-message entry), so it must print.
+      * ``redundant`` — STALE_RECEIPT: the verdict message already states the note's fact; printing the
+                        note repeats it. Suppress the rendered line.
+    """
+    return "redundant" if verdict == "STALE_RECEIPT" else "show"
+
+
 def verify_rewrite_exit(verdict: str) -> int:
     """The ``detective verify-rewrite`` exit code from its verdict, on the four-valued contract
     (CLI ``_EXIT_CODES``; pure — pinned). Each verdict is a DISTINCT epistemic state and must not

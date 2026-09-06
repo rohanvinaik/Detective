@@ -5332,8 +5332,16 @@ def _format_rewrite(r) -> str:
         "STALE_RECEIPT": "·",
         "INVALID_RECEIPT": "✗",
     }
+    from .rewrite import verify_rewrite_note_shown, verify_rewrite_replay_row_shown
+
     lines = [_RULE, f"{r.function} — verify-rewrite: {icon.get(r.verdict, '·')} {r.verdict}", ""]
-    lines.append(_row("· proof replay", f"the original suite ran {r.proof_replayed} on the rewritten source"))
+    # Only describe a replay that actually RAN: an early-return verdict (STALE_RECEIPT / BASIS_MOVED /
+    # INVALID_RECEIPT) never replays, so the unconditional row read "ran skipped on the rewritten
+    # source" — a replay that did not happen, over a rewritten source that does not exist (#C).
+    if verify_rewrite_replay_row_shown(r.proof_replayed) == "ran":
+        lines.append(
+            _row("· proof replay", f"the original suite ran {r.proof_replayed} on the rewritten source")
+        )
     if r.new_dimensions:
         lines.append(
             _row("⚠ new dimensions", f"{len(r.new_dimensions)} behaviour(s) the original proof never covered")
@@ -5374,7 +5382,9 @@ def _format_rewrite(r) -> str:
         ),
     }
     lines.append(verdict_msg.get(r.verdict, ""))
-    if r.note:
+    # The note stays in the data (--json carries it), but suppress the rendered line when the verdict
+    # message already states it — STALE_RECEIPT set both, printing the same fact twice (#C).
+    if r.note and verify_rewrite_note_shown(r.verdict) == "show":
         lines.append(f"       {r.note}")
     return "\n".join(lines)
 
