@@ -111,6 +111,15 @@ def test_ladder_values_are_sized_and_deterministic() -> None:
 
 # ── count_opcodes — the instrument shell ─────────────────────────────────────────────────────
 
+# The counter is `sys.monitoring` (Python ≥ 3.12). On an older interpreter it DECLINES — returns
+# None, never a guess — and slice 7's `verify-rewrite --budget` reads that as UNMEASURABLE. The CI
+# matrix's 3.11 cells exercise exactly that decline; the two tests that drive `sys.monitoring`
+# directly have nothing to say there and skip by name, never by a silent pass.
+_NO_MONITORING = not hasattr(sys, "monitoring")
+_needs_monitoring = pytest.mark.skipif(
+    _NO_MONITORING, reason="sys.monitoring is Python ≥ 3.12; the counter declines honestly below it"
+)
+
 
 def _quadratic_dupes(xs: list) -> list:
     out = []
@@ -125,11 +134,15 @@ def test_count_is_deterministic_and_grows_with_input() -> None:
     xs = ladder_value("list[int]", 16)
     a = count_opcodes(_quadratic_dupes, (xs,))
     assert a == count_opcodes(_quadratic_dupes, (xs,))  # deterministic on fixed input
+    if _NO_MONITORING:
+        assert a is None  # the honest decline: no counter, no number
+        return
     assert a is not None and a > 0
     bigger = count_opcodes(_quadratic_dupes, (ladder_value("list[int]", 32),))
     assert bigger is not None and bigger > a
 
 
+@_needs_monitoring
 def test_count_reads_none_on_crash_and_releases_its_tool_slot() -> None:
     assert count_opcodes(lambda x: 1 // x, (0,)) is None  # a crashed arm has no budget read
     # The slot must be free again — a surrounding session's monitoring survives the instrument.
@@ -138,6 +151,7 @@ def test_count_reads_none_on_crash_and_releases_its_tool_slot() -> None:
     mon.free_tool_id(5)
 
 
+@_needs_monitoring
 def test_count_abstains_when_no_tool_slot_is_free() -> None:
     mon = sys.monitoring
     held = []
