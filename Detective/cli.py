@@ -2438,6 +2438,46 @@ def converge_next_action(
     return "close_the_gap"
 
 
+def repair_measurement_route(
+    cut_reasons: tuple[str, ...],
+    has_collection_conflicts: bool = False,
+    budget_exhausted: bool = False,
+) -> str:
+    """Which repair a CUT / ungateable measurement needs, most-blocking first (#F, pure — pinned).
+
+    `converge_next_action` returns ``repair_measurement`` for ANY ungateable standing; this names the
+    SPECIFIC remedy from the typed ``cut_reasons`` (validity.CUT_REASONS) instead of the old ladder that
+    read two raw booleans and dumped everything else into a ``--trace-budget 0`` catch-all. That
+    catch-all was the conorheins spiral: a COLLECTION-FAILURE cut (a reaching test could not import) got
+    the remedy for a TIMEOUT cut, which changes nothing, so the command re-emitted the same advice
+    forever. The typed reason and its remedy already exist (validity.cut_reason_sentence); this consumes
+    them.
+
+    Returns a named route (the render maps it to a command + a ``cut_reason_sentence`` why):
+      * ``regime``         — an ambiguous module identity: the live collection resolved one name to more
+                             than one file. ``detective regime`` is the move.
+      * ``fix_collection`` — a test file failed to COLLECT (an import error). No trace/deadline budget
+                             fixes a missing import; fix the collection error (run under the venv that
+                             has the dep) and re-run. This is the reason the catch-all hid.
+      * ``deadline``       — the aggregate deadline was exhausted: re-run with a larger ``--deadline``.
+      * ``trace_budget``   — a genuine trace cut (coverage truncated / sampled / uncontained worker / an
+                             unnamed engine refusal): re-run unbounded. The old default, now the residual
+                             rather than the catch-all.
+
+    ``has_collection_conflicts`` / ``budget_exhausted`` are raw-field fallbacks for a result whose engine
+    reports the boolean but not the typed reason (older Wesker, #60): they only ADD their route, never
+    suppress a typed one. ``collection_incomplete`` has no raw fallback, so an engine too old to report
+    it degrades to ``trace_budget`` — exactly the previous behaviour.
+    """
+    if "ambiguous_module_identity" in cut_reasons or has_collection_conflicts:
+        return "regime"
+    if "collection_incomplete" in cut_reasons:
+        return "fix_collection"
+    if "budget_exhausted" in cut_reasons or budget_exhausted:
+        return "deadline"
+    return "trace_budget"
+
+
 def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> list[str]:
     """The action block for a suite that could not run. Names the remedy, not the symptom."""
     if kind == "install_pytest":
@@ -2555,14 +2595,40 @@ def _converge_action(
         needs_sample=_needs_sample,
     )
     if kind == "repair_measurement":
+        # Route by the TYPED cut reasons (validity.CUT_REASONS), not a raw-boolean ladder with a
+        # `--trace-budget 0` catch-all. That catch-all sent a COLLECTION-FAILURE cut (a reaching test
+        # could not import) the remedy for a TIMEOUT cut, which fixes nothing, so the command looped
+        # byte-identically forever (Finding F). The typed reasons carry a ready remedy sentence.
+        from .validity import cut_reason_sentence
+
         flags = " ".join(_shell_input_flag(raw) for raw in attempted_inputs)
-        if getattr(result, "collection_conflicts", ()):
+        reasons = tuple(getattr(result, "cut_reasons", ()) or ())
+        route = repair_measurement_route(
+            reasons,
+            bool(getattr(result, "collection_conflicts", ())),
+            bool(getattr(result, "budget_exhausted", False)),
+        )
+        if route == "fix_collection":
+            # No --trace-budget / --deadline fixes an import error: name the collection failure and
+            # route to the fix (run under the venv that has the dep), never a budget re-run.
+            return [
+                f"STOP:  {cut_reason_sentence('collection_incomplete')}",
+                "",
+                _row("· Why first", "a test that could not be collected is silently absent from the"),
+                _row("", "routed suite, so the counts rest on fewer tests than the layout implies —"),
+                _row("", "and no --trace-budget or --deadline fixes an import error."),
+                _row("· Fix", "resolve the collection error (run under the venv that has the missing"),
+                _row(
+                    "", f"dependency; detective regime names the one in use), then: detective converge '{fn}'"
+                ),
+            ]
+        if route == "regime":
             command = f"detective regime '{fn}'"
             why = "the live session resolved the target to conflicting module origins"
-        elif getattr(result, "budget_exhausted", False):
+        elif route == "deadline":
             command = f"detective converge '{fn}' {flags} --deadline 0".replace("  ", " ")
             why = "the aggregate command deadline expired before proof completed"
-        else:
+        else:  # trace_budget — a genuine trace cut (coverage truncated / sampled / uncontained)
             command = (
                 f"detective converge '{fn}' {flags} --trace-budget 0 --trace-session-budget 0"
             ).replace("  ", " ")
