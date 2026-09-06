@@ -1609,6 +1609,14 @@ class SurvivorReport:
     # inputs, so these were zero-yield by construction; disclosed so the boundary of the search is
     # stated, never implied complete.
     not_consulted: int = 0
+    # The search could not run because the target MODULE would not import (a missing dependency, a
+    # broken sibling, a syntax error in the import chain) — distinct from "ran but the input has no
+    # literal form" (`inputs_expressible is False`) and from "ran and a real gap remains". A load
+    # failure is NOT fixed by `regime --migrate` (a migrate writes a pythonpath for pytest, not for
+    # the loader) nor by any `--input`; the one useful move is to name WHY the import failed (see
+    # `note`) so the reader runs under an interpreter that has the deps. Kept structured so the
+    # next-action decision routes on the fact, never by matching the note's prose.
+    load_failed: bool = False
 
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:

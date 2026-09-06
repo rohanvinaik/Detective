@@ -112,3 +112,89 @@ def test_an_ungateable_measurement_is_repaired_before_any_input_or_done():
     """A cut / uncontained measurement is not a verdict; it outranks both the gap ask and DONE."""
     assert converge_next_action("ungateable", "", False, False) == "repair_measurement"
     assert converge_next_action("ungateable", "", True, True) == "repair_measurement"
+
+
+# ── the follow-graph dogfood: one catch-all `regime --migrate` wore three disguises (2026-09-06).
+# The baseline collection reason must not be the remedy named when a LATER fact overrides it. Each
+# new signal defaults off, so an older caller/Wesker that supplies none keeps the previous behaviour
+# (the #60 unnamed-capability contract). ──
+
+
+def test_a_load_failure_is_named_not_migrated():
+    """conorheins/str2bool: the module would not IMPORT (No module named 'jax'). migrate cannot fix
+    an import and no --input runs without the module, so a load failure gets its OWN action."""
+    assert converge_next_action("incomplete", "empty_collection", True, True, load_failed=True) == "fix_load"
+    # load_failed outranks the other overrides — nothing runs, so nothing else is relevant.
+    assert (
+        converge_next_action(
+            "incomplete",
+            "empty_collection",
+            True,
+            True,
+            load_failed=True,
+            wrote_runnable_suite=True,
+            inputs_expressible=False,
+        )
+        == "fix_load"
+    )
+
+
+def test_an_inexpressible_input_asks_for_a_sample_not_migration():
+    """GofL/Game.update_cell: the search RAN but the param has no literal form (an ndarray). The move
+    is a real-sample test (close_the_gap -> _derived_input 'test' kind), never collection repair."""
+    assert (
+        converge_next_action("incomplete", "empty_collection", True, True, inputs_expressible=False)
+        == "close_the_gap"
+    )
+
+
+def test_a_suite_written_this_run_makes_the_empty_baseline_stale():
+    """arc-dsl/add run-1: converge synthesized AND wrote a runnable suite this run, so the empty
+    BASELINE reason is stale — the residual is closable by --input, so the gap ask wins, not migrate."""
+    assert (
+        converge_next_action("incomplete", "empty_collection", True, True, wrote_runnable_suite=True)
+        == "close_the_gap"
+    )
+    assert (
+        converge_next_action("incomplete", "empty_collection", False, True, wrote_runnable_suite=True)
+        == "close_the_gap"
+    )
+
+
+def test_the_new_overrides_default_off_preserving_prior_behaviour():
+    """With none of the new signals, empty_collection still routes to fix_collection — the #60
+    unnamed-capability contract, so an older caller/Wesker is byte-for-byte unchanged."""
+    assert converge_next_action("incomplete", "empty_collection", True, True) == "fix_collection"
+    assert converge_next_action("incomplete", "collection_errors", True, True) == "fix_collection"
+
+
+def test_settled_still_outranks_every_new_override():
+    """A completed run is never handed a remedy, even with the new signals set — settled is checked
+    before session_reason, so a load failure / inexpressible flag on a finished run is moot."""
+    assert converge_next_action("complete", "empty_collection", False, False, load_failed=True) == "settled"
+    assert (
+        converge_next_action("complete", "empty_collection", False, False, inputs_expressible=False)
+        == "settled"
+    )
+
+
+def test_a_loaded_module_no_input_exercises_asks_for_a_sample_not_migration():
+    """GofL/Game.update_cell: the module LOADED and the search ran in-process, but no input reached
+    the function (an unannotated ndarray param — expressibility UNKNOWN, not False). migrate cannot
+    fix that, so the report's own 'provide a real sample' guidance is surfaced, not a testpaths remedy."""
+    assert (
+        converge_next_action("incomplete", "empty_collection", True, True, needs_sample=True)
+        == "provide_sample"
+    )
+    # a KNOWN-inexpressible input is the richer `_derived_input` 'test' renderer's job, not this one.
+    assert (
+        converge_next_action("incomplete", "empty_collection", True, True, inputs_expressible=False)
+        == "close_the_gap"
+    )
+    # a load failure still outranks: nothing ran at all, so there is nothing to sample.
+    assert (
+        converge_next_action(
+            "incomplete", "empty_collection", True, True, needs_sample=True, load_failed=True
+        )
+        == "fix_load"
+    )

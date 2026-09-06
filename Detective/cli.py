@@ -2345,6 +2345,10 @@ def converge_next_action(
     session_reason: str,
     has_killable: bool,
     has_line_gap: bool,
+    wrote_runnable_suite: bool = False,
+    inputs_expressible: bool | None = None,
+    load_failed: bool = False,
+    needs_sample: bool = False,
 ) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
@@ -2406,6 +2410,30 @@ def converge_next_action(
     if session_reason == "pytest_missing":
         return "install_pytest"
     if session_reason:
+        # The BASELINE suite did not collect — but naming that as the remedy is only right if it is
+        # still the operative cause by the END of the run. Three later facts each override it with
+        # its own escape (all default off, so a caller/Wesker that supplies none keeps the previous
+        # behaviour — the #60 unnamed-capability contract), in order of what outranks what:
+        #   · the module would not IMPORT (a missing dep, a broken sibling). `regime --migrate`
+        #     cannot fix an import and no --input runs without the module — name WHY instead.
+        if load_failed:
+            return "fix_load"
+        #   · the search RAN but the input has no literal form (an ndarray/object param): the move
+        #     is a real-sample TEST, which `close_the_gap` renders (`_derived_input` 'test' kind),
+        #     never collection repair. `inputs_expressible is False` is that measured fact.
+        if inputs_expressible is False:
+            return "close_the_gap"
+        #   · the module loaded and the search RAN, but NO input reached the function (an unannotated
+        #     ndarray/object param — every candidate raised, so expressibility is UNKNOWN, not False).
+        #     migrate cannot help (the search ran in-process, not via pytest); the survivor report
+        #     already names the move — a real sample — so surface THAT, not a collection remedy.
+        if needs_sample:
+            return "provide_sample"
+        #   · THIS run synthesized and wrote a runnable suite, so the empty-baseline reason is now
+        #     STALE: the residual is closable by --input exactly as if a suite had pre-existed.
+        #     This is the arc-dsl run-1 spiral — migrate re-prescribed over a suite just written.
+        if wrote_runnable_suite:
+            return "close_the_gap"
         return "fix_collection"
     return "close_the_gap"
 
@@ -2424,6 +2452,26 @@ def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> li
         "collection_errors": "pytest failed to collect, so the suite never started.",
         "pytest_crashed": "pytest raised during collection, so the suite never started.",
     }.get(session_reason, "the live suite did not run.")
+    # If migrate has ALREADY run (the marker is declared), re-prescribing it is the very spiral this
+    # block exists to prevent: it is a no-op and the reader loops. Name the real residual instead —
+    # pytest resolves the regime yet still collects nothing, which is a discovery/testpaths problem
+    # migrate does not touch. A regime read must never crash the action block.
+    try:
+        from .regime import resolve_regime
+
+        marker_declared = resolve_regime(root).marker_declared
+    except Exception:  # noqa: BLE001 — the action block degrades to the migrate ask, never crashes
+        marker_declared = False
+    if marker_declared and session_reason == "empty_collection":
+        return [
+            f"STOP:  regime migrated (marker declared) but pytest still collects no tests for '{fn}'.",
+            "",
+            _row("· Why not --input", named),
+            _row("", "Migrate already ran — re-running it is a no-op. The suite is empty for"),
+            _row("", "another reason: check testpaths / discovery patterns / that a test"),
+            _row("", "actually imports and reaches this target."),
+            _row("· Inspect", f"detective regime '{fn}'{where}"),
+        ]
     return [
         f"DO THIS:  detective regime --migrate '{fn}'{where}",
         "",
@@ -2477,11 +2525,34 @@ def _converge_action(
         _ver is not None and bool(getattr(_ver, "ok", False)),
         bool(getattr(result, "admits_certificate", True)),
     )
+    # Signals that let the next action name the RIGHT escape instead of a catch-all `regime
+    # --migrate`: whether THIS run wrote a runnable suite (an empty-baseline reason is then stale),
+    # whether the input has a literal form (an ndarray/object param routes to a real-sample test),
+    # and whether the module failed to IMPORT (a dep/sibling problem migrate cannot fix). All read
+    # off the survivor report / result, defaulting to the previous behaviour when absent.
+    _rep_expressible = getattr(rep, "inputs_expressible", None) if rep is not None else None
+    _rep_load_failed = bool(getattr(rep, "load_failed", False)) if rep is not None else False
+    _wrote_runnable_suite = bool(getattr(result, "written_path", ""))
+    # The module loaded and the search RAN, but no input reached the function (expressibility
+    # UNKNOWN — an unannotated ndarray/object param, every candidate raised — not the known-False
+    # case the richer `_derived_input` 'test' renderer handles). The survivor report's note already
+    # names the move (a real sample); presence of a note with the original loaded is the structured
+    # fact, not a match on its prose.
+    _needs_sample = (
+        rep is not None
+        and not _rep_load_failed
+        and _rep_expressible is None
+        and bool(getattr(rep, "note", None))
+    )
     kind = converge_next_action(
         standing,
         session_reason,
         bool(blocked),
         bool(result.missing_lines),
+        wrote_runnable_suite=_wrote_runnable_suite,
+        inputs_expressible=_rep_expressible,
+        load_failed=_rep_load_failed,
+        needs_sample=_needs_sample,
     )
     if kind == "repair_measurement":
         flags = " ".join(_shell_input_flag(raw) for raw in attempted_inputs)
@@ -2518,6 +2589,33 @@ def _converge_action(
             _row("· Why first", "A perfect mutation score over a suite that does not run green is"),
             _row("", "not a certificate. Fix the proof basis, then re-run:"),
             _row("· Re-run", f"detective converge '{fn}'"),
+        ]
+    if kind == "fix_load":
+        # The module would not IMPORT — name WHY (the survivor report carries the exception), so the
+        # reader runs under the venv that has the dep instead of being sent to migrate, which cannot
+        # fix an import. A 0-kill here is blindness, not a result.
+        reason = getattr(rep, "note", None) or "the target module could not be imported"
+        return [
+            f"STOP:  {reason}",
+            "",
+            _row("· Why first", "The module would not import, so nothing ran — a 0-kill here is"),
+            _row("", "blindness, not a result. No --input runs without the module, and"),
+            _row("", "`regime --migrate` cannot fix a missing import."),
+            _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
+            _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
+        ]
+    if kind == "provide_sample":
+        # The module loaded and the search ran in-process, but no input reached the function — so
+        # this is NOT a collection/regime problem migrate touches. Surface the report's OWN guidance
+        # (a real sample / a test that calls it), verbatim, rather than a testpaths remedy.
+        note = getattr(rep, "note", None) or "no synthesized input reached the function"
+        return [
+            f"AUTHOR INPUT:  {note}",
+            "",
+            _row("· Why not migrate", "the module loaded and the search RAN in-process — the suite is"),
+            _row("", "empty only because no input reached the function, which"),
+            _row("", "`regime --migrate` cannot change. A real sample can."),
+            _row("· Then", f"detective converge '{fn}'"),
         ]
     if kind in ("install_pytest", "fix_collection"):
         return _dead_suite_action(kind, fn, root, session_reason)

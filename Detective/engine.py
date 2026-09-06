@@ -467,6 +467,46 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
     return _attr_path(mod, qualname)
 
 
+def _load_failure_reason(full_path: str, qualname: str) -> str | None:
+    """Best-effort reason WHY ``_load_original`` returned None — the module IMPORT exception, so a
+    load failure can NAME its cause (a missing dependency, a broken sibling, a syntax error in the
+    import chain) instead of a bare "could not be loaded" that misroutes the reader to
+    ``regime --migrate`` — which cannot fix an import (a migrate writes a pythonpath for pytest, not
+    for this loader). Diagnostic only, on the failure path: it re-attempts the same import
+    ``_load_original`` does and returns the first exception's short form, or None if the module
+    actually imports (then the failure was a missing ATTRIBUTE — a renamed/absent symbol — not a
+    load error, which routes differently). Any sys.path entry it adds is restored, and the probe
+    module is never parked in ``sys.modules``, so a diagnostic leaves no trace.
+    """
+    real = os.path.abspath(full_path)
+    dotted, pkg_root = _package_qualname(real)
+    added_paths: list[str] = []
+    try:
+        if "." in dotted:
+            if pkg_root and pkg_root not in sys.path:
+                sys.path.insert(0, pkg_root)
+                added_paths.append(pkg_root)
+            importlib.import_module(dotted)
+            return None
+        mod_dir = os.path.dirname(real)
+        if mod_dir and mod_dir not in sys.path:
+            sys.path.insert(0, mod_dir)
+            added_paths.append(mod_dir)
+        spec = importlib.util.spec_from_file_location("_detective_probe", full_path)
+        if spec is None or spec.loader is None:
+            return None
+        spec.loader.exec_module(importlib.util.module_from_spec(spec))
+        return None
+    except Exception as exc:  # noqa: BLE001 — any import error IS the reason to report
+        return f"{type(exc).__name__}: {exc}"
+    finally:
+        for path in added_paths:
+            try:
+                sys.path.remove(path)
+            except ValueError:
+                pass
+
+
 def _attr_path(obj: Any, qualname: str) -> Any | None:
     for part in qualname.split("."):
         obj = getattr(obj, part, None)
@@ -2627,9 +2667,25 @@ def classify_survivors(
     original = _load_original(full, qualname or function)
     if original is None:
         unclassified_descs, manual_eq, fence_eq = _split(survivors)
-        note = "the live original could not be loaded" if unclassified_descs else None
+        # NAME why the load failed (a missing dep, a broken sibling) so the next action can route to
+        # "run under the venv that has it", not the `regime --migrate` a bare "could not be loaded"
+        # invites — migrate cannot fix an import. `reason is None` means the module DID import and
+        # only the ATTRIBUTE was absent (a renamed/stale symbol): not a load-failure, so `load_failed`
+        # stays False and it does not route to the dependency remedy.
+        reason = _load_failure_reason(full, qualname or function) if unclassified_descs else None
+        if not unclassified_descs:
+            note = None
+        elif reason:
+            note = f"the live original could not be loaded: {reason}"
+        else:
+            note = "the live original could not be loaded"
         return SurvivorReport(
-            (), unclassified_descs, note=note, manual_equivalent=manual_eq, authored_fence=fence_eq
+            (),
+            unclassified_descs,
+            note=note,
+            manual_equivalent=manual_eq,
+            authored_fence=fence_eq,
+            load_failed=reason is not None,
         )
 
     # METHOD BINDING (issue #25): `_load_original` returns the UNBOUND method, so the witness search
