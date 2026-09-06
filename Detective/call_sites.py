@@ -158,6 +158,87 @@ def infer_param_types(qualname: str, project_root: str, param_names: list[str]) 
     return resolved
 
 
+# Usage-based param type inference — the sibling of `infer_param_types` (which reads CALL SITES).
+# This reads how the TARGET uses a param in its OWN body, recovering a type call-site inference misses
+# (a pass-through local, GofL `Game.update_cell`'s `step[xy[0], xy[1]]`). High-confidence only — see
+# `usage_inferred_type`. Surfaced by the follow-graph dogfood (docs/dogfood/pabkit_2026-09-06.md).
+_NDARRAY_USES = frozenset(
+    {"subscript_tuple", "attr:shape", "attr:dtype", "attr:ndim", "call:reshape", "call:astype"}
+)
+_STR_USES = frozenset(
+    {
+        "call:lower",
+        "call:upper",
+        "call:strip",
+        "call:split",
+        "call:startswith",
+        "call:endswith",
+        "call:join",
+        "call:encode",
+        "call:format",
+    }
+)
+
+
+def usage_inferred_type(usages: tuple[str, ...]) -> str:
+    """Best-effort TYPE-NAME for a parameter from its USAGE tags (#pure — pinned).
+
+    v1 emits a type ONLY on a high-precision signal, so it is safe even for the ADVISORY consumer
+    (survey), which has no run to dispose a wrong guess:
+      * a TUPLE subscript (`p[i, j]`) or an array attribute (`.shape`/`.dtype`/`.reshape`) -> "ndarray"
+        — a Python list/str/dict RAISES on a tuple index, so the signal is near-certain;
+      * a str method (`.lower`/`.strip`/`.split`/…) -> "str";
+      * anything else -> "" (unknown): a plain subscript, an int index, arithmetic and a comparison are
+        all ambiguous, and v1 refuses to guess rather than cry wolf. Low-confidence numeric/iterable
+        inference — safe only where converge RUNS the guess and the soundness gate disposes a wrong one
+        — is a later, synthesis-only extension.
+    """
+    tags = set(usages)
+    if tags & _NDARRAY_USES:
+        return "ndarray"
+    if tags & _STR_USES:
+        return "str"
+    return ""
+
+
+def _param_usages(func: ast.FunctionDef | ast.AsyncFunctionDef, param_name: str) -> tuple[str, ...]:
+    """The USAGE tags for `param_name` across `func`'s body — the AST-walk evidence the pure
+    `usage_inferred_type` decides over. `p[i, j]` -> subscript + subscript_tuple; `p[0]` -> subscript +
+    subscript_int; `p.lower()` -> call:lower; `p.shape` -> attr:shape; `p + x` -> arith; `p == x` ->
+    compare; `for _ in p` -> iter. A method call subsumes the bare-attribute tag for the same name.
+    Sorted + deduped; the impure-ish extractor (takes an AST node), so it gets ordinary tests while
+    the DECISION over its output is the pinned pure function above."""
+    tags: set[str] = set()
+
+    def _is_param(node: ast.AST) -> bool:
+        return isinstance(node, ast.Name) and node.id == param_name
+
+    for node in ast.walk(func):
+        if isinstance(node, ast.Subscript) and _is_param(node.value):
+            tags.add("subscript")
+            if isinstance(node.slice, ast.Tuple):
+                tags.add("subscript_tuple")
+            elif isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int):
+                tags.add("subscript_int")
+        elif (
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and _is_param(node.func.value)
+        ):
+            tags.add(f"call:{node.func.attr}")
+        elif isinstance(node, ast.Attribute) and _is_param(node.value):
+            tags.add(f"attr:{node.attr}")
+        elif isinstance(node, ast.BinOp) and (_is_param(node.left) or _is_param(node.right)):
+            tags.add("arith")
+        elif isinstance(node, ast.Compare) and (
+            _is_param(node.left) or any(_is_param(c) for c in node.comparators)
+        ):
+            tags.add("compare")
+        elif isinstance(node, ast.For) and _is_param(node.iter):
+            tags.add("iter")
+    # a method call (call:lower) is the precise signal — drop the redundant bare attr:lower it implies
+    tags = {t for t in tags if not (t.startswith("attr:") and ("call:" + t[len("attr:") :]) in tags)}
+    return tuple(sorted(tags))
+
+
 def discover_call_site_inputs(qualname: str, project_root: str, max_sites: int = 12) -> list[tuple]:
     """Realized positional-arg tuples from every literal call to ``qualname`` in the
     repo, ordered by discovery and deduplicated by value. Empty when the function is
