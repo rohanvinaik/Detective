@@ -4,7 +4,14 @@ The defect: a converge that finds the hand-written suite already complete writes
 only other artifacts — the pins/verdict caches (keyed for other purposes) and the report file (keyed
 by BARE qualname) — cannot serve as a per-target certificate. So the best-tested functions read
 `unpinned` under the ordering law, forever. The fix, chosen over receipts-as-certificate: converge
-records its terminal verdict per (func_key, function digest) in `.detective/certificates.json`.
+records its terminal verdict per (func_key, function digest) in the ledger.
+
+WHERE the ledger lives (founder ruling 2026-09-06: "the synths and the certificates should be
+synced properly"): beside the suite it certifies — `<write-dir>/certificates.json`,
+`tests/detective/` by default — versioned with the synths, never purged. It first lived under the
+ignored `.detective/`, and the first `plan Detective/` over a fresh reading found every region
+unpinned but the fifteen certified that morning: a certificate that exists only on the machine that
+ran converge makes the ordering law non-reproducible from the repo.
 
 What this pins from intent:
 
@@ -13,7 +20,9 @@ What this pins from intent:
   definition would read as one about every definition;
 - the bytes are deterministic: no clock, sorted keys — identical runs, identical file;
 - a refusal is named apart from an honest gap, receiver before environment;
-- `purge` deletes the ledger (regenerable) and leaves the user-data ledgers alone;
+- the ledger lives beside the synths (the default write-dir), a custom write-dir carries its own,
+  and the status reader follows the write-dir it was given;
+- `purge` SPARES the ledger — it is part of the suite, not a cache — and the user-data ledgers;
 - END TO END through the real command path: `converge` on a tmp repo writes the entry for the
   target at its current digest with the standing the result itself claims, and the status reader
   then sees the certificate — with no synth file involved in the decision.
@@ -121,14 +130,38 @@ def test_missing_ledger_loads_none(tmp_path) -> None:
     assert load_certificate(str(tmp_path), "m.py::f") is None
 
 
-def test_purge_deletes_the_ledger_and_spares_user_data(tmp_path) -> None:
+def test_the_ledger_lives_beside_the_synths_and_never_under_the_ignored_cache_dir(tmp_path) -> None:
+    path = record_certificate(str(tmp_path), "m.py::f", "d1", "complete", "")
+    assert path == str(tmp_path / "tests" / "detective" / "certificates.json")
+    assert not (tmp_path / ".detective").exists()
+
+
+def test_a_custom_write_dir_carries_its_own_ledger_and_the_reader_follows_it(tmp_path) -> None:
+    node = ast.parse("def f(x):\n    return x + 1\n").body[0]
+    record_certificate(
+        str(tmp_path), "m.py::f", pins.function_digest(node), "complete", "", write_dir="suite"
+    )
+    assert (tmp_path / "suite" / "certificates.json").exists()
+    assert load_certificate(str(tmp_path), "m.py::f", write_dir="suite")["standing"] == "complete"
+    # The default location is a DIFFERENT suite: nothing was certified there.
+    assert load_certificate(str(tmp_path), "m.py::f") is None
+    assert read_behavior_status(str(tmp_path), "suite", "m.py::f", node) == "pinned"
+    assert (
+        read_behavior_status(str(tmp_path), os.path.join("tests", "detective"), "m.py::f", node) == "unpinned"
+    )
+
+
+def test_purge_spares_the_ledger_it_is_part_of_the_suite_and_spares_user_data(tmp_path) -> None:
     record_certificate(str(tmp_path), "m.py::f", "d1", "complete", "")
     user_data = tmp_path / ".detective" / "inputs.json"
+    user_data.parent.mkdir(parents=True, exist_ok=True)
     user_data.write_text("{}", encoding="utf-8")
+    (tmp_path / ".detective" / "verdict_cache.json").write_text("{}", encoding="utf-8")
     removed, _ = purge(str(tmp_path))
-    assert str(tmp_path / CERTIFICATES_REL_PATH) in removed
-    assert not (tmp_path / CERTIFICATES_REL_PATH).exists()
+    assert str(tmp_path / CERTIFICATES_REL_PATH) not in removed
+    assert (tmp_path / CERTIFICATES_REL_PATH).exists()
     assert user_data.exists()
+    assert any(p.endswith("verdict_cache.json") for p in removed), "the cache is still what purge is for"
 
 
 # ---------------------------------------------------------------- end to end, through `converge`

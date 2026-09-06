@@ -860,12 +860,13 @@ def read_behavior_status(root: str, write_dir: str, func_key: str, node: ast.AST
     """The behavior status of ``func_key``, whose current definition is ``node`` (§14.1 — accessor
     over the pinned :func:`behavior_status`; the accessor keeps the I/O, the decision holds no I/O).
 
-    Reads the certificate ledger (`certificates.load_certificate`) and the generated suite at its
-    primary location (`synth_filename` under ``write_dir``). The pre-#21 legacy suite location is
+    Reads the certificate ledger (`certificates.load_certificate`, kept BESIDE the suite under
+    ``write_dir`` — versioned with it) and the generated suite at its primary location
+    (`synth_filename` under ``write_dir``). The pre-#21 legacy suite location is
     not read — a file there predates the digest field and `converge` is the remedy either way.
     """
     current = pins.function_digest(node)
-    cert = load_certificate(root, func_key)
+    cert = load_certificate(root, func_key, write_dir)  # the ledger lives beside the suite
     cert_standing = str(cert.get("standing", "")) if cert else ""
     cert_current = bool(cert) and cert.get("function_digest") == current
     cert_refused = bool(cert) and bool(cert.get("refusal"))

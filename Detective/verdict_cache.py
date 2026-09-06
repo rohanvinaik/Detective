@@ -290,13 +290,14 @@ def purge(project_root: str) -> tuple[tuple[str, ...], int]:
     is the opposite of this command's purpose (see :mod:`Detective.samples` §8). Everything named
     here is rebuilt from the current code on the next run, so purging can only ever cost time.
     """
-    from .certificates import CERTIFICATES_REL_PATH
-
     removed: list[str] = []
     reclaimed = 0
-    # The certificate ledger (§14.1) is regenerable analysis output — rebuilt by the next converge —
-    # so it belongs here with the cache and the reports, never with the user-data ledgers above.
-    targets: list[Path] = [_cache_path(project_root), Path(project_root, CERTIFICATES_REL_PATH)]
+    # The certificate ledger (§14.1) is NOT purged: it lives beside the suite it certifies
+    # (`certificates.CERTIFICATES_REL_PATH`, versioned with the synths — founder ruling 2026-09-06).
+    # It is regenerable by converge, but it is the one static fact the style layer's admissibility
+    # rests on, and a purge that reset every region to `unpinned` would be the opposite of a clean
+    # state. Only the cache and the reports are here.
+    targets: list[Path] = [_cache_path(project_root)]
     reports = Path(project_root, ".detective", "reports")
     if reports.is_dir():
         targets += sorted(p for p in reports.iterdir() if p.is_file())

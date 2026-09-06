@@ -1,0 +1,87 @@
+{
+  "Detective/binding.py::classify_target": {
+    "function_digest": "b23ec4f2f66218df",
+    "refusal": "",
+    "standing": "incomplete"
+  },
+  "Detective/budget.py::budget_exit": {
+    "function_digest": "47d859f02d655e89",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/budget.py::ladder_kinds": {
+    "function_digest": "32836902ee8bf1e9",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/capture.py::harvest_disposition": {
+    "function_digest": "95d8889af8cf0ee5",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/certificates.py::certificate_refusal": {
+    "function_digest": "0329f0c7ffe74d1b",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/certify.py::behavior_status": {
+    "function_digest": "b52bbfc05851f495",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/engine.py::widen_admission": {
+    "function_digest": "73cedde34adfb8a2",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/judgments.py::judgment_standing": {
+    "function_digest": "9134e00bbdc6aa17",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/judgments.py::style_flag_refusal": {
+    "function_digest": "612b54104cb2461f",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/plan.py::clean_disposition": {
+    "function_digest": "65782f3448b91ea3",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/plan.py::next_command": {
+    "function_digest": "a7994a98247651c6",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/plan.py::next_move": {
+    "function_digest": "2e3e82d4e688cd7e",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/plan.py::plan_closing": {
+    "function_digest": "eeb30a46f4fa4442",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/plan.py::plan_exit": {
+    "function_digest": "8825e25b7eb13c1c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/plan.py::queue_order": {
+    "function_digest": "42a246138eb18f61",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/plan.py::receipt_path": {
+    "function_digest": "b7735cdd8638577c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/plan.py::unexamined": {
+    "function_digest": "c57cba4cc69944da",
+    "refusal": "",
+    "standing": "complete"
+  }
+}

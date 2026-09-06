@@ -765,7 +765,7 @@ after they were certified, and would be sent to `converge` forever (which writes
 The suite was the wrong certificate. Of three fixes — (i) converge records a per-target verdict
 ledger, (ii) receipts become the certificate (they carry the digest, completeness and the frozen
 basis, but have no canonical location), (iii) accept the false negative — the founder chose (i).
-**Built:** `Detective/certificates.py` — `.detective/certificates.json`, `{func_key:
+**Built:** `Detective/certificates.py` — `tests/detective/certificates.json` (beside the synths, VERSIONED with them and never purged — founder ruling 2026-09-06, after the first `plan Detective/` found the ignored `.detective/` ledger left a fresh reading with every region unpinned), `{func_key:
 {function_digest, standing, refusal}}`, written by the `converge()` wrapper after EVERY path
 through the impl (CLI, decompose, receipt, MCP all leave the same record), best-effort like the
 report, deterministic bytes (no clock, sorted keys), never recorded without an identity, deleted

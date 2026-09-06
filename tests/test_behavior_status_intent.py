@@ -209,8 +209,23 @@ def _write_suite(tmp_path, node: ast.FunctionDef | None) -> str:
     return written
 
 
-def _certify(tmp_path, node: ast.FunctionDef, standing: str = "complete", refusal: str = "") -> None:
-    assert record_certificate(str(tmp_path), KEY, pins.function_digest(node), standing, refusal)
+def _certify(
+    tmp_path,
+    node: ast.FunctionDef,
+    standing: str = "complete",
+    refusal: str = "",
+    write_dir: str | None = None,
+) -> None:
+    # The ledger lives beside the suite. This file's suite is written at tmp_path itself (`_status`
+    # reads with write_dir=tmp_path), so the certificate is recorded there unless a test says where.
+    assert record_certificate(
+        str(tmp_path),
+        KEY,
+        pins.function_digest(node),
+        standing,
+        refusal,
+        write_dir=write_dir or str(tmp_path),
+    )
 
 
 def _status(tmp_path, node: ast.FunctionDef) -> str:
@@ -308,7 +323,9 @@ def test_relative_write_dir_resolves_under_root(tmp_path) -> None:
     node = _node(BEFORE)
     write_dir = os.path.join(str(tmp_path), "tests", "detective")
     os.makedirs(write_dir)
-    _certify(tmp_path, node)
+    # The certificate is recorded beside THIS suite (relative write-dir), and the reader resolves
+    # the same relative write-dir under root for both the ledger and the synth.
+    _certify(tmp_path, node, write_dir=os.path.join("tests", "detective"))
     source = render_module(KEY, [_prop()], function_digest=pins.function_digest(node))
     assert _write(source, write_dir, KEY, str(tmp_path))
     assert read_behavior_status(str(tmp_path), os.path.join("tests", "detective"), KEY, node) == "pinned"

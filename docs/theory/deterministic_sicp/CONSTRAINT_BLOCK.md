@@ -69,7 +69,7 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
     where none exists; §14.1)*. Every region carries a behavior status — SIX codes, spelled once
     in `pins.BEHAVIOR_STATUSES`: pinned · pinned_incomplete · refused · pinned_stale ·
     pinned_unverified · unpinned — read PRIMARILY off the converge certificate ledger
-    (`.detective/certificates.json`, written by the `converge()` wrapper on every run, slice 1b)
+    (`tests/detective/certificates.json`, written by the `converge()` wrapper on every run, slice 1b)
     and refined by the generated suite (an edit or an older suite digest outranks any
     certificate). A style move is admissible only on `pinned`; for anything else the next command
     is `converge`, never `decompose --apply`. No pin, no gate armed. A current-digest suite with no

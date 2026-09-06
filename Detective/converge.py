@@ -1354,7 +1354,7 @@ def converge(
     # complete writes NO synth and would otherwise leave no artifact at all. Recorded HERE, after
     # every path through the impl, so the CLI, decompose, receipt and the MCP all leave the same
     # record. Best-effort like the report: a failed ledger write never fails the run.
-    from .certificates import certificate_refusal, record_certificate
+    from .certificates import DEFAULT_WRITE_DIR, certificate_refusal, record_certificate
 
     record_certificate(
         project_root,
@@ -1362,6 +1362,7 @@ def converge(
         result.function_digest,
         result.standing,
         certificate_refusal(result.needs_receiver or "", tuple(result.environment_gated)),
+        write_dir=write_dir or DEFAULT_WRITE_DIR,  # beside the suite — versioned with it, never purged
     )
     return result
 
