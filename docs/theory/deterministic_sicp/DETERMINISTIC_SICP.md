@@ -988,7 +988,16 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    60`, `not_consulted == 1000`, the equivalent survivor still reported as candidate-equivalent.
    **Follow-ups, Wesker side, not done here:** `next_routing_action`'s docstring says "sound because
    the unknown set is exhausted" — it is now the APPLICABLE set; `trace_cache.save` (json + fsync of
-   the whole cache) runs once per single-test `expand` — O(n²) over a widen, should be once per widen.]
+   the whole cache) runs once per single-test `expand` — O(n²) over a widen, should be once per widen.
+   **The exemption request is WITHDRAWN (2026-09-06):** with the bound in place every §14 hand-table
+   decision converged ✓ COMPLETE under `--deadline 300` — `next_command` 40/40 modulo 2 in 26 s (the
+   51-minute grind), `receipt_path` 22/23 modulo 1 in 154 s (the 54-minute one), `unexamined` 5/5,
+   `plan_exit` 7/7, `next_move` 27/27, `plan_closing` 25/25, `judgment_standing` 20/20,
+   `style_flag_refusal` 11/11, `ladder_kinds` 12/14 modulo 2, `budget_exit` 15/15, `widen_admission`
+   5/5, `harvest_disposition` 3/3 — the rest in 5–21 s each. Two engine synths were written
+   (`next_command`, `unexamined`); the others were already carried by the hand tables, which stay as
+   the intent tests beside the certificates. Each run's residual named ~1,850–1,950 collected tests
+   not consulted: the whole-suite trace, now a disclosed number instead of an hour.]
 5. The `plan` verb, `_COMMAND_HELP` pedagogy, `_REGIME_STAGE` on the `file::fn` form; the
    `parsimony` deprecation shim.
    [BUILT 2026-09-05 — `cli._run_plan`, dispatched in `_run` BEFORE `_split_target` and listed in

@@ -165,13 +165,17 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 > Founder ruling: discovery is an efficiency device for ONE function's applicable tests, never a
 > proof of a negative; `file_peer` dropped; no opt-in. Fixed in Detective: `widen_admission` (only
 > `caller_reaches` is widened; the rest disclosed as `not_consulted`), `_route_tests` (one router),
-> `_applicable_harvest_pool` + `harvest_disposition` (the wall as backstop between tests). The
-> plan.py hand-table pins (`next_command` · `receipt_path` · `unexamined` · `plan_exit`) remain
-> under the targeted-exemption protocol (REQUESTED, not yet granted); with the grind gone they
-> may now be converge-pinned. Never run two converges concurrently; never run a converge
-> alongside a pytest gate. Wesker follow-ups (not done here): `next_routing_action`'s soundness
-> docstring ("unknown set exhausted" → "applicable set exhausted"); `trace_cache.save` once per
-> widen, not once per single-test expand.
+> `_applicable_harvest_pool` + `harvest_disposition` (the wall as backstop between tests).
+> **The exemption REQUEST is withdrawn — every §14 hand-table decision is now converge-pinned**
+> (2026-09-06, `--deadline 300`, all ✓ COMPLETE): `next_command` 40/40 modulo 2 (26 s; was 51 min,
+> killed) · `receipt_path` 22/23 modulo 1 (154 s; was 54 min, killed) · `unexamined` 5/5 (21 s) ·
+> `plan_exit` 7/7 · `next_move` 27/27 · `plan_closing` 25/25 · `judgment_standing` 20/20 ·
+> `style_flag_refusal` 11/11 · `ladder_kinds` 12/14 modulo 2 · `budget_exit` 15/15 ·
+> `widen_admission` 5/5 · `harvest_disposition` 3/3 — each 5–17 s. The hand tables stay as the
+> intent tests beside the engine synths. Never run two converges concurrently; never run a
+> converge alongside a pytest gate. Wesker follow-ups (not done here): `next_routing_action`'s
+> soundness docstring ("unknown set exhausted" → "applicable set exhausted"); `trace_cache.save`
+> once per widen, not once per single-test expand.
 > (1) `behavior_status` pure decision + reader (ground whether the suite header carries the
 > function digest) → (1b) the converge certificate ledger → (2) `plan_moves` gains `unpinned`;
 > `RegionRead` gains status + cost provenance → (3) plan assembly as a library function (from
