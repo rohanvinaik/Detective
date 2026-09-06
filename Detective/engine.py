@@ -436,7 +436,30 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
             return None
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod  # register before exec (dataclass/pickle resolution)
-        spec.loader.exec_module(mod)
+        # A genuinely top-level (non-package) module may still import a SIBLING at module
+        # scope (`from arc_types import *` / `import sibling`) — the flat-repo idiom. `exec_module`
+        # runs that import, so the module's OWN directory must be importable, exactly as CPython
+        # puts a directly-run script's dir on sys.path[0]. Without it a flat multi-file repo loses
+        # every survivor to "the live original could not be loaded" and converge spirals on
+        # `regime --migrate` — which cannot fix an import path (the pythonpath a migrate writes
+        # reaches pytest, not this loader). The entry is REMOVED again once exec resolves the
+        # sibling INTO the module namespace (Wesker seeds mutants from original.__globals__, so it
+        # need not persist): leaving it accumulates stale dirs across a run and perturbs a later
+        # module's sibling-name resolution — measured, it polluted an unrelated test's
+        # `from m import f`. (The dotted branch above leaves `pkg_root` on the path; that fires
+        # once per package, not once per flat-module load, so it does not accumulate the same way.)
+        _mod_dir = os.path.dirname(real)
+        _added_mod_dir = bool(_mod_dir) and _mod_dir not in sys.path
+        if _added_mod_dir:
+            sys.path.insert(0, _mod_dir)
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            if _added_mod_dir:
+                try:
+                    sys.path.remove(_mod_dir)
+                except ValueError:
+                    pass
         if disk_sha is not None:
             mod.__detective_source_sha256__ = disk_sha  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     except Exception:
