@@ -2742,6 +2742,20 @@ def _converge_action(
         if getattr(result, "synthesized_only", False)
         else []
     )
+    # The pin->style handoff (Finding A): correctness is DONE at this ✓ COMPLETE, which is exactly
+    # when the style half should fire — loudly, as the self-evident next move, not a parenthetical
+    # "optional". It names the WHOLE second beat (the fuller `plan` map, `decompose`, `survey`),
+    # CONDITIONAL on this moment and never shown before correctness is done. The `flag` pointer in the
+    # equivalent branch stays (it is correct WHEN unproven-equivalents exist); the handoff is additive.
+    _file = fn.split("::")[0]
+    style_handoff = [
+        "",
+        "       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):",
+        f"         detective plan '{_file}'          # the fuller style map for these regions",
+        f"         detective decompose '{fn}' --apply  # split it where behaviour is proven preserved",
+        f"         detective survey '{_file}'         # pure decisions trapped behind an impure boundary",
+        f"         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> '{fn}' --budget)",
+    ]
     if rep is not None and rep.equivalent:
         ids = [v.mutant_id for v in rep.equivalent]
         more = f"  ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
@@ -2750,11 +2764,12 @@ def _converge_action(
             "       by any input Detective found — whether it is truly equivalent is UNDECIDABLE",
             "       in general, so the engine will not claim it. Leave them; they are not a gap.",
             f"       If you can prove one is: detective flag '{fn}' {ids[0]} --note \"why\"{more}",
+            *style_handoff,
             *review,
         ]
     return [
         "DONE:  the suite pins every behaviour this function makes.",
-        f"       Next (optional): detective decompose '{fn}' --apply   # if it does too much",
+        *style_handoff,
         *review,
     ]
 
