@@ -1962,6 +1962,11 @@ def _converge_impl(
     if final > 0:
         say(f"{final} survivor(s) remain — classifying (killable / equivalent / needs-input)…")
         try:
+            # The SAME receiver axis as the witness pass above (#25): this is the classification whose
+            # report becomes the verdict, and it ran WITHOUT `_rf` — so a method target converged with
+            # an explicit --receiver-factory still ended "needs-receiver: <Owner>() could not be
+            # constructed", every survivor unclassified, while the emitted test happily called the
+            # factory (measured 2026-09-06 on purity._SideEffectVisitor.visit_Call: 47/47 unclassified).
             survivor_report = classify_survivors(
                 file,
                 function,
@@ -1969,6 +1974,7 @@ def _converge_impl(
                 call_site_inputs=supplied_inputs,
                 extra_test_dirs=extra_test_dirs,
                 deadline_s=_budget_s(),
+                receiver_factory=_rf,
                 include_shaped=include_shaped,
                 two_sign=two_sign,
             )

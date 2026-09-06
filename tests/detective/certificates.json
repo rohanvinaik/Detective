@@ -83,5 +83,15 @@
     "function_digest": "c57cba4cc69944da",
     "refusal": "",
     "standing": "complete"
+  },
+  "Detective/purity.py::_SideEffectVisitor.visit_Call": {
+    "function_digest": "c47597908cebe385",
+    "refusal": "",
+    "standing": "incomplete"
+  },
+  "Detective/synthesis/typed_synthesis.py::_extract": {
+    "function_digest": "7cd9190bc2dabe35",
+    "refusal": "",
+    "standing": "incomplete"
   }
 }
