@@ -440,7 +440,7 @@ def _plan_reason_index(assembly) -> dict[str, str]:
     the terse block, the full report and the JSON cannot disagree about why a region is where it is."""
     from .plan import FUNDED
 
-    reasons = {region: reason for region, reason in assembly.plan.excluded}
+    reasons = dict(assembly.plan.excluded)
     for r in assembly.plan.funded:
         reasons[r.region] = FUNDED
     return reasons
@@ -5828,8 +5828,6 @@ def _paired_budget(receipt, file: str, function: str, project_root: str, gate_pr
     ladder shaped by the NEW definition's parameter annotations. Never a number for a shape it cannot
     ladder: a method (no receiver ladder at v1), an unannotated parameter, or an arm that will not
     load all read UNMEASURABLE with the reason named."""
-    import ast as _ast
-
     from .budget import PairedBudgetRead, ladder_kinds, paired_budget_read, paired_disposition
     from .engine import _load_original
     from .rewrite import _function_source, _load_old_callable
@@ -5857,9 +5855,7 @@ def _paired_budget(receipt, file: str, function: str, project_root: str, gate_pr
         return _unmeasurable(f"function {function!r} not found in {file}")
     node = fs[1]
     params = [a for a in node.args.args if a.arg not in ("self", "cls")]
-    kinds = ladder_kinds(
-        tuple(_ast.unparse(a.annotation) if a.annotation is not None else "" for a in params)
-    )
+    kinds = ladder_kinds(tuple(ast.unparse(a.annotation) if a.annotation is not None else "" for a in params))
     new_fn = _load_original(full, function)
     old_fn = (
         _load_old_callable(receipt, getattr(new_fn, "__globals__", {}) or {}, function) if new_fn else None
