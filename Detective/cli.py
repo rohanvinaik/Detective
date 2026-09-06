@@ -283,6 +283,18 @@ def _format_scope(scope) -> str:
                     "re-run --include-shaped to trace them",
                 )
             )
+        # The applicability bound (`engine.widen_admission`): unknowns with NO static path to this
+        # function — or only a file-sibling's name — are never traced. The boundary of the floor
+        # measurement, stated; not a fourth bucket (they are unknowns), and not an opt-in.
+        skipped = routing.get("not_consulted", 0)
+        if skipped:
+            lines.append(
+                _row(
+                    "",
+                    f"{skipped} of the unknowns have no static path to this function — not traced "
+                    "(a missed dynamic reacher costs a redundant generated test, never a certificate)",
+                )
+            )
     # #40: two rows, never one. A crash/timeout kill proves the code RUNS, not what it returns, so
     # it must not sit under the checked "pinned" gutter — a scanning reader reads everything beside
     # ✓ as specified. value-pinned is the checked population; run-only is its own unchecked row.
@@ -2022,6 +2034,13 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
     # files — the capture would have pinned the environment, not the function.
     for refusal in getattr(result, "environment_coupled", ()):
         lines.append(f"  ⚠ {refusal}")
+    # The applicability bound's boundary (`engine.widen_admission`), stated in the archive as well:
+    # collected tests with no static path to this function were neither widened nor harvested.
+    if skipped := getattr(result, "not_consulted", 0):
+        lines.append(
+            f"  · not consulted: {skipped} collected test(s) have no static path to this function — "
+            "not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)"
+        )
     if result.minimal_test_count:
         lines.append(f"  minimal suite: {result.minimal_test_count} test(s) cover all kills + lines")
     if result.redundant_tests:
@@ -2253,6 +2272,18 @@ def _format_converge_terse(
                 f"{deferred} isolation-hazardous test(s) held out of the widen search "
                 "(subprocess/thread/signal/custom-collector) — a residual MAY be killable by one; "
                 "re-run with --include-shaped to trace them",
+            )
+        )
+    # The applicability bound (`engine.widen_admission`): collected tests with no static path to this
+    # function were neither widened nor harvested. The boundary of the floor measurement, STATED — not
+    # a knob (there is no opt-in) and not a gap: a missed dynamic reacher under-counts the floor (one
+    # redundant generated test), never the ceiling.
+    if skipped := getattr(result, "not_consulted", 0):
+        lines.append(
+            _row(
+                "· not consulted",
+                f"{skipped} collected test(s) have no static path to this function — not traced "
+                "(a missed dynamic reacher costs a redundant generated test, never a certificate)",
             )
         )
     if report_path:

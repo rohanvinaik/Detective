@@ -309,6 +309,16 @@ def _render_converge(result: Any, file: str, function: str, full_text: str | Non
         from .cli import _rel_path
 
         out.append(f"  wrote: {_rel_path(result.written_path)}  (ordinary pytest; `pytest -m detective`)")
+    # The applicability bound's boundary, stated (`engine.widen_admission`): collected tests with no
+    # static path to this function were not traced. Not a knob — there is no opt-in — and not a gap:
+    # a missed dynamic reacher under-counts the floor (one redundant generated test), never the ceiling.
+    if skipped := getattr(result, "not_consulted", 0):
+        out.append(
+            f"  not consulted: {skipped} collected test(s) have no static path to this function and were not"
+        )
+        out.append(
+            "  traced. A missed dynamic reacher costs one redundant generated test, never a certificate."
+        )
 
     # DIRECT attribute access, never `getattr(rep, name, default)`. A default silently absorbs a
     # wrong field name, and this file did exactly that: it asked for `candidate_equivalent`,

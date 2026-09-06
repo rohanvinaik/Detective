@@ -17,8 +17,35 @@ from __future__ import annotations
 import contextlib
 import io
 import sys
+import time
 from collections.abc import Callable
 from typing import Any
+
+HARVEST = "harvest"  # run the next test
+HARVEST_ENOUGH = "enough"  # the pool is full — a completed harvest, whatever the wall says
+HARVEST_CUT = "cut"  # the aggregate wall has passed — stop, keep what was captured
+
+
+def harvest_disposition(have_enough: bool, deadline_passed: bool) -> str:
+    """Whether the capture harvest runs the NEXT test (pure — pinned). Named codes:
+
+      "enough"   — ``max_samples`` distinct inputs are already captured: stop; the pool is full and a
+                   full pool is a completed harvest, checked FIRST so a late wall never voids it
+      "cut"      — the aggregate command wall (an absolute monotonic deadline) has passed: stop and
+                   keep what was captured — a partial harvest is honest, an overrun is not
+      "harvest"  — run it
+
+    Checked BETWEEN tests, never inside one. The wall is a BACKSTOP on the sequence; the BOUND on the
+    sequence is applicability (`engine._applicable_harvest_pool`): only tests with a static path to
+    the target are handed here at all, because only a test that reaches the function can capture its
+    inputs. Before this, the harvest ran every collected test with no check anywhere — a 51-minute
+    silent witness pass on a four-parameter function (2026-09-05), the wall it was under long gone.
+    """
+    if have_enough:
+        return HARVEST_ENOUGH
+    if deadline_passed:
+        return HARVEST_CUT
+    return HARVEST
 
 
 def capture_call_inputs(
@@ -26,6 +53,7 @@ def capture_call_inputs(
     tests: list[Callable[..., Any]],
     *,
     max_samples: int = 12,
+    deadline: float | None = None,
 ) -> list[tuple]:
     """Real positional-argument tuples observed at every call to ``original`` while
     ``tests`` run, deduplicated by value and capped at ``max_samples``.
@@ -40,6 +68,10 @@ def capture_call_inputs(
     Empty when the tests never reach the function — in which case the caller keeps
     abstaining, the honest Zone-3 'provide a sample'. A failing or erroring test is
     swallowed: we want the *inputs* it passes, not its pass/fail verdict.
+
+    ``deadline`` (absolute monotonic seconds, the caller's aggregate wall) is checked BETWEEN tests
+    by :func:`harvest_disposition`: once it has passed no further test is run and what was captured
+    is returned. It is the backstop; the caller bounds ``tests`` to the applicable set first.
     """
     code = getattr(original, "__code__", None)
     if code is None or not tests:
@@ -71,7 +103,13 @@ def capture_call_inputs(
         sys.setprofile(_hook)
         try:
             for t in tests:
-                if len(captured) >= max_samples:
+                if (
+                    harvest_disposition(
+                        len(captured) >= max_samples,
+                        deadline is not None and time.monotonic() >= deadline,
+                    )
+                    != HARVEST
+                ):
                     break
                 try:
                     t()

@@ -6,9 +6,16 @@ parametrized node IDs, real collection), and `Detective.engine.profile` forks a 
 seeds the tests that name the target, and lazily widens. It asserts what the closeout review asked:
 
   * target-first ACTIVATES and its result (kill matrix + covered-line set) is byte-identical to a
-    full-baseline run of the same function (`_WESKER_TARGET_FIRST` toggled off);
+    full-baseline run of the same function (`_WESKER_TARGET_FIRST` toggled off) WHEN every test
+    that reaches the target carries a static signal — its own body names the target, a fixture in
+    its closure does, or it names a same-module caller;
   * a SIBLING function profiled after the target is NOT corrupted by the target's seed — the
-    reproduced `baseline seeded for alpha killed 0/3 of beta`, closed end to end.
+    reproduced `baseline seeded for alpha killed 0/3 of beta`, closed end to end;
+  * (founder ruling 2026-09-05, `engine.widen_admission`) the widen consults ONLY the caller-reaching
+    stratum: a test with no static path to the target is never traced, is counted as
+    `not_consulted` on the census, and a gap in one function no longer traces the file's other
+    tests on the sibling's behalf. The accepted trade-off is stated as a test of its own: a
+    DYNAMIC reacher with no static path is a disclosed UNDER-count of the floor, never a certificate.
 
 Each live session runs in a FRESH subprocess: `run_with_live_suite` starts a pytest session, and
 nesting that inside this very pytest run accumulates plugin/import state that breaks later sessions.
@@ -150,6 +157,17 @@ def _caller_repo(tmp_path):
     return str(tmp_path), str(script)
 
 
+def _dynamic_repo(tmp_path):
+    """`_repo` plus ONE test that reaches `target` with NO static signal — a `getattr` built from string
+    halves, so neither its body nor its file names the target. The applicability bound never traces it;
+    this is the trade-off the ruling accepts, and the test below states its direction."""
+    root, script = _repo(tmp_path)
+    (tmp_path / "tests" / "test_dynamic.py").write_text(
+        "import pkg.mod\n\ndef test_dyn():\n    assert getattr(pkg.mod, 'tar' + 'get')(5) == 10\n"
+    )
+    return root, script
+
+
 def _session(script, root, fn, mode):
     proc = subprocess.run(
         [sys.executable, script, root, fn, mode],
@@ -168,7 +186,9 @@ def test_target_first_matches_full_in_a_real_session(tmp_path):
     full = _session(script, root, "target", "off")
     routing = tf.pop("test_routing")
     full.pop("test_routing")
-    assert routing == {"candidate": 3, "unknown": 5, "impossible": 0, "observed": 0}
+    # The five unknowns (sibling ×2, unrelated ×2, gappy ×1) have no static path to `target`: they
+    # are NOT consulted — counted, disclosed, never traced (founder ruling 2026-09-05).
+    assert routing == {"candidate": 3, "unknown": 5, "impossible": 0, "observed": 0, "not_consulted": 5}
     assert full["total_mutants"] > 0
     assert tf == full, "target-first through a live session diverged from the full baseline"
 
@@ -187,11 +207,11 @@ def test_a_sibling_profiled_after_the_target_is_not_corrupted(tmp_path):
 
 def test_a_caller_only_target_activates_off_the_caller_slice(tmp_path):
     """#15 B empty-seed: `_priv` is tested only through `pub` (which calls it), so it has ZERO direct
-    candidates — its `pub` tests are caller-reaching UNKNOWNS. Target-first must ACTIVATE anyway
-    (seed([]) then widen the caller tests) and match the full baseline; the old `_cands and ...` guard
-    sent every caller-only target to the full baseline instead. The disposition is identical either
-    way (a perf bug, not a correctness one), so the census proves the caller-only shape and this gate
-    proves the empty-seed live path runs correctly end to end."""
+    candidates — its `pub` tests are caller-reaching UNKNOWNS, the ONE stratum the widen still consults.
+    Target-first must ACTIVATE anyway (seed([]) then widen the caller tests) and match the full
+    baseline; the old `_cands and ...` guard sent every caller-only target to the full baseline instead.
+    The disposition is identical either way (a perf bug, not a correctness one), so the census proves
+    the caller-only shape and this gate proves the empty-seed live path runs correctly end to end."""
     root, script = _caller_repo(tmp_path)
     tf = _session(script, root, "_priv", "on")
     full = _session(script, root, "_priv", "off")
@@ -199,24 +219,43 @@ def test_a_caller_only_target_activates_off_the_caller_slice(tmp_path):
     full.pop("test_routing")
     assert routing["candidate"] == 0, "a caller-only target must have no direct candidate"
     assert routing["unknown"] >= 2, "the public caller's tests must route as (caller-reaching) unknowns"
+    # Only `test_u` has no static path; the two caller-reaching tests were widened, not skipped.
+    assert routing.get("not_consulted", 0) == 1
     assert full["total_mutants"] > 0
     assert tf == full, "caller-only target-first (empty seed + caller widen) diverged from the full baseline"
 
 
-def test_a_full_widen_becomes_observed_routing_for_the_next_function(tmp_path):
-    """Fresh file-wide reach from one gap routes a sibling; the sibling proves only its fresh seed.
-
-    POSITIVE-ONLY (X1/G1): the prior widen's REACHING cells route this sibling's two candidates, but a
-    cached non-reach is no longer replayed as an exclusion — `test_fingerprint` cannot certify a test's
-    imported-helper closure is unchanged, so a stale negative could exclude a now-reaching test (a
-    false COMPLETE). The six former `impossible_observed` tests are therefore UNKNOWN now — re-traced
-    fresh — not excluded: `observed` counts only the two positives, `impossible` is 0, `unknown` is 6.
-    """
+def test_a_gap_in_one_function_no_longer_traces_the_files_other_tests(tmp_path):
+    """`gappy` has an uncovered line (only `x > 0` is tested), so its widen holds an open LINE
+    obligation. Before the ruling that obligation traced EVERY unknown in the collection — a
+    file-wide fresh reach the sibling then inherited as `observed` routing. Now the widen consults
+    only caller-reaching unknowns (`gappy` has none), the gap is declared on the applicable set, and
+    the sibling routes on its OWN static evidence: two candidates by name, nothing observed on its
+    behalf, six no-path tests not consulted. Same disposition for the sibling, none of the tracing."""
     root, script = _repo(tmp_path)
     sibling = _session(script, root, "sibling_after_widen", "on")
     assert sibling["test_routing"] == {
         "candidate": 2,
         "unknown": 6,
         "impossible": 0,
-        "observed": 2,
+        "observed": 0,
+        "not_consulted": 6,
     }
+    assert sibling["total_killed"] > 0  # its own two candidates carry the kills
+
+
+def test_a_dynamic_no_path_reacher_is_a_disclosed_under_count_never_a_certificate(tmp_path):
+    """The accepted trade-off, stated. `test_dyn` reaches `target` through a `getattr` on a string the
+    router cannot see, so target-first never runs it: whatever it alone would have killed stays a
+    survivor. The direction is the whole point — the bounded run kills NO MORE than the full one, its
+    survivors are a SUPERSET of the full run's, and the census names the test it did not consult. An
+    under-counted floor costs one redundant synthesized test; it can never manufacture a COMPLETE."""
+    root, script = _dynamic_repo(tmp_path)
+    tf = _session(script, root, "target", "on")
+    full = _session(script, root, "target", "off")
+    routing = tf.pop("test_routing")
+    full.pop("test_routing")
+    assert routing["candidate"] == 3 and routing["not_consulted"] == 6  # the dynamic test among them
+    assert tf["total_killed"] <= full["total_killed"]
+    assert set(tf["survivors"]) >= set(full["survivors"])
+    assert set(tf["covered_lines"]) <= set(full["covered_lines"])

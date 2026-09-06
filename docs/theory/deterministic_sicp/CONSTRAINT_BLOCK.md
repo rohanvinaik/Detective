@@ -158,12 +158,20 @@ proofs → **form**), extending NEG_SPEC §15's canonical form (σ+γ+I⁻) acro
 > only — `README.md` untouched, the founder promotes. The §14 surface is BUILT end to end; what
 > remains open on it is (a) the founder's GRANT of the hand-table pin exemptions listed below,
 > (b) the two widen-grind defects, (c) the surfaced-not-built seam-driven `extract` template).
-> **Standing caveat from slices 4–5:** converge's witness-pass widen GRINDS on plan.py targets
-> (51 and 54 min at 100% CPU, past `--deadline 1200`, verdict cache rewritten per test) — two
-> behavior-layer defects recorded in §14.9; `next_command` · `receipt_path` · `unexamined` ·
-> `plan_exit` stand on hand-written truth tables under the targeted-exemption protocol
-> (REQUESTED, not yet granted). Never run two converges concurrently; never run a converge
-> alongside a pytest gate.
+> **The slice 4–5 grind — DIAGNOSED AND FIXED 2026-09-05 (§14.9 item 4's note).** Root cause
+> was NOT the deadline in the widen loop (it fires; measured twice) but (a) the witness pass's
+> capture harvest running every collected test with no wall check, and (b) the widen's eligible
+> set being every test without a static path — discovery inverted into a whole-suite trace.
+> Founder ruling: discovery is an efficiency device for ONE function's applicable tests, never a
+> proof of a negative; `file_peer` dropped; no opt-in. Fixed in Detective: `widen_admission` (only
+> `caller_reaches` is widened; the rest disclosed as `not_consulted`), `_route_tests` (one router),
+> `_applicable_harvest_pool` + `harvest_disposition` (the wall as backstop between tests). The
+> plan.py hand-table pins (`next_command` · `receipt_path` · `unexamined` · `plan_exit`) remain
+> under the targeted-exemption protocol (REQUESTED, not yet granted); with the grind gone they
+> may now be converge-pinned. Never run two converges concurrently; never run a converge
+> alongside a pytest gate. Wesker follow-ups (not done here): `next_routing_action`'s soundness
+> docstring ("unknown set exhausted" → "applicable set exhausted"); `trace_cache.save` once per
+> widen, not once per single-test expand.
 > (1) `behavior_status` pure decision + reader (ground whether the suite header carries the
 > function digest) → (1b) the converge certificate ledger → (2) `plan_moves` gains `unpinned`;
 > `RegionRead` gains status + cost provenance → (3) plan assembly as a library function (from

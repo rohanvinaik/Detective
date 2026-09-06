@@ -1452,6 +1452,12 @@ class SurvivorReport:
     # residual is never silently attributed to the code when a deferred slow test might have supplied
     # the distinguishing input. Disclosed by converge; restored by --include-shaped.
     deferred_shaped: int = 0
+    # How many collected tests the capture harvest did NOT consult because nothing ties them to this
+    # function — no static path, or only a file-sibling's name (the applicability bound the widen
+    # obeys too, `engine.widen_admission`). Only a test that reaches the function can capture its
+    # inputs, so these were zero-yield by construction; disclosed so the boundary of the search is
+    # stated, never implied complete.
+    not_consulted: int = 0
 
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:

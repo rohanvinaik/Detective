@@ -238,6 +238,13 @@ class ConvergeResult:
     # deferred test; ``--include-shaped`` re-includes them. 0 when none were deferred (the common
     # hermetic case), so the caveat only ever renders when it is real.
     deferred_shaped: int = 0
+    # Collected tests with NO static path to this target — neither their own body, a fixture in their
+    # closure, nor a same-module caller names it; or only a file-sibling does — that the speculative
+    # widen and the capture harvest therefore did not run (`engine.widen_admission`, founder ruling
+    # 2026-09-05). The discovery device finds the tests applicable to ONE function; it does not prove a
+    # negative by tracing the suite. DISCLOSED here as the boundary of the floor measurement: a missed
+    # dynamic reacher under-counts the floor (one redundant synthesized test), never the ceiling.
+    not_consulted: int = 0
     # No pre-existing test file named this target or any function in its file, so discovery
     # returned the empty suite and every test below is one we synthesized. Reported because
     # the two ways to reach "COMPLETE" are not the same claim: converging a suite the user
@@ -2152,6 +2159,13 @@ def _converge_impl(
         deferred_shaped=max(
             getattr(final_result, "test_routing", {}).get("deferred_shaped", 0),
             getattr(survivor_report, "deferred_shaped", 0) if survivor_report is not None else 0,
+        ),
+        # The applicability bound's disclosure (`engine.widen_admission`): the widen's count rides on
+        # the final profile's routing census, the harvest's on the survivor report; same partition,
+        # so the larger is the whole boundary.
+        not_consulted=max(
+            getattr(final_result, "test_routing", {}).get("not_consulted", 0),
+            getattr(survivor_report, "not_consulted", 0) if survivor_report is not None else 0,
         ),
         function_basis=_basis,
         synthesized_only=synthesized_only,

@@ -956,6 +956,39 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    tables (tests/test_plan_render_intent.py) under the founder's targeted-exemption protocol —
    exemption REQUESTED, each needs its own grant. `clean_disposition` (slice 3) converged
    normally minutes earlier in the same file, so the grind is phase-specific, not file-specific.]
+   **DIAGNOSED AND FIXED (2026-09-05, later the same day) — the note above was half wrong.** The
+   symbolic trace + stack samples (SIGUSR1 into faulthandler during a `--deadline 60` re-run):
+   (i) the aggregate wall IS honoured inside the widen loop — a fixture (300 no-path tests) cut at
+   10.6 s under `--deadline 10`, the real `receipt_path` cut at 64 s under `--deadline 60`; the phase
+   the wall did NOT reach was the witness pass's CAPTURE HARVEST — `classify_survivors` B3 (#67) →
+   `capture_call_inputs` ran every collected test to completion with no check anywhere (the gate
+   checked `_cls_exhausted()` once, before starting), and in this repo a "test" is a nested
+   converge/audit session (the sampled frame: `test_audit_still_measures_a_function_with_no_tests` →
+   `main(["audit"…])` → a full nested baseline build) — the 51-minute silence, reproduced live (silent
+   from 13 s, still running at 420 s). (ii) the widen's eligible set was every collected test not
+   statically naming the target, and its stop rule declares a gap only once that list is exhausted —
+   so one equivalent survivor traced the suite: 1,584 single-test steps whose TRACED time summed to
+   70 s; the live partition for `receipt_path` was 3 candidates · 41 caller_reaches · 53 file_peer ·
+   1,812 unknown_no_path (1,909 collected; the import-graph scope for plan.py is 185 of 256 test
+   files, because cli.py imports it). **Founder ruling:** the system must never trace 1,500 tests
+   naively — discovery is an EFFICIENCY device to find the tests applicable to ONE function for the
+   live-vs-killed computation, never a proof of a negative over the suite; drop `file_peer`; no
+   opt-in. **Fix (Detective side):** `engine.widen_admission(route_code)` → widen · not_consulted
+   (only `caller_reaches` is widened; candidates are the seed); `profile` filters `widen_tests`
+   through it and discloses `test_routing["not_consulted"]`; ONE router `_route_tests` serves the
+   widen and the harvest; the harvest becomes `_applicable_harvest_pool` (routed candidates + caller
+   reachers) at all three sites via one `_harvest` closure, with the wall threaded as a BACKSTOP
+   between tests (`capture.harvest_disposition` → harvest · enough · cut; `capture_call_inputs(…,
+   deadline=)`); `ConvergeResult.not_consulted` / `SurvivorReport.not_consulted` carry the boundary
+   to the census, the residual, `--json` and the MCP render ("N collected test(s) have no static path
+   to this function and were not traced"). Certificate-safe by direction: a missed dynamic reacher
+   under-counts the FLOOR — one redundant synthesized test — never the ceiling. Pins: `widen_admission`
+   (10 codes) and `harvest_disposition` (4 rows) on hand tables; the harvest backstop unit-guarded;
+   end to end through the real command on a fixture with 1,000 no-path tests: uncut under `--deadline
+   60`, `not_consulted == 1000`, the equivalent survivor still reported as candidate-equivalent.
+   **Follow-ups, Wesker side, not done here:** `next_routing_action`'s docstring says "sound because
+   the unknown set is exhausted" — it is now the APPLICABLE set; `trace_cache.save` (json + fsync of
+   the whole cache) runs once per single-test `expand` — O(n²) over a widen, should be once per widen.]
 5. The `plan` verb, `_COMMAND_HELP` pedagogy, `_REGIME_STAGE` on the `file::fn` form; the
    `parsimony` deprecation shim.
    [BUILT 2026-09-05 — `cli._run_plan`, dispatched in `_run` BEFORE `_split_target` and listed in

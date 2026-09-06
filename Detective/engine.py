@@ -954,41 +954,28 @@ def profile(
         from Wesker.engine import _SESSION_BASELINE as _session_baseline
 
         try:
-            from Wesker.ci import (
-                callable_origin,
-                partition_live_callables,
-            )
-            from Wesker.trace_cache import observed_function_reach
-
             _holder = _session_baseline.get()
             if _holder is not None:
                 _target_name = (qualname or function).split(".")[-1]
-                _scoped_files = list({o for t in tests if (o := callable_origin(t))})
                 _route_budgets = (
                     _measured_under
                     if _measured_under is not None
                     else (trace_budget_s, trace_session_budget_s)
                 )
-                _observed = observed_function_reach(
+                # ONE router for the widen and the capture harvest (`_route_tests`): static item /
+                # fixture / caller evidence (the one-hop backward slice, #15 B — a test of a public
+                # caller that never names the private target routes as `caller_reaches`) plus observed
+                # reach from the persistent trace cache. An older Wesker raises ImportError inside it,
+                # caught below — the same degradation to the full run as before.
+                _cands, _unknowns, _impossible, _observed, _caller_names = _route_tests(
                     root,
-                    {full},
+                    full,
+                    tree,
+                    _target_name,
+                    tests,
+                    set(_executable_lines(node)),
                     _route_budgets,
                     _regime,
-                    tests,
-                    full,
-                    _executable_lines(node),
-                )
-                # One-hop backward slice (#15 B): production functions in the target's module that
-                # reach it, so a test of a public caller that never names the private target still
-                # routes as a `caller_reaches` widen stratum (traced before the weak unknowns).
-                _caller_names = _module_callers_of(tree, _target_name)
-                _cands, _unknowns, _impossible = partition_live_callables(
-                    tests,
-                    _scoped_files,
-                    _target_name,
-                    [_target_name],
-                    _observed,
-                    _caller_names,
                 )
                 _routing_counts = {
                     "candidate": len(_cands),
@@ -1023,14 +1010,21 @@ def profile(
                     # witness for a unit mutant. Disclosed via test_routing["deferred_shaped"];
                     # --include-shaped (include_shaped=True) forces them back in. The scoped baseline
                     # is untouched — this only trims the speculative widen of unconfirmed reachers.
-                    _widen_tests, _deferred_shaped = _admit_search_pool(
-                        [c for c, _ in _unknowns],  # unknowns are tagged (callable, code)
-                        include_shaped,
-                    )
+                    # THE APPLICABILITY BOUND (`widen_admission`, founder ruling 2026-09-05): only the
+                    # unknowns with a positive static signal — the caller-reaching stratum — are
+                    # widened. The rest carry no evidence of reaching THIS function and are never
+                    # traced; their count is disclosed on the census. Discovery finds the tests
+                    # applicable to one function; it does not prove a negative over the suite (the
+                    # 1,584-step whole-suite widen of 2026-09-05 was exactly that inversion).
+                    _applicable = [c for c, code in _unknowns if widen_admission(code) == WIDEN]
+                    _not_consulted = len(_unknowns) - len(_applicable)
+                    _widen_tests, _deferred_shaped = _admit_search_pool(_applicable, include_shaped)
                     # Disclose only when there IS a deferral — a zero would clutter the census and
                     # break its exact-partition consumers for the hermetic common case.
                     if _deferred_shaped:
                         _routing_counts["deferred_shaped"] = _deferred_shaped
+                    if _not_consulted:
+                        _routing_counts["not_consulted"] = _not_consulted
                 elif _disposition == "synthesize":
                     # Seed EMPTY (the forked baseline traces nothing) and profile against NO tests, so
                     # every mutant survives and routes to the existing synthesis pass. Disposition-exact:
@@ -1040,6 +1034,9 @@ def profile(
                     _seed_token = _session_baseline.set(_seeded)
                     _widen_tests = []
                     _synthesize_orphan = True
+                    # A leaf orphan traces nothing: every unknown is unconsulted, and the census says so.
+                    if _unknowns:
+                        _routing_counts["not_consulted"] = len(_unknowns)
         except Exception:  # noqa: BLE001 — target-first is an optimisation; never fail the run
             _seed_token = None
             _widen_tests = None
@@ -2340,6 +2337,40 @@ def search_pool_admission(is_hermetic: bool, include_shaped: bool) -> str:
     return "admit_shaped" if include_shaped else "defer_shaped"
 
 
+WIDEN = "widen"
+NOT_CONSULTED = "not_consulted"
+
+
+def widen_admission(route_code: str) -> str:
+    """Whether a routed UNKNOWN enters the speculative widen at all (pure — pinned).
+
+    The widen exists to DISCOVER the tests applicable to ONE function — an efficiency device for the
+    floor measurement (the sandwich unit: one function's operators, one function's tests) — never to
+    prove a negative by tracing the suite. Its stop rule declares a gap only once the eligible list is
+    exhausted, so WHAT is eligible decides the cost: with every collected test eligible, one unkillable
+    survivor turned discovery into a whole-suite trace (measured 2026-09-05 on this repo: 1,584
+    single-test widen steps for a one-line function whose live partition was 3 candidates and 1,812
+    tests with no static path at all). A test with no static path to the target cannot be DISCOVERED
+    by tracing it; it can only be found to not reach, at the price of running it. A named code:
+
+      "widen"          — ``caller_reaches``: the item's own body names a production caller of the
+                          target (the same-module backward slice) — it plausibly reaches the target
+                          without naming it, and is the one stratum worth a trace
+      "not_consulted"  — ``file_peer`` (a SIBLING test in the file names the target; this item does
+                          not), ``unknown_dynamic``, ``unknown_no_path``, and any unrecognised code:
+                          no evidence THIS item reaches the target. Counted and DISCLOSED on the
+                          result (`test_routing["not_consulted"]` → `ConvergeResult.not_consulted`),
+                          never traced.
+
+    Founder ruling 2026-09-05: file_peer is dropped (a sibling's name is no evidence about this item)
+    and there is no opt-in to trace the unconsulted set. Certificate-safe by direction: a missed
+    dynamic reacher UNDER-counts the floor, so the worst case is one redundant synthesized test —
+    never a false COMPLETE. Candidates (static / fixture / observed) are the seed and never pass
+    through here; a proof-grade impossible left the pool before routing.
+    """
+    return WIDEN if route_code == "caller_reaches" else NOT_CONSULTED
+
+
 def _callable_is_hermetic(c: Callable[..., Any]) -> bool:
     """Whether a test callable is in_process-safe (hermetic), RESILIENT to the live-session path.
 
@@ -2380,6 +2411,71 @@ def _admit_search_pool(
         else:
             admitted.append(c)
     return admitted, deferred
+
+
+def _route_tests(
+    root: str,
+    full: str,
+    tree: ast.Module,
+    target_name: str,
+    tests: list[Callable[..., Any]],
+    exec_lines: set[int],
+    budgets: tuple[float | None, float | None],
+    regime: str,
+) -> tuple[
+    list[Callable[..., Any]], list[tuple[Callable[..., Any], str]], list[Callable[..., Any]], dict, set
+]:
+    """Partition the collected tests for ONE target — ``(candidates, tagged unknowns, impossible,
+    observed reach, caller names)`` — exactly as target-first routes them: static item / fixture /
+    caller evidence plus observed reach from the persistent trace cache (#15). ONE owner for both the
+    speculative widen (`profile`) and the capture harvest (`classify_survivors`), so the two cannot
+    disagree about which tests are applicable to the function. Raises ImportError on a Wesker without
+    routing; each caller degrades as it did before."""
+    from Wesker.ci import callable_origin, partition_live_callables
+    from Wesker.trace_cache import observed_function_reach
+
+    scoped_files = list({o for t in tests if (o := callable_origin(t))})
+    observed = observed_function_reach(root, {full}, budgets, regime, tests, full, exec_lines)
+    caller_names = _module_callers_of(tree, target_name)
+    cands, unknowns, impossible = partition_live_callables(
+        tests, scoped_files, target_name, [target_name], observed, caller_names
+    )
+    return cands, unknowns, impossible, observed, caller_names
+
+
+def _applicable_harvest_pool(
+    tests: list[Callable[..., Any]],
+    root: str,
+    full: str,
+    tree: ast.Module,
+    target_name: str,
+    exec_lines: set[int],
+    trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
+    trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
+) -> tuple[list[Callable[..., Any]], int]:
+    """The tests the capture HARVEST may run — ``(pool, not_consulted)`` — under the SAME applicability
+    bound the widen obeys (`widen_admission`): the routed candidates (static / fixture / observed) plus
+    the caller-reaching unknowns, in that order. Only a test that reaches the function can capture its
+    inputs, so the no-path strata are zero-yield by construction; running them was the whole-suite
+    trace the discovery device exists to avoid (the 51-minute witness pass, 2026-09-05). Degrades to
+    the whole pool on a Wesker without routing, as the harvest did before."""
+    try:
+        from Wesker.engine import session_budgets as _session_budgets
+        from Wesker.engine import session_regime_digest as _session_regime
+
+        measured_under = _session_budgets()
+        regime = _session_regime()
+    except ImportError:  # older Wesker without the accessors — outside a session, the defaults
+        measured_under, regime = None, ""
+    budgets = measured_under if measured_under is not None else (trace_budget_s, trace_session_budget_s)
+    try:
+        cands, unknowns, _impossible, _observed, _callers = _route_tests(
+            root, full, tree, target_name, tests, exec_lines, budgets, regime
+        )
+    except ImportError:  # older Wesker without routing — the harvest runs the whole pool, as before
+        return list(tests), 0
+    pool = list(cands) + [c for c, code in unknowns if widen_admission(code) == WIDEN]
+    return pool, len(tests) - len(pool)
 
 
 def classify_survivors(
@@ -2577,6 +2673,29 @@ def classify_survivors(
     # input (the abstention below stays the honest fallback when even the tests do
     # not exercise the DOF). Captured real inputs rank just behind a human-supplied
     # residual and ahead of the synthesized grids.
+    # THE CAPTURE HARVEST — one definition for its three users below (the exercise fallback, the
+    # pool-poverty rescue, B3). Bounded by APPLICABILITY first (`_applicable_harvest_pool`: the routed
+    # candidates plus the caller-reaching unknowns — the same bound the widen obeys, founder ruling
+    # 2026-09-05; only a test that reaches the function can capture its inputs), by SHAPE second
+    # (shaped-defer, disclosed, `--include-shaped`), and by the aggregate wall as the BACKSTOP between
+    # tests (`capture.harvest_disposition`). It used to run every discovered test with no check
+    # anywhere — the 51-minute silent witness pass of 2026-09-05, its wall long gone.
+    _harvest_not_consulted = 0
+
+    def _harvest() -> list[tuple]:
+        nonlocal _deferred_shaped_capture, _harvest_not_consulted
+        func_names = [qn for qn, _ in walk_functions(tree)]
+        discovered = discover_test_callables(
+            root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
+        )
+        pool, skipped = _applicable_harvest_pool(
+            discovered, root, full, tree, (qualname or function).split(".")[-1], set(_executable_lines(node))
+        )
+        _harvest_not_consulted = max(_harvest_not_consulted, skipped)
+        pool, _hd = _admit_search_pool(pool, include_shaped)
+        _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
+        return capture_call_inputs(original, pool, deadline=_cls_abs_deadline)
+
     def _first_exercising(candidates: list[tuple]) -> tuple | None:
         """The first input the ORIGINAL does not raise on — i.e. the one that actually
         reaches the function's body. Returned rather than discarded, because WHICH input
@@ -2590,19 +2709,9 @@ def classify_survivors(
     _deferred_shaped_capture = 0
     exercising = _first_exercising(inputs)
     if exercising is None:
-        func_names = [qn for qn, _ in walk_functions(tree)]
-        harvest_tests = discover_test_callables(
-            root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
-        )
-        # shaped-defer the capture HARVEST too, not just the widen: `capture_call_inputs` RUNS every
-        # harvested test to profile-hook its inputs, so a 50s live-game system test is traced here even
-        # when the widen already deferred it — the residual slow path a pure function's survivors hit.
-        # Held out by default, disclosed, restored by --include-shaped (the `search_pool_admission`
-        # contract), so a candidate-equivalent is never silently attributed to code a deferred test
-        # might have distinguished.
-        harvest_tests, _hd = _admit_search_pool(harvest_tests, include_shaped)
-        _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
-        captured = capture_call_inputs(original, harvest_tests)
+        # A captured REAL input from a test that reaches the function — never a fabrication, and never
+        # the whole suite: applicability-bounded and shaped-deferred (see `_harvest`).
+        captured = _harvest()
         inputs = supplied + captured + inputs
         exercising = _first_exercising(inputs)
     # Whether the working input has a literal form. Computed HERE, where the input that
@@ -2627,6 +2736,7 @@ def classify_survivors(
             authored_fence=fence_eq,
             inputs_expressible=None,  # nothing exercised it; `note` carries the reason
             deferred_shaped=_deferred_shaped_capture,
+            not_consulted=_harvest_not_consulted,
         )
 
     pure = _is_pure(node, is_method="." in (qualname or ""))
@@ -2766,13 +2876,7 @@ def classify_survivors(
             "searching the covering suite"
         )
     elif _rescue == "run" and not _cls_exhausted():
-        func_names = [qn for qn, _ in walk_functions(tree)]
-        harvest_tests = discover_test_callables(
-            root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
-        )
-        harvest_tests, _hd = _admit_search_pool(harvest_tests, include_shaped)  # shaped-defer (see above)
-        _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
-        captured = capture_call_inputs(original, harvest_tests)
+        captured = _harvest()
         fresh = [t for t in captured if _safely_fresh(t, inputs)]
         if fresh:
             retry = _classify_pool(supplied + fresh + inputs)
@@ -2924,13 +3028,7 @@ def classify_survivors(
         any(not v.killable and not v.crash_only for v in verdicts), bool(effects), _cls_exhausted()
     )
     if _b3 == "run":
-        func_names = [qn for qn, _ in walk_functions(tree)]
-        harvest_tests = discover_test_callables(
-            root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
-        )
-        harvest_tests, _hd = _admit_search_pool(harvest_tests, include_shaped)  # shaped-defer (see above)
-        _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
-        b3_inputs = _captured_domain_variant_inputs(capture_call_inputs(original, harvest_tests))
+        b3_inputs = _captured_domain_variant_inputs(_harvest())
         fresh = [t for t in b3_inputs if _safely_fresh(t, inputs)]
         if fresh:
             retry = _classify_pool(supplied + fresh + inputs)
@@ -2971,4 +3069,5 @@ def classify_survivors(
         authored_fence=tuple(fence),
         inputs_expressible=expressible,
         deferred_shaped=_deferred_shaped_capture,
+        not_consulted=_harvest_not_consulted,
     )
