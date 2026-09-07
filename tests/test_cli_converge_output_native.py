@@ -162,10 +162,15 @@ def test_terse_points_at_the_report_file():
 
 
 def test_terse_is_minimal_when_complete_clean():
-    # clean complete: header, what was written, the report pointer, one DONE, the banner —
-    # and nothing per-mutant. The budget is the point: the product is the report.
+    # clean complete: header, what was written, the report pointer, one DONE, the banner, and — since
+    # Finding A — the loud pin->style handoff (the self-evident next move at ✓ COMPLETE: plan /
+    # decompose / survey). Still NOTHING per-mutant: the budget is the point, and the handoff is the
+    # intended next ACTION, not per-mutant detail. The bound accommodates the handoff (~6 lines).
     out = _format_converge_terse(_cr(), "r.txt")
-    assert len(out.splitlines()) <= 10
+    lines = out.splitlines()
+    assert len(lines) <= 16
+    # The real invariant the budget protects: no per-mutant enumeration leaks into the terse surface.
+    assert not any("mutant" in ln.lower() and "·" in ln for ln in lines)
 
 
 # ── F2/#67: the caveat (none/fixture/structural) must reach the DEFAULT terse surface ──

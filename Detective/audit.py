@@ -376,9 +376,12 @@ def audit_suite(
         # partition below checks, so the two can never come from two divergent profiles and crash the
         # assertion. `classify_survivors` re-profiles only when no compatible result is handed to it.
         report = classify_survivors(file, function, project_root, profile_result=result)
-        _load_failed = bool(report.load_failed)
-        _report_expressible = report.inputs_expressible
-        _report_note = report.note or ""
+        # Defensive reads (#60): a report without the Finding-E fields (an older SurvivorReport, a test
+        # stub) must not crash the classification into the advisory except-fallback below — which would
+        # silently zero candidate_equivalent and mis-read a fully-classified suite as a gap.
+        _load_failed = bool(getattr(report, "load_failed", False))
+        _report_expressible = getattr(report, "inputs_expressible", None)
+        _report_note = getattr(report, "note", "") or ""
         # Whether a killable gap may name the input to kill it with — see `_gap_desc`.
         expressible = bool(report.inputs_expressible)
         killable_gaps = tuple(_gap_desc(v, expressible) for v in report.killable)
