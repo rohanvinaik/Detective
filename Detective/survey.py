@@ -224,6 +224,8 @@ def render_survey(path: str, findings: list[SurveyFinding]) -> list[str]:
         out.append(f"  {f.lineno:>5}  {f.qualname}")
         out.append(f"         {f.disposition} — {f.detail}")
     out.append("")
+    out.append("  · Next           detective extract '<file>::<function>' names the concrete extraction")
+    out.append("                   (a pure function over primitives) to pull out, then converge it.")
     out.append("  · Recall bound   an unannotated param with AMBIGUOUS usage (a plain subscript or")
     out.append("                   arithmetic) is not flagged — only high-confidence usage is inferred.")
     return out

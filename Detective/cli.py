@@ -3995,7 +3995,7 @@ def _engine_version() -> str:
 # STATIC pass (no mutant, no live pytest session), and is dispatched in `_run` ABOVE `_split_target`. One
 # named set so `_run_live`'s session bypass and `_run`'s pre-split dispatch cannot silently drift as verbs
 # are added (the dispatch-ordering fragility of the flat `_run` ladder — patched by naming the contract).
-_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor", "plan", "survey")
+_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor", "plan", "survey", "extract")
 
 # The exit-code contract, one place. Each verb's result IS its exit status (CI branches on the code, a
 # `--json` consumer on the field) — this consolidates the per-handler semantics into one discoverable map.
@@ -4527,6 +4527,26 @@ def _build_parser() -> argparse.ArgumentParser:
     survey_p.add_argument("path", help="a .py file or a directory to scan")
     survey_p.add_argument("--project-root", default=".", help="project root the path is relative to")
     survey_p.add_argument("--json", action="store_true", help="emit JSON")
+
+    extract_p = sub.add_parser(
+        "extract",
+        help="propose the pure decision to pull out of an impure shell (advisory) — survey's next step",
+        description=(
+            "For a function `survey` flags, NAME the concrete extraction: a pure function over the "
+            "PRIMITIVE values the decision reads (the expressible parameters, plus the scalars projected "
+            "out of the inexpressible one — a cell read grid[i, j], a length, a neighbour count). "
+            "`decompose` will not perform this (its seam is cognitive complexity, and it refuses any "
+            "transform it cannot prove behaviour-preserving — which the impure function is); `extract` "
+            "gives survey's finding a concrete next action.\n\n"
+            "STATIC (AST only), ADVISORY, PROPOSE-ONLY: it WRITES NOTHING and PROVES NOTHING and has no "
+            "--apply. Apply the extraction by hand, then `converge` the extracted pure function in "
+            "isolation — where the guarantee actually comes from. The unit stays ONE function."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    extract_p.add_argument("target", help="file.py::function to propose an extraction for")
+    extract_p.add_argument("--project-root", default=".", help="project root the target is relative to")
+    extract_p.add_argument("--json", action="store_true", help="emit JSON")
 
     censor_p = sub.add_parser(
         "censor",
@@ -6522,6 +6542,49 @@ def _run_survey(args) -> int:
     return 0
 
 
+def _run_extract(args, file, function) -> int:
+    from .extract import extract_proposal, render_extract
+
+    root = os.path.abspath(args.project_root)
+    full = file if os.path.isabs(file) else os.path.join(root, file)
+    try:
+        with open(full, encoding="utf-8") as handle:
+            source = handle.read()
+        proposal = extract_proposal(source, function)
+    except OSError as exc:
+        # A file we cannot read / parse is a precondition problem (exit 2), STATED not raised — extract
+        # is advisory and always ends with a clean message, never a traceback (Finding D).
+        if args.json:
+            return _emit_json({"kind": "extract", "error": f"unreadable: {exc}"}, 2)
+        print(f"{file} — extract: could not read the file ({exc})")
+        return 2
+    except SyntaxError as exc:
+        if args.json:
+            return _emit_json({"kind": "extract", "error": f"unparseable: {exc}"}, 2)
+        print(f"{file} — extract: could not parse the file ({exc})")
+        return 2
+
+    if args.json:
+        payload: dict = {
+            "kind": "extract",
+            "note": "static advisory — proposes an extraction, performs none, writes nothing",
+            "trapped": proposal is not None,
+        }
+        if proposal is not None:
+            payload["proposal"] = {
+                "qualname": proposal.qualname,
+                "lineno": proposal.lineno,
+                "disposition": proposal.disposition,
+                "trapped_params": list(proposal.trapped_params),
+                "proposed_name": proposal.proposed_name,
+                "primitive_inputs": list(proposal.primitive_inputs),
+            }
+        return _emit_json(payload, 0)
+
+    print("\n".join(render_extract(file, proposal)))
+    return 0
+
+
 def _run_plan(args) -> int:
     """`detective plan` (§14.3 / §14.7): the STYLE layer's entry verb. STATIC — no live session, no
     mutant — over a tree (`path`) or ONE region (`file.py::function`); writes nothing but the report
@@ -6656,6 +6719,11 @@ def _run(args) -> int:
         return _run_survey(args)
 
     file, function = _split_target(args.target, getattr(args, "project_root", None))
+
+    if args.command == "extract":
+        # Static (in _STATIC_COMMANDS, so no live session) but target-taking, so dispatched here after
+        # the split rather than above it with the path-form static commands (Finding D).
+        return _run_extract(args, file, function)
 
     if args.command == "receipt":
         return _run_receipt(args, file, function)
