@@ -1,0 +1,73 @@
+{
+  "priors": [
+    {
+      "id": "ssl-skeleton",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/Projects/ARC_AGI_3/docs/theory/SSL_PAPER_SKELETON.md"
+    },
+    {
+      "id": "specification-complexity",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/Projects/ARC_AGI_3/docs/theory/specification_complexity_paper.md"
+    },
+    {
+      "id": "significance-weighting",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/Projects/ARC_AGI_3/docs/theory/SIGNIFICANCE_WEIGHTING.md"
+    },
+    {
+      "id": "law-as-architecture",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/Projects/ARC_AGI_3/docs/theory/law_as_architecture.md"
+    },
+    {
+      "id": "arc-glossary",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/Projects/ARC_AGI_3/docs/GLOSSARY.md"
+    },
+    {
+      "id": "winston-strong-story",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/Projects/ARC_AGI_3/docs/theory/external/winston_strong_story_hypothesis_2011.pdf"
+    },
+    {
+      "id": "winston-genesis-manifesto",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/Projects/ARC_AGI_3/docs/theory/external/winston_holmes_genesis_manifesto.pdf"
+    },
+    {
+      "id": "detective-architecture",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/tools/Detective/ARCHITECTURE.md"
+    },
+    {
+      "id": "parsimony-advisory",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/tools/Detective/docs/PARSIMONY_ADVISORY.md"
+    },
+    {
+      "id": "negative-specification",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/tools/Detective/docs/theory/NEGATIVE_SPECIFICATION.md"
+    },
+    {
+      "id": "negative-spec-glossary",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/tools/Detective/docs/theory/GLOSSARY.md"
+    },
+    {
+      "id": "negative-spec-constraint-block",
+      "status": "OK",
+      "detail": "/Users/rohanvinaik/tools/Detective/docs/theory/CONSTRAINT_BLOCK.md"
+    }
+  ],
+  "load_bearing_unverified": [
+    "winston-1970",
+    "minsky-censors",
+    "goldman-kearns-1995",
+    "goldman-mathias-1996",
+    "ammann-offutt-ripr",
+    "feige-izsak"
+  ],
+  "ok": true
+}

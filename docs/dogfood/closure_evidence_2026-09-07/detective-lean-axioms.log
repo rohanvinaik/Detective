@@ -1,0 +1,32 @@
+/tmp/detective-axiom-audit.lean:187:47: warning: unused variable `hIfin`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+'footprint_characterization' depends on axioms: [propext, Classical.choice, Quot.sound]
+'absolute_iff_guards' depends on axioms: [propext, Classical.choice, Quot.sound]
+'ceiling' depends on axioms: [propext, Quot.sound]
+'coupling' depends on axioms: [propext, Classical.choice, Quot.sound]
+'subsumes_iff_subset' depends on axioms: [propext, Quot.sound]
+'det_factors' does not depend on any axioms
+'constants_iff_card_two' depends on axioms: [propext, Classical.choice, Quot.sound]
+'certify_lb' depends on axioms: [propext, Classical.choice, Quot.sound]
+'certify_ub' depends on axioms: [propext, Classical.choice, Quot.sound]
+'progScore_iff_scoreAt' depends on axioms: [propext, Classical.choice, Quot.sound]
+'realizable' depends on axioms: [propext, Classical.choice, Quot.sound]
+'progComplete_iff_complete' depends on axioms: [propext, Classical.choice, Quot.sound]
+'progComplete_characterization' depends on axioms: [propext, Classical.choice, Quot.sound]
+'coupling_fails' depends on axioms: [propext, Quot.sound]
+'footprint_characterization_general' depends on axioms: [propext, Classical.choice, Quot.sound]
+'detW_singleton_of_nonconstant' depends on axioms: [propext, Classical.choice, Quot.sound]
+'detW_const' does not depend on any axioms
+'pseudo_tested_iff' depends on axioms: [propext, Classical.choice, Quot.sound]
+'pseudo_tested_mixed_iff' depends on axioms: [propext, Classical.choice, Quot.sound]
+'mov_surjective' depends on axioms: [propext, Classical.choice, Quot.sound]
+'mov_image_univ' depends on axioms: [propext, Classical.choice, Quot.sound]
+'progComplete_absolute_iff_guards' depends on axioms: [propext, Classical.choice, Quot.sound]
+'progComplete_coupling' depends on axioms: [propext, Classical.choice, Quot.sound]
+'complete_univ_infinite' depends on axioms: [propext, Classical.choice, Quot.sound]
+'progComplete_univ_infinite' depends on axioms: [propext, Classical.choice, Quot.sound]
+'certify_infinite' depends on axioms: [propext, Classical.choice, Quot.sound]
+'surviving_guard_without_gap' depends on axioms: [propext, Quot.sound]
+'one_subfootprint_is_insufficient' depends on axioms: [propext, Classical.choice, Quot.sound]
+'empty_footprints_score_without_observations' depends on axioms: [propext, Quot.sound]

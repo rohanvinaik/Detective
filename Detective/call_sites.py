@@ -162,9 +162,7 @@ def infer_param_types(qualname: str, project_root: str, param_names: list[str]) 
 # This reads how the TARGET uses a param in its OWN body, recovering a type call-site inference misses
 # (a pass-through local, GofL `Game.update_cell`'s `step[xy[0], xy[1]]`). High-confidence only — see
 # `usage_inferred_type`. Surfaced by the follow-graph dogfood (docs/dogfood/pabkit_2026-09-06.md).
-_NDARRAY_USES = frozenset(
-    {"subscript_tuple", "attr:shape", "attr:dtype", "attr:ndim", "call:reshape", "call:astype"}
-)
+_NDARRAY_USES = frozenset({"attr:shape", "attr:dtype", "attr:ndim", "call:reshape", "call:astype"})
 _STR_USES = frozenset(
     {
         "call:lower",
@@ -185,8 +183,8 @@ def usage_inferred_type(usages: tuple[str, ...]) -> str:
 
     v1 emits a type ONLY on a high-precision signal, so it is safe even for the ADVISORY consumer
     (survey), which has no run to dispose a wrong guess:
-      * a TUPLE subscript (`p[i, j]`) or an array attribute (`.shape`/`.dtype`/`.reshape`) -> "ndarray"
-        — a Python list/str/dict RAISES on a tuple index, so the signal is near-certain;
+      * an array attribute (`.shape`/`.dtype`/`.reshape`) -> "ndarray";
+      * a tuple subscript stays unknown: literal dictionaries accept tuple keys;
       * a str method (`.lower`/`.strip`/`.split`/…) -> "str";
       * anything else -> "" (unknown): a plain subscript, an int index, arithmetic and a comparison are
         all ambiguous, and v1 refuses to guess rather than cry wolf. Low-confidence numeric/iterable

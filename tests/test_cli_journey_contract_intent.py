@@ -179,9 +179,9 @@ def test_an_ungateable_measurement_outranks_every_input_suggestion():
 
     out = _converge_action(result, rep, attempted_inputs=("(1,)",))
 
-    assert out[0].startswith("DO THIS:  detective converge 'p.py::quote' --input \"(1,)\"")
-    assert "--trace-budget 0 --trace-session-budget 0" in out[0]
-    assert "invalid measurement" in " ".join(out)
+    assert out[0].startswith("STOP:")
+    assert "without naming a reason" in out[0]
+    assert "--trace-budget" not in " ".join(out)
 
 
 def test_an_input_that_already_failed_to_close_is_never_offered_again():

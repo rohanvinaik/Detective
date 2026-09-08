@@ -1,0 +1,26 @@
+  ▸ recalled 2 supplied input(s) from a previous run
+  … extract_readiness: tracing 4 function-routed tests
+  … extract_readiness: baseline traced · 4 tests · 0.0s
+  … extract_readiness: 1/18 mutants · 1.7/s · ETA estimating… (heartbeat)
+  … extract_readiness: 18/18 mutants · 1.6/s · done in 11.1s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  … extract_readiness: tracing 4 function-routed tests
+  … extract_readiness: baseline traced · 4 tests · 0.0s
+  … extract_readiness: 18/18 mutants · 1.6/s · done in 11.2s
+──────────────────────────────────────────────────────────────────────────────
+Detective/extract.py::extract_readiness — converge · 18 behaviours · 18 pinned
+
+  · not consulted      2067 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_extract_readiness.txt
+
+DONE:  the suite pins every behaviour this function makes.
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/extract.py'          # the fuller style map for these regions
+         detective decompose 'Detective/extract.py::extract_readiness' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/extract.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/extract.py::extract_readiness' --budget)
+
+FINAL Detective/extract.py::extract_readiness: ✓ COMPLETE (operator universe) · 18/18 killed · minimal cover 1 test(s)

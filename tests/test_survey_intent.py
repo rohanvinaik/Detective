@@ -109,14 +109,11 @@ def test_no_false_positive_on_aliased_primitives_and_higher_order():
     assert survey_source(src) == [], "aliases / Callable / Any must not be flagged"
 
 
-def test_an_unannotated_array_param_is_now_caught_by_usage_inference():
-    # GofL Game.update_cell shape: `step` is unannotated, but `step[xy[0], xy[1]]` — a tuple subscript
-    # no list/str/dict accepts — types it as ndarray via USAGE inference. This DELIBERATELY flips the
-    # old recall-gap silence: the survey now flags it. The old test pinned the silence precisely so
-    # this flip had to be a conscious decision (the type-inference work, step 2), not a drift.
+def test_a_tuple_subscript_does_not_establish_an_array_type():
+    # Python dictionaries accept tuple keys, so the array inference must abstain.
     src = "def update_cell(step, xy):\n    return step[xy[0], xy[1]]\n"
     by_name = {f.qualname: f.disposition for f in survey_source(src)}
-    assert by_name.get("update_cell") == "extractable_core"
+    assert by_name.get("update_cell") is None  # a tuple-key dictionary is also possible
 
 
 def test_the_recall_bound_narrows_but_does_not_vanish():
@@ -132,7 +129,8 @@ def test_the_recall_bound_narrows_but_does_not_vanish():
 
 def test_render_says_nothing_trapped_on_a_clean_file():
     out = "\n".join(render_survey("m.py", []))
-    assert "0 trapped" in out and "nothing trapped" in out
+    assert "0 trapped" in out and "No trap detected" in out
+    assert "not proved --input-reachable" in out
 
 
 def test_render_lists_findings_with_the_extraction_and_the_recall_bound():

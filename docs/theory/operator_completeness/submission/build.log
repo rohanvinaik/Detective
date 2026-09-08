@@ -1,0 +1,91 @@
+note: "version 2" Tectonic command-line interface activated
+note: Running TeX ...
+warning: paper_lncs.tex:436: Overfull \hbox (29.2663pt too wide) detected at line 436
+warning: paper_lncs.tex:632: Overfull \hbox (14.17818pt too wide) in paragraph at lines 627--632
+warning: paper_lncs.tex:675: Overfull \hbox (9.24649pt too wide) in paragraph at lines 671--675
+warning: paper_lncs.tex:833: Overfull \hbox (11.76984pt too wide) in paragraph at lines 830--833
+warning: paper_lncs.tex:840: Overfull \hbox (12.26695pt too wide) in paragraph at lines 835--840
+note: downloading lmmono8-regular.otf
+warning: paper_lncs.tex:1018: Underfull \hbox (badness 4242) in paragraph at lines 1017--1018
+warning: paper_lncs.tex:1023: Underfull \hbox (badness 10000) in paragraph at lines 1022--1023
+warning: paper_lncs.tex:1028: Overfull \hbox (0.8492pt too wide) in paragraph at lines 1003--1028
+warning: paper_lncs.tex:1044: Underfull \vbox (badness 10000) has occurred while \output is active
+note: Rerunning TeX because "paper_lncs.out" changed ...
+warning: paper_lncs.tex:154: Overfull \hbox (13.22983pt too wide) in paragraph at lines 150--154
+warning: paper_lncs.tex:436: Overfull \hbox (29.2663pt too wide) detected at line 436
+warning: paper_lncs.tex:632: Overfull \hbox (14.17818pt too wide) in paragraph at lines 627--632
+warning: paper_lncs.tex:675: Overfull \hbox (9.24649pt too wide) in paragraph at lines 671--675
+warning: paper_lncs.tex:833: Overfull \hbox (11.76984pt too wide) in paragraph at lines 830--833
+warning: paper_lncs.tex:840: Overfull \hbox (12.26695pt too wide) in paragraph at lines 835--840
+warning: paper_lncs.tex:1018: Underfull \hbox (badness 4242) in paragraph at lines 1017--1018
+warning: paper_lncs.tex:1023: Underfull \hbox (badness 10000) in paragraph at lines 1022--1023
+warning: paper_lncs.tex:1028: Overfull \hbox (2.6132pt too wide) in paragraph at lines 1003--1028
+note: Rerunning TeX because "paper_lncs.aux" changed ...
+warning: paper_lncs.tex:154: Overfull \hbox (13.22983pt too wide) in paragraph at lines 150--154
+warning: paper_lncs.tex:436: Overfull \hbox (29.2663pt too wide) detected at line 436
+warning: paper_lncs.tex:632: Overfull \hbox (14.17818pt too wide) in paragraph at lines 627--632
+warning: paper_lncs.tex:675: Overfull \hbox (9.24649pt too wide) in paragraph at lines 671--675
+warning: paper_lncs.tex:833: Overfull \hbox (11.76984pt too wide) in paragraph at lines 830--833
+warning: paper_lncs.tex:840: Overfull \hbox (12.26695pt too wide) in paragraph at lines 835--840
+warning: paper_lncs.tex:1018: Underfull \hbox (badness 4242) in paragraph at lines 1017--1018
+warning: paper_lncs.tex:1023: Underfull \hbox (badness 10000) in paragraph at lines 1022--1023
+warning: paper_lncs.tex:1028: Overfull \hbox (2.6132pt too wide) in paragraph at lines 1003--1028
+warning: warnings were issued by the TeX engine; use --print and/or --keep-logs for details.
+note: Running xdvipdfmx ...
+note: downloading cmsy9.pfb
+note: downloading cmmi7.pfb
+note: downloading msbm10.pfb
+warning: Object @definition.1 already defined.
+note: downloading cmex10.pfb
+note: downloading cmsy7.pfb
+note: downloading cmr7.pfb
+note: downloading cmr5.pfb
+note: downloading cmmi5.pfb
+warning: Object @proposition.1 already defined.
+warning: Object @remark.3 already defined.
+warning: Object @proposition.1 already defined.
+warning: Object @proposition.2 already defined.
+warning: Object @definition.1 already defined.
+warning: Object @definition.2 already defined.
+warning: Object @definition.3 already defined.
+warning: Object @proposition.4 already defined.
+note: Writing `paper_lncs.pdf` (168.724609375 KiB)
+note: Skipped writing 2 intermediate files (use --keep-intermediates to keep them)
+cs.tex:833: Overfull \hbox (11.76984pt too wide) in paragraph at lines 830--833
+warning: paper_lncs.tex:840: Overfull \hbox (12.26695pt too wide) in paragraph at lines 835--840
+warning: paper_lncs.tex:1018: Underfull \hbox (badness 4242) in paragraph at lines 1017--1018
+warning: paper_lncs.tex:1023: Underfull \hbox (badness 10000) in paragraph at lines 1022--1023
+warning: paper_lncs.tex:1028: Overfull \hbox (2.6132pt too wide) in paragraph at lines 1003--1028
+note: Rerunning TeX because "paper_lncs.aux" changed ...
+warning: paper_lncs.tex:154: Overfull \hbox (13.22983pt too wide) in paragraph at lines 150--154
+warning: paper_lncs.tex:436: Overfull \hbox (29.2663pt too wide) detected at line 436
+warning: paper_lncs.tex:632: Overfull \hbox (14.17818pt too wide) in paragraph at lines 627--632
+warning: paper_lncs.tex:675: Overfull \hbox (9.24649pt too wide) in paragraph at lines 671--675
+warning: paper_lncs.tex:833: Overfull \hbox (11.76984pt too wide) in paragraph at lines 830--833
+warning: paper_lncs.tex:840: Overfull \hbox (12.26695pt too wide) in paragraph at lines 835--840
+warning: paper_lncs.tex:1018: Underfull \hbox (badness 4242) in paragraph at lines 1017--1018
+warning: paper_lncs.tex:1023: Underfull \hbox (badness 10000) in paragraph at lines 1022--1023
+warning: paper_lncs.tex:1028: Overfull \hbox (2.6132pt too wide) in paragraph at lines 1003--1028
+warning: warnings were issued by the TeX engine; use --print and/or --keep-logs for details.
+note: Running xdvipdfmx ...
+note: downloading cmr9.pfb
+note: downloading cmmi9.pfb
+note: downloading cmsy9.pfb
+note: downloading cmmi7.pfb
+note: downloading msbm10.pfb
+warning: Object @definition.1 already defined.
+note: downloading cmex10.pfb
+note: downloading cmsy7.pfb
+note: downloading cmr7.pfb
+note: downloading cmr5.pfb
+note: downloading cmmi5.pfb
+warning: Object @proposition.1 already defined.
+warning: Object @remark.3 already defined.
+warning: Object @proposition.1 already defined.
+warning: Object @proposition.2 already defined.
+warning: Object @definition.1 already defined.
+warning: Object @definition.2 already defined.
+warning: Object @definition.3 already defined.
+warning: Object @proposition.4 already defined.
+note: Writing `paper_lncs.pdf` (168.7265625 KiB)
+note: Skipped writing 2 intermediate files (use --keep-intermediates to keep them)

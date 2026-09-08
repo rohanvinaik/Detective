@@ -23,6 +23,8 @@ from Detective.survey import survey_source
 
 def test_readiness_names_each_case():
     assert extract_readiness("reachable", False) == "reachable"
+    assert extract_readiness("extractable_core", True, True) == "unresolved_inputs"
+    assert extract_readiness("trapped_by_imports", True, True) == "unresolved_inputs"
     assert extract_readiness("extractable_core", True) == "propose"
     # Trapped, but no primitive found to key the decision on -> a hand extraction, not a signature.
     assert extract_readiness("extractable_core", False) == "no_primitive_seam"
@@ -31,17 +33,21 @@ def test_readiness_names_each_case():
     assert extract_readiness("trapped_by_imports", False) == "move"
 
 
+def test_default_interface_does_not_claim_an_unresolved_dependency():
+    assert extract_readiness("extractable_core", True) == "propose"
+    assert extract_readiness("extractable_core", True, True) == "unresolved_inputs"
+
+
 # ------------------------------------------------------------------ extract <-> survey agreement (the D fix)
 
-_CORE = "import numpy as np\n\ndef decide(grid: np.ndarray, k: int):\n    n = grid[0, 0]\n    return n + k\n"
+_CORE = "import numpy as np\n\ndef decide(grid: np.ndarray, k: int):\n    n = len(grid)\n    return n + k\n"
 _IMPORTS = (
     "from jax import numpy as jnp\n"
-    "import argparse\n"
     "\n"
     "def str2bool(v):\n"
     "    if v.lower() in ('yes', 'true'):\n"
     "        return True\n"
-    "    raise argparse.ArgumentTypeError('bad')\n"
+    "    raise ValueError('bad')\n"
 )
 _CLEAN = "def add(a: int, b: int) -> int:\n    return a + b\n"
 
@@ -63,7 +69,7 @@ def test_a_data_object_param_yields_a_primitive_extraction_proposal():
     assert p is not None
     assert p.disposition == "extractable_core"
     assert p.trapped_params == ("grid",)
-    assert "n" in p.primitive_inputs  # n = grid[0, 0] is the primitive the decision reads
+    assert p.primitive_inputs == ("k", "n")  # retain the existing scalar dependency too
     assert extract_readiness(p.disposition, bool(p.primitive_inputs)) == "propose"
 
 
@@ -84,7 +90,7 @@ def test_a_reachable_function_has_nothing_to_extract():
 
 def test_render_nothing_trapped_is_a_stated_clean_bill():
     out = "\n".join(render_extract("m.py", None))
-    assert "nothing trapped" in out and "converge already reaches" in out
+    assert "nothing trapped" in out and "reachability is not established" in out
 
 
 def test_render_propose_names_the_signature_and_the_converge_command():

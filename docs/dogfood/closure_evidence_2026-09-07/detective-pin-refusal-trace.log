@@ -1,0 +1,723 @@
+  … measurement_cut_reasons: tracing 15 function-routed tests
+  … measurement_cut_reasons: baseline traced · 15 tests · 0.0s
+  … measurement_cut_reasons: 1/35 mutants · 1.5/s · ETA estimating… (heartbeat)
+  … measurement_cut_reasons: 35/35 mutants · 8.9/s · done in 3.9s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  … measurement_cut_reasons: tracing 15 function-routed tests
+  … measurement_cut_reasons: baseline traced · 15 tests · 0.0s
+  … measurement_cut_reasons: 35/35 mutants · 9.1/s · done in 3.9s
+{
+  "function": "Detective/validity.py::measurement_cut_reasons",
+  "converged": true,
+  "at_ceiling": true,
+  "initial_survivors": 0,
+  "final_survivors": 0,
+  "iterations": [
+    {
+      "survivors": 0,
+      "written": 0
+    }
+  ],
+  "written_path": null,
+  "total_mutants": 35,
+  "killed": 35,
+  "value_killed": 35,
+  "remaining": [],
+  "wiring": null,
+  "survivor_report": null,
+  "functionally_complete": true,
+  "line_complete": true,
+  "missing_lines": [],
+  "line_basis": "admissible",
+  "line_owner_ids": [
+    "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_golden[args0-expected0]",
+    "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_golden[args1-expected1]",
+    "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_value_0",
+    "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_value_1",
+    "tests/test_collection_disclosure_intent.py::test_a_collection_error_is_its_own_cut_reason",
+    "tests/test_measurement_validity_intent.py::test_a_clean_measurement_has_no_reasons",
+    "tests/test_measurement_validity_intent.py::test_a_future_reason_degrades_to_a_named_unknown_not_a_pass",
+    "tests/test_measurement_validity_intent.py::test_an_engine_that_does_not_report_gateability_is_not_treated_as_refusing",
+    "tests/test_measurement_validity_intent.py::test_an_unexplained_refusal_is_named_rather_than_returned_empty",
+    "tests/test_measurement_validity_intent.py::test_every_emitted_reason_is_in_the_declared_vocabulary",
+    "tests/test_measurement_validity_intent.py::test_every_reason_is_reported_not_just_the_first",
+    "tests/test_measurement_validity_intent.py::test_reason_order_is_stable_so_every_surface_agrees",
+    "tests/test_measurement_validity_intent.py::test_sampled_and_truncated_are_different_facts",
+    "tests/test_measurement_validity_intent.py::test_unspecified_is_not_added_when_a_real_reason_is_known",
+    "tests/test_unmeasured_mutant_closure_intent.py::test_failed_evaluation_has_its_own_reason"
+  ],
+  "manually_unreachable": 0,
+  "contradicted_line_flags": [],
+  "missing_line_guards": [],
+  "redundant_tests": [
+    "tests/test_measurement_validity_intent.py::test_a_clean_measurement_has_no_reasons",
+    "tests/test_measurement_validity_intent.py::test_a_future_reason_degrades_to_a_named_unknown_not_a_pass",
+    "tests/test_measurement_validity_intent.py::test_an_engine_that_does_not_report_gateability_is_not_treated_as_refusing",
+    "tests/test_measurement_validity_intent.py::test_an_unexplained_refusal_is_named_rather_than_returned_empty",
+    "tests/test_measurement_validity_intent.py::test_every_emitted_reason_is_in_the_declared_vocabulary",
+    "tests/test_measurement_validity_intent.py::test_every_reason_is_reported_not_just_the_first",
+    "tests/test_measurement_validity_intent.py::test_reason_order_is_stable_so_every_surface_agrees",
+    "tests/test_measurement_validity_intent.py::test_sampled_and_truncated_are_different_facts",
+    "tests/test_measurement_validity_intent.py::test_unspecified_is_not_added_when_a_real_reason_is_known"
+  ],
+  "minimal_test_count": 6,
+  "universe_size": 35,
+  "fast": false,
+  "coverage_guarantee": 1.0,
+  "signature": "measurement_cut_reasons(reported_gateable: bool, gateable: bool, budget_exhausted: bool, coverage_depth: str, containment: str, identity_ambiguous: bool, collection_incomplete: bool, evaluation_failed: bool)",
+  "param_names": [
+    "reported_gateable",
+    "gateable",
+    "budget_exhausted",
+    "coverage_depth",
+    "containment",
+    "identity_ambiguous",
+    "collection_incomplete",
+    "evaluation_failed"
+  ],
+  "structural_difficulty": "flat",
+  "deferred_shaped": 0,
+  "not_consulted": 2068,
+  "synthesized_only": false,
+  "policy_id": "5.751e8e9f4f11",
+  "environment_coupled": [],
+  "stale_target": false,
+  "measurement_gateable": true,
+  "coverage_depth": "profiled",
+  "collection_conflicts": [],
+  "cut_reasons": [],
+  "validity": {
+    "schema_version": 2,
+    "gateable": true,
+    "engine_reports_gateable": true,
+    "cut_reasons": [],
+    "containment_status": "unreported",
+    "coverage_depth": "profiled",
+    "execution_mode": "isolated",
+    "engine_version": "",
+    "capability_flags": [
+      "absent:all_contained"
+    ],
+    "policy_id": ""
+  },
+  "environment_gated": [],
+  "budget_exhausted": false,
+  "cut_phase": "",
+  "verification": {
+    "status": "passed",
+    "exit_code": 0,
+    "collected": 34,
+    "passed": 34,
+    "failed": 0,
+    "errors": 0,
+    "paths": [
+      "/Users/rohanvinaik/tools/Detective/tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py",
+      "/Users/rohanvinaik/tools/Detective/tests/test_collection_disclosure_intent.py",
+      "/Users/rohanvinaik/tools/Detective/tests/test_measurement_validity_intent.py",
+      "/Users/rohanvinaik/tools/Detective/tests/test_unmeasured_mutant_closure_intent.py"
+    ],
+    "basis": "target-complete",
+    "node_basis": [
+      [
+        "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_golden[args0-expected0]",
+        "fa19720b153b37c1"
+      ],
+      [
+        "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_golden[args1-expected1]",
+        "fa19720b153b37c1"
+      ],
+      [
+        "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_value_0",
+        "fa19720b153b37c1"
+      ],
+      [
+        "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_value_1",
+        "fa19720b153b37c1"
+      ],
+      [
+        "tests/test_collection_disclosure_intent.py::test_a_collection_error_is_its_own_cut_reason",
+        "4666df30793525e1"
+      ],
+      [
+        "tests/test_collection_disclosure_intent.py::test_the_reason_has_an_actionable_and_distinct_sentence",
+        "4666df30793525e1"
+      ],
+      [
+        "tests/test_collection_disclosure_intent.py::test_a_nonempty_collection_errors_list_makes_the_run_ungateable",
+        "4666df30793525e1"
+      ],
+      [
+        "tests/test_collection_disclosure_intent.py::test_a_clean_collection_is_observed_not_absent_and_still_gateable",
+        "4666df30793525e1"
+      ],
+      [
+        "tests/test_collection_disclosure_intent.py::test_an_older_engine_without_the_field_is_flagged_absent_not_fabricated",
+        "4666df30793525e1"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_a_clean_measurement_has_no_reasons",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_every_reason_is_reported_not_just_the_first",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_unexplained_refusal_is_named_rather_than_returned_empty",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_a_future_reason_degrades_to_a_named_unknown_not_a_pass",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_unspecified_is_not_added_when_a_real_reason_is_known",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_engine_that_does_not_report_gateability_is_not_treated_as_refusing",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_reason_order_is_stable_so_every_surface_agrees",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_sampled_and_truncated_are_different_facts",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_every_emitted_reason_is_in_the_declared_vocabulary",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_any_reason_at_all_refuses_a_certificate",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_the_object_is_frozen_so_a_refusal_cannot_be_relaxed",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_a_current_engine_normalizes_to_a_clean_validity",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_engine_refusal_survives_normalization_with_its_reason",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_the_regression_requirement_verbatim",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_older_engine_names_every_field_it_could_not_supply",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_older_engine_is_not_refused_merely_for_being_older",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_older_engine_that_blew_its_budget_is_still_refused",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_ambiguous_collection_identity_refuses_even_when_counts_are_clean",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_a_reported_isolated_run_is_recorded_as_isolated_not_the_default",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_a_reported_in_process_run_is_a_positive_observation_not_the_default",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_engine_that_omits_execution_mode_keeps_the_default_and_is_flagged",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_in_process_run_flags_the_count_approximate_but_still_admits_the_certificate",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_measurement_validity_intent.py::test_an_isolated_run_count_is_exact_and_not_flagged_approximate",
+        "5bb270bc2e9b9472"
+      ],
+      [
+        "tests/test_unmeasured_mutant_closure_intent.py::test_failed_evaluation_has_its_own_reason",
+        "29d348776b13a980"
+      ],
+      [
+        "tests/test_unmeasured_mutant_closure_intent.py::test_uninstalled_and_unentered_mutants_cannot_empty_the_certificate_universe",
+        "29d348776b13a980"
+      ]
+    ]
+  },
+  "stdout_bytes": 0,
+  "needs_receiver": null,
+  "receiver_identity": null,
+  "capability_identity": null,
+  "function_basis": {
+    "target": "Detective/validity.py::measurement_cut_reasons",
+    "obligations": {
+      "lines": [
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106
+      ],
+      "arcs": [],
+      "mutation_dims": [
+        "BOUNDARY_38fbb747",
+        "BOUNDARY_68211b83",
+        "BOUNDARY_6dd34eaf",
+        "BOUNDARY_74da38c5",
+        "BOUNDARY_91571a47",
+        "BOUNDARY_931cd8a5",
+        "BOUNDARY_988420a9",
+        "BOUNDARY_e922c914",
+        "BOUNDARY_ee4308e7",
+        "LOGICAL_6e7c0415",
+        "LOGICAL_a2f19338",
+        "LOGICAL_db5c85c8",
+        "STATE_f28bc6a3",
+        "STMT_15e43109",
+        "STMT_398333e8",
+        "STMT_3eff0c18",
+        "STMT_49cb83e5",
+        "STMT_6915f9db",
+        "STMT_9f344313",
+        "STMT_f4df8843",
+        "STMT_f83a0883",
+        "SWAP_efec6cc2",
+        "VALUE_0aabc07d",
+        "VALUE_1206ed41",
+        "VALUE_38e96fe8",
+        "VALUE_4bf29e61",
+        "VALUE_514ce0a9",
+        "VALUE_5e568c76",
+        "VALUE_6c707a7b",
+        "VALUE_71d53c7d",
+        "VALUE_8792c5bd",
+        "VALUE_a93180c5",
+        "VALUE_d34e29b3",
+        "VALUE_dea80b5e",
+        "VALUE_f3d2fe52"
+      ]
+    },
+    "undischargeable": {
+      "lines": [],
+      "arcs": [],
+      "mutation_dims": []
+    },
+    "admitted": [
+      {
+        "test": "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_golden[args0-expected0]",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            91,
+            92,
+            94,
+            96,
+            98,
+            100,
+            101,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": [
+            "BOUNDARY_38fbb747",
+            "BOUNDARY_6dd34eaf",
+            "BOUNDARY_931cd8a5",
+            "BOUNDARY_988420a9",
+            "BOUNDARY_e922c914",
+            "BOUNDARY_ee4308e7",
+            "LOGICAL_a2f19338",
+            "STATE_f28bc6a3",
+            "STMT_49cb83e5",
+            "STMT_9f344313",
+            "SWAP_efec6cc2",
+            "VALUE_0aabc07d",
+            "VALUE_6c707a7b",
+            "VALUE_a93180c5",
+            "VALUE_dea80b5e"
+          ]
+        },
+        "warrant": "proof",
+        "origin": "characterization"
+      },
+      {
+        "test": "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_golden[args1-expected1]",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            94,
+            96,
+            98,
+            100,
+            102,
+            104,
+            105,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": [
+            "LOGICAL_6e7c0415",
+            "LOGICAL_db5c85c8",
+            "STMT_f83a0883",
+            "VALUE_4bf29e61"
+          ]
+        },
+        "warrant": "proof",
+        "origin": "characterization"
+      },
+      {
+        "test": "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_value_0",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            93,
+            94,
+            95,
+            98,
+            100,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": [
+            "BOUNDARY_68211b83",
+            "BOUNDARY_74da38c5",
+            "STMT_15e43109",
+            "STMT_398333e8",
+            "VALUE_1206ed41",
+            "VALUE_38e96fe8",
+            "VALUE_514ce0a9",
+            "VALUE_5e568c76"
+          ]
+        },
+        "warrant": "proof",
+        "origin": "characterization"
+      },
+      {
+        "test": "tests/detective/test_Detective_validity_measurement_cut_reasons_1b62747f79_synth.py::test_measurement_cut_reasons_value_1",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            93,
+            94,
+            96,
+            97,
+            98,
+            100,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": [
+            "BOUNDARY_91571a47",
+            "STMT_6915f9db",
+            "VALUE_8792c5bd",
+            "VALUE_f3d2fe52"
+          ]
+        },
+        "warrant": "proof",
+        "origin": "characterization"
+      },
+      {
+        "test": "tests/test_collection_disclosure_intent.py::test_a_collection_error_is_its_own_cut_reason",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            94,
+            96,
+            98,
+            99,
+            100,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": [
+            "STMT_3eff0c18",
+            "VALUE_d34e29b3"
+          ]
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_a_clean_measurement_has_no_reasons",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            94,
+            96,
+            98,
+            100,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_a_future_reason_degrades_to_a_named_unknown_not_a_pass",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            94,
+            96,
+            98,
+            100,
+            102,
+            104,
+            105,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_an_engine_that_does_not_report_gateability_is_not_treated_as_refusing",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            94,
+            96,
+            98,
+            100,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_an_unexplained_refusal_is_named_rather_than_returned_empty",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            94,
+            96,
+            98,
+            100,
+            102,
+            104,
+            105,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_every_emitted_reason_is_in_the_declared_vocabulary",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97,
+            98,
+            100,
+            101,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_every_reason_is_reported_not_just_the_first",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            98,
+            100,
+            101,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_reason_order_is_stable_so_every_surface_agrees",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            98,
+            100,
+            101,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_sampled_and_truncated_are_different_facts",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            94,
+            95,
+            96,
+            97,
+            98,
+            100,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_measurement_validity_intent.py::test_unspecified_is_not_added_when_a_real_reason_is_known",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            91,
+            92,
+            94,
+            96,
+            98,
+            100,
+            102,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": []
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      },
+      {
+        "test": "tests/test_unmeasured_mutant_closure_intent.py::test_failed_evaluation_has_its_own_reason",
+        "discharged": {
+          "lines": [
+            89,
+            90,
+            92,
+            94,
+            96,
+            98,
+            100,
+            102,
+            103,
+            104,
+            106
+          ],
+          "arcs": [],
+          "mutation_dims": [
+            "STMT_f4df8843",
+            "VALUE_71d53c7d"
+          ]
+        },
+        "warrant": "proof",
+        "origin": "intent"
+      }
+    ],
+    "unresolved": [],
+    "excluded": [],
+    "action": "complete"
+  },
+  "function_digest": "c737fd3e205e52e5",
+  "exit_code": 0,
+  "exit_meaning": "clean"
+}
+
+MEASUREMENTS [{"function": "Detective/validity.py::measurement_cut_reasons", "total": 35, "categories": []}, {"function": "Detective/validity.py::measurement_cut_reasons", "total": 35, "categories": []}]

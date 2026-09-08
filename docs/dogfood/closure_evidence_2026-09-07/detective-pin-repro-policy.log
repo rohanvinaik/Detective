@@ -1,0 +1,25 @@
+  … should_verify_reproducibility: tracing 1 function-routed tests
+  … should_verify_reproducibility: baseline traced · 1 tests · 0.0s
+  … should_verify_reproducibility: 1/6 mutants · 2.4/s · ETA estimating… (heartbeat)
+  … should_verify_reproducibility: 6/6 mutants · 14.0/s · done in 0.4s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  ▸ verifying reproducibility — fresh isolated observation of the function's proof basis…
+  … should_verify_reproducibility: tracing 1 function-routed tests
+  … should_verify_reproducibility: baseline traced · 1 tests · 0.0s
+──────────────────────────────────────────────────────────────────────────────
+Detective/converge.py::should_verify_reproducibility — converge · 6 behaviours · 6 pinned
+
+  · not consulted      2058 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_should_verify_reproducibility.txt
+
+DONE:  the suite pins every behaviour this function makes.
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/converge.py'          # the fuller style map for these regions
+         detective decompose 'Detective/converge.py::should_verify_reproducibility' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/converge.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/converge.py::should_verify_reproducibility' --budget)
+
+FINAL Detective/converge.py::should_verify_reproducibility: ✓ COMPLETE (operator universe) · 6/6 killed · minimal cover 1 test(s)

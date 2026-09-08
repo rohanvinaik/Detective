@@ -278,7 +278,14 @@ def audit_suite(
     # unchanged audit_check_failed — makes `audit --two-sign --check` fail on an ENGINE-found unpinned
     # output invariant, extending Q8's authored-fence gate to the perturbations the engine finds.
     result = profile(
-        file, function, project_root, progress=progress, trace_progress=trace_progress, two_sign=two_sign
+        file,
+        function,
+        project_root,
+        progress=progress,
+        trace_progress=trace_progress,
+        two_sign=two_sign,
+        isolated=True,
+        use_cache=False,
     )
     # A test belongs to THIS function's suite only if it discharges an obligation for
     # it — kills one of its mutants OR covers one of its lines. The baseline pass runs
@@ -435,9 +442,16 @@ def audit_suite(
     # the basis's line U_t agrees with `manually_unreachable`. 0 when classification did not run.
     from .validity import normalize_validity
 
+    # `_load_failed` rides INTO the validity rather than being ANDed on top of it. The local
+    # conjunction below was correct for audit and invisible to everyone else: converge read
+    # `admits_certificate` on the same measurement and got True, so one run was ungateable here
+    # and clean there. Carried on the object, both surfaces read the one refusal, and it arrives
+    # with a typed reason (`target_load_failed`) instead of an anonymous False.
+    validity = normalize_validity(result, load_failed=_load_failed)
+    mutant_complete = mutant_complete and validity.admits_certificate
     _basis = function_basis(
         result,
-        normalize_validity(result),
+        validity,
         os.path.abspath(project_root),
         node,
         candidate_equivalent=candidate_equivalent + manual_equivalent,
@@ -447,7 +461,7 @@ def audit_suite(
         test_count=len(test_names),
         kill_pct=round(100 * result.total_killed / total, 1) if total else 100.0,
         mutant_complete=mutant_complete,
-        line_complete=not missing,
+        line_complete=not missing and validity.admits_certificate,
         line_basis=line_basis,
         redundant_tests=tuple(sorted(redundant)),
         # Scoped by `suite` for the SAME reason test_names is, and it must stay that way:
@@ -513,6 +527,24 @@ def _is_test_file(rel_path: str) -> bool:
     return base.startswith("test_") or base.endswith("_test.py")
 
 
+def _removal_needs(result, candidates: set[str], root: str) -> set[str]:
+    """Match candidate spellings to measured identities; retain on an invalid measurement."""
+    from .validity import normalize_validity
+
+    if not normalize_validity(result).admits_certificate:
+        return set(candidates)
+
+    def identity(test_id: str) -> str:
+        path, separator, case = test_id.removeprefix("legacy:").partition("::")
+        return os.path.realpath(os.path.join(root, path)) + separator + case
+
+    needed = set(_obligations_by_test(result.kill_matrix, result.line_coverage)) - redundant_2axis(
+        result.kill_matrix, result.line_coverage
+    )
+    measured = {identity(name) for name in needed}
+    return {candidate for candidate in candidates if identity(candidate) in measured}
+
+
 def module_safe_removals(
     file: str,
     function: str,
@@ -557,10 +589,8 @@ def module_safe_removals(
     for qn, _node in walk_functions(tree):
         if qn == function or not wanted:
             continue
-        result = profile(file, qn, root)
-        needed = set(_obligations_by_test(result.kill_matrix, result.line_coverage)) - redundant_2axis(
-            result.kill_matrix, result.line_coverage
-        )
+        result = profile(file, qn, root, isolated=True, use_cache=False)
+        needed = _removal_needs(result, wanted, root)
         for name in sorted(wanted & needed):
             retained[name] = qn
         wanted -= needed
@@ -593,10 +623,10 @@ def module_safe_removals(
                     # candidates — so a bridge is caught but a candidate the neighbor's own suite already
                     # covers is not spuriously retained.
                     nb_own = list(discover_test_callables(root, nb_file, [nb_qn]))
-                    nb_result = profile(nb_file, nb_qn, root, tests=nb_own + cand_callables)
-                    nb_needed = set(
-                        _obligations_by_test(nb_result.kill_matrix, nb_result.line_coverage)
-                    ) - redundant_2axis(nb_result.kill_matrix, nb_result.line_coverage)
+                    nb_result = profile(
+                        nb_file, nb_qn, root, tests=nb_own + cand_callables, isolated=True, use_cache=False
+                    )
+                    nb_needed = _removal_needs(nb_result, wanted, root)
                     for name in sorted(wanted & nb_needed):
                         retained[name] = nb_qn
                     wanted -= nb_needed

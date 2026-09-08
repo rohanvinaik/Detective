@@ -1,0 +1,25 @@
+  … rewrite_classification_status: tracing 4 function-routed tests
+  … rewrite_classification_status: baseline traced · 4 tests · 0.0s
+  … rewrite_classification_status: 1/10 mutants · 2.5/s · ETA estimating… (heartbeat)
+  … rewrite_classification_status: 10/10 mutants · 23.3/s · done in 0.4s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  ▸ verifying reproducibility — fresh isolated observation of the function's proof basis…
+  … rewrite_classification_status: tracing 4 function-routed tests
+  … rewrite_classification_status: baseline traced · 4 tests · 0.0s
+──────────────────────────────────────────────────────────────────────────────
+Detective/rewrite.py::rewrite_classification_status — converge · 10 behaviours · 10 pinned
+
+  · not consulted      2058 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_rewrite_classification_status.txt
+
+DONE:  the suite pins every behaviour this function makes.
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/rewrite.py'          # the fuller style map for these regions
+         detective decompose 'Detective/rewrite.py::rewrite_classification_status' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/rewrite.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/rewrite.py::rewrite_classification_status' --budget)
+
+FINAL Detective/rewrite.py::rewrite_classification_status: ✓ COMPLETE (operator universe) · 10/10 killed · minimal cover 4 test(s)

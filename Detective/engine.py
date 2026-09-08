@@ -476,7 +476,8 @@ def _load_failure_reason(full_path: str, qualname: str) -> str | None:
     ``_load_original`` does and returns the first exception's short form, or None if the module
     actually imports (then the failure was a missing ATTRIBUTE — a renamed/absent symbol — not a
     load error, which routes differently). Any sys.path entry it adds is restored, and the probe
-    module is never parked in ``sys.modules``, so a diagnostic leaves no trace.
+    module is registered while executing (as dataclasses require), then its prior registry
+    entry is restored. Imported dependencies may remain, as with ordinary Python imports.
     """
     real = os.path.abspath(full_path)
     dotted, pkg_root = _package_qualname(real)
@@ -495,7 +496,18 @@ def _load_failure_reason(full_path: str, qualname: str) -> str | None:
         spec = importlib.util.spec_from_file_location("_detective_probe", full_path)
         if spec is None or spec.loader is None:
             return None
-        spec.loader.exec_module(importlib.util.module_from_spec(spec))
+        module = importlib.util.module_from_spec(spec)
+        name = spec.name
+        present = name in sys.modules
+        previous = sys.modules.get(name)
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            if present:
+                sys.modules[name] = previous
+            else:
+                sys.modules.pop(name, None)
         return None
     except Exception as exc:  # noqa: BLE001 — any import error IS the reason to report
         return f"{type(exc).__name__}: {exc}"
@@ -869,6 +881,7 @@ def profile(
     progress: Callable[[int, int, float], None] | None = None,
     scope_tests: bool = True,
     use_cache: bool = True,
+    isolated: bool = False,
     mutant_slice: tuple[int, int] | None = None,
     trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
     trace_progress: Callable[[int, int, float], None] | None = None,
@@ -976,7 +989,8 @@ def profile(
     # Inside a live session, an empty regime means at least one plugin/config identity was not
     # observable. Two unknown regimes must never compare equal: bypass both verdict-cache read and
     # write. Outside a session `_measured_under is None`; the historical standalone cache remains.
-    _cache_allowed = use_cache and not (_measured_under is not None and not _regime)
+    # An isolated proof observation is always fresh; an in-process cache entry is not its evidence.
+    _cache_allowed = use_cache and not isolated and not (_measured_under is not None and not _regime)
 
     ck = verdict_cache.cache_key(
         func_key,
@@ -994,6 +1008,8 @@ def profile(
         if hit is not None:
             # A cached verdict is a real ProfilingResult; attach the basis fresh (the cache serializes
             # known fields, not this Detective-side object) so a warm run reads it too (#X4).
+            hit.measurement_basis = ck
+            hit.profile_extra_test_dirs = extra_test_dirs
             return _attach_function_basis(hit, root, node)
 
     # Pass the live target so Wesker seeds the mutant namespace from its
@@ -1104,6 +1120,8 @@ def profile(
             _seed_token = None
             _widen_tests = None
     _prof_kwargs = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
+    if isolated:
+        _prof_kwargs["isolated"] = True
     if two_sign:
         # μ⁻ Fork 2: observe the codomain — harvest the ORIGINAL's return types under the covering
         # tests — so the two-sign profile emits the type-conditional output perturbations only where
@@ -1114,6 +1132,9 @@ def profile(
         _prof_kwargs["observed_return_types"] = capture_return_types(
             original, [t for t in tests if id(t) not in _impossible_ids]
         )
+    from Wesker.ci import _PROJECT_ROOT
+
+    _root_token = _PROJECT_ROOT.set(root)
     try:
         result = run_function_profiling(  # type: ignore[arg-type]
             node,
@@ -1133,6 +1154,7 @@ def profile(
             **_prof_kwargs,
         )
     finally:
+        _PROJECT_ROOT.reset(_root_token)
         if _seed_token is not None and _session_baseline is not None:
             _session_baseline.reset(_seed_token)
     if _routing_counts:
@@ -1169,6 +1191,8 @@ def profile(
     # answers drift. `admits_certificate` is absorbing and strictly stronger than the old
     # conjunction: a result the engine calls gateable but whose coverage depth is `cut` is now
     # refused here too, which is the "truncated depth cannot satisfy completeness" requirement.
+    result.measurement_basis = ck
+    result.profile_extra_test_dirs = extra_test_dirs
     _validity = normalize_validity(result)
     if _cache_allowed and verdict_cache.proof_cache_admits(
         gateable=_validity.admits_certificate,
@@ -1609,11 +1633,17 @@ def _input_grids(node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict) 
     taking structured inputs become exercisable and their field/length branches are all
     covered.
     """
+    from .array_inputs import array_grid
+
     domain = _compared_literals(node)
     edges = _ordering_edge_values(node)
     grids: list[list] = []
     for arg in node.args.args:
         if arg.arg in ("self", "cls"):
+            continue
+        arrays = array_grid(arg.annotation, namespace)
+        if arrays is not None:
+            grids.append(arrays)
             continue
         name = _type_of(arg.annotation)
         if name is not None and name.startswith("ast."):
@@ -2254,6 +2284,11 @@ def _as_domain_source(instance: Any) -> SourceExpr | None:
     :func:`domain_import_disposition` for name collisions. ``None`` remains the honest residual — a
     fixture hand-back — for a non-introspectable / built leaf (#68b) or an ambiguous import set.
     """
+    from .array_inputs import array_source
+
+    array = array_source(instance)
+    if array is not None:
+        return array
     imports = _domain_constructor_imports(instance)
     if imports is None:
         return None
@@ -2644,7 +2679,11 @@ def classify_survivors(
     # a mutant and the audit partition assertion crashed the tool with a raw traceback. Reuse only
     # when the passed result is for THIS target and no out-of-tree dirs are in play (a pre-computed
     # result cannot reflect an extra_test_dirs the caller adds here); otherwise re-profile as before.
-    if profile_result is not None and profile_result.function_key == func_key and not extra_test_dirs:
+    if (
+        profile_result is not None
+        and profile_result.function_key == func_key
+        and tuple(getattr(profile_result, "profile_extra_test_dirs", ())) == tuple(extra_test_dirs)
+    ):
         result = profile_result
     else:
         result = profile(
@@ -2652,6 +2691,7 @@ def classify_survivors(
             function,
             project_root,
             budget_ms=_cls_budget_ms(),
+            isolated=True,
             extra_test_dirs=extra_test_dirs,
             include_shaped=include_shaped,
             two_sign=two_sign,
@@ -2661,6 +2701,16 @@ def classify_survivors(
     # value-distinguishing witness (or is judged equivalent), instead of being silently
     # treated as specified because the code merely raised under some test.
     survivors = result.value_survivor_records
+    validity = normalize_validity(result)
+    if not validity.admits_certificate:
+        from .validity import cut_reason_sentence
+
+        return SurvivorReport(
+            (),
+            tuple(r.get("mutant_id", "?") for r in survivors),
+            note="; ".join(cut_reason_sentence(reason) for reason in validity.cut_reasons),
+            measurement_valid=False,
+        )
     if not survivors:
         return SurvivorReport((), (), None)
 

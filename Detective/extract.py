@@ -7,8 +7,9 @@ cannot pin). So a greenfield author told "extract the pure decision" was left wi
 
 `extract` closes that gap, propose-only: for a survey-flagged function it names the CONCRETE
 extraction — a pure function over the PRIMITIVE values the decision reads (the expressible parameters,
-plus the scalars projected out of the inexpressible one: a cell read `grid[i, j]`, a length, a
-neighbour count) — so the operator's move becomes a mechanical hand-extraction plus a `converge` on
+plus recognized unshadowed scalar conversions of the inexpressible one, such as its length;
+arbitrary element reads, slices, and calls retain an unresolved interface). The proposal guides
+hand-extraction followed by `converge` on
 the result. It WRITES NOTHING and PROVES NOTHING: the guarantee comes afterward, from converging the
 extracted pure function in isolation (which CAN be pinned), never from this proposal. It honours the
 sandwich thesis exactly as survey does — it widens WHERE to point Detective, never what a pin means.
@@ -26,14 +27,13 @@ from dataclasses import dataclass
 from .call_sites import _param_usages, usage_inferred_type
 from .survey import _annotation_inexpressible, _heavy_imports, survey_source
 
-# Attribute/method calls on the inexpressible param that yield a PRIMITIVE the decision can take as a
-# plain argument — a scalar element read, a length, a shape component. Deliberately small: only reads
-# whose result is near-certainly a primitive, so a proposed input is one converge can actually express.
-_PRIMITIVE_PROJECTIONS = frozenset({"len", "sum", "count", "size", "min", "max", "index"})
+# Successful calls to these unshadowed builtins produce scalar values. Other calls and
+# projections need further evidence; neither slicing nor tuple indexing establishes a type.
+_PRIMITIVE_PROJECTIONS = frozenset({"len", "int", "float", "str", "bool"})
 
 
 def _all_args(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.arg]:
-    """Every parameter arg node, ``self``/``cls`` dropped (they carry no decision)."""
+    """Candidate interface arguments; receiver reads remain unresolved dependencies."""
     a = func.args
     args = [*a.posonlyargs, *a.args, *a.kwonlyargs]
     if a.vararg:
@@ -59,41 +59,29 @@ def _inexpressible_params(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple
 
 
 def _primitive_locals(
-    func: ast.FunctionDef | ast.AsyncFunctionDef, trapped: frozenset[str]
+    func: ast.FunctionDef | ast.AsyncFunctionDef,
+    trapped: frozenset[str],
+    shadowed: frozenset[str] = frozenset(),
 ) -> tuple[str, ...]:
-    """Local names assigned a PRIMITIVE projected out of a trapped param — the decision's real inputs.
+    """Recognize only unshadowed builtin scalar conversions of trapped inputs.
 
-    ``alive = grid[i, j]`` (a subscript of an ndarray yields a scalar), ``n = len(cells)``,
-    ``s = neighbours(grid, i, j)`` (a call whose args touch the trapped param). Each is a plain value
-    the extracted pure function can take as an argument, so naming them turns "extract the decision"
-    into a concrete signature. Sorted + deduped; a name bound more than once is reported once.
+    Calls, slices and even ndarray element reads have unknown result types without
+    further shape/dtype evidence. An annotation is a declared interface, not a proof.
     """
-    found: list[str] = []
-
-    def _touches_trapped(node: ast.AST) -> bool:
-        return any(isinstance(n, ast.Name) and n.id in trapped for n in ast.walk(node))
-
-    for stmt in ast.walk(func):
-        if not isinstance(stmt, ast.Assign) or not isinstance(stmt.value, (ast.Subscript, ast.Call)):
+    found: set[str] = set()
+    for stmt in func.body:
+        if not isinstance(stmt, ast.Assign) or not isinstance(stmt.value, ast.Call):
             continue
-        value = stmt.value
-        is_primitive_read = (
-            isinstance(value, ast.Subscript)
-            and _touches_trapped(value)
-            or (
-                isinstance(value, ast.Call)
-                and (
-                    (isinstance(value.func, ast.Name) and value.func.id in _PRIMITIVE_PROJECTIONS)
-                    or _touches_trapped(value)
-                )
-            )
-        )
-        if not is_primitive_read:
+        call = stmt.value
+        if not isinstance(call.func, ast.Name):
             continue
-        for tgt in stmt.targets:
-            if isinstance(tgt, ast.Name) and tgt.id not in found:
-                found.append(tgt.id)
-    return tuple(sorted(found))
+        if call.func.id not in _PRIMITIVE_PROJECTIONS or call.func.id in shadowed:
+            continue
+        if not any(isinstance(n, ast.Name) and n.id in trapped for n in ast.walk(call)):
+            continue
+        found.update(t.id for t in stmt.targets if isinstance(t, ast.Name))
+    writes = [n.id for n in ast.walk(func) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
+    return tuple(sorted(name for name in found if writes.count(name) == 1))
 
 
 @dataclass(frozen=True)
@@ -107,9 +95,12 @@ class ExtractionProposal:
     proposed_name: str  # the pure function to create
     primitive_inputs: tuple[str, ...]  # its arguments — the primitives the decision reads
     heavy_imports: tuple[str, ...] = ()  # for trapped_by_imports: the module roots that block reach
+    unresolved_inputs: tuple[str, ...] = ()  # dependencies whose primitive interface is not established
 
 
-def extract_readiness(disposition: str, has_primitive_inputs: bool) -> str:
+def extract_readiness(
+    disposition: str, has_primitive_inputs: bool, has_unresolved_inputs: bool = False
+) -> str:
     """Whether a concrete extraction can be PROPOSED for this function (#D, pure — pinned).
 
     A named code, never a bool, because the two "cannot propose" reasons need different guidance:
@@ -118,16 +109,127 @@ def extract_readiness(disposition: str, has_primitive_inputs: bool) -> str:
       * ``no_primitive_seam`` — trapped, but no primitive value was found to key the decision on (the
                                body uses the impure object throughout): a hand extraction with no
                                signature `extract` can name — say so rather than propose an empty one.
-      * ``move``             — trapped_by_imports: the function is already pure and expressible, stranded
-                               only by its MODULE's heavy top-level imports. The move is to relocate it
-                               verbatim to a leaf module, not to extract a sub-decision.
+      * ``unresolved_inputs`` — a dependency's scalar interface is not established.
+      * ``move``             — a candidate relocation with no detected unresolved dependency.
+                               This bounded static analysis does not prove purity or preservation.
       * ``reachable``        — not trapped (survey would not flag it); nothing to extract.
     """
     if disposition == "reachable":
         return "reachable"
+    if has_unresolved_inputs:
+        return "unresolved_inputs"
     if disposition == "trapped_by_imports":
         return "move"
     return "propose" if has_primitive_inputs else "no_primitive_seam"
+
+
+def extraction_target_status(match_count: int) -> str:
+    """Resolve one source symbol before making an advisory claim (#D, pure — pinned)."""
+    if match_count == 0:
+        return "missing"
+    if match_count != 1:
+        return "ambiguous"
+    return "resolved"
+
+
+def _extraction_target(
+    tree: ast.Module, requested: str
+) -> tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    """Select an exact qualified target, or a uniquely named bare target."""
+    found: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
+
+    def visit(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = f"{prefix}{child.name}"
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if name == requested or ("." not in requested and child.name == requested):
+                        found.append((name, child))
+                visit(child, f"{name}.")
+            else:
+                visit(child, prefix)
+
+    visit(tree, "")
+    status = extraction_target_status(len(found))
+    if status != "resolved":
+        raise LookupError(f"{status} function target: {requested}")
+    return found[0]
+
+
+def _extraction_inputs(
+    tree: ast.Module, func: ast.FunctionDef | ast.AsyncFunctionDef, trapped: tuple[str, ...]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Describe a bounded prefix-to-decision seam; unresolved dependencies prevent a signature."""
+    import builtins
+
+    shadowed = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    shadowed.update(n.arg for n in ast.walk(tree) if isinstance(n, ast.arg))
+    shadowed.update(
+        n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    )
+    shadowed.update(n.asname or n.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.alias))
+    projections = set(_primitive_locals(func, frozenset(trapped), frozenset(shadowed)))
+    prefix_names: set[str] = set()
+    split = 0
+    for stmt in func.body:
+        if (
+            isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            split += 1
+            continue
+        if not isinstance(stmt, ast.Assign) or not all(isinstance(t, ast.Name) for t in stmt.targets):
+            break
+        if not any(
+            isinstance(n, ast.Name) and n.id in set(trapped) | prefix_names for n in ast.walk(stmt.value)
+        ):
+            break
+        prefix_names.update(t.id for t in stmt.targets)
+        split += 1
+    tail = func.body[split:]
+    reads = {
+        n.id
+        for stmt in tail
+        for n in ast.walk(stmt)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+    }
+    assigned = {
+        n.id
+        for stmt in tail
+        for n in ast.walk(stmt)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
+    }
+    scalar_args = {
+        arg.arg
+        for arg in _all_args(func)
+        if (
+            ast.unparse(arg.annotation)
+            if arg.annotation
+            else usage_inferred_type(_param_usages(func, arg.arg))
+        )
+        in {"bool", "int", "float", "str", "bytes"}
+    }
+    primitive = reads & (scalar_args | (projections & prefix_names))
+    known_builtins = set(vars(builtins)) - shadowed
+    unresolved = reads - primitive - assigned - known_builtins
+    # A later assignment cannot discharge an input read earlier in the residual.
+    # In particular, an augmented assignment reads its target before writing it.
+    supplied = {arg.arg for arg in _all_args(func)} | prefix_names
+    augmented = {
+        n.target.id
+        for stmt in tail
+        for n in ast.walk(stmt)
+        if isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name)
+    }
+    unresolved |= ((reads | augmented) & supplied) - primitive
+    if any(
+        isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda))
+        for stmt in tail
+        for n in ast.walk(stmt)
+    ):
+        unresolved.add("<nested scope>")
+    return tuple(sorted(primitive)), tuple(sorted(unresolved))
 
 
 def extract_proposal(source: str, qualname: str) -> ExtractionProposal | None:
@@ -136,36 +238,24 @@ def extract_proposal(source: str, qualname: str) -> ExtractionProposal | None:
     Pure over the source text (parses, never executes). Mirrors survey's detection so the two agree by
     construction, then adds the concrete primitive-input identification survey does not.
     """
-    target = qualname.split(".")[-1]
-    # Take the DISPOSITION from survey itself, so `extract` and `survey` flag the identical functions
-    # (the whole point of Finding D — they must not disagree). Prefer an exact qualname match; fall
-    # back to the unique last-segment match for a bare `func` target.
-    findings = survey_source(source)
-    finding = next((f for f in findings if f.qualname == qualname), None) or next(
-        (f for f in findings if f.qualname.split(".")[-1] == target), None
-    )
+    tree = ast.parse(source)
+    resolved, node = _extraction_target(tree, qualname)
+    target = node.name
+    finding = next((f for f in survey_source(source) if f.qualname == resolved), None)
     if finding is None:
         return None
-    tree = ast.parse(source)
-    node = next(
-        (
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == target
-        ),
-        None,
-    )
-    trapped = _inexpressible_params(node) if node is not None else ()
-    primitives = _primitive_locals(node, frozenset(trapped)) if node is not None else ()
+    trapped = _inexpressible_params(node)
+    primitives, unresolved = _extraction_inputs(tree, node, trapped)
     heavy, _bound = _heavy_imports(tree)
     return ExtractionProposal(
-        qualname=qualname,
-        lineno=finding.lineno,
+        qualname=resolved,
+        lineno=node.lineno,
         disposition=finding.disposition,
         trapped_params=trapped,
         proposed_name=f"{target}_decision",
         primitive_inputs=primitives,
         heavy_imports=heavy,
+        unresolved_inputs=unresolved,
     )
 
 
@@ -175,19 +265,30 @@ def render_extract(path: str, proposal: ExtractionProposal | None) -> list[str]:
         return [
             f"{path} — extract · nothing trapped   (static advisory)",
             "",
-            "  ✓ no pure decision is trapped here — converge already reaches this function.",
+            "  No trap detected within this static scan; reachability is not established.",
         ]
-    readiness = extract_readiness(proposal.disposition, bool(proposal.primitive_inputs))
+    readiness = extract_readiness(
+        proposal.disposition, bool(proposal.primitive_inputs), bool(proposal.unresolved_inputs)
+    )
+    if readiness == "unresolved_inputs":
+        return [
+            f"{path} — extract · unresolved input interface (static advisory)",
+            f"  Target: {proposal.qualname}",
+            f"  Known primitive inputs: {', '.join(proposal.primitive_inputs) or 'none established'}",
+            f"  Unresolved dependencies: {', '.join(proposal.unresolved_inputs)}",
+            "  Establish these values and dependencies before choosing a complete extraction signature.",
+            "  Advisory: writes nothing and proves nothing.",
+        ]
     target = proposal.qualname.split(".")[-1]
     if readiness == "move":
         roots = ", ".join(proposal.heavy_imports) or "the heavy stack"
         return [
             f"{path} — extract · a pure function trapped behind heavy module imports   (static advisory)",
             "",
-            f"  `{proposal.qualname}` is already pure and --input-expressible — only its MODULE's",
-            f"  top-level imports ({roots}) stop converge from loading it cheaply.",
+            f"  `{proposal.qualname}` has no unresolved dependency in this bounded scan.",
+            f"  Its module imports {roots}; review purity, defaults and annotations before moving it.",
             "",
-            "  Proposed move (no sub-decision to extract — relocate the function verbatim):",
+            "  Proposed move (review the interface and dependencies before relocating):",
             f"      move `{target}` to a leaf module with no heavy imports, then pin it there:",
             f"      detective converge '<leaf_module>.py::{target}'",
             "",

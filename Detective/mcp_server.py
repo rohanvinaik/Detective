@@ -146,6 +146,23 @@ def _ask_for_input(
             out.append(f"    ({total - len(items)} more in the full report — full=True.)")
         return out
 
+    if kind == "fixture" or (kind == "author" and expressible is False):
+        return [
+            "",
+            f"WRITE TEST: build the domain objects in a fixture, call {function}, then re-run {tool}.",
+            f"  {why}",
+            "  These inputs are outside the literal grammar. "
+            "A primitive decision extraction is another option.",
+            *(f"  {item}" for item in items),
+        ]
+
+    if kind == "lines":
+        return [
+            "",
+            f"AUTHOR INPUTS: supply calls to {function} that reach these lines, then re-run {tool}.",
+            *(f"  {item}" for item in items),
+        ]
+
     if kind == "boundary":
         inputs = ", ".join([tmpl] * len(items))
         out = [

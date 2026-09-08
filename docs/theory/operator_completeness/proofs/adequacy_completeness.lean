@@ -305,3 +305,196 @@ theorem coupling_fails :
       ⟨2, by simp only [Set.mem_inter_iff, Mov, Set.mem_setOf_eq]; exact ⟨by decide, by decide⟩⟩
     rw [Finset.mem_singleton] at hbO; subst hbO
     simp only [Mov, Set.mem_setOf_eq] at hb; revert hb; decide
+
+/-! ### Paper §4 Thm 4.3 and §10 (beyond the exact oracle). Proofs closed by Wayfinder → Aristotle,
+Lean-verified (`sorries_remaining: 0`); axiom-audited below. Not hand-authored. -/
+
+/-- **Theorem 4.3 (footprint characterization, general `Π`).** For arbitrary `Π` and `Γ`,
+adequacy-completeness holds iff for every target footprint `t`, point `b ∈ t`, and finite `F` disjoint
+from `t`, some `Π`-footprint contains `b` while avoiding `F`. (Paper §4, Theorem 4.3.) -/
+theorem footprint_characterization_general (Pi Gamma : Set (Set R)) :
+    Complete Pi Gamma ↔
+      ∀ t ∈ Gamma, ∀ b ∈ t, ∀ F : Finset R, Disjoint (↑F : Set R) t →
+        ∃ s ∈ Pi, b ∈ s ∧ Disjoint s (↑F : Set R) := by
+  constructor
+  · intro hC t ht b hb F hF
+    by_contra hcon
+    push_neg at hcon
+    have hscore : ScoreAt (insert b (↑F : Set R)) F Pi := by
+      intro s hs hne
+      by_cases hbs : b ∈ s
+      · obtain ⟨x, hxs, hxF⟩ := Set.not_disjoint_iff.mp (hcon s hs hbs)
+        exact ⟨x, by simpa using hxF, hxs⟩
+      · obtain ⟨x, hxs, hxI⟩ := hne
+        rcases hxI with rfl | hxF
+        · exact absurd hxs hbs
+        · exact ⟨x, by simpa using hxF, hxs⟩
+    have hG := hC (insert b (↑F : Set R)) F (fun x hx => Set.mem_insert_of_mem _ hx) hscore
+    obtain ⟨y, hyF, hyt⟩ := hG t ht ⟨b, hb, Set.mem_insert _ _⟩
+    exact (Set.disjoint_left.mp hF (by simpa using hyF)) hyt
+  · intro h I O hOI hPi t ht hne
+    by_contra hcon
+    push_neg at hcon
+    have hdisj : Disjoint (↑O : Set R) t := by
+      rw [Set.disjoint_left]
+      intro x hx hxt
+      exact hcon x (by simpa using hx) hxt
+    obtain ⟨b, hbt, hbI⟩ := hne
+    obtain ⟨s, hs, hbs, hsO⟩ := h t ht b hbt O hdisj
+    obtain ⟨y, hyO, hys⟩ := hPi s hs ⟨b, hbs, hbI⟩
+    exact (Set.disjoint_left.mp hsO hys) (by simpa using hyO)
+
+/-- **Definition 10.3 (oracle-relative detection set).** An oracle `ω : R → Ω` records what the suite's
+assertions observe; `DetW ω p` is the set of values whose image `ω` distinguishes after applying `p`.
+The exact oracle is `ω = id`, recovering `Mov` (Prop 10.4). (Paper §10, Def 10.3.) -/
+def DetW {Ω : Type*} (ω : R → Ω) (p : R → R) : Set R := {r | ω (p r) ≠ ω r}
+
+/-- **Proposition 10.6 (the ceiling is oracle-independent for a non-constant oracle).** If `ω` is
+non-constant then for every `b` there is an operator with `DetW ω p = {b}`. (Paper §10, Prop 10.6.) -/
+theorem detW_singleton_of_nonconstant {Ω : Type*} (ω : R → Ω)
+    (hω : ∃ r₁ r₂ : R, ω r₁ ≠ ω r₂) (b : R) :
+    ∃ p : R → R, DetW ω p = {b} := by
+  classical
+  obtain ⟨r₁, r₂, h⟩ := hω
+  have hc : ∃ c : R, ω c ≠ ω b := by
+    by_contra hcon
+    push_neg at hcon
+    exact h ((hcon r₁).trans (hcon r₂).symm)
+  obtain ⟨c, hcb⟩ := hc
+  refine ⟨fun r => if r = b then c else r, ?_⟩
+  ext r
+  by_cases hr : r = b <;> simp [DetW, hr, hcb]
+
+/-- **Proposition 10.7 (constants under a weak oracle).** The constant operator's detection set is the
+complement of the `ω`-class of `c`: `DetW ω (return c) = {r | ω c ≠ ω r}`. (Paper §10, Prop 10.7.) -/
+theorem detW_const {Ω : Type*} (ω : R → Ω) (c : R) :
+    DetW ω (fun _ => c) = {r | ω c ≠ ω r} := rfl
+
+/-- **Proposition 10.8 (pseudo-testedness, characterised).** For a covered method (`O ≠ ∅`), the constant
+mutant `return c` survives against `T` under `ω` while being non-`ω`-equivalent iff every observed output
+is `ω`-indistinguishable from `c` while some reachable output is not:
+`O ⊆ ω⁻¹(ω c)` and `I ⊄ ω⁻¹(ω c)`. (Paper §10, Prop 10.8.) -/
+theorem pseudo_tested_iff {Ω : Type*} (ω : R → Ω) (c : R) (I : Set R) (O : Finset R) :
+    (DetW ω (fun _ => c) ∩ (↑O : Set R) = ∅ ∧ (DetW ω (fun _ => c) ∩ I).Nonempty) ↔
+      ((↑O : Set R) ⊆ ω ⁻¹' {ω c} ∧ ¬ I ⊆ ω ⁻¹' {ω c}) := by
+  simp only [DetW, Set.eq_empty_iff_forall_notMem, Set.mem_inter_iff, Set.mem_setOf_eq,
+    Set.nonempty_def, Set.subset_def, Set.mem_preimage, Set.mem_singleton_iff, not_forall]
+  constructor
+  · rintro ⟨h1, x, hx, hxI⟩
+    refine ⟨fun r hr => ?_, x, hxI, fun h => hx h.symm⟩
+    by_contra h
+    exact h1 r ⟨fun h' => h h'.symm, hr⟩
+  · rintro ⟨h1, x, hxI, hx⟩
+    exact ⟨fun r ⟨hne, hr⟩ => hne (h1 r hr).symm, x, fun h => hx h.symm, hxI⟩
+
+/-- **Proposition 9.4 (pseudo-testedness, mixed oracle) — the corrected characterization.** The constant
+`return c` is *pseudo-tested* — non-equivalent under the EXACT oracle (`Mov ∩ I ≠ ∅`) yet ω-undetected on the
+observed set (`DetW ω ∩ O = ∅`) — iff every observed output is ω-indistinguishable from `c` while some
+reachable output genuinely differs. The non-equivalence conjunct uses `Mov`, not `DetW`: the paradigm
+pseudo-tested method is ω-*equivalent* (its returned value no assertion inspects), the case the narrow
+`pseudo_tested_iff` above excludes. Closed by Wayfinder → Aristotle (`sorries_remaining: 0`; axioms
+`[propext, Classical.choice, Quot.sound]`); not hand-authored. (Paper §9, Proposition 9.4.) -/
+theorem pseudo_tested_mixed_iff {Ω : Type*} (ω : R → Ω) (c : R) (I : Set R) (O : Finset R) :
+    (DetW ω (fun _ => c) ∩ (↑O : Set R) = ∅ ∧ (Mov (fun _ => c) ∩ I).Nonempty) ↔
+      ((↑O : Set R) ⊆ ω ⁻¹' {ω c} ∧ ¬ I ⊆ ({c} : Set R)) := by
+  rw [Set.eq_empty_iff_forall_notMem, Set.not_subset]
+  constructor
+  · rintro ⟨h1, r, hr1, hr2⟩
+    refine ⟨fun x hx => ?_, r, hr2, fun h => hr1 (Set.mem_singleton_iff.mp h).symm⟩
+    by_contra hne
+    exact h1 x ⟨fun h => hne (by simpa using h.symm), hx⟩
+  · rintro ⟨h1, r, hr, hrc⟩
+    refine ⟨?_, r, fun h => hrc (Set.mem_singleton_iff.mpr h.symm), hr⟩
+    rintro x ⟨hx1, hx2⟩
+    exact hx1 (by simpa using (h1 hx2).symm)
+
+/-! ### Remark 2.5 formal, the absolute corollaries lifted to operators, and the infinite-impossibility. -/
+
+/-- **Remark 2.5 (every subset is a footprint).** For `[Nontrivial R]`, every `S : Set R` equals `Mov p`
+for some output operator `p`. (Corrected construction: a fixed-point-free swap-to-`a` map restricted to `S`;
+no "|R|-cycle" is needed, which would be wrong for uncountable `R`.) -/
+theorem mov_surjective [Nontrivial R] (S : Set R) : ∃ p : R → R, Mov p = S := by
+  classical
+  obtain ⟨a, b, hab⟩ := exists_pair_ne R
+  refine ⟨fun x => if x ∈ S then (if x = a then b else a) else x, ?_⟩
+  ext x
+  simp only [Mov, Set.mem_setOf_eq]
+  constructor
+  · intro hne
+    by_contra hxS
+    exact hne (if_neg hxS)
+  · intro hxS
+    rw [if_pos hxS]
+    by_cases hxa : x = a
+    · rw [if_pos hxa, hxa]; exact hab.symm
+    · rw [if_neg hxa]; exact Ne.symm hxa
+
+/-- `Mov` maps the family of *all* operators onto the family of *all* footprints. -/
+theorem mov_image_univ [Nontrivial R] : Mov '' (Set.univ : Set (R → R)) = Set.univ := by
+  ext S
+  simp only [Set.mem_image, Set.mem_univ, true_and, iff_true]
+  exact mov_surjective S
+
+/-- **Cor 4.1, over operators.** A finite operator family is absolutely (program-level) complete iff it
+contains a value guard — an operator with singleton footprint `{b}` — for every `b`. -/
+theorem progComplete_absolute_iff_guards [Nontrivial R] [DecidableEq R] (Pi : Set (R → R)) (hfin : Pi.Finite) :
+    ProgComplete Pi Set.univ ↔ ∀ b : R, ∃ p ∈ Pi, Mov p = ({b} : Set R) := by
+  rw [progComplete_iff_complete, mov_image_univ, absolute_iff_guards _ (hfin.image Mov)]
+  constructor
+  · intro h b; exact h b
+  · intro h b; exact h b
+
+/-- **Thm 6.1, over operators.** A finite operator family with a value guard for every value is complete
+for *any* operator target — the coupling effect, at the program level. -/
+theorem progComplete_coupling [DecidableEq R] (Pi Gamma : Set (R → R)) (hfin : Pi.Finite)
+    (hguards : ∀ b : R, ∃ p ∈ Pi, Mov p = ({b} : Set R)) : ProgComplete Pi Gamma := by
+  rw [progComplete_iff_complete]
+  exact coupling _ _ (hfin.image Mov) (fun b => hguards b)
+
+/-- **The infinite-impossibility (footprint level).** On an infinite codomain, no finite footprint family
+is absolutely complete: absolute completeness demands a distinct singleton footprint per value. -/
+theorem complete_univ_infinite [Infinite R] (Pi : Set (Set R)) (hfin : Pi.Finite) :
+    ¬ Complete Pi Set.univ := by
+  rw [absolute_iff_guards Pi hfin]
+  intro h
+  have hinj : Function.Injective (fun b : R => ({b} : Set R)) := fun x y hxy => by simpa using hxy
+  have hsub : Set.range (fun b : R => ({b} : Set R)) ⊆ Pi := by rintro _ ⟨b, rfl⟩; exact h b
+  exact absurd hfin ((Set.infinite_range_of_injective hinj).mono hsub)
+
+/-- **Corollary (infinite-impossibility, over operators).** On an infinite codomain, **no finite
+output-operator family is absolutely adequacy-complete.** This is the ceiling with teeth: absolute
+output-mutation completeness is not merely expensive on large types — for a finite operator family it is
+*impossible*; only relative completeness for a chosen target class remains meaningful. -/
+theorem progComplete_univ_infinite [Nontrivial R] [Infinite R] [DecidableEq R] (Pi : Set (R → R)) (hfin : Pi.Finite) :
+    ¬ ProgComplete Pi Set.univ := by
+  rw [progComplete_iff_complete, mov_image_univ]
+  exact complete_univ_infinite _ (hfin.image Mov)
+
+/-- **Theorem 8.1, infinite companion.** If the reachable set is infinite, *no finite suite* achieves an
+absolute score of 1: certification requires observing every reachable output, impossible for a finite suite. -/
+theorem certify_infinite (I : Set R) (hI : I.Infinite) (O : Finset R) :
+    ¬ ScoreAt I O (Set.univ) := by
+  intro h
+  exact hI (O.finite_toSet.subset ((ceiling I O).mp h))
+
+/-! Audit counterexamples: semantic equivalence and finite observation are distinct. -/
+
+/-- A surviving Boolean guard can have an unreachable footprint, with no coverage gap. -/
+theorem surviving_guard_without_gap :
+    ScoreAt ({false} : Set Bool) {false} {{true}} ∧
+      ¬ ∃ b ∈ ({false} : Finset Bool), b ∈ ({true} : Set Bool) := by
+  simp [ScoreAt, Set.nonempty_def]
+
+/-- A proper sub-footprint meeting one point does not cover every target point. -/
+theorem one_subfootprint_is_insufficient :
+    ¬ Complete ({({0} : Set Nat)} : Set (Set Nat)) {({0, 1} : Set Nat)} := by
+  rw [footprint_characterization _ _ (Set.finite_singleton _)]
+  simp only [Set.mem_singleton_iff, forall_eq, Set.mem_insert_iff]
+  intro h
+  have bad := h 1 (by simp)
+  simp at bad
+
+/-- Full score against an empty-footprint regime is vacuous, even with no observations. -/
+theorem empty_footprints_score_without_observations (I : Set R) :
+    ScoreAt I ∅ {∅} := by
+  simp [ScoreAt, Set.nonempty_def]

@@ -1,0 +1,25 @@
+  … residual_input_route: tracing 4 function-routed tests
+  … residual_input_route: baseline traced · 4 tests · 0.0s
+  … residual_input_route: 1/7 mutants · 2.4/s · ETA estimating… (heartbeat)
+  … residual_input_route: 7/7 mutants · 16.4/s · done in 0.4s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  ▸ verifying reproducibility — fresh isolated observation of the function's proof basis…
+  … residual_input_route: tracing 4 function-routed tests
+  … residual_input_route: baseline traced · 4 tests · 0.0s
+──────────────────────────────────────────────────────────────────────────────
+Detective/cli.py::residual_input_route — converge · 7 behaviours · 7 pinned
+
+  · not consulted      1972 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_residual_input_route.txt
+
+DONE:  the suite pins every behaviour this function makes.
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/cli.py'          # the fuller style map for these regions
+         detective decompose 'Detective/cli.py::residual_input_route' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/cli.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/cli.py::residual_input_route' --budget)
+
+FINAL Detective/cli.py::residual_input_route: ✓ COMPLETE (operator universe) · 7/7 killed · minimal cover 3 test(s)

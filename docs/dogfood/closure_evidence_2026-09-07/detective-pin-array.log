@@ -1,0 +1,25 @@
+  … array_source_disposition: tracing 11 function-routed tests
+  … array_source_disposition: baseline traced · 11 tests · 0.0s
+  … array_source_disposition: 1/42 mutants · 2.2/s · ETA estimating… (heartbeat)
+  … array_source_disposition: 42/42 mutants · 69.2/s · done in 0.6s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  ▸ verifying reproducibility — fresh isolated observation of the function's proof basis…
+  … array_source_disposition: tracing 11 function-routed tests
+  … array_source_disposition: baseline traced · 11 tests · 0.0s
+──────────────────────────────────────────────────────────────────────────────
+Detective/array_inputs.py::array_source_disposition — converge · 42 behaviours · 42 pinned
+
+  · not consulted      2069 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_array_source_disposition.txt
+
+DONE:  the suite pins every behaviour this function makes.
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/array_inputs.py'          # the fuller style map for these regions
+         detective decompose 'Detective/array_inputs.py::array_source_disposition' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/array_inputs.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/array_inputs.py::array_source_disposition' --budget)
+
+FINAL Detective/array_inputs.py::array_source_disposition: ✓ COMPLETE (operator universe) · 42/42 killed · minimal cover 10 test(s)

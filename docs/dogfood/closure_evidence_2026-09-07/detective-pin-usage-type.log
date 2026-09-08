@@ -1,0 +1,39 @@
+  … usage_inferred_type: tracing 9 function-routed tests
+  … usage_inferred_type: baseline traced · 9 tests · 0.0s
+  … usage_inferred_type: 1/7 mutants · 1.6/s · ETA estimating… (heartbeat)
+  … usage_inferred_type: 7/7 mutants · 5.7/s · done in 1.2s
+  ▸ pass 0: 1 value-survivor(s) — synthesizing killing tests…
+  ▸ pass 0: +13 new killing test(s) written [test_Detective_call_sites_usage_inferred_type_26aa204942_synth.py]
+  … usage_inferred_type: tracing 22 function-routed tests
+  … usage_inferred_type: baseline traced · 22 tests · 0.0s
+  … usage_inferred_type: 7/7 mutants · 3.9/s · done in 1.8s
+  ▸ pass 1: 1 survivor(s) — no progress, at floor
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  … usage_inferred_type: tracing 22 function-routed tests
+  … usage_inferred_type: baseline traced · 22 tests · 0.0s
+  … usage_inferred_type: 7/7 mutants · 3.9/s · done in 1.8s
+  ▸ minimizing — dropped 13 redundant test(s) our own cover flagged
+  … usage_inferred_type: tracing 9 function-routed tests
+  … usage_inferred_type: baseline traced · 9 tests · 0.0s
+  … usage_inferred_type: 7/7 mutants · 5.8/s · done in 1.2s
+  ▸ 1 survivor(s) remain — classifying (killable / equivalent / needs-input)…
+──────────────────────────────────────────────────────────────────────────────
+Detective/call_sites.py::usage_inferred_type — converge · 7 behaviours · 6 pinned · 1 crash-only
+
+  · crash-only-equiv   1 — detected by crash; no value pins them
+  · not consulted      2122 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_usage_inferred_type.txt
+
+DONE:  every killable behaviour is pinned. What remains cannot be distinguished
+       by any input Detective found — whether it is truly equivalent is UNDECIDABLE
+       in general, so the engine will not claim it. Leave them; they are not a gap.
+       If you can prove one is: detective flag 'Detective/call_sites.py::usage_inferred_type' SWAP_9907377e --note "why"
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/call_sites.py'          # the fuller style map for these regions
+         detective decompose 'Detective/call_sites.py::usage_inferred_type' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/call_sites.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/call_sites.py::usage_inferred_type' --budget)
+
+FINAL Detective/call_sites.py::usage_inferred_type: ✓ COMPLETE (operator universe · modulo 1 crash-only value gap) · 7/7 killed · minimal cover 3 test(s)

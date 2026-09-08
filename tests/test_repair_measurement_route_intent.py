@@ -27,18 +27,17 @@ def test_each_typed_reason_routes_to_its_own_remedy():
     assert repair_measurement_route(("budget_exhausted",), False, False) == "deadline"
     # A genuine trace cut keeps the (now residual, not catch-all) trace-budget remedy.
     assert repair_measurement_route(("coverage_truncated",), False, False) == "trace_budget"
-    assert repair_measurement_route(("sampled_universe",), False, False) == "trace_budget"
-    assert repair_measurement_route(("uncontained_worker",), False, False) == "trace_budget"
-    assert repair_measurement_route(("engine_refused_unspecified",), False, False) == "trace_budget"
+    assert repair_measurement_route(("sampled_universe",), False, False) == "enumerate"
+    assert repair_measurement_route(("uncontained_worker",), False, False) == "isolate"
+    assert repair_measurement_route(("engine_refused_unspecified",), False, False) == "inspect_refusal"
 
 
 def test_raw_boolean_fallbacks_preserve_prior_behaviour_for_older_results():
     # An engine that reports the boolean but not the typed reason (older Wesker, #60) still routes.
     assert repair_measurement_route((), True, False) == "regime"  # collection_conflicts
     assert repair_measurement_route((), False, True) == "deadline"  # budget_exhausted
-    # No reason at all (an engine too old to report cut_reasons) degrades to trace_budget — exactly
-    # the previous default, so nothing that never reported a reason changes behaviour.
-    assert repair_measurement_route((), False, False) == "trace_budget"
+    # Missing reasons do not justify a fabricated budget diagnosis.
+    assert repair_measurement_route((), False, False) == "inspect_refusal"
 
 
 def test_precedence_most_blocking_first():

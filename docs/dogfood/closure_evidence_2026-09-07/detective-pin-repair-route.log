@@ -1,0 +1,42 @@
+  ▸ recalled 5 supplied input(s) from a previous run
+  … repair_measurement_route: tracing 5 function-routed tests
+  … repair_measurement_route: baseline traced · 5 tests · 0.0s
+  … repair_measurement_route: 1/48 mutants · 1.6/s · ETA estimating… (heartbeat)
+  … repair_measurement_route: 33/48 mutants · 1.5/s · ETA ~10s (heartbeat)
+  … repair_measurement_route: 48/48 mutants · 2.1/s · done in 22.7s
+  ▸ pass 0: 2 value-survivor(s) — synthesizing killing tests…
+  ▸ pass 0: +14 new killing test(s) written [test_Detective_cli_repair_measurement_route_b8b7274262_synth.py]
+  … repair_measurement_route: tracing 19 function-routed tests
+  … repair_measurement_route: baseline traced · 19 tests · 0.0s
+  … repair_measurement_route: 48/48 mutants · 2.1/s · done in 23.1s
+  ▸ pass 1: 2 survivor(s) — no progress, at floor
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  … repair_measurement_route: tracing 19 function-routed tests
+  … repair_measurement_route: baseline traced · 19 tests · 0.0s
+  … repair_measurement_route: 48/48 mutants · 2.1/s · done in 23.1s
+  ▸ minimizing — dropped 14 redundant test(s) our own cover flagged
+  … repair_measurement_route: tracing 5 function-routed tests
+  … repair_measurement_route: baseline traced · 5 tests · 0.0s
+  … repair_measurement_route: 48/48 mutants · 2.1/s · done in 22.8s
+  ▸ 2 survivor(s) remain — classifying (killable / equivalent / needs-input)…
+──────────────────────────────────────────────────────────────────────────────
+Detective/cli.py::repair_measurement_route — converge · 48 behaviours · 46 pinned · 2 candidate-equivalent
+
+  · unproven-equiv     2 — no input distinguishes them
+  ⚠ structural         a survivor above may be KILLABLE, not equivalent — confirm over a nested/cross-referential --input (or a branch no input reached) before you `flag` (full report)
+  · not consulted      1988 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_repair_measurement_route.txt
+
+DONE:  every killable behaviour is pinned. What remains cannot be distinguished
+       by any input Detective found — whether it is truly equivalent is UNDECIDABLE
+       in general, so the engine will not claim it. Leave them; they are not a gap.
+       If you can prove one is: detective flag 'Detective/cli.py::repair_measurement_route' VALUE_044a4218 --note "why"  (1 more in the report)
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/cli.py'          # the fuller style map for these regions
+         detective decompose 'Detective/cli.py::repair_measurement_route' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/cli.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/cli.py::repair_measurement_route' --budget)
+
+FINAL Detective/cli.py::repair_measurement_route: ✓ COMPLETE (operator universe · modulo 2 unproven-equivalent) · 48/48 killed · minimal cover 3 test(s)

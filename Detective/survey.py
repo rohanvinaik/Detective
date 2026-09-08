@@ -138,7 +138,11 @@ def _references_names(func: ast.FunctionDef | ast.AsyncFunctionDef, names: froze
     so scanning Name nodes covers attribute access too.)"""
     if not names:
         return False
-    return any(isinstance(node, ast.Name) and node.id in names for node in ast.walk(func))
+    return any(
+        isinstance(node, ast.Name) and node.id in names
+        for statement in func.body
+        for node in ast.walk(statement)
+    )
 
 
 def _param_inexpressible(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -199,6 +203,15 @@ def survey_source(source: str) -> list[SurveyFinding]:
     return findings
 
 
+def survey_scan_status(scanned: int, failed: int) -> str:
+    """Name what was examined without promoting omission to clean (#D, pure — pinned)."""
+    if failed:
+        return "incomplete"
+    if not scanned:
+        return "empty"
+    return "observed"
+
+
 def render_survey(path: str, findings: list[SurveyFinding]) -> list[str]:
     """The `detective survey` report — advisory, writes nothing."""
     total = len(findings)
@@ -206,7 +219,8 @@ def render_survey(path: str, findings: list[SurveyFinding]) -> list[str]:
         return [
             f"{path} — survey · 0 trapped pure decisions   (static advisory)",
             "",
-            "  ✓ nothing trapped   every pure decision here is already --input-reachable",
+            "  No trap detected within this static scan.",
+            "  Unresolved types and ambiguous uses are not proved --input-reachable.",
         ]
     by_disp: dict[str, int] = {}
     for f in findings:

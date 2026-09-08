@@ -1,0 +1,25 @@
+  … survey_scan_status: tracing 3 function-routed tests
+  … survey_scan_status: baseline traced · 3 tests · 0.0s
+  … survey_scan_status: 1/7 mutants · 2.0/s · ETA estimating… (heartbeat)
+  … survey_scan_status: 7/7 mutants · 13.6/s · done in 0.5s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  ▸ verifying reproducibility — fresh isolated observation of the function's proof basis…
+  … survey_scan_status: tracing 3 function-routed tests
+  … survey_scan_status: baseline traced · 3 tests · 0.0s
+──────────────────────────────────────────────────────────────────────────────
+Detective/survey.py::survey_scan_status — converge · 7 behaviours · 7 pinned
+
+  · not consulted      2087 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_survey_scan_status.txt
+
+DONE:  the suite pins every behaviour this function makes.
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/survey.py'          # the fuller style map for these regions
+         detective decompose 'Detective/survey.py::survey_scan_status' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/survey.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/survey.py::survey_scan_status' --budget)
+
+FINAL Detective/survey.py::survey_scan_status: ✓ COMPLETE (operator universe) · 7/7 killed · minimal cover 3 test(s)

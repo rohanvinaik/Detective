@@ -22,9 +22,9 @@ from Detective.call_sites import _param_usages, usage_inferred_type
 # ------------------------------------------------------------------ usage_inferred_type (pure decision)
 
 
-def test_a_tuple_subscript_means_ndarray():
-    # `p[i, j]` — a Python list/str/dict RAISES on a tuple index; only ndarray/DataFrame accept it.
-    assert usage_inferred_type(("subscript", "subscript_tuple")) == "ndarray"
+def test_a_tuple_subscript_also_accepts_a_literal_dictionary():
+    assert {(0, 0): 7}[0, 0] == 7
+    assert usage_inferred_type(("subscript", "subscript_tuple")) == ""
 
 
 def test_array_attributes_mean_ndarray():
@@ -49,9 +49,8 @@ def test_ambiguous_or_empty_usage_is_no_guess():
     assert usage_inferred_type(("subscript", "subscript_int")) == ""  # p[0] — list-like, not tuple idx
 
 
-def test_ndarray_outranks_a_coincidental_str_method_tag():
-    # If both fire (unlikely), the tuple-subscript is the stronger signal.
-    assert usage_inferred_type(("subscript_tuple", "call:split")) == "ndarray"
+def test_ambiguous_subscript_does_not_override_a_method_signal():
+    assert usage_inferred_type(("subscript_tuple", "call:split")) == "str"
 
 
 # ------------------------------------------------------------------ _param_usages (AST extractor)
@@ -93,7 +92,7 @@ def test_plain_arithmetic_yields_only_low_signal_tags():
 
 def test_gofl_update_cell_step_infers_ndarray():
     fn = _fn("def update_cell(step, xy):\n    return step[xy[0], xy[1]]\n")
-    assert usage_inferred_type(_param_usages(fn, "step")) == "ndarray"
+    assert usage_inferred_type(_param_usages(fn, "step")) == ""
 
 
 def test_str2bool_v_infers_str():

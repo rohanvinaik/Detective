@@ -70,7 +70,7 @@ priors:
     role: >
       the theory librarian this system is modelled on; the entry form
       (what / commitment / sketch / read) and the entry point for the whole corpus
-    sha256: 9b819e6fb7b8f7637799cf04c2b03e144068e4c64e5905149f7a9bd288e3d945
+    sha256: 58444beb31c06a413969ce00561b7bdd712ad51549c964853b897267e3dd7816
     cited_by: [docs/theory/GLOSSARY.md]
 
 # ─── Primary sources held as PDFs in the ARC_AGI_3 corpus ───
@@ -107,14 +107,14 @@ priors:
       the advisory/proof separation this work inherits — the signal points WHERE,
       the proof decides WHETHER; the invariant that an advisory channel cannot
       cause a write
-    sha256: d35a1b90ec67ec4041d5215b1b123368a90916df1cc58df0ba050515814e33d2
+    sha256: 97c0e962b9e2c20385889e7faca507431edbd143c2f35e7282153f786f7d4fa3
     cited_by: [docs/theory/NEGATIVE_SPECIFICATION.md, docs/theory/GLOSSARY.md]
 
   - id: negative-specification
     path: docs/theory/NEGATIVE_SPECIFICATION.md
     root: local
     role: the theory document this manifest serves
-    sha256: a9ef1bbfc091e8799c42168c261950b959ea77325d53bd0e28348876b5aba64b
+    sha256: 9ed85a457f06a3a58f2847845b9e0984cbd1e71a137daaca8e32b408197e4d25
     cited_by: [docs/theory/GLOSSARY.md, docs/theory/CONSTRAINT_BLOCK.md]
 
   - id: negative-spec-glossary

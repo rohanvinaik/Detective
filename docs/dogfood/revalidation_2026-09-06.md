@@ -336,3 +336,12 @@ SECONDARY source; the primary is the non-deterministic survivor SET. Fix directi
 measurement reproducible given a fixed suite — isolate the profile, or seed/stabilize the in-process scoring,
 so converge and audit classify the SAME set); founder call on soundness-vs-UX. NOTE: the memory should be
 corrected — flagged to founder, not edited unilaterally.
+
+
+## 2026-09-07 audit closure follow-through
+
+The finding-by-finding disposition, symbolic traces, conditional pin receipts, and formal
+artifact checks are recorded in [the closure report](audit_closure_2026-09-07.md).
+The [operational handoff](CLOSURE_HANDOFF.md) records the latest full-suite status and
+reproduction commands. These later results supplement this historical ledger; they do not
+retroactively turn its observations into formal correctness or equivalence proofs.

@@ -74,6 +74,7 @@ class SourceExpr:
     value: Any
     expr: str
     imports: tuple[str, ...] = ()
+    copy_on_use: bool = False  # internally constructed mutable witnesses need independent trials
 
     def __repr__(self) -> str:  # the source seam: repr(arg) -> constructor code
         return self.expr
@@ -92,6 +93,10 @@ def unwrap(arg: Any) -> Any:
     with no carriers anywhere is returned as-is, identity intact.
     """
     if isinstance(arg, SourceExpr):
+        if arg.copy_on_use:
+            import copy
+
+            return copy.deepcopy(arg.value)
         return unwrap(arg.value)
     if isinstance(arg, (list, tuple, set, frozenset)):
         items = [unwrap(a) for a in arg]
@@ -862,7 +867,11 @@ def bounded_product(grids: list[list], cap: int = 32) -> list[tuple]:
     for i in range(longest):
         for r in range(3):
             row = tuple(grid[(i + r * j) % len(grid)] for j, grid in enumerate(grids))
-            if row not in rows:
+            try:
+                duplicate = row in rows
+            except Exception:  # noqa: BLE001 — opaque equality cannot justify dropping a candidate
+                duplicate = False
+            if not duplicate:
                 rows.append(row)
             if len(rows) >= cap:
                 return rows
@@ -1617,6 +1626,9 @@ class SurvivorReport:
     # `note`) so the reader runs under an interpreter that has the deps. Kept structured so the
     # next-action decision routes on the fact, never by matching the note's prose.
     load_failed: bool = False
+    # The exact measurement being classified must admit a certificate; a report alone
+    # is not evidence that profiling succeeded (audit B/E).
+    measurement_valid: bool = True
 
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:

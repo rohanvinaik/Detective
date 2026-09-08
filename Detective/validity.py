@@ -29,18 +29,27 @@ import dataclasses
 # Bumped when the MEANING of a field changes, so a stored receipt cannot be read under a
 # different contract than the one that produced it. Additive fields do not require a bump;
 # a changed reason vocabulary does.
-MEASUREMENT_VALIDITY_SCHEMA = 1
+MEASUREMENT_VALIDITY_SCHEMA = 2
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
 # requirement that "identical cut reasons" is stated in.
 CUT_REASONS: tuple[str, ...] = (
+    "target_load_failed",
     "budget_exhausted",
     "uncontained_worker",
     "coverage_truncated",
     "sampled_universe",
     "collection_incomplete",
     "ambiguous_module_identity",
+    "nonreproducible_in_process",
+    "invalid_verification",
+    "cached_verification",
+    "unknown_verification_basis",
+    "verification_basis_changed",
+    "verification_failed",
+    "verification_universe_changed",
+    "mutant_evaluation_failed",
     "engine_refused_unspecified",
 )
 
@@ -53,12 +62,29 @@ def measurement_cut_reasons(
     containment: str,
     identity_ambiguous: bool,
     collection_incomplete: bool = False,
+    evaluation_failed: bool = False,
+    target_load_failed: bool = False,
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
     Plural on purpose. A run can be cut for more than one reason at once, and reporting only the
     first makes the second invisible to whoever fixes the first — they re-run, hit the next
     refusal, and have no way to know it was always there.
+
+    ``target_load_failed`` is FIRST because nothing downstream of it is meaningful: if the module
+    would not import, no mutant was ever evaluated, so every count on the run describes an empty
+    observation. Before this reason existed, that state produced NO cut reason at all — validity
+    stayed gateable, `certificate_standing` read clean, and converge's routing passed all three
+    standing guards and asked the operator to author inputs for a module that cannot load.
+    Observed 2026-09-08 on conorheins ``str2bool``: 0/27 killed, 27 unclassified, **exit 0**.
+    Worse and reachable by inspection: a load-failed target with no static line gap satisfies
+    `not (has_killable or has_line_gap)` and returns ``settled`` — DONE over a run that measured
+    nothing.
+
+    The fact was not unavailable, only uncarried: `audit` already ANDed a local `_load_failed`
+    into its own completeness, which is precisely the "re-derive a narrower proxy" shape this
+    module exists to end. One object carries it now, so every consumer reads the same refusal
+    instead of each re-deriving its own.
 
     ``collection_incomplete`` is the "degrade loudly" enforcement for the test FLOOR: a test file
     that failed to COLLECT (an ImportError at collection — a torch dep, a broken conftest) is
@@ -78,6 +104,8 @@ def measurement_cut_reasons(
     same way produce byte-identical output on every surface.
     """
     reasons: list[str] = []
+    if target_load_failed:
+        reasons.append("target_load_failed")
     if budget_exhausted:
         reasons.append("budget_exhausted")
     if containment == "uncontained":
@@ -90,6 +118,8 @@ def measurement_cut_reasons(
         reasons.append("collection_incomplete")
     if identity_ambiguous:
         reasons.append("ambiguous_module_identity")
+    if evaluation_failed:
+        reasons.append("mutant_evaluation_failed")
     if reported_gateable and not gateable and not reasons:
         reasons.append("engine_refused_unspecified")
     return tuple(reasons)
@@ -112,6 +142,10 @@ def cut_reason_sentence(reason: str) -> str:
     reason must degrade to visible-but-unrecognised.
     """
     return {
+        "target_load_failed": "the target module could not be imported, so no mutant was ever"
+        " evaluated and every count on this run describes an empty observation — run under an"
+        " interpreter that has the module's dependencies; no --input, --deadline or regime"
+        " migration substitutes for an import that fails",
         "budget_exhausted": "the aggregate deadline was exhausted, so the universe was never fully measured",
         "uncontained_worker": "a timed-out worker could not be stopped, so later phases"
         " shared a process with it",
@@ -120,6 +154,18 @@ def cut_reason_sentence(reason: str) -> str:
         "collection_incomplete": "one or more test files failed to collect (an import error), so the"
         " routed suite is missing tests the layout implies — fix the collection errors and re-run",
         "ambiguous_module_identity": "the live collection resolved one module name to more than one file",
+        "nonreproducible_in_process": "the in-process mutant universe did not reproduce under isolated "
+        "evaluation — COMPLETE is withheld; re-measure with --isolated, preserving the same inputs and tests",
+        "invalid_verification": "the required verification measurement was invalid; "
+        "resolve its reported reasons",
+        "cached_verification": "verification replayed cached evidence instead of making a fresh observation",
+        "unknown_verification_basis": "verification did not identify the function and test basis it measured",
+        "verification_basis_changed": "the function or test basis changed between the two measurements",
+        "verification_failed": "the required verification measurement could not run; "
+        "no certificate was issued",
+        "verification_universe_changed": "the verification did not account for the same mutation obligations",
+        "mutant_evaluation_failed": "one or more mutations could not be evaluated "
+        "because the harness failed; repair the measurement before claiming adequacy",
         "engine_refused_unspecified": "the engine refused to gate this measurement without naming a reason",
     }.get(reason, f"an unrecognised engine refusal ({reason})")
 
@@ -152,8 +198,20 @@ class MeasurementValidity:
 _ABSENT = object()
 
 
-def normalize_validity(result: object, engine_version: str = "") -> MeasurementValidity:
+def normalize_validity(
+    result: object, engine_version: str = "", load_failed: bool = False
+) -> MeasurementValidity:
     """Adapt a Wesker profiling result into ONE Detective validity object.
+
+    ``load_failed`` is supplied by the caller, not read off ``result``, because it is not a
+    Wesker fact: the engine profiles fine (mutants are generated from the AST without importing
+    anything), and the import failure is only discovered later, by Detective's own
+    ``classify_survivors``. It rides here — beside ``engine_version``, the other non-result
+    input — so the ONE validity object carries it and every consumer reads the same refusal.
+    Before this, `audit` ANDed a local ``not _load_failed`` into its own completeness while
+    `converge` had no equivalent, so the same measurement was ungateable on one surface and
+    clean on the other. Defaults False: a caller that does not know keeps the previous behaviour
+    exactly (#60).
 
     THE ADAPTER IS THE CAPABILITY MATRIX. Each field is read with an explicit absent-sentinel so
     "the engine did not report this" is distinguishable from "the engine reported a falsy value"
@@ -209,15 +267,10 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
     if execution_mode_raw is _ABSENT:
         missing.append("execution_mode")
 
-    # In-process mutant EVALUATION shares the target module's mutable state across mutants, so a
-    # borderline mutant's SCORED disposition (crash-kill vs unscored) is not reproducible run-to-run
-    # — the mutant-universe COUNT / kill% is an in-process ESTIMATE, not an exact figure. This flags
-    # the NUMBER, never the specification: the value-kill PROOF the certificate rests on IS exact and
-    # deterministic (`certificate_standing` reads killable/unclassified survivors, not the count). The
-    # isolated worker (#19) has fresh per-mutant state and is exact, so it is NOT flagged. Found
-    # dogfooding python-slugify: total 133 vs 140 at a FIXED hash seed. A consumer reads this to
-    # present the universe count as `≈`, never as a precise gateable measurement — and it does NOT
-    # refuse the certificate (it is not a cut reason): the proof is gateable, the count is an estimate.
+    # Shared interpreter state can change scored obligations as well as counts. The
+    # approximate label is advisory; converge's independent isolated observation is
+    # the certificate gate. Isolation contains execution but does not decide arbitrary
+    # determinism or equivalence, and recycled workers need not be fresh per mutant.
     approximate: list[str] = []
     if execution_mode == "in_process":
         approximate.append("approximate:mutant_universe")
@@ -230,6 +283,12 @@ def normalize_validity(result: object, engine_version: str = "") -> MeasurementV
         containment=containment,
         identity_ambiguous=identity_ambiguous,
         collection_incomplete=collection_incomplete,
+        evaluation_failed=any(
+            bool(getattr(category, "unscored_by", {}).get(reason, 0))
+            for category in (getattr(result, "per_category", ()) or ())
+            for reason in ("harness_error", "not_installed", "not_entered")
+        ),
+        target_load_failed=bool(load_failed),
     )
     return MeasurementValidity(
         gateable=gateable,

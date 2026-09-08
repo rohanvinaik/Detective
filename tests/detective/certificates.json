@@ -1,4 +1,9 @@
 {
+  "Detective/array_inputs.py::array_source_disposition": {
+    "function_digest": "2a1b458f44f19f8f",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/binding.py::classify_target": {
     "function_digest": "b23ec4f2f66218df",
     "refusal": "",
@@ -11,6 +16,11 @@
   },
   "Detective/budget.py::ladder_kinds": {
     "function_digest": "32836902ee8bf1e9",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/call_sites.py::usage_inferred_type": {
+    "function_digest": "307b6f41b7996c68",
     "refusal": "",
     "standing": "complete"
   },
@@ -29,8 +39,38 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::measurement_block_route": {
+    "function_digest": "039a79c196da373c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::repair_measurement_route": {
+    "function_digest": "4fc2cc7aceec2d4d",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::residual_input_route": {
+    "function_digest": "677f51e538afeab7",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/converge.py::regression_recovery": {
     "function_digest": "7e75a398531f11cd",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/converge.py::reproducibility_verdict": {
+    "function_digest": "5b23e08763feb8dc",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/converge.py::should_verify_reproducibility": {
+    "function_digest": "af57a72aa9be2a45",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/converge.py::verification_disposition": {
+    "function_digest": "88e3b0c341240d8a",
     "refusal": "",
     "standing": "complete"
   },
@@ -44,6 +84,16 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/extract.py::extract_readiness": {
+    "function_digest": "70b63c783f4524cd",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/extract.py::extraction_target_status": {
+    "function_digest": "b3a20220a93383da",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/judgments.py::judgment_standing": {
     "function_digest": "9134e00bbdc6aa17",
     "refusal": "",
@@ -51,6 +101,26 @@
   },
   "Detective/judgments.py::style_flag_refusal": {
     "function_digest": "612b54104cb2461f",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/ledger.py::environment_drift_disposition": {
+    "function_digest": "4fffb949cc24ccd6",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/ledger.py::order_disposition": {
+    "function_digest": "82f615f042e747ba",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/ledger.py::outcome_disposition": {
+    "function_digest": "3ca510f4e82a2cc7",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/ledger.py::spiral_disposition": {
+    "function_digest": "f2918e7a16dd18d9",
     "refusal": "",
     "standing": "complete"
   },
@@ -99,9 +169,39 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/rewrite.py::rewrite_classification_status": {
+    "function_digest": "dc18ab182c1b1ba2",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/rewrite.py::verify_rewrite_note_shown": {
+    "function_digest": "603bc0092a30df7f",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/rewrite.py::verify_rewrite_replay_row_shown": {
+    "function_digest": "695bdafab6494fa4",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/survey.py::survey_scan_status": {
+    "function_digest": "6d69b58096ee114e",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/synthesis/typed_synthesis.py::_extract": {
     "function_digest": "7cd9190bc2dabe35",
     "refusal": "",
     "standing": "complete"
+  },
+  "Detective/validity.py::cut_reason_sentence": {
+    "function_digest": "9b6852d884447520",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/validity.py::measurement_cut_reasons": {
+    "function_digest": "04b9112787657331",
+    "refusal": "",
+    "standing": "ungateable"
   }
 }

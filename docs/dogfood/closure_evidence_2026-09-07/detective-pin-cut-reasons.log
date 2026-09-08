@@ -1,0 +1,26 @@
+  ▸ recalled 1 supplied input(s) from a previous run
+  … measurement_cut_reasons: tracing 15 function-routed tests
+  … measurement_cut_reasons: baseline traced · 15 tests · 0.0s
+  … measurement_cut_reasons: 1/35 mutants · 1.5/s · ETA estimating… (heartbeat)
+  … measurement_cut_reasons: 35/35 mutants · 8.9/s · done in 3.9s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  … measurement_cut_reasons: tracing 15 function-routed tests
+  … measurement_cut_reasons: baseline traced · 15 tests · 0.0s
+  … measurement_cut_reasons: 35/35 mutants · 9.1/s · done in 3.9s
+──────────────────────────────────────────────────────────────────────────────
+Detective/validity.py::measurement_cut_reasons — converge · 35 behaviours · 35 pinned
+
+  · not consulted      2068 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_measurement_cut_reasons.txt
+
+DONE:  the suite pins every behaviour this function makes.
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Detective/validity.py'          # the fuller style map for these regions
+         detective decompose 'Detective/validity.py::measurement_cut_reasons' --apply  # split it where behaviour is proven preserved
+         detective survey 'Detective/validity.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Detective/validity.py::measurement_cut_reasons' --budget)
+
+FINAL Detective/validity.py::measurement_cut_reasons: ✓ COMPLETE (operator universe) · 35/35 killed · minimal cover 6 test(s)

@@ -1,0 +1,1274 @@
+\documentclass[runningheads,envcountsect,envcountsame]{llncs}
+
+\usepackage{amsmath,amssymb}
+\usepackage[expansion=false]{microtype}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\renewcommand\UrlFont{\color{blue}\rmfamily}
+
+
+\newcommand{\Mov}{\mathrm{Mov}}
+\newcommand{\Det}{\mathrm{Det}}
+\newcommand{\DetW}{\mathrm{Det}_{\omega}}
+\newcommand{\Foot}{\mathrm{Foot}}
+\newcommand{\score}{\mathrm{score}}
+\newcommand{\TR}{\mathcal{T}(R)}
+
+\begin{document}
+
+\title{What a Mutation Score Certifies}
+\subtitle{Adequacy-Completeness for Output Mutation}
+\titlerunning{What a Mutation Score Certifies}
+
+\author{Author Name}
+\authorrunning{A. Author}
+\institute{Affiliation, City, Country \\ \email{author@example.org}}
+
+\maketitle
+
+\begin{abstract}
+Mutation testing scores a test suite by the fraction of seeded faults it
+distinguishes, and a score of $1$ is read as evidence of adequacy. \emph{Adequate
+for what} has never been answered: the field's formal results characterise
+operator sets relative to a fixed program text or a fixed test suite, and its
+bridge from seeded faults to real ones rests on the coupling-effect hypothesis.
+We give a completeness notion that is neither program- nor suite-relative, for
+the class of \emph{output mutation} operators (perturb the returned value;
+extreme or Descartes-style mutation is the constant special case). For adequacy
+such an operator is exactly its \emph{footprint}, the set of values it changes.
+We call a family $\Pi$ adequacy-complete for a target family $\Gamma$ when, for
+every program and every suite, killing all non-equivalent $\Pi$-mutants forces
+killing all non-equivalent $\Gamma$-mutants, and prove an exact
+characterisation: completeness holds iff every target footprint is the union of
+the $\Pi$-footprints it contains. Consequences: the minimal absolutely complete
+family on $n$ values consists of the $n$ singleton \emph{value guards}, and none
+is finite on an infinite return type; a full absolute score certifies exactly
+output coverage and nothing more; first-order completeness does not entail
+higher-order completeness; completeness is decidable exactly when footprint
+containment is; and the minimum certifying suite has size $|f(D)|$. The
+development relativises to a weak oracle, yielding a precise characterisation of
+pseudo-tested methods that an empirical study of five Python libraries bears out:
+$43\%$ of covered methods are pseudo-tested under a value oracle against only
+$6\%$ under a crash-inclusive one. The core is mechanised in Lean~4 / Mathlib.
+
+\keywords{Mutation testing \and Test adequacy \and Operator completeness \and
+Extreme mutation \and Interactive theorem proving}
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Mutation testing~\cite{demillo1978,hamlet1977} seeds a program with small faults
+---\emph{mutants}---and measures a test suite by the fraction it \emph{kills},
+i.e.\ distinguishes from the original. A mutation score of $1$ is the field's
+adequacy certificate, and it is used as one: tools report it, teams gate on it,
+and a growing body of work uses it to judge machine-generated code.
+
+The certificate's strength rests entirely on the operator family. A score of $1$
+says that no fault \emph{the operators can express} survived, and says nothing
+about faults they cannot express. Two questions follow, and neither has a clean
+answer in the literature.
+
+\paragraph{What does a score of 1 certify?}
+Not correctness. The bridge from ``no seeded fault survives'' to ``no real fault
+survives'' is the \emph{coupling-effect hypothesis}~\cite{demillo1978} and the
+\emph{competent-programmer hypothesis}, both stated as motivating assumptions and
+supported empirically~\cite{offutt1992,jia2011,just2014} rather than proven.
+
+\paragraph{When is an operator family complete?}
+The strongest available results are relative by construction. \emph{Sufficient}
+operator sets~\cite{offutt1996} are determined experimentally against a chosen
+operator pool. \emph{Minimal} mutant sets and \emph{dominator}
+mutants~\cite{ammann2014} are minimal relative to a fixed test set and an
+already-generated pool. \emph{True} (semantic) mutant subsumption---the order
+against which a completeness theorem would rank---is undecidable~\cite{kurtz2015},
+and the foundational treatment of mutation adequacy~\cite{budd1982} likewise
+establishes undecidability of the associated decision problems rather than a
+characterisation.
+
+The relativity is not an oversight. A program-text mutation \emph{schema} carries
+no operator-only invariant that fixes its detection uniformly across programs:
+the mutant it produces depends on the \emph{source text} of the program, not on
+the function the program computes, so ``does schema $X$ subsume schema $Y$'' has
+no program-independent answer (Section~\ref{sec:progindep}). Any completeness
+notion for program-text operators must therefore quantify over programs
+\emph{and} their texts, which is what forces the prior results to be
+relative-by-construction.
+
+\subsection{Approach}
+
+We restrict attention to a sub-class that does admit an operator-only invariant:
+\textbf{output mutation}, operators that perturb the value a function returns,
+independent of how the function computes it. Extreme mutation---replacing a
+method body with \texttt{return c}, as implemented in
+Descartes~\cite{niedermayr2016,veraperez2018}---is the constant special case.
+
+For this class we define completeness by \emph{what a kill certifies}, quantified
+over all programs and all suites:
+
+\begin{quote}
+A family $\Pi$ is \textbf{adequacy-complete for a target family $\Gamma$} iff,
+for every program and every finite suite, a mutation score of $1$ against $\Pi$
+forces a mutation score of $1$ against $\Gamma$.
+\end{quote}
+
+Both relativities of the prior results are quantified away by the definition. The
+resulting theory is governed by a single combinatorial object---the
+\emph{footprint} of an operator, the set of values it changes---and reduces to
+set containment.
+
+\subsection{Contributions}
+
+\begin{enumerate}
+\item \textbf{The footprint reduction} (Section~\ref{sec:model}): for adequacy
+purposes an output operator \emph{is} its footprint; equivalence and killing
+depend only on which values the operator moves, never on where it sends them.
+
+\item \textbf{A characterisation theorem} (Section~\ref{sec:char}): $\Pi$ is
+adequacy-complete for $\Gamma$ iff every target footprint is the union of the
+$\Pi$-footprints contained in it. We give the theorem for finite $\Pi$
+(mechanised) and in a general form covering infinite families.
+
+\item \textbf{The value-guard basis and the finite/infinite dichotomy}
+(Section~\ref{sec:absolute}): on $n$ values the minimal absolutely complete family
+has size exactly $n$, consisting of the singleton \emph{value guards}; on an
+infinite return type no finite output-operator family is absolutely complete.
+Descartes-style constants are complete iff $n = 2$.
+
+\item \textbf{The ceiling} (Section~\ref{sec:absolute}): a full absolute score
+holds exactly when the suite exercises every reachable output. This is the whole
+operational content of output mutation, and it delimits the technique as much as
+it licenses it.
+
+\item \textbf{Relative completeness and its decidability}
+(Section~\ref{sec:relative}): completeness reduces to footprint containment,
+giving a P / decidable / undecidable spectrum that runs through set containment
+rather than through algebraic word problems.
+
+\item \textbf{Higher-order mutants} (Section~\ref{sec:ho}): first-order
+completeness does not entail higher-order completeness; the only positive
+statement is degenerate.
+
+\item \textbf{Program independence} (Section~\ref{sec:progindep}):
+output-mutant detection factors through the footprint, which is exactly why a
+program-independent completeness notion is available here and not for
+program-text schemas.
+
+\item \textbf{The minimum certifying suite} (Section~\ref{sec:suite}): the
+cheapest certifying suite has size $|f(D)|$, the teaching dimension of the
+program against the operator family.
+
+\item \textbf{Relativisation to a weak oracle} (Section~\ref{sec:oracle}): the
+entire development goes through with the footprint replaced by an
+oracle-relative detection set, yielding a precise characterisation of
+pseudo-tested methods.
+\end{enumerate}
+
+The results of Sections~\ref{sec:model}--\ref{sec:suite} and the reduction from
+programs and finite suites down to footprints are mechanised in Lean~4 /
+Mathlib. Section~\ref{sec:mech} states exactly which results are machine-checked
+and which are paper proofs.
+
+\subsection{What this paper does not claim}
+\label{sec:notclaim}
+
+The account is bounded, and the bounds are load-bearing rather than decorative.
+It concerns output mutation of pure total functions; it does not extend to
+general program-text mutation, and we make no claim about the coupling hypothesis
+for program-text faults. Sections~\ref{sec:scope} and~\ref{sec:threats} state the
+model's assumptions and their consequences in full. The central quantitative
+result---that a full absolute score is equivalent to output coverage---is
+deliberately modest, and it implies that a tool gains no information from running
+an absolutely complete output-operator family rather than measuring output
+coverage directly. The contribution is a characterisation of what such a score
+means, not a recommendation to compute it.
+
+\section{Background and Related Work}
+\label{sec:related}
+
+\paragraph{Mutation testing.}
+The technique originates with~\cite{demillo1978} and~\cite{hamlet1977};
+\cite{jia2011} and~\cite{papadakis2019} survey its development. Its justification
+rests on two hypotheses: the \emph{competent-programmer hypothesis}, that real
+faults are close to correct programs, and the \emph{coupling effect}, that suites
+detecting simple faults tend to detect complex ones. The coupling effect has
+substantial empirical support~\cite{offutt1992,just2014} and no general proof.
+
+\paragraph{Formal treatments.}
+Budd and Angluin~\cite{budd1982} give the foundational formal analysis of
+mutation adequacy, relating notions of correctness to testing and establishing
+undecidability results for the associated decision problems. Their results are
+undecidability theorems about a general setting, not a characterisation of which
+operator families make a passing score adequate; the present paper is
+complementary, giving such a characterisation for a restricted class where it is
+available.
+
+\paragraph{Operator selection.}
+Offutt et al.~\cite{offutt1996} identify \emph{sufficient} operator sets
+experimentally, by measuring which subsets of a fixed pool retain the pool's
+discriminating power on a corpus. Ammann et al.~\cite{ammann2014} formalise
+\emph{minimal} mutant sets and \emph{dominator} mutants: given a fixed program
+and a fixed test pool, the dominator mutants are those whose kill implies the
+kill of others. Kurtz et al.~\cite{kurtz2015} study mutant subsumption and show
+that the true (semantic) subsumption relation is undecidable, restricting
+practice to computable approximations. All three are relative to a fixed program,
+a fixed pool, or both---which, as Section~\ref{sec:progindep} argues, is forced by
+the absence of an operator-only invariant for program-text schemas.
+
+\paragraph{Extreme mutation.}
+Niedermayr et al.~\cite{niedermayr2016} introduce extreme mutation and the notion
+of a \emph{pseudo-tested} method: one that is covered by the suite yet whose body
+can be replaced wholesale without any test failing. Vera-P\'erez et
+al.~\cite{veraperez2018} study the phenomenon at scale and provide the Descartes
+tool. In the terms of this paper, extreme mutation is the constant
+output-operator family; Section~\ref{sec:absolute} recovers it as exactly optimal
+on two-valued return types and provably deficient beyond, and
+Section~\ref{sec:oracle} gives a characterisation of pseudo-testedness in the
+model's own terms.
+
+\paragraph{Teaching dimension.}
+The minimum number of labelled examples that identifies a concept within a class
+is the \emph{teaching dimension}~\cite{goldman1995}. Section~\ref{sec:suite}
+identifies the minimum certifying suite with this quantity for the
+output-mutation setting.
+
+\paragraph{Mechanisation.}
+The development is checked in Lean~4~\cite{lean4} against Mathlib~\cite{mathlib}.
+
+\section{The Model}
+\label{sec:model}
+
+\subsection{Programs, Suites, Operators}
+
+\begin{definition}[program, suite, output operator]
+\label{def:program}
+A program computes a total function---its \emph{denotation}---$f : D \to R$, from
+an input domain $D$ to a return type $R$ with $|R| \ge 2$. A \emph{test suite} is
+a finite $T \subseteq D$. An \emph{output operator} is a total map $p : R \to R$;
+it produces the \emph{mutant} $p \circ f$ (run the program, then apply $p$ to the
+result). An \emph{output-operator family} $\Pi$ is a set of output operators.
+\end{definition}
+
+Post-composition is what an output or extreme mutation performs: it perturbs the
+returned value uniformly, without reference to how the value was computed.
+
+\begin{definition}[footprint]
+\label{def:footprint}
+The \emph{footprint} of an output operator $p$ is
+\[
+  \Mov(p) \;=\; \{\, r \in R : p(r) \neq r \,\} \;\subseteq\; R,
+\]
+the set of values $p$ actually changes. Write $I = f(D)$ for the program's
+\textbf{reachable} outputs and $O = f(T)$ for the suite's \textbf{observed}
+outputs; note $O \subseteq I$.
+\end{definition}
+
+\begin{definition}[equivalence, killing, score]
+\label{def:score}
+For a program $f$ and suite $T$:
+\begin{itemize}
+\item $p \circ f$ is \textbf{equivalent} to $f$ iff $p(f(x)) = f(x)$ for all
+$x \in D$;
+\item $T$ \textbf{kills} $p \circ f$ iff $p(f(x)) \neq f(x)$ for some $x \in T$;
+\item the \textbf{score} $\score_\Pi(f,T) = 1$ iff $T$ kills every non-equivalent
+mutant $p \circ f$, $p \in \Pi$.
+\end{itemize}
+\end{definition}
+
+Equivalent mutants are excluded from the score, as in standard practice: they
+cannot be killed by any suite, so counting them would make a score of $1$
+unachievable.
+
+\subsection{The Footprint Reduction}
+
+\begin{proposition}[an operator is its footprint]
+\label{prop:reduction}
+For any program $f$, suite $T$, and operator $p$:
+\[
+  p \circ f \text{ is equivalent} \iff \Mov(p) \cap I = \varnothing,
+  \qquad
+  T \text{ kills } p \circ f \iff \Mov(p) \cap O \neq \varnothing.
+\]
+Consequently, for fixed $(f,T)$, whether $p$ is a non-equivalent survivor depends
+\textbf{only} on $\Mov(p)$; two operators with equal footprints are
+interchangeable; and $\score_\Pi(f,T)$ depends only on the set of footprints
+$\Foot(\Pi) = \{\Mov(p) : p \in \Pi\}$.
+\end{proposition}
+
+\begin{proof}
+$p \circ f$ is equivalent iff $p$ fixes $f(x)$ for every $x \in D$, i.e.\ $p$
+fixes every element of $I = f(D)$, i.e.\ no element of $I$ is moved. $T$ kills
+$p \circ f$ iff some $x \in T$ has $p(f(x)) \neq f(x)$, i.e.\ $f(x) \in \Mov(p)$
+for some $x \in T$, i.e.\ $\Mov(p)$ meets $f(T) = O$. Both conditions read only
+$\Mov(p)$ against the fixed sets $I$ and $O$. \qed
+\end{proof}
+
+Proposition~\ref{prop:reduction} is the engine of the paper. Where an operator
+\emph{sends} the values it moves is invisible to adequacy; only \emph{which}
+values it moves matters.
+
+\begin{proposition}[every subset is a footprint]
+\label{prop:surj}
+For $|R| \ge 2$, every $S \subseteq R$ is the footprint of some output operator.
+\end{proposition}
+
+\begin{proof}
+Fix distinct $a \neq b$. Let $q(a) = b$ and $q(x) = a$ for $x \neq a$; then $q$ is
+fixed-point-free. Define $p(x) = q(x)$ for $x \in S$ and $p(x) = x$ otherwise.
+Then $\Mov(p) = S$. \qed
+\end{proof}
+
+The construction avoids cycles: a single $|R|$-cycle would not serve for
+uncountable $R$, whose orbits under iteration are countable. So footprints range
+over the entire powerset $2^R$, and by Proposition~\ref{prop:reduction} the
+adequacy content of a family $\Pi$ is exactly $\Foot(\Pi)$.
+
+\subsection{Notation}
+
+Throughout, $\Pi$ denotes the operator family under test and $\Gamma$ the target
+family whose faults we wish to certify against; $\TR$ denotes the family of
+\emph{all} output operators on $R$, and $n = |R|$ when $R$ is finite.
+
+\subsection{Scope and Assumptions}
+\label{sec:scope}
+
+The model makes three assumptions. One is load-bearing and two are simplifying;
+we state them here, where the model is defined, and return to their consequences
+in Section~\ref{sec:threats}.
+
+\paragraph{Load-bearing: the exact oracle.}
+Definition~\ref{def:score} kills a mutant exactly when some test yields a
+different return value, which presumes the suite observes the full output. Under
+a weaker oracle a covered mutant can survive because no assertion inspects the
+changed value---the \emph{pseudo-tested method}
+phenomenon~\cite{niedermayr2016,veraperez2018} that motivates extreme mutation in
+practice. Section~\ref{sec:oracle} relativises the entire development to an
+arbitrary oracle and recovers the exact-oracle case as the special case where the
+oracle is injective; readers who care primarily about weak oracles may read
+Section~\ref{sec:oracle} as the general theory and
+Sections~\ref{sec:char}--\ref{sec:suite} as its cleanest instance.
+
+\paragraph{Simplifying: pure total functions.}
+A denotation is a total map $f : D \to R$. Void methods, exceptions,
+non-termination, and side effects are outside the model. Extending to partial or
+effectful denotations requires enlarging $R$ with the relevant observations (an
+exception tag, an effect trace), after which the footprint machinery applies
+unchanged to the enlarged type; we do not develop this.
+
+\paragraph{Simplifying: uniform post-composition.}
+An output operator perturbs every returned value identically, $f \mapsto p \circ
+f$. A statement-level mutation of a single \texttt{return} site is not of this
+form.
+
+\section{Adequacy-Completeness and the Characterisation Theorem}
+\label{sec:char}
+
+\begin{definition}[adequacy-completeness]
+\label{def:complete}
+Let $\Pi$ and $\Gamma$ be output-operator families. $\Pi$ is
+\textbf{adequacy-complete for $\Gamma$} iff for \emph{every} program
+$f : D \to R$ and \emph{every} finite suite $T \subseteq D$,
+\[
+  \score_\Pi(f,T) = 1 \;\Longrightarrow\; \score_\Gamma(f,T) = 1.
+\]
+$\Pi$ is \textbf{absolutely complete} iff it is complete for $\Gamma = \TR$.
+\end{definition}
+
+By Proposition~\ref{prop:reduction} this depends only on $\Foot(\Pi)$ and
+$\Foot(\Gamma)$. The quantifier over all $(f,T)$ removes both the program-text
+relativity and the test-suite relativity of prior completeness notions: the
+definition asks what a kill certifies \emph{as such}, not what it certifies on
+some corpus.
+
+\begin{theorem}[footprint characterisation, finite $\Pi$]
+\label{thm:char}
+Let $\Pi$ be finite. Then $\Pi$ is adequacy-complete for $\Gamma$ iff
+\[
+  \forall g \in \Gamma,\ \forall b \in \Mov(g),\ \exists p \in \Pi :\quad
+  b \in \Mov(p) \subseteq \Mov(g).
+\]
+Equivalently: \textbf{every target footprint is the union of the
+$\Pi$-footprints it contains},
+$\Mov(g) = \bigcup \{\Mov(p) : p \in \Pi,\ \Mov(p) \subseteq \Mov(g)\}$.
+\end{theorem}
+
+\begin{proof}
+($\Leftarrow$) Assume the condition. Fix $(f,T)$ with $\score_\Pi(f,T) = 1$ and a
+non-equivalent $g \in \Gamma$; we show $T$ kills $g \circ f$. Non-equivalence
+gives (Proposition~\ref{prop:reduction}) $\Mov(g) \cap I \neq \varnothing$; pick
+$b \in \Mov(g) \cap I$. By hypothesis there is $p \in \Pi$ with
+$b \in \Mov(p) \subseteq \Mov(g)$. Then $b \in \Mov(p) \cap I$, so $p \circ f$ is
+non-equivalent, so---the $\Pi$-score being $1$---it is killed:
+$\Mov(p) \cap O \neq \varnothing$. Since $\Mov(p) \subseteq \Mov(g)$, also
+$\Mov(g) \cap O \neq \varnothing$, i.e.\ $T$ kills $g \circ f$.
+
+($\Rightarrow$) By contraposition. Assume the condition fails, witnessed by
+$g \in \Gamma$ and $b \in \Mov(g)$ such that every $p \in \Pi$ with
+$b \in \Mov(p)$ has an \emph{escape point} $a_p \in \Mov(p) \setminus \Mov(g)$.
+Let $A = \{a_p : p \in \Pi,\ b \in \Mov(p)\}$. Since $\Pi$ is finite, $A$ is
+finite, and $b \notin A$ (each $a_p$ avoids $\Mov(g)$, while $b \in \Mov(g)$).
+
+Build the separating instance: let $I^\star = \{b\} \cup A$, take $D = I^\star$
+and $f = \mathrm{id}$, so $I = I^\star$; take the suite $T = A$, so $O = A$. Then:
+
+\emph{Every non-equivalent $\Pi$-mutant is killed.} Let $p \in \Pi$ be
+non-equivalent, i.e.\ $\Mov(p) \cap I \neq \varnothing$. If $b \in \Mov(p)$, then
+$a_p \in \Mov(p) \cap A = \Mov(p) \cap O$, so $p$ is killed. If
+$b \notin \Mov(p)$, then
+$\Mov(p) \cap I = \Mov(p) \cap (\{b\} \cup A) = \Mov(p) \cap A \neq \varnothing$,
+so $p$ is killed. Hence $\score_\Pi(f,T) = 1$.
+
+\emph{$g \circ f$ survives.} $b \in \Mov(g) \cap I$, so $g \circ f$ is
+non-equivalent; but $\Mov(g) \cap O = \Mov(g) \cap A = \varnothing$, since every
+$a_p$ avoids $\Mov(g)$. So $T$ does not kill $g \circ f$, and
+$\score_\Gamma(f,T) < 1$. \qed
+\end{proof}
+
+Finiteness of $\Pi$ is used only to keep $A$ finite, so that the separating
+program has a finite reachable set. The general case weakens the containment to
+an avoidance condition.
+
+\begin{theorem}[footprint characterisation, general $\Pi$]
+\label{thm:chargen}
+For arbitrary $\Pi$ and $\Gamma$, $\Pi$ is adequacy-complete for $\Gamma$ iff
+\[
+  \forall g \in \Gamma,\ \forall b \in \Mov(g),\
+  \forall\, F \subseteq R \setminus \Mov(g) \text{ finite},\
+  \exists p \in \Pi :\ b \in \Mov(p) \ \wedge\ \Mov(p) \cap F = \varnothing.
+\]
+\end{theorem}
+
+\begin{proof}
+($\Leftarrow$) Assume the condition and fix $(f,T)$ with $\score_\Pi(f,T) = 1$
+and non-equivalent $g \in \Gamma$. Pick $b \in \Mov(g) \cap I$. Let
+$F = O \setminus \Mov(g)$, which is finite (as $O$ is) and disjoint from
+$\Mov(g)$. Obtain $p \in \Pi$ with $b \in \Mov(p)$ and
+$\Mov(p) \cap F = \varnothing$. Since $b \in \Mov(p) \cap I$, $p \circ f$ is
+non-equivalent, hence killed: there is $c \in O \cap \Mov(p)$. Since $\Mov(p)$
+avoids $F = O \setminus \Mov(g)$ and $c \in O$, we get $c \in \Mov(g)$. So
+$\Mov(g) \cap O \neq \varnothing$ and $T$ kills $g \circ f$.
+
+($\Rightarrow$) By contraposition. Suppose the condition fails: there are
+$g \in \Gamma$, $b \in \Mov(g)$, and a finite $F \subseteq R \setminus \Mov(g)$
+such that every $p \in \Pi$ with $b \in \Mov(p)$ meets $F$. Take
+$I = \{b\} \cup F$, $D = I$, $f = \mathrm{id}$, $T = F$, so $O = F$. If
+$p \in \Pi$ is non-equivalent and $b \in \Mov(p)$, then
+$\Mov(p) \cap F \neq \varnothing$ by assumption, so $p$ is killed; if
+$b \notin \Mov(p)$, then $\Mov(p) \cap I = \Mov(p) \cap F \neq \varnothing$, so
+$p$ is killed. Hence $\score_\Pi(f,T) = 1$. But $b \in \Mov(g) \cap I$ while
+$\Mov(g) \cap O = \Mov(g) \cap F = \varnothing$, so $g \circ f$ is a
+non-equivalent survivor. \qed
+\end{proof}
+
+\begin{corollary}
+\label{cor:genfin}
+Theorem~\ref{thm:char} is the case of Theorem~\ref{thm:chargen} for finite $\Pi$.
+\end{corollary}
+
+\begin{proof}
+If the condition of Theorem~\ref{thm:char} holds, then for any finite $F$
+disjoint from $\Mov(g)$ the witness $p$ with $\Mov(p) \subseteq \Mov(g)$
+satisfies $\Mov(p) \cap F = \varnothing$. Conversely, suppose the condition of
+Theorem~\ref{thm:chargen} holds and $\Pi$ is finite. If no $p$ had
+$b \in \Mov(p) \subseteq \Mov(g)$, then each $p$ with $b \in \Mov(p)$ would have
+an escape point $a_p \notin \Mov(g)$; the set $A$ of these is finite and disjoint
+from $\Mov(g)$, so applying Theorem~\ref{thm:chargen} with $F = A$ yields a $p$
+with $b \in \Mov(p)$ and $\Mov(p) \cap A = \varnothing$, contradicting
+$a_p \in \Mov(p) \cap A$. \qed
+\end{proof}
+
+Theorem~\ref{thm:chargen} matters because several natural families are
+infinite---for instance the full value-guard family on an infinite return type
+(Section~\ref{sec:absolute}), which is absolutely complete but not finite, and
+therefore outside the reach of Theorem~\ref{thm:char}.
+
+\begin{remark}[composition is the wrong closure]
+\label{rem:composition}
+Theorem~\ref{thm:char} dissolves the temptation to define completeness by
+\emph{generation under composition}. Killing the operators of $\Pi$ does not kill
+their composites. Take $R = \{0,1,2\}$, a program with sole reachable and
+observed value $0$, and operators $a,b$ with $a(0) = 1$, $b(0) = 2$, $b(1) = 0$.
+Both $a \circ f$ and $b \circ f$ are killed at $0$, yet $(b \circ a)(0) = b(1) =
+0$, so $(b \circ a) \circ f$ is not killed---it is equivalent on this program.
+Composition acts precisely on the part of an operator that adequacy cannot see:
+$\Mov(b \circ a)$ can be strictly smaller than both $\Mov(a)$ and $\Mov(b)$. So
+``$\Pi$ generates the full transformation monoid'' says nothing about what a
+score of $1$ certifies. The governing order is footprint containment, not
+compositional generation.
+\end{remark}
+
+\section{Absolute Completeness: Value Guards, the Ceiling, and the Dichotomy}
+\label{sec:absolute}
+
+\begin{corollary}[the value-guard basis]
+\label{cor:guards}
+Let $|R| = n$. A family $\Pi$ is absolutely complete iff it contains, for every
+$r \in R$, an operator whose footprint is the singleton $\{r\}$---a \emph{value
+guard} $\gamma_r$, readable as ``if the result is $r$, return something else.''
+The minimal absolutely complete family is $\{\gamma_r : r \in R\}$, of size
+exactly $n$.
+\end{corollary}
+
+\begin{proof}
+Absolute completeness is completeness for $\Gamma = \TR$, whose footprints are
+all of $2^R$ (Proposition~\ref{prop:surj}). Apply Theorem~\ref{thm:char} to the
+singleton target footprints $\{b\}$: completeness forces, for each $b$, some
+$p \in \Pi$ with $b \in \Mov(p) \subseteq \{b\}$, i.e.\ $\Mov(p) = \{b\}$.
+Conversely, given a guard for every value, any target footprint $S$ and any
+$b \in S$ admit $\gamma_b$ with $b \in \{b\} \subseteq S$, so
+Theorem~\ref{thm:char}'s condition holds. Minimality: each of the $n$ singleton
+targets forces a distinct guard. \qed
+\end{proof}
+
+\begin{corollary}[the finite/infinite dichotomy]
+\label{cor:infinite}
+A \emph{finite} operator family can be absolutely complete only when $R$ is
+finite. Equivalently: for an infinite return type---\texttt{int},
+\texttt{String}, arbitrary objects---\textbf{no finite output-operator family is
+absolutely complete.}
+\end{corollary}
+
+\begin{proof}
+By Corollary~\ref{cor:guards} absolute completeness requires a distinct singleton
+footprint $\{r\}$ for every $r \in R$; the map $r \mapsto \{r\}$ is injective, so
+a complete family has at least $|R|$ members. \qed
+\end{proof}
+
+Corollary~\ref{cor:infinite} bounds the value-guard story to finite return
+types---Booleans, enums, small tagged unions. On the return types of most real
+programs the absolute notion is unavailable, and the meaningful question is
+\emph{relative} completeness against a chosen target class
+(Section~\ref{sec:relative}). That is where a certificate a tool can actually
+offer lives.
+
+\begin{corollary}[extreme mutation is optimal on Booleans, deficient beyond]
+\label{cor:constants}
+A Descartes-style constant operator \texttt{return c} has footprint
+$R \setminus \{c\}$. The constant family $\{\texttt{return } c : c \in R\}$ is
+absolutely complete iff $n = 2$.
+\end{corollary}
+
+\begin{proof}
+By Corollary~\ref{cor:guards}, absolute completeness requires a singleton
+footprint for each value; $|R \setminus \{c\}| = 1$ iff $n = 2$. For $n = 2$,
+\texttt{return true} has footprint $\{\mathrm{false}\}$ and \texttt{return false}
+has footprint $\{\mathrm{true}\}$---precisely the two value guards, so extreme
+mutation \emph{is} the minimal complete family on Booleans. For $n \ge 3$ every
+constant footprint has size at least $2$, so no constant is a value guard. \qed
+\end{proof}
+
+\begin{example}[a fault the constants miss]
+\label{ex:miss}
+Let $R = \{a,b,c\}$, a program reaching all three, and a suite observing only $a$
+and $b$ (so $O = \{a,b\}$, $I = \{a,b,c\}$). All three constant mutants are
+killed: \texttt{return a} moves $\{b,c\}$, observed at $b$; \texttt{return b}
+moves $\{a,c\}$, observed at $a$; \texttt{return c} moves $\{a,b\}$, observed at
+$a$. The constant score is $1$. But the fault ``returns $b$ where it should
+return $c$''---an operator with footprint $\{c\}$---is non-equivalent ($c \in I$)
+and unkilled ($\{c\} \cap O = \varnothing$). A perfect extreme-mutation score
+certifies nothing about the $c$-outputs the suite never observed.
+\end{example}
+
+\begin{theorem}[the ceiling]
+\label{thm:ceiling}
+For $|R| \ge 2$ and any program $f$ and suite $T$:
+\[
+  \score_{\TR}(f,T) = 1 \iff I \subseteq O \iff O = I,
+\]
+i.e.\ an absolute mutation score of $1$ holds \textbf{exactly when the suite
+exercises every reachable output}.
+\end{theorem}
+
+\begin{proof}
+($\Leftarrow$) If $O = I$, every non-equivalent $g$ has
+$\Mov(g) \cap I \neq \varnothing$, hence $\Mov(g) \cap O \neq \varnothing$, so
+all die. ($\Rightarrow$) If $I \not\subseteq O$, pick $b \in I \setminus O$ and
+the guard $\gamma_b$ with footprint $\{b\}$: it is non-equivalent ($b \in I$) and
+unkilled ($\{b\} \cap O = \varnothing$), so the score is below $1$. \qed
+\end{proof}
+
+\begin{remark}[the ceiling, read operationally]
+\label{rem:ceiling}
+Theorem~\ref{thm:ceiling} gives the operational content of output mutation: a
+full score certifies \emph{output coverage}---the dynamic property that every
+value the program can return is observed by the suite---and the value guards are
+the cheapest family making that certificate exact. It certifies nothing about
+faults that separate two inputs mapped to the same output: if $f(x_1) = f(x_2)$
+then $p(f(x_1)) = p(f(x_2))$ for every output operator $p$, so no output mutant
+distinguishes $x_1$ from $x_2$. Input-separating faults are structurally outside
+the reach of the technique.
+\end{remark}
+
+\section{Relative Completeness and Its Decidability}
+\label{sec:relative}
+
+Fix a finite $\Pi$ and a finitely presented target $\Gamma$. By
+Theorem~\ref{thm:char}, deciding completeness is deciding a footprint-containment
+condition, and its complexity is exactly that of the footprint representation.
+
+\begin{proposition}[the exact reach of a partial guard family]
+\label{prop:reach}
+The value guards $\{\gamma_{r_1},\dots,\gamma_{r_k}\}$ are adequacy-complete for
+exactly
+$\Gamma_{\max} = \{\, g : \Mov(g) \subseteq \{r_1,\dots,r_k\} \,\}$.
+\end{proposition}
+
+\begin{proof}
+By Theorem~\ref{thm:char} the guards are complete for $g$ iff every
+$b \in \Mov(g)$ has a guard $\gamma_{r_i}$ with $b \in \{r_i\} \subseteq \Mov(g)$,
+i.e.\ $b \in \{r_1,\dots,r_k\}$. This holds for all $b \in \Mov(g)$ iff
+$\Mov(g) \subseteq \{r_1,\dots,r_k\}$. \qed
+\end{proof}
+
+Proposition~\ref{prop:reach} is the practically usable form of the theory. A
+partial guard family yields an explicit, checkable certificate: \emph{every
+guarded value the program can produce is exercised by the suite, hence any fault
+confined to the guarded values is caught.} The guarded set is a parameter the
+tool chooses and reports.
+
+\begin{theorem}[decidability spectrum]
+\label{thm:decide}
+Deciding whether a finite $\Pi$ is adequacy-complete for a finite $\Gamma$
+reduces to finitely many footprint-containment tests
+$\Mov(p) \subseteq \Mov(g)$ and membership tests $b \in \Mov(p)$. Hence:
+\begin{enumerate}
+\item \textbf{Finite return type (value tables).} Footprints are explicit subsets
+of an $n$-element set; each test is a linear scan, so completeness is decidable
+in polynomial time.
+\item \textbf{Semilinear footprints} ($R = \mathbb{Z}$, $\Mov$
+Presburger-definable). Containment of Presburger-definable sets is decidable, so
+completeness is decidable.
+\item \textbf{Total computable operators.} Each footprint $\Mov(p)$ is a
+\emph{decidable} set, but deciding containment---hence completeness---is
+undecidable.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+The reduction is Theorem~\ref{thm:char}, a finite conjunction over $g \in \Gamma$
+and $b \in \Mov(g)$, existentially quantifying $p \in \Pi$. (1) Tables give
+constant-time membership and linear-time containment. (2) Presburger arithmetic
+is decidable. (3) Reduce from non-halting: for a Turing machine $M$, the total
+computable operator $g_M(k) = k+1$ if $M$ halts within $k$ steps and
+$g_M(k) = k$ otherwise has decidable footprint
+$\Mov(g_M) = \{k : M \text{ halts within } k \text{ steps}\}$, and
+$\Mov(g_M) \subseteq \Mov(\mathrm{id}) = \varnothing$ iff $M$ never halts. \qed
+\end{proof}
+
+\begin{remark}[the spectrum runs through set containment]
+\label{rem:spectrum}
+The P / decidable / undecidable gradient here is that of subset containment for
+increasingly expressive set representations. No monoid- or group-theoretic
+machinery---word problems, submonoid membership, Cayley embeddings---appears,
+because adequacy never composes operators (Remark~\ref{rem:composition}). It is
+the containment order, not a generation order, that governs decidability. An
+earlier formulation of operator completeness in terms of transformation-monoid
+generation leads to exactly that algebraic machinery, and to a different and, for
+adequacy purposes, incorrect answer; Remark~\ref{rem:composition} is the reason.
+\end{remark}
+
+\section{Higher-Order Mutants}
+\label{sec:ho}
+
+The coupling-effect hypothesis~\cite{demillo1978} is the empirical claim that
+suites killing first-order mutants tend also to kill higher-order ones. For
+higher-order \emph{output} mutants---compositions of output operators---no such
+implication holds as a theorem, and the footprint lens shows exactly why.
+
+\begin{proposition}[first-order completeness does not entail higher-order completeness]
+\label{prop:coupling}
+There exist a family $\Pi$, a program $f$, and a suite $T$ under which every
+non-equivalent first-order $\Pi$-mutant is killed while a non-equivalent
+higher-order mutant survives.
+\end{proposition}
+
+\begin{proof}
+Let $R = \{0,1,2\}$ and $\Pi = \{a\}$ with
+$a : 0 \mapsto 1,\ 1 \mapsto 0,\ 2 \mapsto 1$, so $\Mov(a) = R$. Take a program
+$f$ with reachable set $I = \{0,2\}$ observed at $O = \{0\}$. The only
+first-order mutant $a \circ f$ is non-equivalent and killed, since
+$0 \in \Mov(a) \cap O$. The higher-order mutant $a \circ a$ satisfies
+$a \circ a : 0 \mapsto 0,\ 1 \mapsto 1,\ 2 \mapsto 0$, so
+$\Mov(a \circ a) = \{2\}$: it meets $I$ (at $2$, hence non-equivalent) and misses
+$O$ (hence unkilled). So the score is $1$ against $\Pi$ and below $1$ against the
+closure of $\Pi$ under composition. \qed
+\end{proof}
+
+By Proposition~\ref{prop:reduction} the reason is exact: killing sees only
+$\Mov(\cdot) \cap O$, and $\Mov(a \circ a)$ can be strictly smaller than
+$\Mov(a)$, removing precisely the value whose observation killed the first-order
+mutant.
+
+\begin{proposition}[the only positive statement is degenerate]
+\label{prop:degenerate}
+If $\Pi$ is absolutely complete it is adequacy-complete for \emph{every} target,
+in particular for its closure under composition.
+\end{proposition}
+
+\begin{proof}
+Corollary~\ref{cor:guards} gives $\Pi$ a value guard for every value;
+Theorem~\ref{thm:char}'s condition then holds for any target. \qed
+\end{proof}
+
+Proposition~\ref{prop:degenerate} is a corollary of the value-guard basis, not a
+coupling phenomenon: it holds because such a family already covers every
+footprint, so composition is irrelevant.
+
+\begin{remark}[what this does and does not say]
+\label{rem:coupling}
+By Theorem~\ref{thm:char}, higher-order-ness carries no special weight: a
+higher-order mutant is simply an operator with a footprint, and the closure of
+$\Pi$ under composition may contain footprints $\Pi$ does not cover. We therefore
+claim only that coupling is not \emph{entailed} for output mutation---not that it
+fails to occur. The coupling hypothesis is a statistical claim about typical
+faults, which a single counterexample does not refute. Program-text coupling is a
+separate question on which we make no claim.
+\end{remark}
+
+\section{Program Independence}
+\label{sec:progindep}
+
+\begin{proposition}[program-independent subsumption]
+\label{prop:subsume}
+For output operators $p$ and $g$: \emph{every test that kills $p \circ f$ also
+kills $g \circ f$, for every program $f$}, iff $\Mov(p) \subseteq \Mov(g)$.
+\end{proposition}
+
+\begin{proof}
+($\Leftarrow$) A test $x$ kills $p \circ f$ iff $f(x) \in \Mov(p) \subseteq
+\Mov(g)$, so $x$ kills $g \circ f$. ($\Rightarrow$) If
+$b \in \Mov(p) \setminus \Mov(g)$, take $f$ with $b$ reachable and a suite
+observing $b$: it kills $p \circ f$ but not $g \circ f$. \qed
+\end{proof}
+
+So Theorem~\ref{thm:char} reads, in the language of mutant
+subsumption~\cite{kurtz2015,ammann2014}: \textbf{$\Pi$ is adequacy-complete for
+$\Gamma$ iff every target mutant is subsumed by some $\Pi$-mutant, uniformly over
+all programs.} It is the program-independent form of dominator theory.
+
+\begin{proposition}[the factoring that buys program independence]
+\label{prop:factor}
+For an output operator, the detection set factors through the footprint:
+\[
+  \Det(p \circ f) \;=\; \{x : p(f(x)) \neq f(x)\} \;=\; f^{-1}(\Mov(p)).
+\]
+So $p$ enters detection only through the program-independent object $\Mov(p)$:
+the same $\Mov(p)$ governs detection across all programs $f$.
+\end{proposition}
+
+The contrast with program-text mutation is \emph{not} that its detection is
+syntactic. The detection set $\Det(m) = \{x : m(x) \neq f(x)\}$ of any mutant is
+semantic, depending only on the functions $m$ and $f$. The contrast is that a
+program-text mutation \emph{schema} carries no operator-only invariant: the
+mutant $\mu(\mathrm{source\ of\ } f)$ depends on the \emph{text} of $f$, so its
+detection is a function of the (schema, source) pair rather than of $\mu$ alone,
+and varies across source programs computing the same $f$. This is why the field's
+completeness, sufficiency, and subsumption results are relative by construction
+(Section~\ref{sec:related}), and why Definition~\ref{def:complete} is available
+for output mutation and not for program-text mutation.
+
+\section{The Minimum Certifying Suite}
+\label{sec:suite}
+
+\begin{theorem}[minimum certifying suite]
+\label{thm:suite}
+Fix an absolutely complete family and a program $f$ with reachable set $I =
+f(D)$. A suite $T$ achieves $\score(f,T) = 1$ iff $O = f(T) = I$. If $I$ is
+finite, the minimum certifying suite has size $\sigma(f) = |I| = |f(D)|$ (one
+test per reachable value). If $I$ is infinite, no finite suite is certifying: a
+finite $T$ has finite $O = f(T)$, so $O \neq I$.
+\end{theorem}
+
+\begin{proof}
+By Theorem~\ref{thm:ceiling} the score is $1$ iff $O = I$. If $I$ is finite, a
+suite with $O = I$ contains, for each $r \in I$, some $x$ with $f(x) = r$, so
+$|T| \ge |I|$; choosing one such $x$ per value gives $|T| = |I|$. If $I$ is
+infinite, $O = f(T)$ is finite for finite $T$. \qed
+\end{proof}
+
+\begin{remark}[sample complexity of certification]
+\label{rem:teaching}
+$\sigma(f)$ is the \emph{teaching dimension} of the program against the operator
+family in the classical sense~\cite{goldman1995}: the minimum number of labelled
+examples---here, tests together with their observed outputs---required to
+distinguish $f$ from every non-equivalent mutant the family can express. For
+output mutation it is exactly the number of reachable outputs. This is the
+exact-identification companion to the completeness result:
+Theorem~\ref{thm:char} says \emph{which} faults a family can certify against;
+Theorem~\ref{thm:suite} says \emph{how many tests} the certification costs.
+\end{remark}
+
+\section{Beyond the Exact Oracle}
+\label{sec:oracle}
+
+The exact-oracle assumption (Section~\ref{sec:scope}) is the model's one
+load-bearing simplification, and the one that most constrains practical
+relevance, since the phenomenon motivating extreme mutation---pseudo-tested
+methods~\cite{niedermayr2016,veraperez2018}---is a weak-oracle phenomenon by
+definition. This section shows the development relativises, and that the
+relativised model characterises pseudo-testedness.
+
+\begin{definition}[oracle]
+\label{def:oracle}
+An \emph{oracle} is a map $\omega : R \to \Omega$ recording what the suite's
+assertions actually observe about a returned value. The exact oracle is
+$\omega = \mathrm{id}$. A suite that checks only a field, a hash, a type tag, or
+nothing at all is a non-injective $\omega$; a constant $\omega$ models a suite
+with no output assertions whatsoever.
+\end{definition}
+
+\begin{definition}[oracle-relative killing]
+\label{def:okill}
+$T$ \textbf{$\omega$-kills} $p \circ f$ iff $\omega(p(f(x))) \neq \omega(f(x))$
+for some $x \in T$; $p \circ f$ is \textbf{$\omega$-equivalent} iff
+$\omega(p(f(x))) = \omega(f(x))$ for all $x \in D$. The \textbf{$\omega$-score}
+is $1$ iff every non-$\omega$-equivalent mutant is $\omega$-killed.
+\end{definition}
+
+Taking $\omega$-equivalence rather than true equivalence as the exclusion
+criterion matches tool behaviour: a mutant no assertion can ever distinguish is
+one the tool cannot kill and will report as equivalent.
+
+\begin{definition}[oracle-relative detection set]
+\label{def:detw}
+$\DetW(p) = \{ r \in R : \omega(p(r)) \neq \omega(r) \}$.
+\end{definition}
+
+\begin{proposition}[the relativised reduction]
+\label{prop:orelred}
+$p \circ f$ is $\omega$-equivalent iff $\DetW(p) \cap I = \varnothing$; $T$
+$\omega$-kills $p \circ f$ iff $\DetW(p) \cap O \neq \varnothing$. Moreover
+$\DetW(p) \subseteq \Mov(p)$, with equality for injective $\omega$.
+\end{proposition}
+
+\begin{proof}
+Identical to Proposition~\ref{prop:reduction}, reading $\omega \circ p$ against
+$\omega$ in place of $p$ against the identity. Containment: if $p(r) = r$ then
+$\omega(p(r)) = \omega(r)$. \qed
+\end{proof}
+
+\begin{corollary}[everything relativises]
+\label{cor:relativise}
+Since $\DetW(p) \subseteq R$ and Proposition~\ref{prop:orelred} has the form of
+Proposition~\ref{prop:reduction}, Theorems~\ref{thm:char}, \ref{thm:chargen},
+\ref{thm:ceiling}, \ref{thm:decide}, \ref{thm:suite} and
+Propositions~\ref{prop:reach}, \ref{prop:coupling}, \ref{prop:degenerate},
+\ref{prop:subsume} hold verbatim with $\Mov$ replaced throughout by $\DetW$.
+\end{corollary}
+
+The interesting content is where the two differ.
+
+\begin{proposition}[the ceiling is oracle-independent for any non-trivial oracle]
+\label{prop:oceiling}
+If $\omega$ is non-constant, then for every $b \in R$ there is an operator with
+$\DetW(p) = \{b\}$, and consequently the absolute $\omega$-score is $1$ iff
+$I \subseteq O$.
+\end{proposition}
+
+\begin{proof}
+Non-constant $\omega$ gives $r_1, r_2$ with $\omega(r_1) \neq \omega(r_2)$; for
+any $b$, at least one of them, say $r'$, has $\omega(r') \neq \omega(b)$. Set
+$p(b) = r'$ and $p = \mathrm{id}$ elsewhere; then $\DetW(p) = \{b\}$. Apply the
+relativised Theorem~\ref{thm:ceiling}. \qed
+\end{proof}
+
+So weakening the oracle does not lower the ceiling: output coverage remains
+exactly what a full absolute score certifies, provided the suite asserts
+\emph{something}. What weakening the oracle changes is which \emph{specific}
+families reach the ceiling---footprints shrink, so families lose discriminating
+power.
+
+\begin{proposition}[constants under a weak oracle]
+\label{prop:oconst}
+$\DetW(\texttt{return } c) = R \setminus \omega^{-1}(\omega(c))$. The constant
+family is absolutely $\omega$-complete iff $|R| = 2$ and $\omega$ separates the
+two values.
+\end{proposition}
+
+\begin{proof}
+$\omega(c) \neq \omega(r)$ iff $r$ lies outside the $\omega$-class of $c$. By the
+relativised Corollary~\ref{cor:guards}, completeness requires each
+$\DetW(\texttt{return } c)$ to be a singleton for a suitable $c$ per value $b$,
+i.e.\ $\omega^{-1}(\omega(c)) = R \setminus \{b\}$. For this to hold for every
+$b$, the $\omega$-partition must be $\{\{b\}, R \setminus \{b\}\}$ for each $b$
+simultaneously, which forces $|R| = 2$ with $\omega$ injective on $R$. \qed
+\end{proof}
+
+\begin{proposition}[pseudo-testedness, characterised]
+\label{prop:pseudo}
+Let $f$ be covered by $T$ (so $O \neq \varnothing$). The constant mutant
+\texttt{return c} survives against $T$ under oracle $\omega$ while being
+non-$\omega$-equivalent iff
+\[
+  O \subseteq \omega^{-1}(\omega(c)) \quad\text{and}\quad
+  I \not\subseteq \omega^{-1}(\omega(c)),
+\]
+i.e.\ \textbf{every output the suite observes is oracle-indistinguishable from
+$c$, while some reachable output is not.} Under the exact oracle this reduces to
+$O = \{c\}$.
+\end{proposition}
+
+\begin{proof}
+Survival is $\DetW(\texttt{return } c) \cap O = \varnothing$, i.e.\ $O$ avoids
+$R \setminus \omega^{-1}(\omega(c))$, i.e.\ $O \subseteq \omega^{-1}(\omega(c))$.
+Non-$\omega$-equivalence is $\DetW \cap I \neq \varnothing$, i.e.\
+$I \not\subseteq \omega^{-1}(\omega(c))$. Under $\omega = \mathrm{id}$,
+$\omega^{-1}(\omega(c)) = \{c\}$. \qed
+\end{proof}
+
+This is the model's account of the empirical phenomenon: a method is
+pseudo-tested exactly when the suite's assertions collapse everything it observes
+into a single oracle class, so replacing the body by a constant in that class
+changes nothing the suite can see. It also explains why extreme mutation is a
+productive \emph{detector} in practice even though the constant family is a weak
+\emph{certifier} (Corollary~\ref{cor:constants}): the two roles are different,
+and the gap $\Mov(p) \setminus \DetW(p)$ is precisely the oracle weakness the
+technique surfaces.
+
+\begin{remark}[status]
+\label{rem:ostatus}
+The oracle-relative detection set $\DetW$ and Propositions~\ref{prop:oceiling},
+\ref{prop:oconst}, \ref{prop:pseudo} are mechanised directly (Section~\ref{sec:mech},
+Table~\ref{tab:status}). What remains a paper proof is
+Corollary~\ref{cor:relativise} itself: it is a substitution of one subset-valued
+invariant for another, so mechanising the \emph{full} relativised theory is a matter of
+abstracting the Lean development over the detection function rather than reproving it, and
+we have not yet carried out that abstraction.
+\end{remark}
+
+\section{Empirical: Pseudo-Testedness Is Oracle-Relative}
+\label{sec:empirical}
+
+Proposition~\ref{prop:pseudo} predicts that whether a covered method is
+\emph{pseudo-tested} is a property not of the method but of the oracle: the
+constant mutant \texttt{return\,$c$} survives while remaining
+non-$\omega$-equivalent exactly when every observed output is
+$\omega$-indistinguishable from $c$. We test this directly, taking as two concrete
+oracles the standard distinction between an \emph{assertion} kill---which pins the
+returned value, the exact oracle $\omega = \mathrm{id}$---and a \emph{crash}
+(exception or timeout) kill, which proves only that the mutant ran differently and
+leaves the value unpinned: a weak, non-injective~$\omega$
+(Definition~\ref{def:okill}).
+
+\paragraph{Setup.}
+We ran the constant perturbation---\texttt{return\,0} at each return site---against
+the \emph{existing} test suites of five widely used Python libraries, over a seeded
+random sample of public functions and methods. A method enters the denominator only
+when a covering test actually executes the mutated return; an unexercised return is
+untested, not pseudo-tested. Matching the whole-body \texttt{return\,$c$} of extreme
+mutation~\cite{niedermayr2016,veraperez2018}, a multi-return method counts as
+pseudo-tested under an oracle iff \emph{no} covered return is killed by that oracle.
+We report, per project, the fraction pseudo-tested under the value oracle (no
+assertion pins any return) and under the crash-inclusive oracle (no test---not even
+a crash---kills any return). The measurement uses the same engine that realises the
+paper's operators; a run is discarded unless its baseline passes and its trace is
+complete.
+
+\begin{table}[t]
+\centering
+\caption{Constant-mutant pseudo-testedness of covered functions/methods in five
+Python libraries, under the value (assertion) oracle and the crash-inclusive
+oracle. ($\dagger$)~\texttt{click} is shown but excluded from the pooled figure:
+$48$ of its $60$ sampled methods time out under in-process profiling, leaving too
+few measured to report.}
+\label{tab:pseudo}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Project & Covered w/ const & Value oracle & Crash oracle \\
+\midrule
+boltons  & 27 & 63\% & 4\% \\
+inflect  & 33 & 52\% & 9\% \\
+toolz    & 46 & 33\% & 0\% \\
+humanize & 16 & 19\% & 19\% \\
+click$^\dagger$ & 2 & --- & --- \\
+\midrule
+\textbf{Pooled} & \textbf{122} & \textbf{43\%} & \textbf{6\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Result.}
+Across the $122$ covered functions and methods of the four measurable projects,
+$43\%$ ($52/122$) are pseudo-tested under the value oracle---squarely within the
+$1$--$46\%$ that Vera-P\'erez et al.\ measured across $21$ Java
+projects~\cite{veraperez2018}---but only $6\%$ ($7/122$) under the crash-inclusive
+oracle. The $37$-point gap is precisely the population of constant returns that a
+\emph{traditional} mutation score counts as killed---a downstream crash caught
+them---while the returned \emph{value} is unpinned. This is the phenomenon
+Section~\ref{sec:oracle} formalises, measured directly: the same code is roughly
+seven times more pseudo-tested once crash detection is discounted, so
+pseudo-testedness is a property of the oracle and not of the suite alone,
+confirming Proposition~\ref{prop:pseudo}. The effect is uneven and interpretable:
+in \texttt{boltons} and \texttt{toolz} the surviving constants are almost all
+crash-killed and value-unpinned ($63\%$ vs.\ $4\%$; $33\%$ vs.\ $0\%$), whereas
+\texttt{humanize}'s string formatters, collapsed to a constant, are either
+value-asserted or fully survive ($19\%$ under either oracle).
+
+\paragraph{Threats to validity.}
+The operator fixes $c = 0$; a family over several constants would only raise the
+rate, so the reported figures are lower bounds on pseudo-testedness. The sample is
+modest ($242$ probes) and, once class methods are included, skews toward accessors,
+which are less value-asserted than free functions---\texttt{boltons} at $63\%$ sits
+above the Java ceiling for this reason, so we read the oracle \emph{gap}, not the
+absolute rate, as the finding. \texttt{click} reflects a harness rather than a
+coverage limitation: its command/context objects do not profile in process. None of
+these affects the qualitative result, which is the ratio between the two oracles on
+identical code.
+
+\section{Consequences for Mutation-Based Tools}
+\label{sec:tools}
+
+The results delimit as much as they prescribe. For a tool that certifies code
+against an output or extreme mutation family:
+
+\begin{itemize}
+\item \textbf{Report a passing score as output coverage, and only that.} By
+Theorem~\ref{thm:ceiling} an absolute score of $1$ says ``every value the program
+can return was observed by the suite.'' Do not read it as evidence about faults
+that separate inputs mapped to the same output (Remark~\ref{rem:ceiling}), nor
+about faults a weaker oracle would miss (Section~\ref{sec:oracle}).
+
+\item \textbf{Note that, for the absolutely complete family, output mutation adds
+no information over coverage.} A value-guard score of $1$ is \emph{equivalent} to
+output coverage, so a tool gains nothing by running the guard mutants rather than
+measuring output coverage directly. The value of Theorem~\ref{thm:ceiling} is
+that it says what the score means, not that it recommends computing it.
+
+\item \textbf{Where the certificate is partial, state it explicitly}
+(Proposition~\ref{prop:reach}). On a large or infinite return type absolute
+completeness is unavailable (Corollary~\ref{cor:infinite}), so the useful output
+is relative: choose a target class $\Gamma$, compute the footprint basis
+Theorem~\ref{thm:char} requires for it, and report \emph{``complete against
+$\Pi$, which is adequacy-complete for $\Gamma$; therefore this suite certifies
+property $C$''} in place of an uninterpreted percentage. For a partial guard
+family the certificate reads ``any fault confined to the guarded values is
+caught,'' and the guarded set should be named.
+
+\item \textbf{Prefer value guards to constants past Booleans}
+(Corollary~\ref{cor:constants}), if running output mutants at all. Constants are
+complete only for two-valued return types; beyond that they leave the surviving
+faults of Example~\ref{ex:miss}.
+
+\item \textbf{Do not rely on coupling for output mutation}
+(Proposition~\ref{prop:coupling}). Killing first-order output mutants does not
+entail killing their higher-order compositions; if those are in scope, a tool
+must generate them.
+
+\item \textbf{Report the certifying-suite size $\sigma(f) = |f(D)|$}
+(Theorem~\ref{thm:suite}) as the cost and the content of the guarantee.
+\end{itemize}
+
+\section{Mechanisation}
+\label{sec:mech}
+
+The development is machine-checked in Lean~4 against Mathlib. The artifact
+defines completeness \emph{directly over programs and finite
+suites}---\texttt{ProgScore} and \texttt{ProgComplete} range over
+$f : D \to R$ and \texttt{T : Finset D}---and then bridges to the footprint
+level: \texttt{progScore\_iff\_scoreAt} (Proposition~\ref{prop:reduction})
+reduces a program's score to the footprint-level \texttt{ScoreAt} at the
+reachable set \texttt{range f} and observed set \texttt{f "" T};
+\texttt{realizable} shows every reachable/observed pair $(I,O)$ with
+$O \subseteq I$ is realised by an actual program;
+\texttt{progComplete\_iff\_complete} glues these together; and
+\texttt{progComplete\_characterization} restates the main theorem over programs.
+
+Every mechanised theorem is \texttt{\#print axioms}-clean, depending on exactly
+\texttt{[propext, Classical.choice, Quot.sound]} (\texttt{det\_factors} and
+\texttt{detW\_const} on none), with no \texttt{sorryAx}.
+
+\begin{table}[t]
+\centering
+\caption{Status of each result. ``Mechanised'' means a Lean theorem with no
+\texttt{sorry} and a clean axiom audit.}
+\label{tab:status}
+\begin{tabular}{@{}llp{3.1cm}@{}}
+\toprule
+Result & Lean name & Status \\
+\midrule
+Prop.~\ref{prop:reduction} & \texttt{progScore\_iff\_scoreAt} & mechanised \\
+Prop.~\ref{prop:surj} & \texttt{mov\_surjective}, \texttt{mov\_image\_univ} & mechanised \\
+\textbf{Thm.~\ref{thm:char}} & \textbf{\texttt{footprint\_characterization}} & \textbf{mechanised} \\
+Thm.~\ref{thm:char} (programs) & \texttt{progComplete\_characterization} & mechanised \\
+Thm.~\ref{thm:chargen} & \texttt{footprint\_char\-acterization\_general} & mechanised \\
+Cor.~\ref{cor:guards} & \texttt{absolute\_iff\_guards} & mechanised \\
+Cor.~\ref{cor:infinite} & \texttt{progComplete\_univ\_infinite} & mechanised \\
+Cor.~\ref{cor:constants} & \texttt{constants\_iff\_card\_two} & mechanised \\
+Thm.~\ref{thm:ceiling} & \texttt{ceiling} & mechanised \\
+Prop.~\ref{prop:reach} & --- & paper proof \\
+Thm.~\ref{thm:decide} & --- & paper proof (reduction is Thm.~\ref{thm:char}) \\
+Prop.~\ref{prop:coupling} & \texttt{coupling\_fails} & mechanised \\
+Prop.~\ref{prop:degenerate} & \texttt{coupling}, \texttt{progComplete\_coupling} & mechanised \\
+Prop.~\ref{prop:subsume} & \texttt{subsumes\_iff\_subset} & mechanised \\
+Prop.~\ref{prop:factor} & \texttt{det\_factors} & mechanised (\texttt{rfl}) \\
+Thm.~\ref{thm:suite} (finite) & \texttt{certify\_lb}, \texttt{certify\_ub} & mechanised (observed-set core) \\
+Thm.~\ref{thm:suite} (infinite) & \texttt{certify\_infinite} & mechanised \\
+Bridge & \texttt{realizable}, \texttt{progComplete\_iff\_complete} & mechanised \\
+Prop.~\ref{prop:oceiling} (guard core) & \texttt{detW\_singleton\_of\_nonconstant} & mechanised \\
+Prop.~\ref{prop:oconst} (identity) & \texttt{detW\_const} & mechanised (\texttt{rfl}) \\
+Prop.~\ref{prop:pseudo} & \texttt{pseudo\_tested\_iff} & mechanised \\
+Cor.~\ref{cor:relativise} (relativisation) & --- & paper proof \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two caveats stated plainly. First, Theorem~\ref{thm:suite} is mechanised at the
+level of the \emph{observed set}: \texttt{certify\_lb} and \texttt{certify\_ub}
+establish that the minimum $|O|$ is $|I|$ for finite $I$, and the identity
+$|T| = |O|$ for a minimal suite is the immediate preimage choice, done by hand.
+Second, Theorem~\ref{thm:decide}'s spectrum is a meta-statement about
+representations; its load-bearing reduction to footprint containment \emph{is}
+the mechanised Theorem~\ref{thm:char}, but the complexity and computability
+claims are paper proofs.
+
+\paragraph{Artifact.}
+The Lean development accompanies this paper. To reproduce: place the file in a
+Lean~4 project with Mathlib, run \texttt{lake exe cache get}, and check e.g.\
+\texttt{\#print axioms progComplete\_characterization}.
+
+\section{Threats to Validity and Scope}
+\label{sec:threats}
+
+\paragraph{The exact oracle.}
+Sections~\ref{sec:char}--\ref{sec:suite} assume the suite observes the full
+return value. Section~\ref{sec:oracle} removes this assumption and shows the
+theory relativises, with the ceiling unchanged for any non-constant oracle and
+pseudo-testedness characterised (Proposition~\ref{prop:pseudo}). The relativised
+results are paper proofs.
+
+\paragraph{Purity and totality.}
+Denotations are total functions. Void methods, exceptions, non-termination, and
+side effects are outside the model. Programs with these features can be brought
+inside by enlarging the return type with the corresponding observations, but we
+do not develop the encoding, and the enlarged type is typically infinite, which
+by Corollary~\ref{cor:infinite} puts absolute completeness out of reach and moves
+the question to relative completeness.
+
+\paragraph{Uniform post-composition.}
+An output operator perturbs every returned value identically. A statement-level
+mutation of one \texttt{return} site among several is not an output operator, and
+the theory does not cover it.
+
+\paragraph{Applicability of the ceiling.}
+Theorem~\ref{thm:ceiling} shows a full absolute score is equivalent to output
+coverage. This is a statement about what the score \emph{means}; it is not an
+empirical claim about how often suites achieve it, nor about how well output
+coverage correlates with fault detection. Those are separate, empirical
+questions.
+
+\paragraph{Scope of the negative results.}
+Proposition~\ref{prop:coupling} shows coupling is not \emph{entailed}. It does
+not show that coupling fails in practice, and it says nothing about program-text
+mutation.
+
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+Mutation testing is ordinarily used heuristically: a high score is read as
+evidence of suite adequacy, justified by the coupling effect and the
+competent-programmer hypothesis, which are empirical. For one operator class we
+take a different stance---measuring a family not by the faults it can
+\emph{express} but by what killing its mutants \emph{certifies}, uniformly over
+programs and suites---and characterise the score exactly.
+
+The characterisation partitions the content of a passing score into three
+determinate parts: what it \textbf{certifies} (under an absolutely complete
+family, precisely output coverage, Theorem~\ref{thm:ceiling}); what it
+\textbf{provably cannot} certify (any fault distinguishing two inputs the program
+maps to the same output, Remark~\ref{rem:ceiling}); and where the completeness
+question is \textbf{undecidable} (relative completeness against a presented
+target, off finite return types, Section~\ref{sec:relative}). For this class a
+mutation score is an object with a characterised semantics rather than a quantity
+trusted empirically.
+
+Four directions remain open.
+
+\begin{enumerate}
+\item \textbf{Other operator classes.} Proposition~\ref{prop:factor} identifies
+precisely what would let another class admit the same treatment: a
+program-independent detection invariant analogous to the footprint.
+Characterising the largest operator class whose detection factors through such an
+invariant would say how far this style of result can reach.
+\item \textbf{The weak-oracle theory.} Section~\ref{sec:oracle} shows the
+development relativises and characterises pseudo-testedness. Mechanising the
+relativised theory---abstracting the Lean development over the detection
+function---and studying which oracles arise from real assertion styles is the
+natural next step, and the one with the most contact with practice.
+\item \textbf{Cost-optimal partial families.} Given a target class $\Gamma$ and a
+per-operator cost, the minimum-cost $\Pi$ adequacy-complete for $\Gamma$ is a
+weighted set-cover over footprints; Theorem~\ref{thm:char} makes the feasibility
+predicate explicit.
+\item \textbf{Decidable relative fragments.} Theorem~\ref{thm:decide} gives
+polynomial time for explicit finite footprints and decidability for
+Presburger-definable ones. A systematic account of the boundary---which footprint
+representations admit decidable containment---is open.
+\end{enumerate}
+
+\begin{thebibliography}{99}
+
+\bibitem{ammann2014}
+Ammann, P., Delamaro, M.E., Offutt, J.: Establishing theoretical minimal sets of
+mutants. In: ICST (2014)
+
+\bibitem{budd1982}
+Budd, T.A., Angluin, D.: Two notions of correctness and their relation to
+testing. Acta Informatica \textbf{18}(1), 31--45 (1982)
+
+\bibitem{demillo1978}
+DeMillo, R.A., Lipton, R.J., Sayward, F.G.: Hints on test data selection: help
+for the practicing programmer. IEEE Computer \textbf{11}(4), 34--41 (1978)
+
+\bibitem{lean4}
+de Moura, L., Ullrich, S.: The Lean 4 theorem prover and programming language.
+In: CADE (2021)
+
+\bibitem{goldman1995}
+Goldman, S.A., Kearns, M.J.: On the complexity of teaching. J. Comput. Syst. Sci.
+\textbf{50}(1), 20--31 (1995)
+
+\bibitem{hamlet1977}
+Hamlet, R.G.: Testing programs with the aid of a compiler. IEEE Trans. Softw.
+Eng. \textbf{SE-3}(4), 279--290 (1977)
+
+\bibitem{jia2011}
+Jia, Y., Harman, M.: An analysis and survey of the development of mutation
+testing. IEEE Trans. Softw. Eng. \textbf{37}(5), 649--678 (2011)
+
+\bibitem{just2014}
+Just, R., Jalali, D., Inozemtseva, L., Ernst, M.D., Holmes, R., Fraser, G.: Are
+mutants a valid substitute for real faults in software testing? In: FSE (2014)
+
+\bibitem{kurtz2015}
+Kurtz, B., Ammann, P., Offutt, J.: Static analysis of mutant subsumption. In:
+ICST Workshops (Mutation), pp. 1--10 (2015). \url{https://doi.org/10.1109/ICSTW.2015.7107454}
+
+\bibitem{mathlib}
+The mathlib Community: The Lean mathematical library. In: CPP (2020)
+
+\bibitem{niedermayr2016}
+Niedermayr, R., Juergens, E., Wagner, S.: Will my tests tell me if I break this
+code? In: CSED@ICSE, pp. 23--29 (2016). \url{https://doi.org/10.1145/2896941.2896944}
+
+\bibitem{offutt1992}
+Offutt, A.J.: Investigations of the software testing coupling effect. ACM Trans.
+Softw. Eng. Methodol. \textbf{1}(1), 5--20 (1992)
+
+\bibitem{offutt1996}
+Offutt, A.J., Lee, A., Rothermel, G., Untch, R.H., Zapf, C.: An experimental
+determination of sufficient mutant operators. ACM Trans. Softw. Eng. Methodol.
+\textbf{5}(2), 99--118 (1996)
+
+\bibitem{papadakis2019}
+Papadakis, M., Kintis, M., Zhang, J., Jia, Y., Le~Traon, Y., Harman, M.:
+Mutation testing advances: an analysis and survey. Advances in Computers
+\textbf{112}, 275--378 (2019)
+
+\bibitem{veraperez2018}
+Vera-P\'erez, O.L., Danglot, B., Monperrus, M., Baudry, B.: A comprehensive
+study of pseudo-tested methods. Empirical Software Engineering \textbf{23}(3),
+1908--1935 (2018)
+
+\end{thebibliography}
+
+\end{document}

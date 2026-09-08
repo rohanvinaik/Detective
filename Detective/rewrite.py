@@ -436,6 +436,17 @@ def _load_old_callable(
     return fn if callable(fn) else None
 
 
+def rewrite_classification_status(report_present: bool, load_failed: bool, measurement_valid: bool) -> str:
+    """Preserve the classifier prerequisites across rewrite verification (#E/#37, pure — pinned)."""
+    if not report_present:
+        return "unavailable"
+    if load_failed:
+        return "load_failed"
+    if not measurement_valid:
+        return "invalid_measurement"
+    return "observed"
+
+
 def verify_rewrite(
     receipt: RewriteReceipt,
     file: str,
@@ -589,7 +600,12 @@ def verify_rewrite(
     )
     if freshness == "unfrozen":
         say("⚠ this older receipt did not freeze its proof basis — cannot establish preservation")
-    classification_ran = report is not None
+    classification_status = rewrite_classification_status(
+        report is not None,
+        bool(getattr(report, "load_failed", False)),
+        bool(getattr(report, "measurement_valid", False)),
+    )
+    classification_ran = classification_status == "observed"
     if not receipt_valid:
         say("⚠ the receipt is not a complete, verified baseline — preservation cannot be established")
     if not classification_ran:
@@ -604,4 +620,6 @@ def verify_rewrite(
         new_dimensions=tuple(dict.fromkeys(new_dimensions)),
         differences=tuple(dict.fromkeys(differences)),  # many mutants share one witness input
         abstentions=tuple(dict.fromkeys(abstentions)),
+        note=getattr(report, "note", None)
+        or ("" if classification_ran else f"classification: {classification_status}"),
     )

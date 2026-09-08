@@ -1,0 +1,25 @@
+  … isolated_test_selection: tracing 5 function-routed tests
+  … isolated_test_selection: baseline traced · 5 tests · 0.0s
+  … isolated_test_selection: 1/15 mutants · 3.2/s · ETA estimating… (heartbeat)
+  … isolated_test_selection: 15/15 mutants · 18.5/s · done in 0.8s
+  ▸ pass 0: ✓ every mutant killed
+  ▸ witness pass: searching richer inputs for a distinguishing kill…
+  ▸ finalizing — re-profiling the full mutant universe against the written suite…
+  … isolated_test_selection: tracing 5 function-routed tests
+  … isolated_test_selection: baseline traced · 5 tests · 0.0s
+  … isolated_test_selection: 15/15 mutants · 18.4/s · done in 0.8s
+──────────────────────────────────────────────────────────────────────────────
+Wesker/isolation.py::isolated_test_selection — converge · 15 behaviours · 15 pinned
+
+  · not consulted      639 collected test(s) have no static path to this function — not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)
+  · full report        .detective/reports/converge_isolated_test_selection.txt
+
+DONE:  the suite pins every behaviour this function makes.
+
+       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):
+         detective plan 'Wesker/isolation.py'          # the fuller style map for these regions
+         detective decompose 'Wesker/isolation.py::isolated_test_selection' --apply  # split it where behaviour is proven preserved
+         detective survey 'Wesker/isolation.py'         # pure decisions trapped behind an impure boundary
+         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> 'Wesker/isolation.py::isolated_test_selection' --budget)
+
+FINAL Wesker/isolation.py::isolated_test_selection: ✓ COMPLETE (operator universe) · 15/15 killed · minimal cover 4 test(s)

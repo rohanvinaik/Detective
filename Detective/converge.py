@@ -166,6 +166,77 @@ def certificate_standing(
     return "complete"
 
 
+def should_verify_reproducibility(
+    execution_mode: str,
+    functionally_complete: bool,
+    has_candidate_equivalent: bool,
+) -> bool:
+    """Require isolated verification before shared-state evidence certifies (#B, pure — pinned).
+
+    Even a fully killed profile can hide an unstable disposition. Every would-be
+    certificate measured outside isolation therefore needs the check. An incomplete
+    result already refuses; an isolated result already used the required execution
+    mode, although isolation alone does not establish universal determinism.
+    ``has_candidate_equivalent`` is retained for compatibility, not as a gate.
+    """
+    return execution_mode != "isolated" and functionally_complete
+
+
+def reproducibility_verdict(survivors_a: tuple[str, ...], survivors_b: tuple[str, ...]) -> str:
+    """Whether two profiles of the same target agree on the value-survivor SET (#B, pure — pinned).
+
+    A named code, not a bool: ``reproducible`` when the two runs' survivor mutant-ids are the same set,
+    ``nonreproducible`` when they differ — a borderline mutant flipped crash-kill <-> value-survivor
+    between the runs, so the killable/equivalent boundary this run's COMPLETE rests on is not stable.
+    Set equality, order-independent, because the survivor ORDER is never load-bearing.
+    """
+    return "reproducible" if set(survivors_a) == set(survivors_b) else "nonreproducible"
+
+
+def verification_disposition(
+    measurement_valid: bool,
+    cached: bool,
+    basis_known: bool,
+    basis_equal: bool,
+    survivors_equal: bool,
+    universe_equal: bool,
+) -> str:
+    """Decide what observed verification facts warrant (#B/#60, pure — pinned).
+
+    The adapter supplies observations; identity and collection objects never enter this
+    decision. Each failed prerequisite has its own refusal. Agreement describes the
+    measured pair, not universal determinism or semantic equivalence.
+    """
+    if not measurement_valid:
+        return "invalid_verification"
+    if cached:
+        return "cached_verification"
+    if not basis_known:
+        return "unknown_verification_basis"
+    if not basis_equal:
+        return "verification_basis_changed"
+    if not universe_equal:
+        return "verification_universe_changed"
+    if not survivors_equal:
+        return "nonreproducible"
+    return "reproducible"
+
+
+def _measured_mutant_ids(result: object) -> frozenset[str]:
+    """Read the scored obligation universe, including killed mutants."""
+    records = (
+        *(getattr(result, "killed_records", ()) or ()),
+        *(getattr(result, "survivor_records", ()) or ()),
+    )
+    return frozenset(record.get("mutant_id", "") for record in records)
+
+
+def _survivor_ids(result: object) -> tuple[str, ...]:
+    """The value-survivor mutant-ids of a profile — the SET a reproducibility check compares."""
+    records = getattr(result, "value_survivor_records", ()) or ()
+    return tuple(sorted(r.get("mutant_id", "") for r in records))
+
+
 @dataclass(frozen=True)
 class ConvergeResult:
     """Outcome of the convergence loop."""
@@ -1383,6 +1454,7 @@ def converge(
     deadline_s: float | None = 300.0,
     include_shaped: bool = True,
     two_sign: bool = False,
+    isolated: bool = False,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
@@ -1413,6 +1485,7 @@ def converge(
             deadline_s=deadline_s,
             include_shaped=include_shaped,
             two_sign=two_sign,
+            isolated=isolated,
             progress=progress,
             notify=notify,
         )
@@ -1451,6 +1524,7 @@ def _converge_impl(
     deadline_s: float | None = 300.0,
     include_shaped: bool = True,
     two_sign: bool = False,
+    isolated: bool = False,
     progress: Callable[[int, int, float], None] | None = None,
     notify: Callable[[str], None] | None = None,
 ) -> ConvergeResult:
@@ -1646,6 +1720,7 @@ def _converge_impl(
             progress=progress,
             include_shaped=include_shaped,
             two_sign=two_sign,
+            isolated=isolated,
         )
         if result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "mutant profiling"
@@ -1772,6 +1847,7 @@ def _converge_impl(
             file,
             function,
             project_root,
+            profile_result=result,
             call_site_inputs=supplied_inputs,
             extra_test_dirs=extra_test_dirs,
             deadline_s=_budget_s(),
@@ -1872,6 +1948,7 @@ def _converge_impl(
         progress=progress,
         include_shaped=include_shaped,
         two_sign=two_sign,
+        isolated=isolated,
     )
     if final_result.budget_exhausted and not budget_cut:
         budget_cut, cut_phase = True, "finalization"
@@ -1962,6 +2039,7 @@ def _converge_impl(
                 progress=progress,
                 include_shaped=include_shaped,
                 two_sign=two_sign,
+                isolated=isolated,
             )
             if final_result.budget_exhausted and not budget_cut:
                 budget_cut, cut_phase = True, "minimization"
@@ -2042,6 +2120,7 @@ def _converge_impl(
             progress=progress,
             include_shaped=include_shaped,
             two_sign=two_sign,
+            isolated=isolated,
         )
         if final_result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "regression-retry"
@@ -2073,6 +2152,7 @@ def _converge_impl(
             progress=progress,
             include_shaped=include_shaped,
             two_sign=two_sign,
+            isolated=isolated,
         )
         if final_result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "regression-check"
@@ -2107,6 +2187,7 @@ def _converge_impl(
                 file,
                 function,
                 project_root,
+                profile_result=final_result,
                 call_site_inputs=supplied_inputs,
                 extra_test_dirs=extra_test_dirs,
                 deadline_s=_budget_s(),
@@ -2163,7 +2244,74 @@ def _converge_impl(
     # ONE normalization of the engine's validity for this whole result (#60), built here so the
     # fields below and every surface downstream read the same answer instead of each re-deriving
     # a narrower one from raw attributes.
-    _validity = normalize_validity(final_result)
+    # `load_failed` is Detective's own fact, discovered by classification, not Wesker's — the
+    # profile succeeds (mutants come from the AST, which needs no import) and only the live load
+    # fails. Passing it here is what stops a target that never imported from producing a clean
+    # `certificate_standing`: without it, all three standing guards pass and routing asks the
+    # operator to author inputs for a module that cannot load (conorheins `str2bool`, 0/27, exit 0).
+    _validity = normalize_validity(
+        final_result, load_failed=bool(getattr(survivor_report, "load_failed", False))
+    )
+    # A certificate-facing check observes the SAME function/test basis in isolated
+    # mutation workers. A replay, missing identity, invalid pass or disagreement refuses.
+    # Classification above consumes final_result itself, never a separately measured set.
+    _has_candidate_equiv = survivor_report is not None and bool(survivor_report.equivalent)
+    if _validity.admits_certificate and should_verify_reproducibility(
+        _validity.execution_mode, functionally_complete, _has_candidate_equiv
+    ):
+        say("verifying reproducibility — fresh isolated observation of the function's proof basis…")
+        try:
+            _verify_result = profile(
+                file,
+                function,
+                project_root,
+                budget_ms=_budget_ms(),
+                extra_test_dirs=extra_test_dirs,
+                include_shaped=include_shaped,
+                two_sign=two_sign,
+                use_cache=False,
+                isolated=True,
+            )
+        except Exception:  # noqa: BLE001 — a failed required observation is a refusal
+            _validity = replace(_validity, cut_reasons=(*_validity.cut_reasons, "verification_failed"))
+            functionally_complete = False
+        else:
+            _verify_validity = normalize_validity(_verify_result)
+            if budget_is_exhausted(_budget_ms()):
+                _verify_validity = replace(
+                    _verify_validity,
+                    cut_reasons=tuple(dict.fromkeys((*_verify_validity.cut_reasons, "budget_exhausted"))),
+                )
+            _before_basis = str(getattr(final_result, "measurement_basis", ""))
+            _after_basis = str(getattr(_verify_result, "measurement_basis", ""))
+            _check = verification_disposition(
+                _verify_validity.admits_certificate,
+                bool(getattr(_verify_result, "served_from_cache", False)),
+                bool(_before_basis and _after_basis),
+                _before_basis == _after_basis,
+                set(_survivor_ids(final_result)) == set(_survivor_ids(_verify_result)),
+                _measured_mutant_ids(final_result) == _measured_mutant_ids(_verify_result),
+            )
+            if _check == "reproducible":
+                # The proof, counts and line ledger now all rest on the isolated observation.
+                final_result = _verify_result
+                _validity = _verify_validity
+            else:
+                _reason = "nonreproducible_in_process" if _check == "nonreproducible" else _check
+                _validity = replace(
+                    _validity,
+                    gateable=_validity.gateable and _verify_validity.gateable,
+                    cut_reasons=tuple(
+                        dict.fromkeys((*_validity.cut_reasons, *_verify_validity.cut_reasons, _reason))
+                    ),
+                )
+                functionally_complete = False
+                say(
+                    "⚠ the required fresh measurement did not establish the certificate — result non-gateable"
+                )
+    functionally_complete = functionally_complete and _validity.admits_certificate
+    if "budget_exhausted" in _validity.cut_reasons:
+        budget_cut, cut_phase = True, cut_phase or "verification"
     # The line ledger rests on the ADMISSIBLE view (baseline-green evidence only), never the raw
     # observed union — the one place that choice is made, shared with audit so the two cannot drift
     # (#59). `line_basis` travels with the result so a certificate names which evidence it rested on.

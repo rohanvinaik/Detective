@@ -29,6 +29,10 @@ from Detective.validity import cut_reason_sentence
 from . import __version__
 from .equivalence import crash_only_status
 
+# Top-level, not deferred like the `certify` imports: `ledger` pulls in nothing (no engine, no
+# stdlib beyond __future__), so `--help` and a bad target pay nothing for it.
+from .ledger import observe
+
 
 def _trace_budget(args) -> float | None:
     """The CLI's `--trace-budget SECONDS` → the engine's `trace_budget_s`. 0 (or negative) means
@@ -2464,9 +2468,17 @@ def repair_measurement_route(
         return "regime"
     if "collection_incomplete" in cut_reasons:
         return "fix_collection"
+    if "nonreproducible_in_process" in cut_reasons:
+        return "reprofile"
+    if "uncontained_worker" in cut_reasons:
+        return "isolate"
     if "budget_exhausted" in cut_reasons or budget_exhausted:
         return "deadline"
-    return "trace_budget"
+    if "sampled_universe" in cut_reasons:
+        return "enumerate"
+    if "coverage_truncated" in cut_reasons:
+        return "trace_budget"
+    return "inspect_refusal"
 
 
 def measurement_block_route(
@@ -2618,6 +2630,13 @@ def _converge_action(
         load_failed=_rep_load_failed,
         needs_sample=_needs_sample,
     )
+    # The routed code is otherwise consumed by the branch below and discarded, so nothing outside
+    # this run can ever learn what converge decided. The process axis needs exactly that fact
+    # across runs (a spiral is an identical code re-emitted over unchanged state), and an
+    # observation channel is how it leaves without threading a value through five rendering layers
+    # that are not about it. Advisory and never fatal: `observe` cannot raise, and this line
+    # changes no output, no branch and no exit code. See docs/INVOCATION_LEDGER.md.
+    observe("outcome", "converge", kind)
     if kind == "repair_measurement":
         # Route by the TYPED cut reasons (validity.CUT_REASONS), not a raw-boolean ladder with a
         # `--trace-budget 0` catch-all. That catch-all sent a COLLECTION-FAILURE cut (a reaching test
@@ -2645,6 +2664,32 @@ def _converge_action(
                 _row(
                     "", f"dependency; detective regime names the one in use), then: detective converge '{fn}'"
                 ),
+            ]
+        if route in ("reprofile", "isolate"):
+            return [
+                "STOP:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                "",
+                _row("· Re-measure", f"detective converge '{fn}' {flags} --isolated".replace("  ", " ")),
+                _row("", "retain the original input, receiver, clock/environment and policy options."),
+                _row("· Why", "isolated evaluation repairs measurement; equivalence flags cannot do that."),
+            ]
+        if route == "enumerate":
+            return [
+                "STOP:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                "",
+                _row("· Re-measure", f"detective converge '{fn}' {flags}".rstrip()),
+                _row("", "enumerate the complete mutation policy; remove sampling/--fast options."),
+            ]
+        if route == "inspect_refusal":
+            return [
+                "STOP:  "
+                + (
+                    "; ".join(cut_reason_sentence(r) for r in reasons)
+                    or cut_reason_sentence("engine_refused_unspecified")
+                ),
+                "",
+                _row("· Resolve", "inspect the reported engine failure and keep the proof basis fixed;"),
+                _row("", "re-run only after that cause is resolved. More budget is not a generic repair."),
             ]
         if route == "regime":
             command = f"detective regime '{fn}'"
@@ -2970,6 +3015,19 @@ def _shell_input_flag(rendered: str) -> str:
     return f"--input {shlex.quote(rendered)}"
 
 
+def residual_input_route(inputs_expressible: bool, has_line_gaps: bool) -> str:
+    """Choose an executable residual action (#D/#44, pure — pinned).
+
+    A literal-input command cannot cross a known object boundary. Reach requirements
+    still matter there, but must be realized by a fixture or a primitive extraction.
+    """
+    if not inputs_expressible:
+        return "fixture"
+    if has_line_gaps:
+        return "lines"
+    return "author"
+
+
 def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> InputPlan:
     """What the engine DERIVED about the inputs it still needs — as typed action data.
 
@@ -3063,7 +3121,11 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
     # request. `missing_line_guards` is already computed for exactly this (converge.py) and was
     # reaching only the informational row; a mutant on a line that never runs can never die, so
     # coverage is a PRECONDITION for the kill axis, not a parallel one.
-    if gaps := _line_gap_items(proof):
+    gaps = _line_gap_items(proof)
+    route = residual_input_route(getattr(proof, "inputs_expressible", None) is not False, bool(gaps))
+    if route == "fixture":
+        return _input_plan("fixture", gaps, len(gaps))
+    if route == "lines":
         return _input_plan("lines", gaps, len(gaps))
     if hints:
         return _input_plan("boundary", hints, len(hints))
@@ -3244,6 +3306,18 @@ def _derived_input(
         out.append("")
         out.append(f"THEN RUN:  {cmd}")
         return out
+
+    if kind == "fixture":
+        return [
+            "WRITE TEST:  build the required domain objects in a fixture and call the target",
+            "",
+            _row("· Signature", sig),
+            _row("· Why", "The target has inputs outside the literal input grammar."),
+            *(_row("· Uncovered" if i == 0 else "", gap) for i, gap in enumerate(items)),
+            _row("· Alternative", f"Inspect a primitive decision seam: detective extract '{target}'"),
+            "",
+            f"THEN RUN:  {cmd}",
+        ]
 
     if kind == "lines":
         # ONE slot, not N identical ones. Every copy is the same unfilled template, so repeating
@@ -4171,6 +4245,14 @@ def _build_parser() -> argparse.ArgumentParser:
                 "negative fences (Thm 15.4). Off by default.",
             )
         if name == "converge":
+            p.add_argument(
+                "--isolated",
+                action="store_true",
+                help=(
+                    "evaluate mutations in isolated workers throughout convergence; "
+                    "use after a reproducibility refusal"
+                ),
+            )
             # The workflow note renders after the options on `converge --help` (this loop set
             # RawDescriptionHelpFormatter, so the epilog is shown verbatim).
             p.epilog = _CONVERGE_WORKFLOW
@@ -5806,6 +5888,7 @@ def _run_converge(args, file, function) -> int:
         deadline_s=args.deadline,
         include_shaped=args.include_shaped,
         two_sign=args.two_sign,
+        isolated=getattr(args, "isolated", False),
         progress=_stream_progress(function),
         notify=_notify_stderr,
     )
@@ -6476,34 +6559,39 @@ def _run_parsimony(args) -> int:
 
 
 def _run_survey(args) -> int:
-    from .survey import render_survey, survey_source
+    from .survey import render_survey, survey_scan_status, survey_source
 
-    if os.path.isdir(args.path):
+    requested = args.path if os.path.isabs(args.path) else os.path.join(args.project_root, args.path)
+    if os.path.isdir(requested):
         paths = sorted(
             os.path.join(dirpath, name)
-            for dirpath, _dirs, files in os.walk(args.path)
+            for dirpath, _dirs, files in os.walk(requested)
             for name in files
             if name.endswith(".py")
         )
     else:
-        paths = [args.path]
+        paths = [requested]
 
+    failed: list[dict[str, str]] = []
     scanned: list[tuple[str, list]] = []
     for path in paths:
         try:
             with open(path, encoding="utf-8") as handle:
                 source = handle.read()
             findings = survey_source(source)
-        except (OSError, SyntaxError):
-            # A file we cannot read or parse is disclosed by omission, never a crash; the survey is
-            # advisory and one unreadable file must not sink the scan of the rest.
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            failed.append({"path": path, "reason": f"{type(exc).__name__}: {exc}"})
             continue
         scanned.append((path, findings))
 
+    status = survey_scan_status(len(scanned), len(failed))
+    exit_code = 0 if status == "observed" else 2
     if args.json:
         return _emit_json(
             {
                 "kind": "survey",
+                "scan_status": status,
+                "unexamined": failed,
                 "note": "static advisory — proposes extractions, performs none, writes nothing",
                 "trapped": sum(len(f) for _p, f in scanned),
                 "files": [
@@ -6522,7 +6610,7 @@ def _run_survey(args) -> int:
                     for path, findings in scanned
                 ],
             },
-            0,
+            exit_code,
         )
 
     single = len(scanned) == 1
@@ -6538,8 +6626,9 @@ def _run_survey(args) -> int:
             f"{args.path} — survey · 0 trapped pure decisions across "
             f"{len(scanned)} file(s)   (static advisory)"
         ]
+    blocks.extend(f"{f['path']} — UNEXAMINED: {f['reason']}" for f in failed)
     print("\n".join(blocks).rstrip())
-    return 0
+    return exit_code
 
 
 def _run_extract(args, file, function) -> int:
@@ -6551,7 +6640,12 @@ def _run_extract(args, file, function) -> int:
         with open(full, encoding="utf-8") as handle:
             source = handle.read()
         proposal = extract_proposal(source, function)
-    except OSError as exc:
+    except LookupError as exc:
+        if args.json:
+            return _emit_json({"kind": "extract", "error": str(exc)}, 2)
+        print(f"{file} — extract: {exc}")
+        return 2
+    except (OSError, UnicodeError) as exc:
         # A file we cannot read / parse is a precondition problem (exit 2), STATED not raised — extract
         # is advisory and always ends with a clean message, never a traceback (Finding D).
         if args.json:
@@ -6578,6 +6672,7 @@ def _run_extract(args, file, function) -> int:
                 "trapped_params": list(proposal.trapped_params),
                 "proposed_name": proposal.proposed_name,
                 "primitive_inputs": list(proposal.primitive_inputs),
+                "unresolved_inputs": list(proposal.unresolved_inputs),
             }
         return _emit_json(payload, 0)
 
