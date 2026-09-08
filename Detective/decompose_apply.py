@@ -45,7 +45,8 @@ def _kill_matrix(file: str, function: str, project_root: str) -> dict[str, list[
 
     try:
         return profile(file, function, project_root).kill_matrix
-    except Exception:  # noqa: BLE001 — no profile -> no proof suite -> propose and never apply
+    # BLE001: no profile -> no proof suite -> propose and never apply
+    except Exception:  # noqa: BLE001
         return {}
 
 
@@ -398,7 +399,8 @@ def actionable_seam_count(node) -> int:
         from .decompose import find_extraction_candidates
 
         return sum(1 for c in find_extraction_candidates(node) if _candidate_worth(node, c))
-    except Exception:  # noqa: BLE001 — a structural read must never fail a diagnose
+    # BLE001: a structural read must never fail a diagnose
+    except Exception:  # noqa: BLE001
         return 0
 
 
@@ -785,7 +787,8 @@ def _apply_decomposition_impl(
             surviving_categories = tuple(sorted({v.category for v in report.verdicts}))
         if conv.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, conv.cut_phase or "proof converge"
-    except Exception:  # noqa: BLE001 — no suite -> no proof possible
+    # BLE001: no suite -> no proof possible
+    except Exception:  # noqa: BLE001
         conv = None
     if not surviving_categories:
         from .engine import profile

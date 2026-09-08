@@ -21,7 +21,8 @@ def _renamed_from_import_reader():
     """Simulate a module that did ``from time import time as clk`` — its globals bind ``clk`` to the
     clock FUNCTION, and ``stamp`` reads it through that local binding."""
     ns: dict = {"clk": _t.time}
-    exec("def stamp():\n    return int(clk())", ns)  # noqa: S102 — building a target module namespace
+    # S102: building a target module namespace
+    exec("def stamp():\n    return int(clk())", ns)  # noqa: S102
     return ns["stamp"], ns
 
 

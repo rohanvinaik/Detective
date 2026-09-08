@@ -28,7 +28,8 @@ from Detective.equivalence import _reached_lines, residual_disposition
 # ── the reachability tracer: production of the RIP-R signal ─────────────────────────
 def _toy(src: str) -> dict:
     ns: dict = {}
-    exec(compile(src, "/tmp/toy_reach_intent.py", "exec"), ns)  # noqa: S102 — a fixed toy, not user input
+    # S102: a fixed toy, not user input
+    exec(compile(src, "/tmp/toy_reach_intent.py", "exec"), ns)  # noqa: S102
     return ns
 
 

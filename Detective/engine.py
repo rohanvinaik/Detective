@@ -80,7 +80,8 @@ try:
     import inspect as _inspect
 
     _WESKER_TARGET_FIRST = "widen_tests" in _inspect.signature(run_function_profiling).parameters
-except Exception:  # noqa: BLE001 — a capability probe must never break import
+# BLE001: a capability probe must never break import
+except Exception:  # noqa: BLE001
     _WESKER_TARGET_FIRST = False
 
 
@@ -234,7 +235,8 @@ def _resolve_origin(module: str, root: str, extra_path: list[str]) -> str | None
         # site-packages and failed 10 tests, and `regime` called it "resolves cleanly".
         # `extra_path` is the suite's path, computed by `_suite_path`; it is the ONLY thing that
         # should be on there. (3.11+, which this package requires.)
-        done = subprocess.run(  # noqa: S603 — our own script under our own interpreter
+        # S603: our own script under our own interpreter
+        done = subprocess.run(  # noqa: S603
             [sys.executable, "-B", "-P", "-c", script],
             check=False,
             capture_output=True,
@@ -509,7 +511,8 @@ def _load_failure_reason(full_path: str, qualname: str) -> str | None:
             else:
                 sys.modules.pop(name, None)
         return None
-    except Exception as exc:  # noqa: BLE001 — any import error IS the reason to report
+    # BLE001: any import error IS the reason to report
+    except Exception as exc:  # noqa: BLE001
         return f"{type(exc).__name__}: {exc}"
     finally:
         for path in added_paths:
@@ -1116,7 +1119,8 @@ def profile(
                     # A leaf orphan traces nothing: every unknown is unconsulted, and the census says so.
                     if _unknowns:
                         _routing_counts["not_consulted"] = len(_unknowns)
-        except Exception:  # noqa: BLE001 — target-first is an optimisation; never fail the run
+        # BLE001: target-first is an optimisation; never fail the run
+        except Exception:  # noqa: BLE001
             _seed_token = None
             _widen_tests = None
     _prof_kwargs = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
@@ -1288,7 +1292,8 @@ def _count_decompose_seams(file: str, function: str, project_root: str = ".") ->
             tree = ast.parse(fh.read(), filename=full)
         _, node = _resolve(tree, function)
         return actionable_seam_count(node) if node is not None else 0
-    except Exception:  # noqa: BLE001 — a structural read must never fail a diagnose
+    # BLE001: a structural read must never fail a diagnose
+    except Exception:  # noqa: BLE001
         return 0
 
 
@@ -1313,7 +1318,8 @@ def _parsimony_signals(
             return None
         line_span = (node.end_lineno or node.lineno) - node.lineno + 1
         return parsimony_from_function(node, scope, line_span)  # type: ignore[arg-type]
-    except Exception:  # noqa: BLE001 — an advisory read must never fail a diagnose
+    # BLE001: an advisory read must never fail a diagnose
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -1372,17 +1378,20 @@ def _compile_mutant(mutant: Any, original: Callable[..., Any]) -> Callable[..., 
     if getattr(mutant, "wrapper_factory", None) is not None:
         try:
             return mutant.wrapper_factory(original) if original is not None else None
-        except Exception:  # noqa: BLE001 — a wrapper that won't build simply cannot be witnessed
+        # BLE001: a wrapper that won't build simply cannot be witnessed
+        except Exception:  # noqa: BLE001
             return None
     try:
         module_ast = ast.Module(body=[mutant.mutated_node], type_ignores=[])
         ast.fix_missing_locations(module_ast)
         code = compile(module_ast, "<mutant>", "exec")
         namespace: dict[str, Any] = dict(getattr(original, "__globals__", None) or {})
-        exec(code, namespace)  # noqa: S102  # nosec B102 — intentional: compiling an AST mutant
+        # S102: # nosec B102 — intentional: compiling an AST mutant
+        exec(code, namespace)  # noqa: S102
         name = getattr(mutant.mutated_node, "name", None)
         return namespace.get(name) if name else None
-    except Exception:  # noqa: BLE001 — a mutant that won't compile simply cannot be witnessed
+    # BLE001: a mutant that won't compile simply cannot be witnessed
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -1416,7 +1425,8 @@ def _synth_value(type_name: str | None, namespace: dict, depth: int = 0) -> Any:
     if depth < 4 and isinstance(cls, type) and dataclasses.is_dataclass(cls):
         try:
             return cls(**{f.name: _synth_field(f, namespace, depth + 1) for f in dataclasses.fields(cls)})
-        except Exception:  # noqa: BLE001 — an unconstructible field just yields no instance
+        # BLE001: an unconstructible field just yields no instance
+        except Exception:  # noqa: BLE001
             return None
     return None
 
@@ -1986,7 +1996,8 @@ def _safely_fresh(candidate: tuple, pool: Sequence[tuple]) -> bool:
     """
     try:
         return candidate not in pool
-    except Exception:  # noqa: BLE001 — any raising __eq__/__contains__ counts as "fresh"
+    # BLE001: any raising __eq__/__contains__ counts as "fresh"
+    except Exception:  # noqa: BLE001
         return True
 
 
@@ -2318,7 +2329,8 @@ def _domain_variants(value: Any, cap: int = 4) -> list | None:
             continue
         try:
             varied = _as_domain_source(dataclasses.replace(value, **{f.name: alt}))
-        except Exception:  # noqa: BLE001 — a replace a field validator rejects just yields no variant
+        # BLE001: a replace a field validator rejects just yields no variant
+        except Exception:  # noqa: BLE001
             varied = None
         if varied is not None:
             out.append(varied)
@@ -2400,7 +2412,8 @@ def _captured_domain_variant_inputs(captured: Sequence[tuple], cap: int = 24) ->
                 new_row = tuple(var if j == i else row[j] for j in range(len(row)))
                 try:
                     key = repr(new_row)
-                except Exception:  # noqa: BLE001 — an unrepr-able row counts as fresh and never crashes
+                # BLE001: an unrepr-able row counts as fresh and never crashes
+                except Exception:  # noqa: BLE001
                     key = None
                 if key is not None and key in seen:
                     continue

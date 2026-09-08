@@ -184,7 +184,8 @@ def _reachable_paths(
             import_roots=import_roots,
             testpaths=testpaths,
         )
-    except Exception:  # noqa: BLE001 — scoping is an optimisation; degrade to full but NAME it
+    # BLE001: scoping is an optimisation; degrade to full but NAME it
+    except Exception:  # noqa: BLE001
         return PathScope(None, reachable_disposition(1, raised=True, scoped_count=None))
     scoped_count = len(paths) if paths is not None else None
     return PathScope(paths, reachable_disposition(1, raised=False, scoped_count=scoped_count))
@@ -220,7 +221,8 @@ def _no_separator_message(target: str, project_root: str | None) -> str:
         if target.endswith(".py") and os.path.isfile(full):
             with open(full, encoding="utf-8") as fh:
                 names = [qn for qn, _ in walk_functions(ast.parse(fh.read(), filename=full))]
-    except Exception:  # noqa: BLE001 — a formatter that throws replaces the message with a traceback
+    # BLE001: a formatter that throws replaces the message with a traceback
+    except Exception:  # noqa: BLE001
         names = []
     if not names:
         return base
@@ -1229,7 +1231,8 @@ def _interactive_stderr() -> bool:
 
     try:
         return bool(sys.stderr.isatty())
-    except Exception:  # noqa: BLE001 — detached//closed/substituted stderr is simply not a tty
+    # BLE001: detached//closed/substituted stderr is simply not a tty
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -1283,7 +1286,8 @@ def _print_tier0_static(file: str, function: str, project_root: str) -> None:
         detail = read.detail if read.detail else "no static smell"
         sys.stderr.write(f"  … {function}: static · {detail} · proves nothing (advisory)\n")
         sys.stderr.flush()
-    except Exception:  # noqa: BLE001 — tier 0 is a courtesy; the audit stands without it
+    # BLE001: tier 0 is a courtesy; the audit stands without it
+    except Exception:  # noqa: BLE001
         return
 
 
@@ -2562,7 +2566,8 @@ def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> li
         from .regime import resolve_regime
 
         marker_declared = resolve_regime(root).marker_declared
-    except Exception:  # noqa: BLE001 — the action block degrades to the migrate ask, never crashes
+    # BLE001: the action block degrades to the migrate ask, never crashes
+    except Exception:  # noqa: BLE001
         marker_declared = False
     if marker_declared and session_reason == "empty_collection":
         return [
@@ -4140,7 +4145,8 @@ def _target_ns(file: str, function: str, root: str) -> dict:
         mod = rel.replace(_os.sep, ".").replace("/", ".")
         ns["__name__"] = mod[:-3] if mod.endswith(".py") else mod
         return ns
-    except Exception:  # noqa: BLE001 — an input parser must not be what breaks the run
+    # BLE001: an input parser must not be what breaks the run
+    except Exception:  # noqa: BLE001
         return {}
 
 
@@ -4192,7 +4198,8 @@ def _engine_version() -> str:
     """
     try:
         import Wesker
-    except Exception:  # noqa: BLE001 — a version string must never be the thing that crashes
+    # BLE001: a version string must never be the thing that crashes
+    except Exception:  # noqa: BLE001
         return "Wesker NOT IMPORTABLE"
     version = getattr(Wesker, "__version__", None)
     return f"Wesker {version}" if version else "Wesker version UNKNOWN"
@@ -5103,7 +5110,8 @@ def _target_error(exc: Exception, args) -> str:
         full = file if os.path.isabs(file) else os.path.join(root, file)
         with open(full, encoding="utf-8") as fh:
             names = [qn for qn, _ in walk_functions(_ast.parse(fh.read(), filename=full))]
-    except Exception:  # noqa: BLE001 — see "never raises" above
+    # BLE001: see "never raises" above
+    except Exception:  # noqa: BLE001
         names = []
     if not names:
         return f"detective: {exc}"
@@ -5175,7 +5183,8 @@ def main(argv: list[str] | None = None) -> int:
             from Wesker.memory_guard import telemetry
 
             sys.stderr.write(f"  [{telemetry()}]\n")
-        except Exception:  # noqa: BLE001 — telemetry is advisory and never fatal
+        # BLE001: telemetry is advisory and never fatal
+        except Exception:  # noqa: BLE001
             pass
     return code
 
@@ -5222,7 +5231,8 @@ class _hang_watchdog:
             sys.stderr.fileno()
             faulthandler.dump_traceback_later(self._seconds, exit=True)
             self._armed = True
-        except Exception:  # noqa: BLE001 — a backstop degrades silently; it never fails the run
+        # BLE001: a backstop degrades silently; it never fails the run
+        except Exception:  # noqa: BLE001
             self._armed = False
         return self
 
@@ -5319,7 +5329,8 @@ def _run_live(args) -> int:
                 return 2
         except SystemExit:
             raise
-        except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
+        # BLE001: a guard must never be what breaks the run
+        except Exception:  # noqa: BLE001
             pass
     try:
         from Wesker.ci import run_with_live_suite
@@ -5332,7 +5343,8 @@ def _run_live(args) -> int:
     if target_arg:
         try:
             targets = [_split_target(target_arg, root)[0]]
-        except Exception:  # noqa: BLE001 — a command whose target isn't file::function
+        # BLE001: a command whose target isn't file::function
+        except Exception:  # noqa: BLE001
             targets = None
 
     # The suite-global baseline is traced HERE, before `_run` — so this callback, not the one

@@ -24,8 +24,10 @@ from Detective.equivalence import SourceExpr, ast_grid, synth_ast_input
 def _rebuild(carrier: SourceExpr):
     ns: dict = {}
     for imp in carrier.imports:
-        exec(imp, ns)  # noqa: S102 — the carrier's own `import ast`, nothing else
-    return eval(carrier.expr, ns)  # noqa: S307 — Detective-synthesized expr rather than user input
+        # S102: the carrier's own `import ast`, nothing else
+        exec(imp, ns)  # noqa: S102
+    # S307: Detective-synthesized expr rather than user input
+    return eval(carrier.expr, ns)  # noqa: S307
 
 
 @pytest.mark.parametrize(

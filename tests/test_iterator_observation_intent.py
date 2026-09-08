@@ -108,7 +108,8 @@ def test_a_generator_golden_value_kills_a_none_mutant_not_by_crash():
 
     # The original passes; the None mutant fails by ASSERTION (value), never TypeError (crash).
     def _run(result):
-        exec(line, {"result": result})  # noqa: S102 — exercising the exact emitted assertion
+        # S102: exercising the exact emitted assertion
+        exec(line, {"result": result})  # noqa: S102
 
     _run(x for x in range(3))  # original generator -> passes, no raise
     try:

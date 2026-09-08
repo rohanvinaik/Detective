@@ -58,7 +58,8 @@ def _run_for_effects(test: Callable[..., Any]) -> None:
         test()
     except (KeyboardInterrupt, SystemExit):
         raise
-    except BaseException:  # noqa: BLE001 — the harvest swallows a test's verdict and never the operator's interrupt
+    # BLE001: the harvest swallows a test's verdict and never the operator's interrupt
+    except BaseException:  # noqa: BLE001
         pass
 
 
@@ -103,7 +104,8 @@ def capture_call_inputs(
         try:
             args = tuple(loc[n] for n in names)
             key = repr(args)
-        except Exception:  # noqa: BLE001 — an unrepr-able/odd arg is simply not harvested
+        # BLE001: an unrepr-able/odd arg is simply not harvested
+        except Exception:  # noqa: BLE001
             return
         if key in seen:
             return

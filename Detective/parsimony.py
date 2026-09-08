@@ -272,7 +272,8 @@ def seam_lens_static(func: ast.FunctionDef | ast.AsyncFunctionDef) -> ParsimonyL
         from .decompose import find_extraction_candidates
 
         n = len(find_extraction_candidates(func))
-    except Exception:  # noqa: BLE001 — an advisory read must never fail its caller
+    # BLE001: an advisory read must never fail its caller
+    except Exception:  # noqa: BLE001
         return ParsimonyLens("seam", 0, 0, "seam scan failed", measured=False)
     return ParsimonyLens(
         "seam", _seam_vote(n), n, f"{n} seam(s)", depth=deviation_depth(float(n), 0.0), zero_state=0.0
@@ -310,7 +311,8 @@ def gamma_seam_lens(func: ast.FunctionDef | ast.AsyncFunctionDef) -> ParsimonyLe
         from .decompose import find_extraction_candidates
 
         candidates = find_extraction_candidates(func)
-    except Exception:  # noqa: BLE001 — an advisory read must never fail its caller
+    # BLE001: an advisory read must never fail its caller
+    except Exception:  # noqa: BLE001
         return ParsimonyLens("gamma_seam", 0, 0, "seam scan failed", measured=False)
     return gamma_seam_lens_from_candidates(candidates)
 

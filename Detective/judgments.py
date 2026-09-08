@@ -202,7 +202,8 @@ def record_style_judgment(
         from .regime import resolve_regime
 
         regime = resolve_regime(root, file)
-    except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
+    # BLE001: a guard must never be what breaks the run
+    except Exception:  # noqa: BLE001
         regime = None
     if regime is not None and regime.conflicts:
         return StyleRecording(STYLE_REGIME_CONFLICT, regime=regime)

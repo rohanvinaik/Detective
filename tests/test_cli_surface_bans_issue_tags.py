@@ -46,7 +46,8 @@ def _all_parsers(
     if any(parser is s for s in seen):
         return seen
     seen.append(parser)
-    for action in parser._actions:  # noqa: SLF001 — introspecting argparse is the point
+    # SLF001: introspecting argparse is the point
+    for action in parser._actions:  # noqa: SLF001
         if isinstance(action, argparse._SubParsersAction):
             for sub in action.choices.values():
                 _all_parsers(sub, seen)

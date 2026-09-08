@@ -242,11 +242,13 @@ def parse_input_expression(s: str, ns: dict[str, Any] | None = None) -> tuple:
         reject_unsafe_expression(elt, src, target_ns)
         try:
             # Grammar checked above, builtins emptied here: BOTH are required.
-            value = eval(  # noqa: S307 — grammar-checked and allowlisted with no builtins
+            # S307: grammar-checked and allowlisted with no builtins
+            value = eval(  # noqa: S307
                 compile(ast.Expression(body=elt), "<input>", "eval"),
                 {"__builtins__": {}, **INPUT_MODULES, **target_ns},
             )
-        except Exception as exc:  # noqa: BLE001 — a bad input is a usage error rather than a crash
+        # BLE001: a bad input is a usage error rather than a crash
+        except Exception as exc:  # noqa: BLE001
             raise InputExpressionError(f"failed to evaluate {src!r}: {exc}") from None
         try:
             ast.literal_eval(elt)
@@ -314,7 +316,8 @@ def synth_ast_input(type_name: str | None) -> SourceExpr | None:
         return None
     snippet, accessor = _AST_SAMPLE.get(type_name, _AST_SAMPLE["ast.AST"])
     expr = f"ast.parse({snippet!r})" + (f".{accessor}" if accessor else "")
-    value = eval(expr, {"ast": ast})  # noqa: S307 — Detective-synthesized expr rather than user input
+    # S307: Detective-synthesized expr rather than user input
+    value = eval(expr, {"ast": ast})  # noqa: S307
     return SourceExpr(value=value, expr=expr, imports=("import ast",))
 
 
@@ -391,7 +394,8 @@ def _ast_source_expr(snippet: str, accessor: str) -> SourceExpr:
     live input and its emitted source cannot disagree.
     """
     expr = f"ast.parse({snippet!r})" + (f".{accessor}" if accessor else "")
-    value = eval(expr, {"ast": ast})  # noqa: S307 — Detective-synthesized expr rather than user input
+    # S307: Detective-synthesized expr rather than user input
+    value = eval(expr, {"ast": ast})  # noqa: S307
     return SourceExpr(value=value, expr=expr, imports=("import ast",))
 
 
@@ -408,7 +412,8 @@ def ast_grid(type_name: str | None) -> list[SourceExpr]:
     for snippet, accessor in entries:
         try:
             out.append(_ast_source_expr(snippet, accessor))
-        except Exception:  # noqa: BLE001,S112 — a bad entry must not sink the whole grid
+        # BLE001,S112: a bad entry must not sink the whole grid
+        except Exception:  # noqa: BLE001,S112
             continue
     return out
 
@@ -869,7 +874,8 @@ def bounded_product(grids: list[list], cap: int = 32) -> list[tuple]:
             row = tuple(grid[(i + r * j) % len(grid)] for j, grid in enumerate(grids))
             try:
                 duplicate = row in rows
-            except Exception:  # noqa: BLE001 — opaque equality cannot justify dropping a candidate
+            # BLE001: opaque equality cannot justify dropping a candidate
+            except Exception:  # noqa: BLE001
                 duplicate = False
             if not duplicate:
                 rows.append(row)
@@ -997,7 +1003,8 @@ def _observe(value: Any) -> str:
             prefix.append(_VOLATILE_IN_MESSAGE.sub("0x_", repr(element)))
     except (KeyboardInterrupt, SystemExit):
         raise
-    except BaseException as exc:  # noqa: BLE001 — an iterator raising IS an observable outcome
+    # BLE001: an iterator raising IS an observable outcome
+    except BaseException as exc:  # noqa: BLE001
         return f"<iter {name} raised@{len(prefix)} {type(exc).__name__}>"
     return f"<iter {name} exhausted {prefix}>"
 
@@ -1137,11 +1144,13 @@ def _outcome(
             # it is (identical for original and mutant, so a writing function yields no false witness),
             # exactly as the generic raised-outcome branch would have.
             box["v"] = _raised_marker(exc)
-        except Exception as exc:  # noqa: BLE001 — a raised exception IS an observable outcome
+        # BLE001: a raised exception IS an observable outcome
+        except Exception as exc:  # noqa: BLE001
             box["v"] = _raised_marker(exc)
         except (KeyboardInterrupt, SystemExit):
             raise
-        except BaseException:  # noqa: BLE001 — the abandon unwind (#42); exit the worker quietly
+        # BLE001: the abandon unwind (#42); exit the worker quietly
+        except BaseException:  # noqa: BLE001
             pass
 
     thread = threading.Thread(target=_run, daemon=True)
@@ -1204,7 +1213,8 @@ def _reached_lines(
             sys.settrace(_global)
             with block_fs_writes():
                 call(*(unwrap(a) for a in args))
-        except BaseException:  # noqa: BLE001 -- a raise still traced the lines it reached; reachability is additive
+        # BLE001: a raise still traced the lines it reached; reachability is additive
+        except BaseException:  # noqa: BLE001
             pass
         finally:
             sys.settrace(None)
@@ -1230,7 +1240,8 @@ def _outcome_value(fn: Callable[..., Any], args: tuple) -> Any:
     candidate input."""
     try:
         return fn(*(unwrap(a) for a in args))
-    except Exception:  # noqa: BLE001 — a raise carries no value; `_outcome` already marked it
+    # BLE001: a raise carries no value; `_outcome` already marked it
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -1269,7 +1280,8 @@ def _receiver_state_after(fn: Callable[..., Any], args: tuple) -> dict[str, Any]
     None when the call raised or built no receiver (nothing clean to pin)."""
     try:
         fn(*(unwrap(a) for a in args))
-    except Exception:  # noqa: BLE001 — a raise leaves no clean post-state to pin
+    # BLE001: a raise leaves no clean post-state to pin
+    except Exception:  # noqa: BLE001
         return None
     receiver = getattr(fn, "last_receiver", None)
     if receiver is None:

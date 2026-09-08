@@ -609,7 +609,8 @@ def property_holds(setup_code: str, assertion_code: str, project_root: str) -> b
         return True
     except (KeyboardInterrupt, SystemExit):
         raise  # never swallow interrupt/exit — only property failures are "unsound"
-    except BaseException:  # noqa: BLE001 — pytest's Failed inherits BaseException rather than Exception
+    # BLE001: pytest's Failed inherits BaseException rather than Exception
+    except BaseException:  # noqa: BLE001
         return False
     finally:
         for p in added:
@@ -2195,7 +2196,8 @@ def _converge_impl(
                 include_shaped=include_shaped,
                 two_sign=two_sign,
             )
-        except Exception:  # noqa: BLE001 — classification is advisory; never fail the run
+        # BLE001: classification is advisory; never fail the run
+        except Exception:  # noqa: BLE001
             survivor_report = None
     # Functionally complete = every KILLABLE mutant killed. Equivalent survivors do
     # not count against it (no test can kill them); an uncertain survivor does, since
@@ -2272,7 +2274,8 @@ def _converge_impl(
                 use_cache=False,
                 isolated=True,
             )
-        except Exception:  # noqa: BLE001 — a failed required observation is a refusal
+        # BLE001: a failed required observation is a refusal
+        except Exception:  # noqa: BLE001
             _validity = replace(_validity, cut_reasons=(*_validity.cut_reasons, "verification_failed"))
             functionally_complete = False
         else:

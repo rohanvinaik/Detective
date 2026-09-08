@@ -88,7 +88,8 @@ def static_dof_proxy(node: ast.FunctionDef | ast.AsyncFunctionDef, is_method: bo
         from .purity import is_pure
 
         return len(generate_mutants(node, filter_categories(node, is_pure(node, is_method=is_method))))
-    except Exception:  # noqa: BLE001 — the plan is advisory; a region the engine chokes on is unpriced rather than fatal
+    # BLE001: the plan is advisory; a region the engine chokes on is unpriced rather than fatal
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -257,7 +258,8 @@ def resolve_plan(
             from .regime import resolve_regime
 
             regime = resolve_regime(root, file)
-        except Exception:  # noqa: BLE001 — a guard must never be what breaks the run
+        # BLE001: a guard must never be what breaks the run
+        except Exception:  # noqa: BLE001
             regime = None
         if regime is not None and regime.conflicts:
             return PlanResolution(REGIME_CONFLICT, None, regime=regime, file=file, function=function)

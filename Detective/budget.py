@@ -336,7 +336,8 @@ def count_opcodes(fn: Callable, args: tuple) -> int | None:
     mon.set_events(tool, mon.events.INSTRUCTION)
     try:
         fn(*args)
-    except Exception:  # noqa: BLE001 — a crashed arm reads None; the delta gate reports it
+    # BLE001: a crashed arm reads None; the delta gate reports it
+    except Exception:  # noqa: BLE001
         return None
     finally:
         mon.set_events(tool, 0)

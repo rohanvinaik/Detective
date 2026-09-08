@@ -78,7 +78,8 @@ def static_lenses(func: ast.FunctionDef | ast.AsyncFunctionDef) -> list[Parsimon
         from .decompose import find_extraction_candidates
 
         cands = find_extraction_candidates(func)
-    except Exception:  # noqa: BLE001 — a structural read must never fail the map
+    # BLE001: a structural read must never fail the map
+    except Exception:  # noqa: BLE001
         # A failed scan ABSTAINS on both seam lenses (vote 0, unmeasured) — it must never vote
         # clean: the old `seams = 0` fallback rendered "we could not look" as "+1 atomic body".
         lenses.append(ParsimonyLens("seam", 0, 0, "seam scan failed", measured=False))
@@ -115,7 +116,8 @@ def _scope(name: str, kind: str, reads: list[FunctionRead], children: tuple[Scop
 def _read(func: ast.FunctionDef | ast.AsyncFunctionDef, qualname: str) -> FunctionRead | None:
     try:
         return read_function(func, qualname)
-    except Exception:  # noqa: BLE001 — one odd function must not sink the whole map
+    # BLE001: one odd function must not sink the whole map
+    except Exception:  # noqa: BLE001
         return None
 
 

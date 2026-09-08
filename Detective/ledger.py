@@ -92,7 +92,8 @@ def observe(kind: str, verb: str, code: str) -> None:
     """
     try:
         _OBSERVED.append((str(kind), str(verb), str(code)))
-    except Exception:  # noqa: BLE001 — observation is advisory and never fatal
+    # BLE001: observation is advisory and never fatal
+    except Exception:  # noqa: BLE001
         pass
 
 
@@ -107,7 +108,8 @@ def take_observations() -> tuple[tuple[str, str, str], ...]:
         gathered = tuple(_OBSERVED)
         _OBSERVED.clear()
         return gathered
-    except Exception:  # noqa: BLE001 — observation is advisory and never fatal
+    # BLE001: observation is advisory and never fatal
+    except Exception:  # noqa: BLE001
         return ()
 
 
@@ -115,7 +117,8 @@ def reset_observations() -> None:
     """Discard without reading — for a test that must start from a known-empty channel."""
     try:
         _OBSERVED.clear()
-    except Exception:  # noqa: BLE001 — observation is advisory and never fatal
+    # BLE001: observation is advisory and never fatal
+    except Exception:  # noqa: BLE001
         pass
 
 

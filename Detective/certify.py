@@ -967,5 +967,6 @@ def _publish_suite_change(project_root: str | None, path: str) -> None:
         from Wesker.ci import refresh_live_suite
 
         refresh_live_suite(project_root, path)
-    except Exception:  # noqa: BLE001 — older Wesker or a collection hiccup; degrade quietly
+    # BLE001: older Wesker or a collection hiccup; degrade quietly
+    except Exception:  # noqa: BLE001
         pass

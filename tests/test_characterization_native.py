@@ -106,7 +106,8 @@ def _writer_that_swallows():
         with open(_WRITE_TARGET[0], "w", encoding="utf-8") as fh:
             fh.write("data")
         return "wrote"
-    except Exception:  # noqa: BLE001 — deliberately broad: the point is it must NOT catch the guard
+    # BLE001: deliberately broad: the point is it must NOT catch the guard
+    except Exception:  # noqa: BLE001
         return "blocked-fallback"
 
 

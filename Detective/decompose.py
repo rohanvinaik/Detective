@@ -501,7 +501,8 @@ def _scope_free_uses(scope: _Scope) -> set[str]:
     return free - bound
 
 
-def _flow_stmt(stmt: ast.stmt) -> _Flow:  # noqa: C901 — a total dispatch over stmt kinds
+# C901: a total dispatch over stmt kinds
+def _flow_stmt(stmt: ast.stmt) -> _Flow:  # noqa: C901
     """One statement's ordered def-use flow. Composition rules (issue #6):
     RHS before targets; AugAssign target is load-then-store; branch must-defs
     intersect; loop bodies contribute only may-defs (zero iterations); nested

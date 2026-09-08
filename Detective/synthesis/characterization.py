@@ -801,7 +801,8 @@ def golden_assert_line(output_repr: str, value: Any = None) -> str | None:
             try:
                 if iter(value) is value:  # a fresh, unconsumed one-shot iterator (witness path)
                     contents = list(value)
-            except Exception:  # noqa: BLE001 — not iterable / iteration raised -> not pinnable here
+            # BLE001: not iterable / iteration raised -> not pinnable here
+            except Exception:  # noqa: BLE001
                 contents = None
         if contents is not None:
             try:
@@ -897,7 +898,8 @@ def distinction_pin_lines(original_value: Any, mutant_repr: str, mutant_value: A
     try:
         if original_value != mutant_value:
             return []
-    except Exception:  # noqa: BLE001 — un-comparable values cannot loop the == path either
+    # BLE001: un-comparable values cannot loop the == path either
+    except Exception:  # noqa: BLE001
         return []
     pins: list[str] = []
     _walk_distinction(original_value, mutant_value, "result", pins)
