@@ -96,7 +96,9 @@ def test_the_load_failure_is_named_first():
         containment="uncontained",
         identity_ambiguous=True,
         collection_incomplete=True,
-        evaluation_failed=True,
+        construction_failed=True,
+        not_installed=True,
+        not_entered=True,
         target_load_failed=True,
     )
     assert reasons[0] == "target_load_failed"

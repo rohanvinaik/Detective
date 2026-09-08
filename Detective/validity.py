@@ -29,7 +29,10 @@ import dataclasses
 # Bumped when the MEANING of a field changes, so a stored receipt cannot be read under a
 # different contract than the one that produced it. Additive fields do not require a bump;
 # a changed reason vocabulary does.
-MEASUREMENT_VALIDITY_SCHEMA = 2
+# 3: `mutant_evaluation_failed` split into the three dispositions it collapsed —
+#    `mutant_construction_failed` / `mutant_not_installed` / `mutant_not_entered` (S13). A changed
+#    reason vocabulary is exactly what this number exists to signal.
+MEASUREMENT_VALIDITY_SCHEMA = 3
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
@@ -49,7 +52,12 @@ CUT_REASONS: tuple[str, ...] = (
     "verification_basis_changed",
     "verification_failed",
     "verification_universe_changed",
-    "mutant_evaluation_failed",
+    # Wesker's OWN precedence, earliest failed phase first (`engine.mutant_disposition`). These
+    # were one reason, `mutant_evaluation_failed`, rendered "the harness failed" — true only of
+    # the first. See `cut_reason_sentence` for why the other two are not harness failures at all.
+    "mutant_construction_failed",
+    "mutant_not_installed",
+    "mutant_not_entered",
     "engine_refused_unspecified",
 )
 
@@ -62,7 +70,9 @@ def measurement_cut_reasons(
     containment: str,
     identity_ambiguous: bool,
     collection_incomplete: bool = False,
-    evaluation_failed: bool = False,
+    construction_failed: bool = False,
+    not_installed: bool = False,
+    not_entered: bool = False,
     target_load_failed: bool = False,
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
@@ -118,8 +128,17 @@ def measurement_cut_reasons(
         reasons.append("collection_incomplete")
     if identity_ambiguous:
         reasons.append("ambiguous_module_identity")
-    if evaluation_failed:
-        reasons.append("mutant_evaluation_failed")
+    # THREE reasons, not one. They were collapsed into `mutant_evaluation_failed` and rendered
+    # "the harness failed" — which is true of construction and FALSE of the other two: an
+    # un-installed mutant means the harness built it fine and the patch could not bind it, and an
+    # un-entered mutant means both worked and no test called it. Three causes, three remedies,
+    # one sentence that named the first. Wesker's own precedence order (S13).
+    if construction_failed:
+        reasons.append("mutant_construction_failed")
+    if not_installed:
+        reasons.append("mutant_not_installed")
+    if not_entered:
+        reasons.append("mutant_not_entered")
     if reported_gateable and not gateable and not reasons:
         reasons.append("engine_refused_unspecified")
     return tuple(reasons)
@@ -164,8 +183,21 @@ def cut_reason_sentence(reason: str) -> str:
         "verification_failed": "the required verification measurement could not run; "
         "no certificate was issued",
         "verification_universe_changed": "the verification did not account for the same mutation obligations",
-        "mutant_evaluation_failed": "one or more mutations could not be evaluated "
-        "because the harness failed; repair the measurement before claiming adequacy",
+        # THREE sentences where there was one. Wesker's `mutant_disposition` distinguishes these
+        # deliberately — "each answers a question the later ones presuppose" — and Detective
+        # collapsed them back into "the harness failed", which is true of the first and false of
+        # the other two. An operator who cannot tell them apart cannot act on any of them (S13).
+        "mutant_construction_failed": "one or more mutants could not be BUILT, so they say nothing"
+        " about any test — this measures the engine, not your suite; it is a defect to report, not"
+        " a gap to close",
+        "mutant_not_installed": "one or more mutants were built but never bound at any call site,"
+        " so their survival is a PATCH blind spot rather than a specification gap — a target hidden"
+        " behind a wrapper with no __code__ (lru_cache, partial, a decorator) lands here; unwrap it"
+        " or pin the wrapped callable directly",
+        "mutant_not_entered": "one or more mutants were installed but no test ever called them, so"
+        " their survival measures REACH, not specification — the namespace holds the mutant while"
+        " the caller holds the original (the decorator/registry capture); route a test through the"
+        " patched name, or pin the caller",
         "engine_refused_unspecified": "the engine refused to gate this measurement without naming a reason",
     }.get(reason, f"an unrecognised engine refusal ({reason})")
 
@@ -196,6 +228,23 @@ class MeasurementValidity:
 
 
 _ABSENT = object()
+
+
+def _unscored_by(result: object, disposition: str) -> bool:
+    """Did ANY category leave a mutant unscored for this specific Wesker disposition.
+
+    One disposition per call, never a set. The three that matter — ``harness_error``,
+    ``not_installed``, ``not_entered`` — were read as a single `any(...)` over all three, which
+    is what collapsed them into one flag and one sentence (S13). Reading them apart is the whole
+    repair; a helper that took a tuple would invite the collapse straight back.
+
+    Absent `per_category` (an older engine) reads False rather than fabricating a failure — the
+    same absence-is-not-falsehood rule the adapter applies to every other field.
+    """
+    return any(
+        bool(getattr(category, "unscored_by", {}).get(disposition, 0))
+        for category in (getattr(result, "per_category", ()) or ())
+    )
 
 
 def normalize_validity(
@@ -283,11 +332,9 @@ def normalize_validity(
         containment=containment,
         identity_ambiguous=identity_ambiguous,
         collection_incomplete=collection_incomplete,
-        evaluation_failed=any(
-            bool(getattr(category, "unscored_by", {}).get(reason, 0))
-            for category in (getattr(result, "per_category", ()) or ())
-            for reason in ("harness_error", "not_installed", "not_entered")
-        ),
+        construction_failed=_unscored_by(result, "harness_error"),
+        not_installed=_unscored_by(result, "not_installed"),
+        not_entered=_unscored_by(result, "not_entered"),
         target_load_failed=bool(load_failed),
     )
     return MeasurementValidity(

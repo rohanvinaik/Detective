@@ -433,13 +433,42 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 | **S11** | **numpy is not a declared dependency** — absent from `pyproject.toml` and from `uv.lock`. Three tests skip without it (24 → 27 skipped once `uv sync` prunes an ad-hoc install). Since CI installs from the lock, the array-input closure work is **never exercised in CI** — it passes locally only because numpy happened to be installed by hand. | discovered during the pre-push lock bump | open |
 
 | **S12** | **Ten `S7632` suppression comments Sonar cannot parse** — the comma form, where text after a comma is read as a second suppression code, so the suppression may not apply. In `capture.py` ×2, `engine.py` ×2, `certify.py`, `cli.py` ×2, `plan.py`, `rewrite.py`, `synthesis/writer.py`. CLAUDE.md records both repos being swept clean of this form on 2026-09-06, so it is a **regression**. | local SonarQube, pre-push | open |
-| **S13** | `normalize_validity` collapses **three distinct reasons** — `harness_error`, `not_installed`, `not_entered` — into one `evaluation_failed` flag, rendered as *"one or more mutations could not be evaluated because **the harness failed**"*. Those have three different remedies: repair a harness, install something, close a coverage gap. An operator cannot tell which, and the sentence asserts the first. This is the same "two conditions that mean different things must not collapse into one truthy check" rule the repo runs on, applied to its own validity layer. | `Detective/cli.py::line_gap_why`, `Detective/validity.py::measurement_cut_reasons` | open |
+| **S13** | `normalize_validity` collapsed **three distinct reasons** — `harness_error`, `not_installed`, `not_entered` — into one `evaluation_failed` flag rendered *"the harness failed"*. Three causes, three remedies, one sentence naming only the first. | `Detective/validity.py` | **RESOLVED 2026-09-08** — see below |
+| **S14** | When a run carries SEVERAL cut reasons, `repair_measurement_route` leads with one remedy. On `measurement_cut_reasons` post-S13 the run reports both `coverage_truncated` and `mutant_not_entered`, and the `DO THIS` offers `--trace-budget 0` — correct for the first, while the second carries the specific actionable fix. Which reason's remedy should lead when several are live is undecided. | this repo, surfaced by the S13 repair | open — R3-adjacent |
 
-**S13 explains S5**, and is the more useful of the two: the function that decides what refuses a
-certificate cannot earn one, and the reason it gives for that is a three-way collapse. Splitting
-`evaluation_failed` into its three named reasons — each with its own `cut_reason_sentence` — is the
-same repair R1 performed for `target_load_failed`, and it would make both S5 and the
-`line_gap_why` refusal legible instead of merely stable.
+### S13 — RESOLVED, and the repair diagnosed itself
+
+Wesker's `mutant_disposition` distinguishes these deliberately, and its docstring says why —
+*"each answers a question the later ones presuppose"*:
+
+- `harness_error` — never built. **"Says nothing about any test."**
+- `not_installed` — built, no call site rebound. **"A survivor here is a patch blind spot, not a
+  specification gap"** (an `lru_cache`/`partial`-wrapped target lands here).
+- `not_entered` — installed, never called. **"The classic decorator and registry capture."**
+
+Detective read all three with a single `any(...)` and emitted one reason. Split into
+`mutant_construction_failed` / `mutant_not_installed` / `mutant_not_entered`, each with its own
+`cut_reason_sentence` naming a different remedy (report a defect / unwrap the target / route a
+test through the patched name). `MEASUREMENT_VALIDITY_SCHEMA` bumped 2 → 3, because the file's own
+rule is that *"a changed reason vocabulary does [require a bump]"*.
+
+**The payoff, measured.** `measurement_cut_reasons` had been `UNGATEABLE` for a reason it could
+not state (S5). Re-run after the split, it says:
+
+> *"one or more mutants were **installed but no test ever called them**, so their survival measures
+> REACH, not specification — the namespace holds the mutant while the caller holds the original
+> (the decorator/registry capture); route a test through the patched name, or pin the caller"*
+
+So **S5's cause is `not_entered`** — the harness was never broken. The operator had been told to
+repair a working harness. Two hypotheses about this were formed earlier and both were wrong
+(tuple return; unreached branches); the tool could not confirm or refute either because it could
+not name its own state. It can now.
+
+**Note what the collapse survived on.** `tests/test_unmeasured_mutant_closure_intent.py` was titled
+*"installation/entry failures"* — distinguishing them — while its assertion iterated all three and
+required a single shared reason. The name knew; the assertion pinned the defect. Same shape as
+`test_gofl_update_cell_step_infers_ndarray` (§R4): a test whose name and body disagree makes the
+thing it pins invisible to anyone reading the list.
 
 **S11 is the one to fix soonest.** A capability whose tests always skip in CI is indistinguishable
 from one that does not work, and the wave that added it recorded a `42/42` decision pin for
