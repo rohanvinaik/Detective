@@ -39,6 +39,16 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::line_gap_rationale": {
+    "function_digest": "2cbb8cd2939a9b50",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::line_gap_why": {
+    "function_digest": "bf8633b59fe1c7da",
+    "refusal": "",
+    "standing": "ungateable"
+  },
   "Detective/cli.py::measurement_block_route": {
     "function_digest": "039a79c196da373c",
     "refusal": "",

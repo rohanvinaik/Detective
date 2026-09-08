@@ -432,6 +432,15 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 | **S10** | `test_a_cached_verdict_is_served_consistently_before_and_after_purge` flaked once in three full-suite runs (`rewarm != recold`) and passes 3/3 in isolation. Its own docstring asserts *"Every assert here compares a cold compute to ITS OWN warm read, so it cannot flake on the count noise regardless of load."* That claim is falsified: the warm read after a purge diverged from the recompute that populated it. Either the post-purge warm read is re-measuring rather than serving stored bytes, or the design does not close what it says it closes. | this repo, under full-suite load | open |
 | **S11** | **numpy is not a declared dependency** — absent from `pyproject.toml` and from `uv.lock`. Three tests skip without it (24 → 27 skipped once `uv sync` prunes an ad-hoc install). Since CI installs from the lock, the array-input closure work is **never exercised in CI** — it passes locally only because numpy happened to be installed by hand. | discovered during the pre-push lock bump | open |
 
+| **S12** | **Ten `S7632` suppression comments Sonar cannot parse** — the comma form, where text after a comma is read as a second suppression code, so the suppression may not apply. In `capture.py` ×2, `engine.py` ×2, `certify.py`, `cli.py` ×2, `plan.py`, `rewrite.py`, `synthesis/writer.py`. CLAUDE.md records both repos being swept clean of this form on 2026-09-06, so it is a **regression**. | local SonarQube, pre-push | open |
+| **S13** | `normalize_validity` collapses **three distinct reasons** — `harness_error`, `not_installed`, `not_entered` — into one `evaluation_failed` flag, rendered as *"one or more mutations could not be evaluated because **the harness failed**"*. Those have three different remedies: repair a harness, install something, close a coverage gap. An operator cannot tell which, and the sentence asserts the first. This is the same "two conditions that mean different things must not collapse into one truthy check" rule the repo runs on, applied to its own validity layer. | `Detective/cli.py::line_gap_why`, `Detective/validity.py::measurement_cut_reasons` | open |
+
+**S13 explains S5**, and is the more useful of the two: the function that decides what refuses a
+certificate cannot earn one, and the reason it gives for that is a three-way collapse. Splitting
+`evaluation_failed` into its three named reasons — each with its own `cut_reason_sentence` — is the
+same repair R1 performed for `target_load_failed`, and it would make both S5 and the
+`line_gap_why` refusal legible instead of merely stable.
+
 **S11 is the one to fix soonest.** A capability whose tests always skip in CI is indistinguishable
 from one that does not work, and the wave that added it recorded a `42/42` decision pin for
 `array_source_disposition` whose surrounding integration tests CI has never run.

@@ -2206,7 +2206,7 @@ def _format_converge_terse(
         # the input. Each row states the one true thing about its own class, from the named
         # partitions the banner and verdict also consume (single source).
         if unproven := rep.candidate_equivalent:
-            lines.append(_row("· unproven-equiv", f"{len(unproven)} — no input distinguishes them"))
+            lines.append(_row("· unproven-equiv", f"{len(unproven)} — {_UNPROVEN_EQUIV_BASIS}"))
         if crash_only := rep.crash_only:
             lines.append(
                 _row("· crash-only-equiv", f"{len(crash_only)} — detected by crash; no value pins them")
@@ -2851,6 +2851,17 @@ _RULE = "─" * 78
 # The two row labels every report shares — one spelling each, so the renderers cannot drift.
 _FULL_REPORT_ROW = "· full report"
 _RECORDED_ROW = "✓ recorded"
+# What a candidate-equivalent survivor actually warrants saying. Both converge and audit render
+# this row; one spelling, same reason as the labels above.
+#
+# It read "no input distinguishes them" — a claim about ALL inputs, asserted from a BOUNDED search,
+# while converge's own DONE block scoped the same fact correctly ("any input Detective FOUND").
+# Measured false 2026-09-08: `Detective/cli.py::outcome_disposition` reported ✓ COMPLETE modulo 4
+# unproven-equivalent, and four literal inputs — (1,0,False), (2,0,True), (0,1,False), (1,1,False)
+# — killed all four. The signature is (int, int, bool): fully expressible, no un-exercised branch.
+# So the residual is not reliably an undecidability frontier; some of it is search budget, and the
+# row must not assert the frontier. Second instance of the same defect (docs §R5, §R5b).
+_UNPROVEN_EQUIV_BASIS = "the search found no distinguishing input"
 
 # How many derived requirements one command carries. `--input` is repeatable and each call kills
 # whatever it reaches, so the interface imposes no ceiling — this is only a wall-of-text guard.
@@ -3168,6 +3179,72 @@ def _outcome_needs_hand_pin(original: str, mutant: str) -> bool:
     return original.startswith("<raised") or mutant.startswith("<raised") or original == mutant
 
 
+def line_gap_rationale(unclassified: int, killable: int) -> str:
+    """WHY the reader is being asked to author inputs for uncovered lines (pure — pinned).
+
+    The defect this replaces was a string literal. `_derived_input`'s "lines" branch stated, with
+    no derivation of any kind:
+
+        · Why    Every killable mutant is already dead. What is left is
+                 lines no test executes; ...
+
+    True on arc-dsl, where every killable really was dead. FALSE on conorheins `str2bool`, where
+    the module could not import so classification never ran — `0/27 killed`, `0 pinned`, and
+    `⚠ unclassified 27 — the search could not run on them` printed TWO ROWS ABOVE the claim, from
+    the same data the renderer already held. The renderer could not tell the two apart because it
+    never asked.
+
+    Named codes, because these warrant different sentences and a bool would collapse them:
+
+      * ``classification_incomplete`` — survivors remain UNCLASSIFIED, so nothing is known about
+        whether a killable one is among them. Outranks the killable count, which is itself
+        untrustworthy when the classifier did not finish.
+      * ``killable_remain`` — classification finished and found killable mutants. Asking for line
+        inputs while a known killable gap is open would rank the weaker task first.
+      * ``every_killable_dead`` — the original claim, now earned rather than asserted.
+    """
+    if unclassified > 0:
+        return "classification_incomplete"
+    if killable > 0:
+        return "killable_remain"
+    return "every_killable_dead"
+
+
+def line_gap_why(rationale: str) -> str:
+    """The rendered Why for each `line_gap_rationale` state (pure — pinned).
+
+    ONE OWNER per state, the same reason `cut_reason_sentence` is one: a sentence duplicated
+    across render branches drifts, and the whole defect here was a sentence that outlived the
+    condition it was true under.
+
+    Newline-separated rather than a tuple of rows, deliberately, and the shape is load-bearing
+    twice over. It matches `cut_reason_sentence` — one `str` per named code, from a dict — which
+    pins ✓ COMPLETE 37/37; the tuple-returning form of THIS function measured UNGATEABLE with 3
+    mutants the harness could not evaluate. A pure decision that cannot be pinned is not a pure
+    decision worth having, so it takes the shape that can be. The caller splits and maps to
+    `_row`, which costs it one loop instead of a branch per state.
+
+    An unrecognised rationale returns a NAMED unknown rather than "": a blank Why beside an
+    input request reads as "no reason", which is the shape this repair exists to remove.
+    """
+    return {
+        "classification_incomplete": (
+            "Classification did not finish, so whether a killable\n"
+            "mutant remains is UNKNOWN — the lines below are the\n"
+            "part that is known: no test executes them."
+        ),
+        "killable_remain": (
+            "A killable mutant is still open. These uncovered lines\n"
+            "are a second gap, not the first one to close."
+        ),
+        "every_killable_dead": (
+            "Every killable mutant is already dead. What is left is\n"
+            "lines no test executes; a mutant on a line that never\n"
+            "runs cannot be killed, so reach these first."
+        ),
+    }.get(rationale, f"unrecognised rationale: {rationale}")
+
+
 def _derived_input(
     r,
     proof,
@@ -3331,9 +3408,17 @@ def _derived_input(
         out.append("")
         out.append(_row("· Task", f"Author {len(items)} call(s) — one per line below — each as"))
         out.append(_row("", "its own --input. Detective derives every test from them."))
-        out.append(_row("· Why", "Every killable mutant is already dead. What is left is"))
-        out.append(_row("", "lines no test executes; a mutant on a line that never"))
-        out.append(_row("", "runs cannot be killed, so reach these first."))
+        # The Why is DERIVED, not asserted. It was a string literal claiming every killable mutant
+        # was dead — true where classification finished, false on an unloadable module where it
+        # never ran, and the renderer held `⚠ unclassified N` two rows above without consulting it.
+        _why = line_gap_why(
+            line_gap_rationale(
+                len(getattr(rep, "unclassified", ()) or ()),
+                len(getattr(rep, "killable", ()) or ()),
+            )
+        ).split("\n")
+        out.append(_row("· Why", _why[0]))
+        out.extend(_row("", extra) for extra in _why[1:])
         out.append(_row("· Uncovered", f"1. {items[0]}"))
         for i, gap in enumerate(items[1:], start=2):
             out.append(_row("", f"{i}. {gap}"))
@@ -3758,7 +3843,7 @@ def _format_audit(a, removing: bool = False) -> str:
         lines.append(_row("⚠ flag overridden", f"executed: {stale} — execution outranks the flag"))
     # Split the breakdown out: "no input distinguishes them" is false of the crash-only class.
     if unproven_eq := a.candidate_equivalent - a.crash_only_equivalent:
-        lines.append(_row("· unproven-equiv", f"{unproven_eq} survivor(s) — no input distinguishes them"))
+        lines.append(_row("· unproven-equiv", f"{unproven_eq} survivor(s) — {_UNPROVEN_EQUIV_BASIS}"))
     if a.crash_only_equivalent:
         lines.append(
             _row(
