@@ -4544,10 +4544,15 @@ def _build_parser() -> argparse.ArgumentParser:
             p.add_argument(
                 "--check-strict",
                 action="store_true",
-                help="Like --check, but ALSO exit non-zero (code 2, distinct from a spec gap's 1) when "
-                "the measurement was incomplete — an unclassified survivor the equivalence search could "
-                "not evaluate. For a pipeline that genuinely wants 'fail unless fully measured'; opt-in, "
-                "so the documented --check default stays a claim about the code alone.",
+                help="Like --check, but ALSO exit non-zero when the measurement was incomplete — an "
+                "unclassified survivor the equivalence search could not evaluate. For a pipeline that "
+                "genuinely wants 'fail unless fully measured'; opt-in, so the documented --check default "
+                "stays a claim about the code alone. A SPEC GAP OUTRANKS an incomplete measurement, so "
+                "the distinct code 2 appears only when the measurement is the ONLY thing wrong: a run "
+                "with both exits 1, the actionable one. (The help said 'code 2, distinct from a spec "
+                "gap's 1' without stating that precedence, which reads as a promise that 2 arrives "
+                "whenever the measurement is short — it does not, and on an unloadable module, where "
+                "every line is trivially uncovered, it never can.)",
             )
             p.add_argument(
                 "--plan",

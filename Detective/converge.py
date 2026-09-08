@@ -2299,6 +2299,14 @@ def _converge_impl(
                 # The proof, counts and line ledger now all rest on the isolated observation.
                 final_result = _verify_result
                 _validity = _verify_validity
+                # SAY SO. This step announced itself above and then, on success, said nothing —
+                # so an operator watched a check start and vanish, and the certificate quietly
+                # came to rest on a DIFFERENT measurement than the progress lines had been
+                # narrating. A verdict that only speaks when it fails teaches the reader that
+                # silence means "not run" rather than "passed", which is the reading that makes
+                # the next real failure easy to miss (S8). Progress channel, so no report row
+                # moves and no consumer's parse changes.
+                say("reproducibility confirmed — the certificate rests on the isolated observation")
             else:
                 _reason = "nonreproducible_in_process" if _check == "nonreproducible" else _check
                 _validity = replace(
