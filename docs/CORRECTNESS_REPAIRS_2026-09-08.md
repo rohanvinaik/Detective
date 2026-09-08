@@ -313,6 +313,42 @@ Two things to separate here:
 Whether the search should *try* the un-exercised branch is a founder call (it costs a synthesis
 pass against a branch no operator asked about). The wording is not a founder call.
 
+### R5b — the same defect, larger, in THIS repo, on a fully expressible domain
+
+Observed 2026-09-08 while pinning `Detective/ledger.py::outcome_disposition`
+(`(int, int, bool) -> str` — every parameter a literal `--input` can express, no un-exercised
+branch, no object boundary).
+
+Bare converge: `✓ COMPLETE (modulo 4 unproven-equivalent) · 24/28 killed`, with the DONE block
+reading *"What remains cannot be distinguished by any input Detective found — whether it is truly
+equivalent is UNDECIDABLE in general."*
+
+Four hand-authored inputs — `(1,0,False)`, `(2,0,True)`, `(0,1,False)`, `(1,1,False)` — took it to
+**28/28, zero residual.** All four candidate-equivalents were killable, and the distinguishing
+values are the obvious boundary probes for the two comparisons in the body.
+
+**This is materially worse than R5's first instance.** There, the mutant lived in a branch no
+supplied input reached, and Detective's structural caveat named that case. Here the domain is
+three primitives wide, every branch is exercised, and the search still returned four false
+candidate-equivalents. So the gap is not "un-exercised branches" — it is the witness search
+under-searching a domain it can fully express.
+
+Consequences that change the severity assessment:
+
+- The residual on a `✓ COMPLETE modulo N` is **not** reliably an undecidability frontier. Some
+  of it is search budget. The output does not distinguish the two, and the wording asserts the
+  former.
+- An operator following the printed advice would `detective flag` these four as equivalent. The
+  flag is honoured (proof outranks judgement only if a witness is later found), so a wrong flag
+  authored on the tool's own recommendation silently weakens the certificate — the same shape as
+  the false flag recorded in §R0's probe notes.
+- **Practical rule for this repo until it is fixed:** on a pure decision over primitives, always
+  probe the residual with boundary inputs before accepting `modulo N`. Two for two so far.
+
+Repair direction is not obvious and is a founder call: whether to extend the witness search's
+boundary probing on fully-expressible signatures, or to change what `modulo N` *claims* so it
+stops asserting a frontier it has not established. The wording fix (R5.2) is required either way.
+
 ---
 
 ## Constraints inherited from the 2026-09-06 ledger

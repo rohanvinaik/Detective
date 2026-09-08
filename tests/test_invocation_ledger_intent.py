@@ -21,8 +21,12 @@ import pytest
 
 from Detective.ledger import (
     environment_drift_disposition,
+    observe,
     order_disposition,
+    outcome_disposition,
+    reset_observations,
     spiral_disposition,
+    take_observations,
 )
 
 # ---------------------------------------------------------------- spiral_disposition
@@ -165,3 +169,95 @@ def test_drift_makes_no_claim_without_history():
         )
         == "no_prior"
     )
+
+
+# ---------------------------------------------------------------- outcome_disposition
+
+
+def test_a_nested_commands_outcome_is_never_attributed_to_the_outer_verb():
+    """`decompose` converges its target first, so a decompose run observes a converge outcome.
+    Recording it as decompose's would tell the operator that decompose said `close_the_gap` —
+    which it did not, and which they cannot act on."""
+    assert outcome_disposition(matching_count=0, other_count=3, matching_are_identical=True) == "nested_only"
+
+
+def test_nothing_recorded_is_its_own_state_not_a_benign_one():
+    """`purge` has no routing decision; a refusal may exit before reaching one. Absence must read
+    as absence — the moment it reads as 'fine', doctor reports a clean process axis for a run it
+    never observed."""
+    assert outcome_disposition(matching_count=0, other_count=0, matching_are_identical=True) == "unobserved"
+
+
+def test_one_outcome_is_authoritative():
+    assert (
+        outcome_disposition(matching_count=1, other_count=0, matching_are_identical=True) == "authoritative"
+    )
+
+
+def test_the_same_code_recorded_twice_is_still_authoritative():
+    """A render path reached twice with unchanged state agrees with itself. That is not ambiguity,
+    and treating it as such would discard a perfectly good observation."""
+    assert (
+        outcome_disposition(matching_count=4, other_count=2, matching_are_identical=True) == "authoritative"
+    )
+
+
+def test_two_different_codes_in_one_run_is_a_guess_refused():
+    """One invocation has ONE next action. Two different ones means the render path ran twice
+    against different state; picking either is a guess, and a guess in the process record is
+    worse than a gap because doctor will speak from it."""
+    assert outcome_disposition(matching_count=2, other_count=0, matching_are_identical=False) == "ambiguous"
+
+
+def test_the_invoked_verb_outranks_nested_noise():
+    """Codes from inner commands must not turn an authoritative observation ambiguous."""
+    assert (
+        outcome_disposition(matching_count=1, other_count=9, matching_are_identical=True) == "authoritative"
+    )
+
+
+# ---------------------------------------------------------------- the gathering layer
+
+
+def test_observing_then_draining_returns_what_was_gathered():
+    reset_observations()
+    observe("outcome", "converge", "close_the_gap")
+    observe("outcome", "audit", "fix_load")
+    assert take_observations() == (
+        ("outcome", "converge", "close_the_gap"),
+        ("outcome", "audit", "fix_load"),
+    )
+
+
+def test_draining_twice_yields_nothing_the_second_time():
+    """THE reason it drains rather than reads. Detective runs an in-process pytest session, so
+    one interpreter hosts many logical invocations; anything left behind gets attributed to
+    whoever asks next — a process record that invents history is worse than none."""
+    reset_observations()
+    observe("outcome", "converge", "settled")
+    assert take_observations() == (("outcome", "converge", "settled"),)
+    assert take_observations() == ()
+
+
+def test_an_empty_channel_drains_to_empty_not_an_error():
+    reset_observations()
+    assert take_observations() == ()
+
+
+def test_observing_never_raises_whatever_it_is_handed():
+    """The no-raise guarantee is absolute: a correctness tool must not acquire a new failure mode
+    for an advisory record, and no caller should need a try/except to observe."""
+    reset_observations()
+    # Typed loose on purpose. `observe`'s annotation is `str` because that is the CONTRACT for
+    # callers; the runtime guarantee is deliberately wider, and this test exercises the wider one.
+    hostile: list = [None, 0, object(), b"bytes", ["list"]]
+    for bad in hostile:
+        observe(bad, bad, bad)  # must not raise
+    assert len(take_observations()) == 5
+
+
+def test_reset_discards_without_reading():
+    reset_observations()
+    observe("outcome", "converge", "settled")
+    reset_observations()
+    assert take_observations() == ()

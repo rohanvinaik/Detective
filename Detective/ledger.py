@@ -17,9 +17,106 @@ from __future__ import annotations
 
 __all__ = [
     "environment_drift_disposition",
+    "observe",
     "order_disposition",
+    "outcome_disposition",
+    "reset_observations",
     "spiral_disposition",
+    "take_observations",
 ]
+
+
+def outcome_disposition(
+    matching_count: int,
+    other_count: int,
+    matching_are_identical: bool,
+) -> str:
+    """Which recorded outcome, if any, is THIS invocation's (pure — pinned).
+
+    One process can record more than one next-action code: `decompose` converges its target
+    first, so a `decompose` run observes a converge outcome too. Writing "the last code wins"
+    into the collector would bury that choice where nothing can pin it, and would silently
+    attribute a nested command's verdict to the one the operator actually ran.
+
+    The caller partitions what it gathered — codes recorded BY the invoked verb, and codes
+    recorded by anything else — and this decides what that partition warrants. The code itself
+    is the caller's to read; this returns only the disposition, so a decision and a payload never
+    travel as one value.
+
+      * ``unobserved``    — nothing recorded. The verb has no routing decision (``purge``), or it
+                            refused before reaching one. NOT an error, and not ``stable``-shaped:
+                            an absent observation must never read as a benign one.
+      * ``authoritative`` — the invoked verb recorded exactly one distinct code. Use it.
+      * ``nested_only``   — only an inner command recorded anything. Attributing it to the outer
+                            verb would tell the operator that `decompose` said `close_the_gap`,
+                            which it did not.
+      * ``ambiguous``     — the invoked verb recorded two or more DIFFERENT codes in one run.
+                            A single invocation has one next action; two means the render path
+                            was reached twice with different state, and recording either would
+                            be a guess.
+    """
+    if matching_count == 0:
+        return "nested_only" if other_count > 0 else "unobserved"
+    if matching_count > 1 and not matching_are_identical:
+        return "ambiguous"
+    return "authoritative"
+
+
+# ---------------------------------------------------------------------------------------------
+# The gathering layer.
+#
+# Primitive facts, collected where they occur, with NO interpretation applied. Every means of
+# combination — the dispositions above, and doctor's cross-axis precedence above those — is a
+# separate layer reading this record. That ordering is the point: a collector that decided
+# anything would pre-empt the layers built on it, and the founder has named a second consumer
+# (inference over implicit patterns) that must not inherit doctor's opinions.
+#
+# Process-scoped: one invocation is one process, so this needs no key and no lifetime management
+# beyond the drain. It is deliberately NOT the persisted file — the shell that writes
+# `.detective/ledger.jsonl` reads this and is the only thing that touches disk.
+# ---------------------------------------------------------------------------------------------
+
+_OBSERVED: list[tuple[str, str, str]] = []
+
+
+def observe(kind: str, verb: str, code: str) -> None:
+    """Record ONE fact about the running invocation. NEVER raises.
+
+    Called from render paths that already computed something worth keeping — the next-action
+    code they routed on, which is otherwise consumed and discarded. An observation channel, not
+    a return value: threading this up through five rendering layers would change ~12 pinned test
+    call sites to carry a value none of them are about (founder call, 2026-09-08).
+
+    The no-raise guarantee is absolute. A correctness tool does not acquire a new failure mode
+    for an advisory record, and a caller must never need a try/except around observing.
+    """
+    try:
+        _OBSERVED.append((str(kind), str(verb), str(code)))
+    except Exception:  # noqa: BLE001 — observation is advisory and never fatal
+        pass
+
+
+def take_observations() -> tuple[tuple[str, str, str], ...]:
+    """Drain what this process gathered. NEVER raises; empty is a valid answer.
+
+    Draining rather than reading keeps the record honest under an in-process test session, where
+    the same interpreter may run many logical invocations: whatever is left behind would
+    otherwise be attributed to whoever asks next.
+    """
+    try:
+        gathered = tuple(_OBSERVED)
+        _OBSERVED.clear()
+        return gathered
+    except Exception:  # noqa: BLE001 — observation is advisory and never fatal
+        return ()
+
+
+def reset_observations() -> None:
+    """Discard without reading — for a test that must start from a known-empty channel."""
+    try:
+        _OBSERVED.clear()
+    except Exception:  # noqa: BLE001 — observation is advisory and never fatal
+        pass
 
 
 def spiral_disposition(
