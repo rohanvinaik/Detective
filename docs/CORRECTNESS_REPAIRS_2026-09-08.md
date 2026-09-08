@@ -429,6 +429,12 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 | **S7** | converge's `repair_measurement` render pairs R1's precise cut sentence with a generic `· Resolve  inspect the reported engine failure … More budget is not a generic repair.` — accurate for a trace cut, wrong for an import failure, and it sits directly under a sentence that already named the fix. | conorheins `str2bool`, post-R1 | open — lands with **R3** |
 | **S8** | The reproducibility-verification step announces itself on every converge / decompose / receipt run and renders a verdict only on FAILURE. The certificate silently comes to rest on a different measurement than the progress lines described. | all arms, wave only | open — UX/epistemics, not a defect |
 | **S9** | ~15 lines of the target repo's own `DeprecationWarning` precede the verdict, burying the next action. Honest passthrough of the repo's warnings. | conorheins | open — calibration, explicitly NOT a correctness finding |
+| **S10** | `test_a_cached_verdict_is_served_consistently_before_and_after_purge` flaked once in three full-suite runs (`rewarm != recold`) and passes 3/3 in isolation. Its own docstring asserts *"Every assert here compares a cold compute to ITS OWN warm read, so it cannot flake on the count noise regardless of load."* That claim is falsified: the warm read after a purge diverged from the recompute that populated it. Either the post-purge warm read is re-measuring rather than serving stored bytes, or the design does not close what it says it closes. | this repo, under full-suite load | open |
+| **S11** | **numpy is not a declared dependency** — absent from `pyproject.toml` and from `uv.lock`. Three tests skip without it (24 → 27 skipped once `uv sync` prunes an ad-hoc install). Since CI installs from the lock, the array-input closure work is **never exercised in CI** — it passes locally only because numpy happened to be installed by hand. | discovered during the pre-push lock bump | open |
+
+**S11 is the one to fix soonest.** A capability whose tests always skip in CI is indistinguishable
+from one that does not work, and the wave that added it recorded a `42/42` decision pin for
+`array_source_disposition` whose surrounding integration tests CI has never run.
 
 **S4 and S5 are the two worth doing early**, because they are self-referential: the certificate
 ledger reproducing the empty-refusal shape, and the refusal-deciding function being unable to earn
