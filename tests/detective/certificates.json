@@ -39,6 +39,11 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::converge_next_action": {
+    "function_digest": "1f576a572e4f200a",
+    "refusal": "",
+    "standing": "ungateable"
+  },
   "Detective/cli.py::line_gap_rationale": {
     "function_digest": "2cbb8cd2939a9b50",
     "refusal": "",
@@ -55,9 +60,9 @@
     "standing": "complete"
   },
   "Detective/cli.py::repair_measurement_route": {
-    "function_digest": "4fc2cc7aceec2d4d",
+    "function_digest": "42a8613d2c294c8e",
     "refusal": "",
-    "standing": "complete"
+    "standing": "ungateable"
   },
   "Detective/cli.py::residual_input_route": {
     "function_digest": "677f51e538afeab7",

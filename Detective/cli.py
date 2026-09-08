@@ -2390,6 +2390,12 @@ def converge_next_action(
       collectable suite: it synthesizes tests, writes them, and re-profiles. Ranking the reason
       first would print "fix your regime" directly above a green certificate.
     ``install_pytest`` — pytest is not importable. Nothing runs; no input is relevant.
+    ``fix_load`` / ``provide_sample`` / (``close_the_gap`` via the block route) — the measurement
+      could not RUN over the target: the module would not import, no input reached the function, or
+      a parameter has no literal form. Delegated to `measurement_block_route`, which audit consults
+      from the same report. These were ABSENT from this list while being computed inside the
+      `session_reason` branch — an ordering nobody could read here, and the gap that let one shared
+      derivation answer differently on two commands (R3).
     ``fix_collection`` — pytest ran and collected nothing, errored, or crashed, AND a residual is
       still open. THE ORDER IS THE POINT: this outranks a line gap, because with no suite the gap
       is not closable by any argument the reader can supply. Ranking the gap first is the
@@ -2413,17 +2419,30 @@ def converge_next_action(
         return "settled"
     if session_reason == "pytest_missing":
         return "install_pytest"
+    # A measurement that could not RUN over the target has its own escape (module would not import
+    # -> fix_load; a param with no literal form -> close_the_gap; a loaded module no input reached
+    # -> provide_sample), shared with audit via `measurement_block_route` so the two commands can
+    # never diverge on the same report (Finding E). All signals default off, so a caller/Wesker
+    # that supplies none keeps the previous behaviour (#60 unnamed-capability contract).
+    #
+    # CONSULTED UNCONDITIONALLY (R3). It used to sit inside `if session_reason:` — a condition about
+    # the BASELINE collection at the start of the run, which has nothing to do with whether the
+    # measurement could run over the target. So on any repo whose suite collects cleanly, none of
+    # these escapes was reachable: `fix_load` could not fire, and an inexpressible param or an
+    # unreached function fell through to the generic `close_the_gap`. audit consulted the same
+    # derivation with no such guard, which is how one shared decision still produced two different
+    # answers for one report — the very drift it was written to end.
+    #
+    # BELOW `settled` on purpose, not above it. `test_settled_still_outranks_every_new_override`
+    # pins that a finished run is never handed a remedy, and that is right: these signals describe
+    # obstacles to measuring, and a run that measured everything has no obstacle left to report.
+    # The latent case that argued for hoisting higher — a load-failed target with no line gap
+    # reaching `settled` — is closed one layer up instead, where it belongs: `target_load_failed`
+    # makes the measurement ungateable, so `standing` returns `repair_measurement` above (R1).
+    _block = measurement_block_route(load_failed, inputs_expressible, needs_sample)
+    if _block:
+        return _block
     if session_reason:
-        # The BASELINE suite did not collect — but naming that as the remedy is only right if it is
-        # still the operative cause by the END of the run. A measurement that could not RUN over the
-        # target has its own escape (module would not import -> fix_load; a param with no literal form
-        # -> close_the_gap; a loaded module no input reached -> provide_sample), shared with audit via
-        # `measurement_block_route` so the two commands can never diverge on the same report (Finding
-        # E). All signals default off, so a caller/Wesker that supplies none keeps the previous
-        # behaviour (#60 unnamed-capability contract).
-        _block = measurement_block_route(load_failed, inputs_expressible, needs_sample)
-        if _block:
-            return _block
         #   · THIS run synthesized and wrote a runnable suite, so the empty-baseline reason is now
         #     STALE: the residual is closable by --input exactly as if a suite had pre-existed.
         #     This is the arc-dsl run-1 spiral — migrate re-prescribed over a suite just written.
@@ -2464,6 +2483,13 @@ def repair_measurement_route(
     suppress a typed one. ``collection_incomplete`` has no raw fallback, so an engine too old to report
     it degrades to ``trace_budget`` — exactly the previous behaviour.
     """
+    # FIRST, because nothing downstream of a failed import is meaningful: no mutant was evaluated,
+    # so no other reason on the run describes anything. Added with R3 — R1 introduced the reason
+    # and did not teach this route about it, so a load-failed measurement fell through to
+    # `inspect_refusal` and got "inspect the reported engine failure" for an import error, while
+    # audit named the missing dependency from the same report (S7).
+    if "target_load_failed" in cut_reasons:
+        return "fix_load"
     if "ambiguous_module_identity" in cut_reasons or has_collection_conflicts:
         return "regime"
     if "collection_incomplete" in cut_reasons:
@@ -2680,6 +2706,23 @@ def _converge_action(
                 _row("· Re-measure", f"detective converge '{fn}' {flags}".rstrip()),
                 _row("", "enumerate the complete mutation policy; remove sampling/--fast options."),
             ]
+        if route == "fix_load":
+            # Name the DEPENDENCY, not just the class of failure. `target_load_failed`'s sentence
+            # says an import failed; the report's note says WHICH — "ModuleNotFoundError: No module
+            # named 'funcy'". audit has printed that all along from the same report; converge
+            # printed the generic form, so one report still gave two answers (Finding E's shape,
+            # surviving in the standing path after R1 made a load failure ungateable).
+            note = str(getattr(rep, "note", "") or "").strip()
+            return [
+                f"STOP:  {cut_reason_sentence('target_load_failed')}",
+                "",
+                *([_row("· The error", note)] if note else []),
+                _row("· Why first", "the module would not import, so NOTHING ran — a 0-kill here is"),
+                _row("", "blindness, not a result. No --input runs without the module, and"),
+                _row("", "neither regime --migrate nor a larger budget can fix an import."),
+                _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
+                _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
+            ]
         if route == "inspect_refusal":
             return [
                 "STOP:  "
@@ -2688,8 +2731,13 @@ def _converge_action(
                     or cut_reason_sentence("engine_refused_unspecified")
                 ),
                 "",
-                _row("· Resolve", "inspect the reported engine failure and keep the proof basis fixed;"),
-                _row("", "re-run only after that cause is resolved. More budget is not a generic repair."),
+                # Defers to the reason above rather than substituting a generic one. It read
+                # "inspect the reported engine failure" for every unrouted reason — which asserts an
+                # ENGINE failure that need not exist: `mutant_not_entered` means the engine worked
+                # and no test called the mutant. The typed sentence already carries the remedy; this
+                # row's job is what remains true of every cut, not a second, vaguer diagnosis (S7).
+                _row("· Resolve", "the reason above names the repair. Keep the proof basis fixed and"),
+                _row("", "re-run only once that cause is resolved — more budget is not a generic fix."),
             ]
         if route == "regime":
             command = f"detective regime '{fn}'"
