@@ -457,7 +457,7 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 | **S16** | CI ran `uv run pytest tests/ … -q` while `pyproject`'s `addopts` **already** sets `-q`. That is `-qq`, which suppresses pytest's summary line entirely — **CI was not printing its own test count.** Same trap that ate my count earlier in this session, in the workflow rather than at my prompt. | `.github/workflows/ci.yml:54` | **RESOLVED with S11** (now `-ra`, which also prints skip reasons) |
 | **S17** | **The documented local gate is NARROWER than CI's.** CLAUDE.md prescribes `ruff format --check Detective tests`; CI runs `ruff format --check .` — deliberately, with a comment recording why (*"#34: docs/theory/*.py drifted unformatted for a release because the gate did not reach docs/"*). So a file outside `Detective/`+`tests/` can pass every documented local gate and redden CI. It just did: `docs/theory/operator_completeness/submission/build_knowability.py` came in with the closure wave unformatted, and I pushed it. | pre-push, this session | open — the local gate should mirror CI's scope |
 
-| **S12** | **Ten `S7632` suppression comments Sonar cannot parse** — the comma form, where text after a comma is read as a second suppression code, so the suppression may not apply. In `capture.py` ×2, `engine.py` ×2, `certify.py`, `cli.py` ×2, `plan.py`, `rewrite.py`, `synthesis/writer.py`. CLAUDE.md records both repos being swept clean of this form on 2026-09-06, so it is a **regression**. | local SonarQube, pre-push | open |
+| **S12** | `S7632` on 19 suppression comments. **My first diagnosis was wrong and so is the one recorded in CLAUDE.md** — it is not the comma. Sonar objects to ANY trailing prose after the codes, which is the documented house form itself. Nothing is broken: ruff honours every one of them (proved below). | local SonarQube, pre-push | **DIAGNOSED — founder call, not a session fix** |
 | **S13** | `normalize_validity` collapsed **three distinct reasons** — `harness_error`, `not_installed`, `not_entered` — into one `evaluation_failed` flag rendered *"the harness failed"*. Three causes, three remedies, one sentence naming only the first. | `Detective/validity.py` | **RESOLVED 2026-09-08** — see below |
 | **S14** | When a run carries SEVERAL cut reasons, `repair_measurement_route` leads with one remedy. `target_load_failed` is now placed first (R3), which settles the case that mattered; the general question — which reason leads when e.g. `coverage_truncated` and `mutant_not_entered` are both live, and the second carries the more actionable fix — is still undecided. | this repo, surfaced by the S13 repair | **partly addressed by R3**; general ordering open |
 | **S15** | Three in-repo pure decisions now refuse with `mutant_not_entered`: `measurement_cut_reasons`, `line_gap_why`, `converge_next_action`, `repair_measurement_route`. All are functions the RUNNING Detective calls while profiling itself — the mutant lands in `Detective.cli` while the live caller holds the original. That is the documented self-analysis constraint (`memory/project_dogfood_harness.md`: only a renamed package copy can self-analyse), and S13 is what made it legible instead of "the harness failed". Whether these get the `DetectiveUUT` harness or stay on hand pins is a founder call. | this repo | open — diagnosis now correct, remedy undecided |
@@ -495,6 +495,60 @@ not name its own state. It can now.
 required a single shared reason. The name knew; the assertion pinned the defect. Same shape as
 `test_gofl_update_cell_step_infers_ndarray` (§R4): a test whose name and body disagree makes the
 thing it pins invisible to anyone reading the list.
+
+### S12 — the recorded diagnosis is wrong, and nothing is broken
+
+**CLAUDE.md currently says:**
+
+> *House form for a suppression comment: `# noqa: CODE — <reason>` with NO COMMA in the reason —
+> Sonar (S7632) parses text after a comma as a second suppression code; semicolons and colons are
+> fine. Both repos were swept clean of the comma form on 2026-09-06.*
+
+That is not what S7632 objects to. Measured:
+
+| form | count | flagged by S7632 |
+|---|---|---|
+| bare — `# noqa: BLE001` | 4 | **0** |
+| with trailing prose — `# noqa: BLE001 — reason` | 66 | 19 |
+
+Every flagged comment carries trailing prose; **not one bare comment is flagged**, and several
+flagged ones contain no comma at all (`plan.py:91` uses a semicolon, `engine.py:237` and
+`writer.py:78` have no punctuation in the reason). Sonar parses everything after `# noqa:` as a
+code list, and ` — a reason` is not one. **The trailing reason is the trigger — the comma was a
+coincidence of the first examples looked at.**
+
+Two consequences:
+
+1. **The 2026-09-06 sweep fixed a symptom.** It removed commas while leaving the actual trigger in
+   66 places, which is why S7632 is still at 19 rather than 0.
+2. **The documented HOUSE FORM is what Sonar rejects.** This is not a drift from the convention;
+   it is the convention.
+
+**Nothing is broken.** The worry the rule records — "so the suppression may not apply" — does not
+hold. Measured against ruff 0.14.10, the pinned gate, with `--isolated --select BLE001`:
+
+| probe | result |
+|---|---|
+| `except Exception:` with no suppression (control) | BLE001 **fires** |
+| `except Exception:  # noqa: BLE001 — em-dash reason` | **suppressed** |
+| `except Exception:  # noqa: BLE001, comma reason` | **suppressed** |
+
+Ruff parses the codes and stops at the first non-code token, so every one of the 66 works.
+
+**The choice is the founder's**, same category as S9073 (which CLAUDE.md already assigns to the
+Quality Profile rather than a per-session fix):
+
+* **A — move the reason above the line.** `# BLE001: <reason>` on its own line, bare
+  `# noqa: BLE001` on the code. Keeps the reason adjacent to the suppression (the whole point of
+  the convention), satisfies both linters. ~66 mechanical edits; every suppression becomes two
+  lines.
+* **B — deactivate S7632 in the Quality Profile.** The reasons are load-bearing documentation, ruff
+  accepts them, and S7632 is a comment-format rule rather than a correctness one. Zero edits.
+* **C — accept the findings** and leave them on the gate.
+
+Not done unilaterally either way: A rewrites a documented convention across the codebase, B
+disables a rule. **And CLAUDE.md's rule needs correcting regardless of which is chosen** — as
+written it will send the next session hunting commas, which is what happened here.
 
 ### S11 — RESOLVED, and the capability turned out to be sound
 
