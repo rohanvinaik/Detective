@@ -413,6 +413,30 @@ already moved verify-rewrite's ABSTAIN from 1 → 3 (**observed**).
 
 ---
 
+## Small findings — recorded to be FIXED, not merely noted
+
+Founder direction 2026-09-08: the small errors get fixed too. Each is cheap; several are on the
+same axis as the large ones, which is why they are worth carrying rather than filing as taste.
+
+| # | Finding | Where observed | Status |
+|---|---|---|---|
+| **S1** | Header count and listed values disagree: `uncovered 11 line(s): [93, 95, 97, 98, 100, 101, 104, 107]` — says 11, lists 8. | GofL `Game.update_cell`, converge AND audit, **both arms** | open |
+| **S2** | `--version` prints `0.13.0` for a local checkout and an installed copy alike, so it cannot distinguish two engine states. Directly weakens `environment_drift_disposition`, which has to fall back to resolved paths. | A/B harness, both arms | open |
+| **S3** | Audit's row `unproven-equiv N survivor(s) — no input distinguishes them` drops the scope converge's DONE block keeps (*"any input **Detective found**"*). A claim about all inputs, asserted from a bounded search. | arc-dsl `dsl.py::add` | open — lands with **R2** (§R5.2) |
+| **S4** | `certificates.json` records `standing: "ungateable"` with `refusal: ""` for `Detective/validity.py::measurement_cut_reasons`. An empty reason beside a refusal is precisely the state `measurement_cut_reasons`' own docstring exists to prevent, reproduced in the ledger that records it. | this repo, pre-existing | open |
+| **S5** | `measurement_cut_reasons` — a load-bearing decision *on the certificate path* — is itself pinned **UNGATEABLE** (`mutant_evaluation_failed`), stably across runs, and was so before R1 touched it. The function that decides what refuses a certificate cannot currently earn one. | this repo, pre-existing | open |
+| **S6** | On the same load-failure state, `converge` exits **3** (after R1) and `audit` exits **0**. Both refuse correctly in prose; they disagree on the machine-readable contract, and CI branches on it. | conorheins `str2bool` | open |
+| **S7** | converge's `repair_measurement` render pairs R1's precise cut sentence with a generic `· Resolve  inspect the reported engine failure … More budget is not a generic repair.` — accurate for a trace cut, wrong for an import failure, and it sits directly under a sentence that already named the fix. | conorheins `str2bool`, post-R1 | open — lands with **R3** |
+| **S8** | The reproducibility-verification step announces itself on every converge / decompose / receipt run and renders a verdict only on FAILURE. The certificate silently comes to rest on a different measurement than the progress lines described. | all arms, wave only | open — UX/epistemics, not a defect |
+| **S9** | ~15 lines of the target repo's own `DeprecationWarning` precede the verdict, burying the next action. Honest passthrough of the repo's warnings. | conorheins | open — calibration, explicitly NOT a correctness finding |
+
+**S4 and S5 are the two worth doing early**, because they are self-referential: the certificate
+ledger reproducing the empty-refusal shape, and the refusal-deciding function being unable to earn
+a certificate. Neither is urgent; both are the kind of thing that reads badly precisely because
+this project's claim is that it does not do that.
+
+---
+
 ## Not in scope here — queued from the pabkit ledger
 
 Recorded so they are not silently dropped: no `detective doctor` (→ `DOCTOR.md`); the count-noise
