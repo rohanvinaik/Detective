@@ -161,7 +161,17 @@ Repository = "https://github.com/rohanvinaik/Detective"
 
 [dependency-groups]
 # ruff pinned so CI's `ruff format --check` gate cannot drift on a newer release.
-dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.14.10"]
+#
+# numpy is a TEST dependency and nothing else — Detective imports it nowhere. `array_inputs.py`
+# EMITS `numpy.array(...)` source into a target repo's generated tests; the target has numpy, the
+# tool does not need it. It is declared because without it CI silently skipped every test that
+# exercises the array work against a real array: the round-trip (dtype/shape/empty dims), the
+# trial-independence guarantee, the object/non-finite/over-bound refusals, the type-binding check,
+# and the whole end-to-end converge. The only array test CI ran was the pure
+# `array_source_disposition` truth table — so the capability's `42/42` receipt covered the decision
+# while the shell around it had never once run there. A capability whose tests always skip is
+# indistinguishable from one that does not work (S11).
+dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.14.10", "numpy>=1.24"]
 
 # CI / uv-dev ONLY — resolve Wesker from the GitHub main branch, not PyPI. Detective and Wesker are
 # a co-developed pair whose changes land together; the PUBLISHED PyPI Wesker lags main, so a `uv sync`

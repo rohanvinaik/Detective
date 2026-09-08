@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Convert KNOWABILITY.md -> a two-column IEEEtran submission .tex (tectonic-buildable)."""
+
 import re, sys
 
 SRC = "/Users/rohanvinaik/tools/Detective/docs/theory/operator_completeness/KNOWABILITY.md"
@@ -10,7 +11,7 @@ raw = open(SRC).read().splitlines()
 # ---- strip YAML frontmatter ----
 if raw[0].strip() == "---":
     end = next(i for i in range(1, len(raw)) if raw[i].strip() == "---")
-    raw = raw[end + 1:]
+    raw = raw[end + 1 :]
 
 # ---- citation phrases -> \cite (longest first); applied to text spans only ----
 CITES = [
@@ -33,23 +34,48 @@ CITES = [
 
 # ---- bare unicode -> LaTeX (mode-safe via \ensuremath) ; applied to whole line last ----
 UNI = [
-    ("–", "--"), ("—", "---"), ("§", r"\S "), ("é", r"\'{e}"),
-    ("ω", r"\ensuremath{\omega}"), ("Π", r"\ensuremath{\Pi}"),
-    ("∩", r"\ensuremath{\cap}"), ("≠", r"\ensuremath{\neq}"),
-    ("≡", r"\ensuremath{\equiv}"), ("→", r"\ensuremath{\to}"),
-    ("↔", r"\ensuremath{\leftrightarrow}"), ("⊆", r"\ensuremath{\subseteq}"),
-    ("∅", r"\ensuremath{\varnothing}"), ("∀", r"\ensuremath{\forall}"),
-    ("∃", r"\ensuremath{\exists}"), ("≤", r"\ensuremath{\le}"),
-    ("≥", r"\ensuremath{\ge}"), ("×", r"\ensuremath{\times}"),
-    ("γ", r"\ensuremath{\gamma}"), ("Γ", r"\ensuremath{\Gamma}"),
-    ("μ", r"\ensuremath{\mu}"), ("σ", r"\ensuremath{\sigma}"),
-    ("∈", r"\ensuremath{\in}"), ("∖", r"\ensuremath{\setminus}"),
-    ("∪", r"\ensuremath{\cup}"), ("⟺", r"\ensuremath{\iff}"),
-    ("“", "``"), ("”", "''"), ("‘", "`"), ("’", "'"), ("…", r"\ldots{}"),
+    ("–", "--"),
+    ("—", "---"),
+    ("§", r"\S "),
+    ("é", r"\'{e}"),
+    ("ω", r"\ensuremath{\omega}"),
+    ("Π", r"\ensuremath{\Pi}"),
+    ("∩", r"\ensuremath{\cap}"),
+    ("≠", r"\ensuremath{\neq}"),
+    ("≡", r"\ensuremath{\equiv}"),
+    ("→", r"\ensuremath{\to}"),
+    ("↔", r"\ensuremath{\leftrightarrow}"),
+    ("⊆", r"\ensuremath{\subseteq}"),
+    ("∅", r"\ensuremath{\varnothing}"),
+    ("∀", r"\ensuremath{\forall}"),
+    ("∃", r"\ensuremath{\exists}"),
+    ("≤", r"\ensuremath{\le}"),
+    ("≥", r"\ensuremath{\ge}"),
+    ("×", r"\ensuremath{\times}"),
+    ("γ", r"\ensuremath{\gamma}"),
+    ("Γ", r"\ensuremath{\Gamma}"),
+    ("μ", r"\ensuremath{\mu}"),
+    ("σ", r"\ensuremath{\sigma}"),
+    ("∈", r"\ensuremath{\in}"),
+    ("∖", r"\ensuremath{\setminus}"),
+    ("∪", r"\ensuremath{\cup}"),
+    ("⟺", r"\ensuremath{\iff}"),
+    ("“", "``"),
+    ("”", "''"),
+    ("‘", "`"),
+    ("’", "'"),
+    ("…", r"\ldots{}"),
 ]
 
-ENVMAP = {"Definition": "definition", "Theorem": "theorem", "Proposition": "proposition",
-          "Corollary": "corollary", "Remark": "remark", "Example": "example", "Lemma": "lemma"}
+ENVMAP = {
+    "Definition": "definition",
+    "Theorem": "theorem",
+    "Proposition": "proposition",
+    "Corollary": "corollary",
+    "Remark": "remark",
+    "Example": "example",
+    "Lemma": "lemma",
+}
 
 THM_RE = re.compile(r"^\*\*(" + "|".join(ENVMAP) + r") ([0-9][0-9A-Za-z.]*) \(([^)]*)\)\.\*\* ?(.*)$")
 THM_NT_RE = re.compile(r"^\*\*(" + "|".join(ENVMAP) + r") ([0-9][0-9A-Za-z.]*)\.\*\* ?(.*)$")
@@ -193,7 +219,9 @@ while i < n:
         i += 1
         while i < n and not done:
             nxt = body[i]
-            if re.match(r"^(##\s|\*\*(Definition|Theorem|Proposition|Corollary|Remark|Example|Lemma)\s)", nxt.lstrip()):
+            if re.match(
+                r"^(##\s|\*\*(Definition|Theorem|Proposition|Corollary|Remark|Example|Lemma)\s)", nxt.lstrip()
+            ):
                 break
             plines.append(nxt)
             if "$\\qed$" in nxt:
@@ -213,7 +241,7 @@ while i < n:
         # collect until closing $$ (inclusive), could be same line
         block = s.strip()
         if block.count("$$") >= 2:
-            inner = block[2:block.rfind("$$")]
+            inner = block[2 : block.rfind("$$")]
             out.append(r"\[" + uni_only(inner) + r"\]")
             out.append("")
             i += 1
@@ -225,7 +253,7 @@ while i < n:
             i += 1
         if i < n:
             tail = body[i]
-            buf.append(tail[:tail.find("$$")])
+            buf.append(tail[: tail.find("$$")])
             i += 1
         out.append(r"\[" + uni_only(" ".join(buf)) + r"\]")
         out.append("")
@@ -266,7 +294,10 @@ while i < n:
     if re.match(r"^\d+\.\s", s.lstrip()):
         flush_para(para)
         items = []
-        while i < n and (re.match(r"^\d+\.\s", body[i].lstrip()) or (items and body[i].startswith("   ") and body[i].strip())):
+        while i < n and (
+            re.match(r"^\d+\.\s", body[i].lstrip())
+            or (items and body[i].startswith("   ") and body[i].strip())
+        ):
             if re.match(r"^\d+\.\s", body[i].lstrip()):
                 items.append(re.sub(r"^\s*\d+\.\s", "", body[i]))
             else:
@@ -307,8 +338,10 @@ flush_para(para)
 body_tex = "\n".join(out)
 
 # ---- harvest bibliography from paper_lncs.tex + add 4 review-added entries ----
-lncs = open("/Users/rohanvinaik/tools/Detective/docs/theory/operator_completeness/submission/paper_lncs.tex").read()
-bib = lncs[lncs.index(r"\begin{thebibliography}"):lncs.index(r"\end{thebibliography}")]
+lncs = open(
+    "/Users/rohanvinaik/tools/Detective/docs/theory/operator_completeness/submission/paper_lncs.tex"
+).read()
+bib = lncs[lncs.index(r"\begin{thebibliography}") : lncs.index(r"\end{thebibliography}")]
 extra = r"""
 \bibitem{kaminski}
 Kaminski, G., Ammann, P., Offutt, J.: Improving logic-based testing. Journal of Systems and Software 86(8), 2002--2012 (2013)

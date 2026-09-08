@@ -51,4 +51,10 @@ jobs:
 
       - name: Test with coverage
         working-directory: Detective
-        run: uv run pytest tests/ --cov=Detective --cov-report=xml:coverage.xml -q
+        # `-ra` reports every SKIP with its reason. Without it a skipped test is a dot, and a
+        # capability whose only real tests skip is indistinguishable in the log from one that
+        # passed — which is how the array-input work went unexercised here for a whole wave (S11).
+        # The `-q` that used to be here was REDUNDANT: pyproject's addopts already sets it, so this
+        # ran as `-qq`, which suppresses pytest's summary line entirely. CI was not printing its own
+        # test count (S16).
+        run: uv run pytest tests/ --cov=Detective --cov-report=xml:coverage.xml -ra

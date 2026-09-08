@@ -453,7 +453,9 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 | **S8** | The reproducibility-verification step announces itself on every converge / decompose / receipt run and renders a verdict only on FAILURE. The certificate silently comes to rest on a different measurement than the progress lines described. | all arms, wave only | open — UX/epistemics, not a defect |
 | **S9** | ~15 lines of the target repo's own `DeprecationWarning` precede the verdict, burying the next action. Honest passthrough of the repo's warnings. | conorheins | open — calibration, explicitly NOT a correctness finding |
 | **S10** | `test_a_cached_verdict_is_served_consistently_before_and_after_purge` flaked once in three full-suite runs (`rewarm != recold`) and passes 3/3 in isolation. Its own docstring asserts *"Every assert here compares a cold compute to ITS OWN warm read, so it cannot flake on the count noise regardless of load."* That claim is falsified: the warm read after a purge diverged from the recompute that populated it. Either the post-purge warm read is re-measuring rather than serving stored bytes, or the design does not close what it says it closes. | this repo, under full-suite load | open |
-| **S11** | **numpy is not a declared dependency** — absent from `pyproject.toml` and from `uv.lock`. Three tests skip without it (24 → 27 skipped once `uv sync` prunes an ad-hoc install). Since CI installs from the lock, the array-input closure work is **never exercised in CI** — it passes locally only because numpy happened to be installed by hand. | discovered during the pre-push lock bump | open |
+| **S11** | **numpy was not a declared dependency** — absent from `pyproject.toml` and `uv.lock`, so CI (which installs from the lock) skipped every test exercising the array work against a real array. | discovered during the pre-push lock bump | **RESOLVED 2026-09-08** — see below |
+| **S16** | CI ran `uv run pytest tests/ … -q` while `pyproject`'s `addopts` **already** sets `-q`. That is `-qq`, which suppresses pytest's summary line entirely — **CI was not printing its own test count.** Same trap that ate my count earlier in this session, in the workflow rather than at my prompt. | `.github/workflows/ci.yml:54` | **RESOLVED with S11** (now `-ra`, which also prints skip reasons) |
+| **S17** | **The documented local gate is NARROWER than CI's.** CLAUDE.md prescribes `ruff format --check Detective tests`; CI runs `ruff format --check .` — deliberately, with a comment recording why (*"#34: docs/theory/*.py drifted unformatted for a release because the gate did not reach docs/"*). So a file outside `Detective/`+`tests/` can pass every documented local gate and redden CI. It just did: `docs/theory/operator_completeness/submission/build_knowability.py` came in with the closure wave unformatted, and I pushed it. | pre-push, this session | open — the local gate should mirror CI's scope |
 
 | **S12** | **Ten `S7632` suppression comments Sonar cannot parse** — the comma form, where text after a comma is read as a second suppression code, so the suppression may not apply. In `capture.py` ×2, `engine.py` ×2, `certify.py`, `cli.py` ×2, `plan.py`, `rewrite.py`, `synthesis/writer.py`. CLAUDE.md records both repos being swept clean of this form on 2026-09-06, so it is a **regression**. | local SonarQube, pre-push | open |
 | **S13** | `normalize_validity` collapsed **three distinct reasons** — `harness_error`, `not_installed`, `not_entered` — into one `evaluation_failed` flag rendered *"the harness failed"*. Three causes, three remedies, one sentence naming only the first. | `Detective/validity.py` | **RESOLVED 2026-09-08** — see below |
@@ -494,9 +496,32 @@ required a single shared reason. The name knew; the assertion pinned the defect.
 `test_gofl_update_cell_step_infers_ndarray` (§R4): a test whose name and body disagree makes the
 thing it pins invisible to anyone reading the list.
 
-**S11 is the one to fix soonest.** A capability whose tests always skip in CI is indistinguishable
-from one that does not work, and the wave that added it recorded a `42/42` decision pin for
-`array_source_disposition` whose surrounding integration tests CI has never run.
+### S11 — RESOLVED, and the capability turned out to be sound
+
+A capability whose tests always skip in CI is indistinguishable from one that does not work. It is
+distinguishable now, and the answer is that it **works**: with numpy declared, all three previously-
+skipped tests pass on first execution. The gap was in verification, not in the code.
+
+What CI had never run: round-trip fidelity (dtype, shape, empty dimensions), the **trial-independence**
+guarantee (mutating one materialised copy must not affect the next), the object / non-finite /
+over-bound refusals, the real-type-binding check, and the **entire end-to-end converge** on an
+`np.ndarray` parameter. The only array test CI executed was the pure `array_source_disposition`
+truth table — so the wave's `42/42` receipt was real and covered the DECISION, while the shell
+around it went unverified for a full wave.
+
+numpy is declared in `[dependency-groups] dev`, not as a runtime dependency: **Detective imports it
+nowhere.** `array_inputs.py` *emits* `numpy.array(...)` source into a target repo's generated tests;
+the target needs numpy, the tool does not. Making it a runtime dep would force every consumer to
+install a package the tool never imports.
+
+The `importorskip` guards STAY — a contributor without the dev group must still be able to run the
+suite. The repair is that CI now has numpy, not that the tests demand it unconditionally. A guard
+test pins the declaration itself, so removing it fails loudly instead of quietly returning three
+tests to silence.
+
+**Found only by accident.** A pre-push `uv sync` pruned an ad-hoc local install and the skip count
+moved 24 → 27. Nothing else would have surfaced it — a skip is a dot. That is why S16 (`-ra`)
+matters as much as the declaration.
 
 **S4 and S5 are the two worth doing early**, because they are self-referential: the certificate
 ledger reproducing the empty-refusal shape, and the refusal-deciding function being unable to earn
