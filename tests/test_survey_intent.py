@@ -110,10 +110,20 @@ def test_no_false_positive_on_aliased_primitives_and_higher_order():
 
 
 def test_a_tuple_subscript_does_not_establish_an_array_type():
-    # Python dictionaries accept tuple keys, so the array inference must abstain.
+    # Python dictionaries accept tuple keys, so the array inference must abstain. THAT HOLDS — the
+    # unsound `-> ndarray` inference stays removed, which is what this test's name is about.
+    #
+    # CHANGED DELIBERATELY 2026-09-08 (R4), and this guard is why the change is deliberate. It
+    # asserted `is None` — total SILENCE — which is stronger than "does not establish an array
+    # type", and that extra strength was the regression: it also pinned away the honest third
+    # answer. GofL `Game.update_cell` / `count_neighbors` read exactly as clean as a plain `int`.
+    # Abstaining from a claim and having nothing to say are different, so the disposition is now
+    # `unresolved_param`: object-shaped use that no supported inference settles. It is ranked below
+    # every proven block and rendered apart from them, so nothing is asserted that is not known.
     src = "def update_cell(step, xy):\n    return step[xy[0], xy[1]]\n"
     by_name = {f.qualname: f.disposition for f in survey_source(src)}
-    assert by_name.get("update_cell") is None  # a tuple-key dictionary is also possible
+    assert by_name.get("update_cell") == "unresolved_param"
+    assert by_name.get("update_cell") != "extractable_core", "a dict is still a live counterexample"
 
 
 def test_the_recall_bound_narrows_but_does_not_vanish():

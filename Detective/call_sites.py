@@ -199,6 +199,43 @@ def usage_inferred_type(usages: tuple[str, ...]) -> str:
     return ""
 
 
+def usage_evidence_class(usages: tuple[str, ...]) -> str:
+    """What the usage evidence WARRANTS, as distinct from what it proves (#R4, pure — pinned).
+
+    `usage_inferred_type` returns a type NAME or ``""``, and that empty string does double duty:
+    "no evidence at all" and "evidence that is genuinely ambiguous". Collapsing those is what made
+    the GofL regression invisible. `Game.update_cell(step, xy)` uses `step[xy[0], xy[1]]` — a tuple
+    subscript, which an ndarray accepts AND a tuple-keyed dict accepts. v1 correctly stopped
+    inferring `ndarray` from it (a dict is a real counterexample), and in doing so moved the
+    parameter from "trapped" into the same silence as a plain `int`. The inference was right; the
+    two-valued result was not.
+
+    Three states, because two conditions that mean different things must not collapse:
+
+      * ``resolved``          — a high-precision signal named a type: an array attribute
+                                (`.shape`/`.dtype`/`.reshape`) or a str method. `usage_inferred_type`
+                                is the owner of WHICH type; this only says one was found.
+      * ``unresolved_object`` — object-shaped use that no supported inference resolves. v1 admits
+                                exactly one such signal, the TUPLE SUBSCRIPT, because it is the one
+                                where the candidates (ndarray, tuple-keyed dict) are both plausible
+                                and neither is provable from the body. NOT a claim of
+                                inexpressibility — a claim that the question is open, which is the
+                                honest thing to say and the thing survey can surface as a candidate.
+      * ``none``              — nothing suggestive. A plain subscript, an int index, arithmetic, a
+                                comparison, an iteration. Silence is correct here.
+
+    Deliberately NOT extended past the tuple subscript. An unrecognised attribute or method could
+    widen this, and each such widening is a fresh chance to cry wolf on the advisory surface that
+    has no run to dispose a wrong guess. One signal, the one the regression was actually about.
+    """
+    tags = set(usages)
+    if tags & _NDARRAY_USES or tags & _STR_USES:
+        return "resolved"
+    if "subscript_tuple" in tags:
+        return "unresolved_object"
+    return "none"
+
+
 def _param_usages(func: ast.FunctionDef | ast.AsyncFunctionDef, param_name: str) -> tuple[str, ...]:
     """The USAGE tags for `param_name` across `func`'s body — the AST-walk evidence the pure
     `usage_inferred_type` decides over. `p[i, j]` -> subscript + subscript_tuple; `p[0]` -> subscript +

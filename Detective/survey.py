@@ -18,7 +18,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
-from .call_sites import _param_usages, usage_inferred_type
+from .call_sites import _param_usages, usage_evidence_class, usage_inferred_type
 from .purity import world_effects
 
 # Modules whose mere top-level import makes a file expensive or IMPOSSIBLE to load for a greenfield
@@ -65,6 +65,7 @@ def survey_disposition(
     any_inexpressible_param: bool,
     has_world_effects: bool,
     module_heavy_imports: bool,
+    any_unresolved_param: bool = False,
 ) -> str:
     """What stands between converge and this function's pure decision (#pure — pinned).
 
@@ -79,7 +80,19 @@ def survey_disposition(
       * ``trapped_by_imports``  — the function is pure AND expressible, but its MODULE's top-level
                                   imports are the heavy stack; converge cannot load it cheaply.
                                   Extract it to a leaf module with no heavy imports.
+      * ``unresolved_param``    — a param is used in an object-shaped way no supported inference
+                                  resolves (a tuple subscript: ndarray or tuple-keyed dict, both
+                                  plausible, neither provable from the body). NOT a claim that the
+                                  param is inexpressible — a claim that the question is OPEN, which
+                                  is why it ranks below every proven block and above silence.
       * ``reachable``           — nothing in the way; converge already reaches it. Not flagged.
+
+    ``unresolved_param`` is R4. v1 inferred ndarray from a tuple subscript, which is unsound (a
+    dict takes one); the 2026-09-07 wave correctly stopped, and GofL `Game.update_cell` /
+    `count_neighbors` fell from ``extractable_core`` straight to ``reachable`` — the same silence
+    as a plain `int`. Removing an unsound CLAIM was right; sending the parameter to silence was the
+    regression, because "we cannot resolve this" and "there is nothing here" are different answers
+    and only one of them is true.
     """
     if any_inexpressible_param:
         return "extractable_core"
@@ -87,6 +100,8 @@ def survey_disposition(
         return "impure_body"
     if module_heavy_imports:
         return "trapped_by_imports"
+    if any_unresolved_param:
+        return "unresolved_param"
     return "reachable"
 
 
@@ -104,6 +119,15 @@ _EXTRACTION = {
     "extractable_core": "extract the pure decision over primitives so --input can express it",
     "impure_body": "split the pure decision out of the I/O so converge can pin it",
     "trapped_by_imports": "move it to a leaf module with no heavy imports so converge reaches it",
+    # Phrased as a QUESTION, not an instruction. The others name a proven block and its extraction;
+    # this one reports that the evidence is object-shaped and unresolved, and hands the judgement
+    # back — which is the only honest thing to say about a tuple subscript that an ndarray and a
+    # tuple-keyed dict both accept.
+    "unresolved_param": (
+        "an unannotated param is used as an object (a tuple subscript) — an ndarray and a"
+        " tuple-keyed dict both fit, so this is unresolved, not clean; annotate it, or check"
+        " whether a pure decision is trapped behind it"
+    ),
 }
 
 
@@ -146,11 +170,17 @@ def _references_names(func: ast.FunctionDef | ast.AsyncFunctionDef, names: froze
 
 
 def _param_inexpressible(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    """True if any parameter clearly has no literal `--input` form — from its ANNOTATION, or, for an
-    UNANNOTATED param, from USAGE inference (how the body uses it: a tuple subscript -> ndarray). The
-    usage half is what closes the recall gap on GofL `Game.update_cell(step, xy)`: `step` is
-    unannotated, but `step[xy[0], xy[1]]` types it. Reuses the same `_annotation_inexpressible`
-    denylist for both an annotation string and an inferred type-name. `self`/`cls` skipped."""
+    """True if any parameter CLEARLY has no literal `--input` form — from its ANNOTATION, or, for an
+    UNANNOTATED param, from a HIGH-PRECISION usage signal (an array attribute `.shape`/`.dtype`, a
+    str method). Reuses the same `_annotation_inexpressible` denylist for both an annotation string
+    and an inferred type-name. `self`/`cls` skipped.
+
+    A tuple subscript does NOT reach here. This docstring used to claim it did — "the usage half is
+    what closes the recall gap on GofL `Game.update_cell(step, xy)`" — and that stopped being true
+    when the 2026-09-07 wave correctly stopped inferring ndarray from `p[i, j]`, since a tuple-keyed
+    dict accepts one too. The claim outlived the code by a full wave, which is how the regression
+    stayed invisible. That case belongs to `_param_unresolved`: object-shaped use nothing here
+    resolves is an OPEN question, and this function reports only PROVEN blocks."""
     args = func.args
     all_args = [*args.posonlyargs, *args.args, *args.kwonlyargs]
     if args.vararg:
@@ -163,6 +193,32 @@ def _param_inexpressible(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         annotation = ast.unparse(arg.annotation) if arg.annotation is not None else ""
         recovered = annotation or usage_inferred_type(_param_usages(func, arg.arg))
         if recovered and _annotation_inexpressible(recovered):
+            return True
+    return False
+
+
+def _param_unresolved(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True if an UNANNOTATED parameter is used in an object-shaped way nothing here resolves.
+
+    Deliberately separate from `_param_inexpressible` rather than folded into it. That function
+    answers "is this provably without a literal form"; this one answers "is the question open".
+    Merging them would put an unproven case behind a proven one's name — the collapse R4 exists to
+    undo — and would also risk changing `_param_inexpressible`'s established behaviour, which is
+    the half that is currently correct.
+
+    ANNOTATED parameters are skipped entirely: an annotation is an answer, so there is nothing
+    unresolved about them whichever way it reads. `self`/`cls` skipped as everywhere else.
+    """
+    args = func.args
+    all_args = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if args.vararg:
+        all_args.append(args.vararg)
+    if args.kwarg:
+        all_args.append(args.kwarg)
+    for arg in all_args:
+        if arg.arg in ("self", "cls") or arg.annotation is not None:
+            continue
+        if usage_evidence_class(_param_usages(func, arg.arg)) == "unresolved_object":
             return True
     return False
 
@@ -187,7 +243,9 @@ def survey_source(source: str) -> list[SurveyFinding]:
                     continue
                 any_inexpressible = _param_inexpressible(child)
                 effects = world_effects(child)
-                disp = survey_disposition(any_inexpressible, bool(effects), module_heavy)
+                disp = survey_disposition(
+                    any_inexpressible, bool(effects), module_heavy, _param_unresolved(child)
+                )
                 if disp != "reachable":
                     detail = _EXTRACTION[disp]
                     if disp == "trapped_by_imports":
@@ -226,20 +284,42 @@ def render_survey(path: str, findings: list[SurveyFinding]) -> list[str]:
     for f in findings:
         by_disp[f.disposition] = by_disp.get(f.disposition, 0) + 1
     counts = " · ".join(f"{n} {d}" for d, n in by_disp.items())
-    out = [
-        f"{path} — survey · {total} trapped pure decision(s): {counts}   (static advisory)",
-        "",
-        "  These functions hide a pinnable pure decision behind an impure boundary. Extracting each",
-        "  lets converge REACH and pin it. Advisory only — proposes, never performs; converge each",
-        "  extracted decision in isolation the normal way.",
-        "",
-    ]
+    # TRAPPED and UNRESOLVED are counted apart, and the headline claims only the first. A
+    # `unresolved_param` finding says the evidence is object-shaped and no supported inference
+    # settles it — calling that a "trapped pure decision" would assert exactly what it does not
+    # know, and would re-introduce the cry-wolf the tuple-subscript inference was removed for.
+    # The regression this repair undoes was a false NEGATIVE; the headline must not answer it with
+    # a false positive (#R4).
+    unresolved = by_disp.get("unresolved_param", 0)
+    trapped = total - unresolved
+    if trapped and unresolved:
+        head = f"{trapped} trapped pure decision(s) · {unresolved} unresolved: {counts}"
+    elif unresolved:
+        head = f"{unresolved} unresolved param(s): {counts}"
+    else:
+        head = f"{trapped} trapped pure decision(s): {counts}"
+    out = [f"{path} — survey · {head}   (static advisory)", ""]
+    if trapped:
+        out += [
+            "  TRAPPED — these hide a pinnable pure decision behind an impure boundary. Extracting",
+            "  each lets converge REACH and pin it. Advisory only — proposes, never performs;",
+            "  converge each extracted decision in isolation the normal way.",
+            "",
+        ]
+    if unresolved:
+        out += [
+            "  UNRESOLVED — an unannotated param is used as an object and no supported inference",
+            "  settles WHICH. Not a finding that a decision is trapped, and not a clean bill either:",
+            "  the question is open. Annotate the param and re-run, and the survey can answer it.",
+            "",
+        ]
     for f in findings:
         out.append(f"  {f.lineno:>5}  {f.qualname}")
         out.append(f"         {f.disposition} — {f.detail}")
     out.append("")
     out.append("  · Next           detective extract '<file>::<function>' names the concrete extraction")
     out.append("                   (a pure function over primitives) to pull out, then converge it.")
-    out.append("  · Recall bound   an unannotated param with AMBIGUOUS usage (a plain subscript or")
-    out.append("                   arithmetic) is not flagged — only high-confidence usage is inferred.")
+    out.append("  · Recall bound   a plain subscript, an int index, arithmetic or a comparison is NOT")
+    out.append("                   flagged: those are ambiguous with ordinary primitives, so silence")
+    out.append("                   there is correct rather than complete.")
     return out

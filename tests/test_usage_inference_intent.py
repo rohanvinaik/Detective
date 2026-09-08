@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import ast
 
-from Detective.call_sites import _param_usages, usage_inferred_type
+from Detective.call_sites import _param_usages, usage_evidence_class, usage_inferred_type
 
 # ------------------------------------------------------------------ usage_inferred_type (pure decision)
 
@@ -90,9 +90,20 @@ def test_plain_arithmetic_yields_only_low_signal_tags():
 # ------------------------------------------------------------------ integration: the two dogfood shapes
 
 
-def test_gofl_update_cell_step_infers_ndarray():
+def test_gofl_update_cell_step_is_unresolved_not_inferred_and_not_silent():
+    """RENAMED 2026-09-08. This was `test_gofl_update_cell_step_infers_ndarray` while asserting
+    `== ""` — the name claimed the capability worked, the body pinned that it does not, and anyone
+    reading the test list concluded the opposite of the truth. That is how the R4 regression stayed
+    invisible through a whole audit wave.
+
+    Both halves are the intent now. `usage_inferred_type` must NOT name a type — a tuple-keyed dict
+    accepts `p[i, j]` exactly as an ndarray does, and inferring from it was unsound. AND the
+    evidence must not read as absent: `unresolved_object` is what distinguishes "we cannot resolve
+    this" from "there is nothing here", which is the distinction the two-valued result destroyed."""
     fn = _fn("def update_cell(step, xy):\n    return step[xy[0], xy[1]]\n")
-    assert usage_inferred_type(_param_usages(fn, "step")) == ""
+    usages = _param_usages(fn, "step")
+    assert usage_inferred_type(usages) == "", "a tuple subscript must not name a type"
+    assert usage_evidence_class(usages) == "unresolved_object", "nor may it read as no evidence"
 
 
 def test_str2bool_v_infers_str():

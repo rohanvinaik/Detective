@@ -19,6 +19,11 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/call_sites.py::usage_evidence_class": {
+    "function_digest": "3d24105bd9fcb45f",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/call_sites.py::usage_inferred_type": {
     "function_digest": "307b6f41b7996c68",
     "refusal": "",
@@ -198,6 +203,11 @@
     "function_digest": "695bdafab6494fa4",
     "refusal": "",
     "standing": "complete"
+  },
+  "Detective/survey.py::survey_disposition": {
+    "function_digest": "5c51c4f59ea59ce9",
+    "refusal": "",
+    "standing": "ungateable"
   },
   "Detective/survey.py::survey_scan_status": {
     "function_digest": "6d69b58096ee114e",

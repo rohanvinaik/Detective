@@ -267,10 +267,33 @@ deliberate decision, not a drift"* — and that step 2b (`d73a578`) deliberately
 wave flipped it back and left the name lying. **The guard was built to force deliberation in both
 directions and held in only one.**
 
-**Repair.** `usage_inferred_type` becomes three-valued in house form — a supported type name / an
-unresolved-but-suggestive boundary / nothing — and `survey_disposition` (`survey.py:63-89`, already
-a four-code named decision) gains the unresolved state so an ambiguous param stays a **visible
-candidate** rather than silence. Fix both stale claims.
+**Repair — DONE 2026-09-08.** `usage_inferred_type` keeps its job (it names a type or it does
+not); a sibling decision `usage_evidence_class` supplies the third state it could not express:
+`resolved` / `unresolved_object` / `none`. `survey_disposition` gains `unresolved_param`, ranked
+**below every proven block and above silence** — it is not a claim that the parameter is
+inexpressible, only that the question is open.
+
+**Scoped deliberately to the tuple subscript.** Every widening is a fresh chance to cry wolf on an
+advisory surface with no run to dispose a wrong guess, so v1 admits exactly the one signal the
+regression was about. The unsound `-> ndarray` inference stays removed; a tuple-keyed dict is still
+a live counterexample.
+
+**Both directions verified through the real command.** GofL recovers both functions
+(`Game.update_cell` 90, `Game.count_neighbors` 115 — exactly the two HEAD found); arc-dsl stays at
+**0**, no false positives. `extract` independently reports "unresolved input interface" naming
+`step`/`xy`, so survey and extract agree rather than reproducing Finding D.
+
+**The render was the other half.** Left alone it counted these as *"2 trapped pure decision(s)"*
+and said *"These functions hide a pinnable pure decision"* — asserting exactly what `unresolved`
+means is unknown, which would have answered a false negative with a false positive. Trapped and
+unresolved are now counted apart and prosed apart.
+
+**Both stale claims fixed**, and the second one is instructive: `test_survey_intent`'s
+`test_a_tuple_subscript_does_not_establish_an_array_type` asserted total SILENCE (`is None`), which
+is stronger than its own name. That extra strength *was* the regression — it pinned away the honest
+third answer. The guard did its job exactly as the ledger intended (*"an intent test pins the
+silence, so a future change that starts flagging it is a deliberate decision, not a drift"*): it
+forced the change to be deliberate and documented rather than silent.
 
 ---
 
