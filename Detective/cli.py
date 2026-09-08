@@ -2186,7 +2186,14 @@ def _format_converge_terse(
         )
     if result.missing_lines:
         gap = list(result.missing_lines)
-        lines.append(_row("✗ uncovered", f"{len(gap)} line(s): {gap[:8]}"))
+        # `_first_n`, not `gap[:8]`. The slice printed EIGHT line numbers under a header saying
+        # eleven, with nothing marking the cut — GofL `Game.update_cell` rendered
+        # "11 line(s): [93, 95, 97, 98, 100, 101, 104, 107]", and a reader who closes those eight
+        # has closed the gap the report showed them and not the gap it counted. audit already used
+        # the helper on the same fact; this row was the one place that did not, so the two commands
+        # disagreed about how much they were disclosing (S1). The helper's own docstring is the
+        # rule: "a list that stops at N with no marker reads as the WHOLE list."
+        lines.append(_row("✗ uncovered", f"{len(gap)} line(s): {_first_n(gap, 8)}"))
         # Name each uncovered line's OWN reach requirement (the branch it sits behind), so it is not
         # conflated with a mutant's kill input — the boundary mutant on `if x < 0` wants `x == 0`, but
         # the body is reached only when `x < 0`. Capped so the block stays inside its line budget.
@@ -4205,6 +4212,33 @@ def _engine_version() -> str:
     return f"Wesker {version}" if version else "Wesker version UNKNOWN"
 
 
+def _resolved_engines() -> str:
+    """WHERE Detective and Wesker were imported from — the two-knob fact, for `--version`.
+
+    A version number alone cannot distinguish two engine states. Measured 2026-09-08: a git
+    worktree at an older commit and the live working tree BOTH report `detective 0.13.0
+    (Wesker 0.13.0)`, because the version string is a property of the release and not of the
+    bytes that are running. An A/B over those two states is silently vacuous if the only check
+    is `--version`, and the proof that it is not vacuous is exactly these two paths.
+
+    `_engine_version`'s own docstring already names the situations — "an editable checkout, a
+    sibling on PYTHONPATH, a stale venv" — and answers them for the VERSION. This answers the
+    other half, which is the half those three situations actually differ on (S2).
+
+    Never raises: this string exists to be trusted in a bug report, and a `--version` that dies
+    is worse than one that says it could not look.
+    """
+    out = []
+    for name in ("Detective", "Wesker"):
+        try:
+            module = __import__(name)
+            out.append(f"  {name:<10} {getattr(module, '__file__', 'no __file__')}")
+        # BLE001: a version string must never be the thing that crashes
+        except Exception:  # noqa: BLE001
+            out.append(f"  {name:<10} NOT IMPORTABLE")
+    return "\n".join(out)
+
+
 # The path-based / advisory verbs: each carries `path` or no target (never `target::function`), runs a
 # STATIC pass (no mutant, no live pytest session), and is dispatched in `_run` ABOVE `_split_target`. One
 # named set so `_run_live`'s session bypass and `_run`'s pre-split dispatch cannot silently drift as verbs
@@ -4292,7 +4326,13 @@ def _build_parser() -> argparse.ArgumentParser:
     # Read from the INSTALLED module, never restated: this must describe the engine actually
     # imported, not the one the metadata floor asked for.
     parser.add_argument(
-        "--version", action="version", version=f"detective {__version__} ({_engine_version()})"
+        "--version",
+        action="version",
+        # The paths, not just the numbers. Two different checkouts report the same version — that
+        # is what a version IS — so `--version` alone cannot answer "which engine is running",
+        # which is the first question of any bug report and the one an A/B has to settle before
+        # its results mean anything (S2).
+        version=f"detective {__version__} ({_engine_version()})\n{_resolved_engines()}",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     # diagnose leads: it is the only read-only entry point, and the previous order

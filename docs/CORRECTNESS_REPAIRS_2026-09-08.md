@@ -1,9 +1,14 @@
 # Correctness repairs — 2026-09-08
 
-Status: DESIGN, for founder mark-up. Nothing built.
+Status: **BUILT, except where a row says otherwise.** Started as a design for mark-up; R0–R5 and
+S1/S2/S11/S12/S13/S16/S17 have since landed, each with its own commit, pins and gates. Rows still
+open are marked so in the tables, and the ones marked *founder call* are decisions rather than
+work: **S14** (which reason's remedy leads when several are live), **S15** (whether the four
+in-repo self-analysis refusals move to the `DetectiveUUT` harness or stay on hand pins).
 
-Companion: [`DOCTOR.md`](DOCTOR.md). Doctor's `emission_disposition` is the shared derivation
-repair **R3** must consume — see §R3.
+Companion: [`DOCTOR.md`](DOCTOR.md) — designed, not built. Doctor's `emission_disposition` is the
+shared derivation R3 was meant to consume; R3 landed on `measurement_block_route` instead, so that
+consolidation is still ahead of doctor rather than behind it.
 
 ---
 
@@ -443,8 +448,8 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 
 | # | Finding | Where observed | Status |
 |---|---|---|---|
-| **S1** | Header count and listed values disagree: `uncovered 11 line(s): [93, 95, 97, 98, 100, 101, 104, 107]` — says 11, lists 8. | GofL `Game.update_cell`, converge AND audit, **both arms** | open |
-| **S2** | `--version` prints `0.13.0` for a local checkout and an installed copy alike, so it cannot distinguish two engine states. Directly weakens `environment_drift_disposition`, which has to fall back to resolved paths. | A/B harness, both arms | open |
+| **S1** | Header count and listed values disagreed: `uncovered 11 line(s): [93, 95, 97, 98, 100, 101, 104, 107]` — eleven counted, eight shown, no marker. `audit` already used `_first_n` on the identical fact; converge's row was the one place that did not. | GofL `Game.update_cell` | **RESOLVED 2026-09-08** — converge now uses the same helper |
+| **S2** | `--version` printed `detective 0.13.0 (Wesker 0.13.0)` for two DIFFERENT engines — a version is a property of the release, not of the bytes running. | A/B harness, both arms | **RESOLVED 2026-09-08** — it now names where each engine was imported from |
 | **S3** | Audit's row `unproven-equiv N survivor(s) — no input distinguishes them` drops the scope converge's DONE block keeps (*"any input **Detective found**"*). A claim about all inputs, asserted from a bounded search. | arc-dsl `dsl.py::add` | open — lands with **R2** (§R5.2) |
 | **S4** | `certificates.json` records `standing: "ungateable"` with `refusal: ""` for `Detective/validity.py::measurement_cut_reasons`. An empty reason beside a refusal is precisely the state `measurement_cut_reasons`' own docstring exists to prevent, reproduced in the ledger that records it. | this repo, pre-existing | open |
 | **S5** | `measurement_cut_reasons` — a load-bearing decision *on the certificate path* — is itself pinned **UNGATEABLE** (`mutant_evaluation_failed`), stably across runs, and was so before R1 touched it. The function that decides what refuses a certificate cannot currently earn one. | this repo, pre-existing | open |
@@ -455,9 +460,9 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 | **S10** | `test_a_cached_verdict_is_served_consistently_before_and_after_purge` flaked once in three full-suite runs (`rewarm != recold`) and passes 3/3 in isolation. Its own docstring asserts *"Every assert here compares a cold compute to ITS OWN warm read, so it cannot flake on the count noise regardless of load."* That claim is falsified: the warm read after a purge diverged from the recompute that populated it. Either the post-purge warm read is re-measuring rather than serving stored bytes, or the design does not close what it says it closes. | this repo, under full-suite load | open |
 | **S11** | **numpy was not a declared dependency** — absent from `pyproject.toml` and `uv.lock`, so CI (which installs from the lock) skipped every test exercising the array work against a real array. | discovered during the pre-push lock bump | **RESOLVED 2026-09-08** — see below |
 | **S16** | CI ran `uv run pytest tests/ … -q` while `pyproject`'s `addopts` **already** sets `-q`. That is `-qq`, which suppresses pytest's summary line entirely — **CI was not printing its own test count.** Same trap that ate my count earlier in this session, in the workflow rather than at my prompt. | `.github/workflows/ci.yml:54` | **RESOLVED with S11** (now `-ra`, which also prints skip reasons) |
-| **S17** | **The documented local gate is NARROWER than CI's.** CLAUDE.md prescribes `ruff format --check Detective tests`; CI runs `ruff format --check .` — deliberately, with a comment recording why (*"#34: docs/theory/*.py drifted unformatted for a release because the gate did not reach docs/"*). So a file outside `Detective/`+`tests/` can pass every documented local gate and redden CI. It just did: `docs/theory/operator_completeness/submission/build_knowability.py` came in with the closure wave unformatted, and I pushed it. | pre-push, this session | open — the local gate should mirror CI's scope |
+| **S17** | **The documented local gate is NARROWER than CI's.** CLAUDE.md prescribes `ruff format --check Detective tests`; CI runs `ruff format --check .` — deliberately, with a comment recording why (*"#34: docs/theory/*.py drifted unformatted for a release because the gate did not reach docs/"*). So a file outside `Detective/`+`tests/` can pass every documented local gate and redden CI. It just did: `docs/theory/operator_completeness/submission/build_knowability.py` came in with the closure wave unformatted, and I pushed it. | pre-push, this session | **RESOLVED 2026-09-08** — CLAUDE.md's gate now uses `format --check .`, matching CI |
 
-| **S12** | `S7632` on 19 suppression comments. **My first diagnosis was wrong and so is the one recorded in CLAUDE.md** — it is not the comma. Sonar objects to ANY trailing prose after the codes, which is the documented house form itself. Nothing is broken: ruff honours every one of them (proved below). | local SonarQube, pre-push | **DIAGNOSED — founder call, not a session fix** |
+| **S12** | `S7632` on 19 suppression comments. **My first diagnosis was wrong and so is the one recorded in CLAUDE.md** — it is not the comma. Sonar objects to ANY trailing prose after the codes, which is the documented house form itself. Nothing is broken: ruff honours every one of them (proved below). | local SonarQube, pre-push | **RESOLVED 2026-09-08** — option A: 70 comments migrated; CLAUDE.md's rule corrected |
 | **S13** | `normalize_validity` collapsed **three distinct reasons** — `harness_error`, `not_installed`, `not_entered` — into one `evaluation_failed` flag rendered *"the harness failed"*. Three causes, three remedies, one sentence naming only the first. | `Detective/validity.py` | **RESOLVED 2026-09-08** — see below |
 | **S14** | When a run carries SEVERAL cut reasons, `repair_measurement_route` leads with one remedy. `target_load_failed` is now placed first (R3), which settles the case that mattered; the general question — which reason leads when e.g. `coverage_truncated` and `mutant_not_entered` are both live, and the second carries the more actionable fix — is still undecided. | this repo, surfaced by the S13 repair | **partly addressed by R3**; general ordering open |
 | **S15** | Three in-repo pure decisions now refuse with `mutant_not_entered`: `measurement_cut_reasons`, `line_gap_why`, `converge_next_action`, `repair_measurement_route`. All are functions the RUNNING Detective calls while profiling itself — the mutant lands in `Detective.cli` while the live caller holds the original. That is the documented self-analysis constraint (`memory/project_dogfood_harness.md`: only a renamed package copy can self-analyse), and S13 is what made it legible instead of "the harness failed". Whether these get the `DetectiveUUT` harness or stay on hand pins is a founder call. | this repo | open — diagnosis now correct, remedy undecided |

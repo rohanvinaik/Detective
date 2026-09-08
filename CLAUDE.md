@@ -172,8 +172,20 @@ spurious errors and is not the CI gate.
 PYTHONPATH=$PP python3 -m pytest 2>&1 | tail -1 \
   && uvx ruff@0.14.10 format Detective tests 2>&1 | tail -1 \
   && uvx ruff@0.14.10 check Detective tests 2>&1 | tail -3 \
-  && uvx ruff@0.14.10 format --check Detective tests 2>&1 | tail -1
+  && uvx ruff@0.14.10 format --check . 2>&1 | tail -1
 ```
+
+**The format check is WHOLE-TREE (`.`), not `Detective tests`** — because CI's is, deliberately:
+its workflow comment records why (*"#34: docs/theory/*.py drifted unformatted for a release
+because the gate did not reach docs/"*). Scoped to the two package dirs, this gate is NARROWER
+than the one that decides the build, so a file elsewhere passes locally and reddens CI. Measured
+2026-09-08: `docs/theory/operator_completeness/submission/build_knowability.py` arrived
+unformatted, passed the scoped gate, and was pushed. `check` stays scoped (it is the code gate);
+`format --check` matches CI.
+
+Note `pytest` is run BARE here on purpose. `[tool.pytest.ini_options] addopts` already carries
+`-q`, so adding another makes it `-qq`, which suppresses the summary line entirely — there is then
+no count to read, and `| tail -1` returns a warning instead.
 
 **After any Wesker change, also run Detective's suite against the local Wesker.** Wesker's own
 suite has been fully green through a regression that only the cross-repo run caught:
@@ -210,9 +222,23 @@ Ruff is the commit gate; a push needs two more passes, in this order, and neithe
    names (`api/ce/task?id=<id>` from its last log lines) until `SUCCESS` before reading the gate;
    `api/ce/component` can answer with the PREVIOUS task's SUCCESS (measured: an unchanged
    verdict read back as if the rescan had run).
-   **House form for a suppression comment: `# noqa: CODE — <reason>` with NO COMMA in the
-   reason** — Sonar (S7632) parses text after a comma as a second suppression code; semicolons
-   and colons are fine. Both repos were swept clean of the comma form on 2026-09-06.
+   **House form for a suppression comment: the REASON goes on its own line ABOVE, as
+   `# CODE: <reason>`, and the code line carries a BARE `# noqa: CODE`.**
+
+   ```python
+   # BLE001: the plan is advisory; a region the engine chokes on is unpriced rather than fatal
+   except Exception:  # noqa: BLE001
+   ```
+
+   Sonar (S7632) parses EVERYTHING after `# noqa:` as a code list, so any trailing prose is a
+   syntax error to it — comma or not. Ruff honours both forms (measured: `--isolated --select
+   BLE001` suppresses under either, and fires with neither), so no suppression was ever inert;
+   this form simply satisfies both tools. CORRECTED 2026-09-08: this rule previously said the
+   trigger was a COMMA in the reason, which is wrong — `plan.py:91` used a semicolon and
+   `engine.py:237` had no punctuation at all, and both were flagged. The 2026-09-06 sweep
+   therefore removed commas and left the real trigger in 66 places. All 70 migrated to the form
+   above; 0 noqa comments now carry trailing prose. Evidence:
+   `docs/CORRECTNESS_REPAIRS_2026-09-08.md` §S12.
    `sonar-project.properties` is read; `relative_files = true` in `[tool.coverage.run]` is what
    lets the container resolve the report. **Bar: gate `OK`, 0 bugs, 0 vulnerabilities, 0
    hotspots.** Expected residue, handled by API transition WITH a comment, never silently:
