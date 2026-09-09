@@ -194,6 +194,60 @@ def setup_disposition(
     return "clean"
 
 
+def taste_disposition(
+    scanned: int,
+    extractable_core: int,
+    impure_body: int,
+    trapped_by_imports: int,
+    unresolved_param: int,
+) -> str:
+    """YELLOW — what CAPS how much of Detective this code lets you reach (pure — pinned).
+
+    Yellow is the mapping that earns the herb scheme, and the reason its codes must not read like
+    green's: none of this is damage. An entangled function is not broken, an inexpressible parameter
+    is not a bug, a pure decision trapped behind a heavy import runs perfectly. What they do is put
+    a CEILING on how much of the tool is available — max health, exactly.
+
+    The ranking is `survey_disposition`'s own, CONSUMED rather than restated (§5): it already orders
+    these most-blocking first and says why each outranks the next. Restating the order here would
+    be a second reader of the same facts, which is the drift every repair in
+    `docs/CORRECTNESS_REPAIRS_2026-09-08.md` turned out to be an instance of.
+
+      "extractable_core"     a parameter has no literal form, so the pure sub-decision it wraps is
+                             unreachable by ANY `--input`. The highest ceiling and the hardest to
+                             raise — the extraction is the parameter itself.
+      "impure_body"          params are expressible; the body is entangled with world effects. The
+                             decision can be split from the I/O.
+      "trapped_by_imports"   pure and expressible, but the MODULE's top-level imports are the heavy
+                             stack, so converge cannot load it cheaply.
+      "unresolved_param"     the question is OPEN — a usage no supported inference resolves. Ranked
+                             below every PROVEN block because it is not a claim that anything is in
+                             the way, and above `clear` because silence would lose it (R4).
+      "clear"                nothing found is capping what converge can reach here. NOT "this code
+                             is good" — the fence: yellow reports a ceiling, never a quality.
+      "nothing_to_read"      no functions were scanned at all. Distinct from `clear` because "we
+                             looked and found nothing in the way" and "there was nothing to look
+                             at" are different facts, and `plan` already names this one
+                             (`NOTHING_TO_READ`) rather than reporting a clean read of an empty set.
+
+    NOT the same question as "did doctor read yellow at all". A caller that declined to scan — the
+    directory-scope degradation (§7.4) — reports `not read` with its reason, which is the caller's
+    fact and not derivable from these counts. Collapsing the two would let an unread axis render as
+    a clean one, which is the single failure this whole surface exists to prevent.
+    """
+    if scanned <= 0:
+        return "nothing_to_read"
+    if extractable_core > 0:
+        return "extractable_core"
+    if impure_body > 0:
+        return "impure_body"
+    if trapped_by_imports > 0:
+        return "trapped_by_imports"
+    if unresolved_param > 0:
+        return "unresolved_param"
+    return "clear"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # The gathering layer (impure — hand-tested for durability, never converge-pinned).
 #

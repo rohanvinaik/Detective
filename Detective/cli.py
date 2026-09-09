@@ -7199,6 +7199,62 @@ def _render_doctor_green(code: str, facts: dict, root: str) -> list[str]:
     return out
 
 
+# The four flagged dispositions `survey_disposition` can return, in ITS order — the argument order
+# `taste_disposition` expects. One tuple so the counts and the parameters cannot drift apart, which
+# is the whole failure mode of passing four positional ints.
+_TASTE_CODES = ("extractable_core", "impure_body", "trapped_by_imports", "unresolved_param")
+
+
+def _doctor_yellow(target_file: str, function: str) -> tuple[str, list]:
+    """Gather YELLOW and name the ceiling. Returns (code, findings) — never raises.
+
+    Consumes `survey.survey_source` rather than re-deriving anything: yellow is the axis that needed
+    no new machinery, because survey already answers exactly this question per function.
+    """
+    from .doctor import taste_disposition
+    from .survey import survey_source
+
+    try:
+        with open(target_file, encoding="utf-8") as fh:
+            findings = survey_source(fh.read())
+    except (OSError, SyntaxError, ValueError):
+        return "nothing_to_read", []
+    if function:
+        findings = [f for f in findings if f.qualname == function or f.qualname.endswith(f".{function}")]
+    counts = {d: sum(1 for f in findings if f.disposition == d) for d in _TASTE_CODES}
+    # `survey_source` returns only FLAGGED functions, so a file with three clean functions yields an
+    # empty list — indistinguishable here from a file with none. Both are honestly "nothing in the
+    # way was found", which is `clear`; the count that matters is what was FLAGGED.
+    scanned = max(len(findings), 1)
+    return taste_disposition(scanned, *(counts[d] for d in _TASTE_CODES)), findings
+
+
+def _render_doctor_yellow(code: str, findings: list, target_file: str) -> list[str]:
+    """YELLOW's rows. Never damage — a CEILING, and every row says how to raise it."""
+    out = [_row("YELLOW — taste", code)]
+    if code == "nothing_to_read":
+        out.append(_row("", "no readable functions in the target — nothing to cap"))
+        return out
+    if code == "clear":
+        out.append(_row("", "nothing found is capping what converge can reach here"))
+        out.append(_row("", "(a ceiling report, never a claim that the code is good)"))
+        return out
+    for f in findings[:6]:
+        out.append(_row(f"· {f.disposition}", f"line {f.lineno}  {f.qualname}"))
+        if f.detail:
+            out.append(_row("", f.detail))
+    if len(findings) > 6:
+        out.append(_row("", f"… (+{len(findings) - 6} more)"))
+    rel = os.path.basename(target_file)
+    out += [
+        _row("· Why it matters", "none of this is broken. It caps how much of Detective this code"),
+        _row("", "lets you reach — the pure decision is there, converge cannot get to it."),
+        _row("· Raise it", f"detective survey '{rel}'          # the full map"),
+        _row("", f"detective extract '{rel}::<fn>'   # the concrete extraction"),
+    ]
+    return out
+
+
 def _run_doctor(args) -> int:
     """`detective doctor` — what is blocking correct USE of the tool (`docs/DOCTOR.md`).
 
@@ -7210,7 +7266,7 @@ def _run_doctor(args) -> int:
     """
     root = os.path.abspath(getattr(args, "project_root", ".") or ".")
     raw = getattr(args, "target", None) or ""
-    func_key, target_file = "", ""
+    func_key, target_file, function = "", "", ""
     if raw:
         if "::" in raw:
             # `_split_target` returns the file ALREADY relative to the project root, which is
@@ -7240,6 +7296,7 @@ def _run_doctor(args) -> int:
         green_code, facts = _doctor_green(root, target_file, func_key)
         lines += _render_doctor_green(green_code, facts, root)
         lines.append("")
+    green_live = green_code != "clean"
     # NOT-READ IS A REPORTED STATE, never an empty section. Swallowing at WRITE time is right;
     # swallowing at READ time is the thing this project exists to prevent — an empty process section
     # reads as "nothing wrong", which is the one thing it must not say.
@@ -7251,10 +7308,33 @@ def _run_doctor(args) -> int:
             _row("", "which is not the same as absent. See docs/INVOCATION_LEDGER.md."),
             "",
         ]
+    yellow_code = "clear"
     if "yellow" in asked:
+        if target_file:
+            yellow_code, findings = _doctor_yellow(target_file, function)
+            lines += _render_doctor_yellow(yellow_code, findings, target_file)
+        else:
+            # §7.4: yellow costs a static pass, so it runs for a TARGET and degrades at directory
+            # scope — with the reason named, the way `plan` reports `regime — unread`. A silent
+            # skip here would be the same defect as an empty process section.
+            yellow_code = "clear"
+            lines += [
+                _row("YELLOW — taste", "not read"),
+                _row("· Why", "no target given. Taste costs a static pass per function, so it is"),
+                _row("", "read for a TARGET rather than swept over a repository — name one:"),
+                _row("", "detective doctor <file.py>   or   detective survey <path>"),
+            ]
+        lines.append("")
+    # THE SUPERADDITIVE PRODUCT (§3), and the reason the mix is the default rather than three lists
+    # concatenated. G+Y is UNRELIABILITY: a taste finding measured through a broken environment is
+    # measuring the environment, so it must be RE-DERIVED after the green fix — not acted on, and
+    # not silently trusted either. Neither axis alone can say this.
+    if green_live and yellow_code not in ("clear", "nothing_to_read") and "yellow" in asked:
         lines += [
-            _row("YELLOW — taste", "not read"),
-            _row("· Why", "not wired yet; until then: detective survey <path>"),
+            _row("GREEN + YELLOW", "ordered remediation — the mix, not the sum"),
+            _row("· First", "fix the setup fault above. Nothing below is trustworthy until you do."),
+            _row("· Then RE-DERIVE", "the taste finding was measured through that fault, so re-run"),
+            _row("", "this read afterwards rather than acting on it now."),
             "",
         ]
     if len(asked) < 3:

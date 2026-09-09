@@ -2,11 +2,11 @@
 
 Status: BUILDING. Written 2026-09-08; founder rulings and grounding corrections 2026-09-09.
 Built so far: the precedence lattice (`doctor.signpost_disposition`, ✓ COMPLETE 24/28), the GREEN
-axis (`setup_disposition`, ✓ COMPLETE 15/15, plus its gathering layer), and **the `detective doctor`
-verb** — green live, red and yellow reporting `not read` WITH their reason rather than an empty
-section. Exit 2 on a live setup fault, 0 otherwise.
-Not built: YELLOW's wiring (cheap — pure consumption of `survey_disposition`), RED (blocked on the
-invocation ledger's persistence shell), and the per-command signpost.
+axis (`setup_disposition`, ✓ COMPLETE 15/15, plus its gathering layer), the **YELLOW** axis
+(`taste_disposition`, ✓ COMPLETE 47/47, consuming `survey_source`), the **`detective doctor` verb**,
+and the first superadditive product (**G+Y ordered remediation**). RED reports `not read` WITH its
+reason rather than an empty section. Exit 2 on a live setup fault, 0 otherwise.
+Not built: RED (blocked on the invocation ledger's persistence shell) and the per-command signpost.
 
 ---
 
@@ -430,3 +430,51 @@ The same pass caught a FALSE ALARM in the fence guard: it banned the word "mutan
 because the branch was unreachable and would have fired wrongly the first time a real user hit the
 stale case — agreement over a subspace, the same shape as §MI, the #60 MCP drift and S10. It now
 bans verdict PHRASINGS and exercises both branches.
+
+
+---
+
+## 10. YELLOW, as built (2026-09-09)
+
+Pure consumption, as §8.3 predicted: `survey_source` already answers this question per function, so
+the axis needed no new machinery beyond a ceiling decision over its counts.
+
+`taste_disposition(scanned, extractable_core, impure_body, trapped_by_imports, unresolved_param)`
+→ `extractable_core` · `impure_body` · `trapped_by_imports` · `unresolved_param` · `clear` ·
+`nothing_to_read`. The ranking is `survey_disposition`'s own, consumed rather than restated — a
+second reader of the same facts is the drift every repair in `CORRECTNESS_REPAIRS` turned out to be.
+`_TASTE_CODES` binds the count order to the vocabulary survey actually produces, and a test asserts
+the two sets are equal, so a code on one side and not the other cannot silently become a count that
+is always zero.
+
+`nothing_to_read` is distinct from `clear` because "we looked and found nothing in the way" and
+"there was nothing to look at" are different facts — `plan` already names the second rather than
+reporting a clean read of an empty set. And neither is the same as the caller's `not read`, which is
+§7.4's directory-scope degradation: yellow costs a static pass per function, so it is read for a
+TARGET and otherwise reports why it declined. Collapsing those would let an unread axis render as a
+clean one, which is the single failure this surface exists to prevent.
+
+### The mix, demonstrated
+
+With two axes live the G+Y product is real output rather than a design claim:
+
+```
+  GREEN + YELLOW       ordered remediation — the mix, not the sum
+  · First              fix the setup fault above. Nothing below is trustworthy until you do.
+  · Then RE-DERIVE     the taste finding was measured through that fault, so re-run
+                       this read afterwards rather than acting on it now.
+```
+
+It prints only when BOTH are live — a line that always appears is a line nobody reads — and a yellow
+finding never changes the exit code, because a ceiling is not damage and not "your world is wrong".
+
+### What testing yellow measured about this repo
+
+Every member of `survey._HEAVY_IMPORT_ROOTS` (torch, jax, scipy, matplotlib, sklearn, tensorflow,
+keras, cv2, jaxlib) is ABSENT from the project venv. So no `trapped_by_imports` fixture can avoid
+tripping a green finding as well — the coupling is real rather than an artefact, since a module
+importing an absent heavy package genuinely has both a setup fault and a ceiling. A machine-
+independent yellow-only fixture needs a package that is installed and is not a heavy root:
+`numpy` (declared by S11) annotated as `np.ndarray`, which is in `_INEXPRESSIBLE_ROOTS`. Four tests
+were written on a wrong model of what `survey_source` flags and were corrected by querying it
+directly rather than by adjusting the assertions.
