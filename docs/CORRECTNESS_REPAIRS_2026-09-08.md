@@ -1,5 +1,9 @@
 # Correctness repairs — 2026-09-08
 
+> **Open items live in [`OPEN_ITEMS.md`](OPEN_ITEMS.md), not here.** This document was written to
+> GUIDE work that has since landed, so it is anti-correlated with current truth wherever it
+> describes a defect. Ground against current source before acting on anything in it.
+
 Status: **BUILT, except where a row says otherwise.** Started as a design for mark-up; R0–R5 and
 S1/S2/S11/S12/S13/S16/S17 have since landed, each with its own commit, pins and gates. Rows still
 open are marked so in the tables, and the ones marked *founder call* are decisions rather than

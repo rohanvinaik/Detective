@@ -1,5 +1,9 @@
 # `detective doctor` — design
 
+> **Open items live in [`OPEN_ITEMS.md`](OPEN_ITEMS.md), not here.** This document was written to
+> GUIDE work that has since landed, so it is anti-correlated with current truth wherever it
+> describes a defect. Ground against current source before acting on anything in it.
+
 Status: BUILDING. Written 2026-09-08; founder rulings and grounding corrections 2026-09-09.
 Built so far: the precedence lattice (`doctor.signpost_disposition`, ✓ COMPLETE 24/28), the GREEN
 axis (`setup_disposition`, ✓ COMPLETE 15/15, plus its gathering layer), the **YELLOW** axis
