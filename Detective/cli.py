@@ -5472,11 +5472,13 @@ def _ledger_env(root: str) -> dict:
     for name, key in (("Detective", "detective"), ("Wesker", "wesker")):
         try:
             out[key] = str(getattr(__import__(name), "__file__", "") or "")
-        except Exception:  # noqa: BLE001 — an engine that will not import is recorded as absent
+        # BLE001: an engine that will not import is recorded as absent, never fabricated
+        except Exception:  # noqa: BLE001
             out[key] = ""
     try:
         out["version"] = str(__version__)
-    except Exception:  # noqa: BLE001 — a missing version is recorded empty, never fabricated
+    # BLE001: a missing version is recorded empty rather than guessed
+    except Exception:  # noqa: BLE001
         out["version"] = ""
     return out
 
@@ -7468,6 +7470,119 @@ def _render_doctor_yellow(code: str, findings: list, target_file: str) -> list[s
     return out
 
 
+def _doctor_red(root: str) -> tuple[str, dict]:
+    """Gather RED and name the disposition. Returns (code, facts) — never raises."""
+    from .doctor import process_disposition, red_facts
+
+    facts = red_facts(root)
+    if not facts["available"]:
+        return "unavailable", facts
+    return process_disposition(facts["drift"], facts["spiral"], facts["order"]), facts
+
+
+def _render_doctor_red(code: str, facts: dict) -> list[str]:
+    """RED's rows. Completes green rather than standing alone (§2): every row here is about what
+    the OPERATOR did, and none of it is a claim about the code."""
+    if code == "unavailable":
+        return [
+            _row("RED — process", "not read"),
+            _row("· Why", "no invocation ledger in this project, so what ran before this"),
+            _row("", "command is not knowable. Process findings are UNAVAILABLE —"),
+            _row("", "which is NOT the same as absent. Run any command here and the"),
+            _row("", "next read will have history to work from."),
+        ]
+    out = [_row("RED — process", code)]
+    subject = facts.get("subject") or {}
+    verb, target = subject.get("verb", ""), subject.get("target") or ""
+    if not subject:
+        out.append(_row("", "history exists and records nothing but doctor — nothing to read yet"))
+        return out
+    what = f"{verb} {target}".strip()
+    if code == "clear":
+        out.append(_row("· Last read", f"{what} — nothing in the history says you are stuck"))
+        out.append(_row("", "(observed process, never approval of it)"))
+        return out
+    if code == "ground_moved":
+        out += [
+            _row("· The finding", f"{facts['drift']} between your last two runs of {verb}"),
+            _row("· Why first", "every other process finding is a comparison BETWEEN runs, and"),
+            _row("", "a comparison across changed ground compares different things."),
+            _row("· Do this", "settle the environment, re-run once, then read again."),
+        ]
+    elif code == "spiral":
+        code_note = facts.get("outcome_code") or ""
+        named = f" and got `{code_note}` each time" if code_note else ""
+        out += [
+            _row("· The finding", f"you ran `{what}` again with nothing changed{named}"),
+            _row("· Why it matters", "a re-run is the normal shape of work; a re-run that cannot"),
+            _row("", "change its own outcome is a spiral. The instruction you are"),
+            _row("", "following cannot move this state — a different one has to."),
+            _row("· Do this", "read the GREEN section above first; if it is clean, the"),
+            _row("", "remedy is upstream of this command, not another attempt."),
+        ]
+    elif code == "order":
+        out += [
+            _row("· The finding", f"{facts['order']} — {what}"),
+            _row("· Why it matters", "the style pass is CONDITIONAL on behaviour being pinned. A"),
+            _row("", "seam proposed over an unpinned function cannot be proven"),
+            _row("", "behaviour-preserving, so the read means less than it looks."),
+            _row("· Do this", f"detective converge '{target}'   # then re-read"),
+        ]
+    elif code == "repeat_no_change":
+        out += [
+            _row("· Observed", f"one repeat of `{what}` with nothing changed"),
+            _row("", "Not a finding — two identical runs is how anyone checks a"),
+            _row("", "result. Named so a third would not be a surprise."),
+        ]
+    return out
+
+
+def _render_doctor_mix(green_live: bool, red_live: bool, yellow_live: bool) -> list[str]:
+    """The mix's own verdict (§3). Silent below two live axes — a product needs two things to
+    multiply, and a line printed over a single finding is the line that always appears."""
+    from .doctor import mix_product
+
+    product = mix_product(green_live, red_live, yellow_live)
+    if product == "none":
+        return []
+    if product == "suppression":
+        return [
+            _row("GREEN + RED", "suppression — the mix, not the sum"),
+            _row("· The verdict", "the process advice above is VOID. That setup fault outranks it:"),
+            _row("", "the instruction you were following could never have worked while"),
+            _row("", "the environment is in this state, so repeating it is not the"),
+            _row("", "mistake — following it at all is."),
+            _row("· Do this", "fix GREEN. Then re-run the command once and read again."),
+            "",
+        ]
+    if product == "unreliability":
+        return [
+            _row("GREEN + YELLOW", "unreliability — the mix, not the sum"),
+            _row("· First", "fix the setup fault above. Nothing below is trustworthy until you do."),
+            _row("· Then RE-DERIVE", "the taste finding was measured through that fault, so re-run"),
+            _row("", "this read afterwards rather than acting on it now."),
+            "",
+        ]
+    if product == "ordering":
+        return [
+            _row("RED + YELLOW", "ordering — the mix, not the sum"),
+            _row("· The verdict", "you are about to do the taste half before the correctness half"),
+            _row("", "it presupposes. The seam is unprovable until behaviour is pinned."),
+            _row("· Do this", "converge the target first, then take the taste read again."),
+            "",
+        ]
+    return [
+        _row("GREEN + RED + YELLOW", "ordered remediation — the mix, not the sum"),
+        _row("· First", "fix GREEN. Everything below was measured through it."),
+        _row("· Then", "re-run the command once — the process finding above may simply"),
+        _row("", "dissolve, because it was a symptom of the setup fault."),
+        _row("· Last", "re-derive the taste read. Do not act on this one."),
+        _row("· Why ordered", "these are not three lists. Fixing them in any other order"),
+        _row("", "re-derives findings that were measured through the fault."),
+        "",
+    ]
+
+
 def _run_doctor(args) -> int:
     """`detective doctor` — what is blocking correct USE of the tool (`docs/DOCTOR.md`).
 
@@ -7513,14 +7628,11 @@ def _run_doctor(args) -> int:
     # NOT-READ IS A REPORTED STATE, never an empty section. Swallowing at WRITE time is right;
     # swallowing at READ time is the thing this project exists to prevent — an empty process section
     # reads as "nothing wrong", which is the one thing it must not say.
+    red_code = "clear"
     if "red" in asked:
-        lines += [
-            _row("RED — process", "not read"),
-            _row("· Why", "the invocation ledger is not built yet, so what ran before this"),
-            _row("", "command is not knowable. Process findings are UNAVAILABLE —"),
-            _row("", "which is not the same as absent. See docs/INVOCATION_LEDGER.md."),
-            "",
-        ]
+        red_code, red = _doctor_red(root)
+        lines += _render_doctor_red(red_code, red)
+        lines.append("")
     yellow_code = "clear"
     if "yellow" in asked:
         if target_file:
@@ -7538,18 +7650,14 @@ def _run_doctor(args) -> int:
                 _row("", "detective doctor <file.py>   or   detective survey <path>"),
             ]
         lines.append("")
-    # THE SUPERADDITIVE PRODUCT (§3), and the reason the mix is the default rather than three lists
-    # concatenated. G+Y is UNRELIABILITY: a taste finding measured through a broken environment is
-    # measuring the environment, so it must be RE-DERIVED after the green fix — not acted on, and
-    # not silently trusted either. Neither axis alone can say this.
-    if green_live and yellow_code not in ("clear", "nothing_to_read") and "yellow" in asked:
-        lines += [
-            _row("GREEN + YELLOW", "ordered remediation — the mix, not the sum"),
-            _row("· First", "fix the setup fault above. Nothing below is trustworthy until you do."),
-            _row("· Then RE-DERIVE", "the taste finding was measured through that fault, so re-run"),
-            _row("", "this read afterwards rather than acting on it now."),
-            "",
-        ]
+    # THE SUPERADDITIVE PRODUCTS (§3) — the part of the herb scheme that is a mechanism rather than
+    # a metaphor. Each combination yields a verdict neither component produces alone, and the mix is
+    # three lists PLUS the statement of what must be re-derived after the repair and in what order.
+    lines += _render_doctor_mix(
+        green_live and "green" in asked,
+        red_code not in ("clear", "unavailable") and "red" in asked,
+        yellow_code not in ("clear", "nothing_to_read") and "yellow" in asked,
+    )
     if len(asked) < 3:
         lines.append(_row("PARTIAL READ", f"only {', '.join(asked)} was read — an unread axis may"))
         lines.append(_row("", "invalidate what this reports. The full mix is the default."))

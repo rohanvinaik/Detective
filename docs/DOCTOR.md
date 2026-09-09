@@ -6,8 +6,10 @@ axis (`setup_disposition`, ✓ COMPLETE 15/15, plus its gathering layer), the **
 (`taste_disposition`, ✓ COMPLETE 47/47, consuming `survey_source`), the **`detective doctor` verb**,
 and the first superadditive product (**G+Y ordered remediation**). RED reports `not read` WITH its
 reason rather than an empty section. Exit 2 on a live setup fault, 0 otherwise.
-the **per-command signpost** on the static taste verbs.
-Not built: RED (blocked on the invocation ledger's persistence shell).
+the **per-command signpost** on the static taste verbs, and — as of 2026-09-09 — **RED** and all
+four **superadditive products**. Doctor is COMPLETE as designed.
+Open, and named rather than deferred: §11's strict-preemption question, propagation for the verbs
+that still record `outcome: []`, and `purge --prune`.
 
 ---
 
@@ -543,3 +545,69 @@ lattice already returns `preempted_by_setup` and the change is at the one dispat
 Also open: the signpost currently fires for GREEN faults only. RED pre-emption of the taste verbs —
 "you are running the taste half before behaviour is pinned" — needs the invocation ledger, and will
 light up the same site when red lands.
+
+
+---
+
+## 12. RED, as built (2026-09-09) — and the mix, complete
+
+The axis that "does nothing alone and completes green". Its four decisions
+(`spiral_disposition`, `order_disposition`, `environment_drift_disposition`,
+`outcome_disposition`) had been pinned since the start and had no data; the ledger's persistence
+shell and `outcome` propagation are what made them answerable.
+
+`process_disposition` (✓ COMPLETE 29/29) ranks them, and the top rank is not a taste call:
+
+> **`ground_moved` outranks everything.** Every other red finding is a comparison BETWEEN runs, and
+> a comparison across changed ground compares different things. A "spiral" computed across an
+> interpreter change is not a spiral — it is two measurements of two environments, and reporting it
+> as a repeat sends the operator to stop doing the one thing that was actually varying.
+
+Then `spiral`, then `order`, then `repeat_no_change` — which is NAMED but is not a spiral, because
+two identical runs is how anyone checks a result and the remedy differs (there is none).
+`progressed` and `repeat_state_changed` never reach a finding at all: an edit-then-rerun loop IS
+how the tool is used.
+
+### What it actually says
+
+```
+  RED — process        spiral
+  · The finding        you ran `audit motion.py::sync_step` again with nothing changed
+                       and got `fix_load` each time
+  · Why it matters     a re-run is the normal shape of work; a re-run that cannot
+                       change its own outcome is a spiral. …
+```
+
+That sentence is the entire argument for `outcome` propagation. "You ran this three times" does not
+name what to stop doing; "you got `fix_load` each time" does.
+
+### Reading discipline
+
+Reports on the most recent NON-DOCTOR invocation — "you ran doctor twice" is not the finding anyone
+came for. Scopes the comparison to the same verb AND the same target, because a different target is
+a different question and mixing them would manufacture spiral accusations out of ordinary work
+across a codebase (the false-positive direction, which is the worse one). And `available` is
+separate from every code: an unreadable or missing ledger reports **UNAVAILABLE**, never `clear`.
+
+`_target_ever_pinned` consumes the CERTIFICATE rather than asking the ledger whether a converge
+"looked successful" — a converge that ran is not a converge that pinned, and `order_disposition`'s
+question is about the contract existing.
+
+### The four products (§3), all live
+
+`mix_product` (✓ COMPLETE 15/15) — and this is the part of the herb scheme that is a mechanism
+rather than a metaphor:
+
+| mix | verdict no single axis produces |
+|---|---|
+| **G+R** | **suppression** — the process advice is VOID; the instruction could never have worked in this environment, so repeating it is not the mistake, following it at all is |
+| **G+Y** | **unreliability** — the taste finding was measured THROUGH the fault, so re-derive rather than act |
+| **R+Y** | **ordering** — the taste half before the correctness half it presupposes |
+| **G+R+Y** | **ordered remediation** — fix green, re-run once (the process finding may simply DISSOLVE, having been a symptom), then re-derive the taste read |
+
+Silent below two live axes: a product needs two things to multiply, and a mix line over a single
+finding would be the line that always appears — the signpost discipline's own defect, reproduced
+inside doctor.
+
+Red never changes the exit code. Only GREEN earns exit 2 ("your world is wrong"); a process finding
+is about what you DID, and conflating them would make the code stop meaning what the table says.

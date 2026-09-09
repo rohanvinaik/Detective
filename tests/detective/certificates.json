@@ -120,6 +120,18 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/doctor.py::mix_product": {
+    "cut_reasons": [],
+    "function_digest": "a8da5965e9ef25d5",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/doctor.py::process_disposition": {
+    "cut_reasons": [],
+    "function_digest": "e61f1b00012ac05e",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/doctor.py::setup_disposition": {
     "cut_reasons": [],
     "function_digest": "83c068e309f5c55a",

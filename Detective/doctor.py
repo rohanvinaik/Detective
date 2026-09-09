@@ -194,6 +194,90 @@ def setup_disposition(
     return "clean"
 
 
+def process_disposition(drift: str, spiral: str, order: str) -> str:
+    """RED — what the OPERATOR is doing wrong, or in the wrong order (pure — pinned).
+
+    Red does nothing alone and completes green: knowing what you were TRYING to do turns "your venv
+    lacks funcy" into "…and that is why your converge reported 0 kills and asked you for inputs;
+    fix the import first, then re-run — do not author inputs."
+
+    The three inputs are `ledger.environment_drift_disposition`, `ledger.spiral_disposition` and
+    `ledger.order_disposition`, CONSUMED rather than re-derived. This only ranks them.
+
+      "ground_moved"             the interpreter, the engine paths or the version changed between
+                                 runs. FIRST, and not by taste: every other finding here is a
+                                 comparison BETWEEN runs, and a comparison across changed ground is
+                                 comparing different things. A "spiral" computed across an
+                                 interpreter change is not a spiral — it is two measurements of two
+                                 environments, and reporting it as a repeat would send the operator
+                                 to stop doing the one thing that was actually varying.
+      "spiral"                   the same command, twice or more, with nothing changing in between.
+                                 The single highest-value process signal and the shape observed on
+                                 conorheins: the operator followed the printed instruction and the
+                                 instruction could not change the state.
+      "order"                    the taste half is being run before the correctness half it
+                                 presupposes — a seam proposed over an unpinned function cannot be
+                                 proven behaviour-preserving.
+      "repeat_no_change"         ONE repeat with nothing changed. Worth naming and not worth
+                                 alarming about: two identical runs is how anyone checks a result.
+                                 Kept distinct from `spiral` because the remedy differs — there is
+                                 none here, it is just an observation.
+      "clear"                    nothing in the history says the operator is stuck. NOT "you are
+                                 using the tool correctly" — the fence: red reports observed
+                                 process, never approves of it.
+
+    `repeat_state_changed` and `progressed` never reach a finding, deliberately: an edit-then-rerun
+    loop IS how the tool is used, and a process axis that flagged ordinary iteration would be noise
+    on the one surface whose credibility is the product.
+    """
+    if drift in ("interpreter_changed", "engine_changed", "version_changed"):
+        return "ground_moved"
+    if spiral == "spiral":
+        return "spiral"
+    if order in ("taste_before_behaviour", "taste_without_measurement"):
+        return "order"
+    if spiral == "repeat_no_change":
+        return "repeat_no_change"
+    return "clear"
+
+
+def mix_product(green_live: bool, red_live: bool, yellow_live: bool) -> str:
+    """What the COMBINATION says that no single axis does (§3 — pure, pinned).
+
+    This is the part of the herb scheme that is a mechanism rather than a metaphor. Red does
+    nothing alone and completes green's axis; yellow raises a different axis entirely. So the mix
+    is not three lists concatenated — it is three lists PLUS the statement of which findings must be
+    re-derived after the repair, and in what order. That statement is the boost above the simple
+    sum, and it is why the full mix is the default rather than something the operator must discover.
+
+      "suppression"          G+R — "this process advice is void; that setup fault outranks it."
+                             THE case doctor was built for: converge emitted "author these inputs"
+                             (red) while funcy was missing from this interpreter (green), and the
+                             inputs could never have helped. Neither axis alone catches it — green
+                             does not know what you were trying to do, and red does not know why
+                             the instruction could not work.
+      "unreliability"        G+Y — the taste finding was MEASURED THROUGH a broken environment, so
+                             it is measuring the environment. Re-derive after the fix; do not act.
+      "ordering"             R+Y — you are about to do the taste half before the correctness half
+                             it presupposes.
+      "ordered_remediation"  all three — fix green, then re-derive red AND yellow, because both
+                             were measured through the green fault.
+      "none"                 fewer than two axes live. A product needs two things to multiply, and
+                             printing a mix line over a single finding would be the line that
+                             always appears.
+    """
+    live = (green_live, red_live, yellow_live)
+    if all(live):
+        return "ordered_remediation"
+    if green_live and red_live:
+        return "suppression"
+    if green_live and yellow_live:
+        return "unreliability"
+    if red_live and yellow_live:
+        return "ordering"
+    return "none"
+
+
 def command_setup_fault(
     regime_conflict: str,
     load_failed: bool,
@@ -453,6 +537,96 @@ def recorded_cut_reasons(root: str, func_key: str = "", write_dir: str = "") -> 
             if isinstance(reason, str) and reason not in out:
                 out.append(reason)
     return tuple(out)
+
+
+def red_facts(root: str, herb_of: dict | None = None) -> dict:
+    """Read the ledger and answer RED's four questions about the operator (never raises).
+
+    Reports on the most recent NON-DOCTOR invocation, because doctor is the command you just ran
+    and "you ran doctor twice" is not the finding anyone came for. If nothing else is on record the
+    answer is `available` with no subject, which is honest — history exists and says nothing yet.
+
+    Returns the four CODES, consumed from `ledger`'s pinned decisions rather than re-derived here,
+    plus the row they describe so the render can name the verb and target. `available` is separate
+    from every code: an unreadable or missing ledger means process findings are UNAVAILABLE, which
+    is not the same as no finding, and rendering the first as the second is the one thing this
+    surface must never do.
+    """
+    from . import ledger as _L
+
+    out = {
+        "available": _L.ledger_available(root),
+        "subject": None,
+        "spiral": "no_prior",
+        "drift": "no_prior",
+        "order": "ok",
+        "outcome": "unobserved",
+    }
+    if not out["available"]:
+        return out
+    rows = [r for r in _L.read_recent(root, limit=200) if isinstance(r, dict)]
+    subjects = [r for r in rows if r.get("verb") != "doctor"]
+    if not subjects:
+        return out
+    latest = subjects[-1]
+    out["subject"] = latest
+    verb, target = latest.get("verb", ""), latest.get("target")
+    # The comparison set: the SAME verb on the SAME target, older than the subject. A different
+    # target is a different question, and mixing them would manufacture repeats out of ordinary
+    # work across a codebase.
+    prior = [r for r in subjects[:-1] if r.get("verb") == verb and r.get("target") == target]
+    same_args = bool(prior) and prior[-1].get("args") == latest.get("args")
+    same_state = bool(prior) and prior[-1].get("state") == latest.get("state")
+    identical = 0
+    for row in reversed(prior):
+        if row.get("args") == latest.get("args") and row.get("state") == latest.get("state"):
+            identical += 1
+        else:
+            break
+    out["spiral"] = _L.spiral_disposition(bool(prior), same_args, same_state, identical)
+
+    prev_env = (prior[-1].get("env") or {}) if prior else {}
+    env = latest.get("env") or {}
+    out["drift"] = _L.environment_drift_disposition(
+        bool(prior),
+        prev_env.get("interpreter") == env.get("interpreter"),
+        (prev_env.get("detective"), prev_env.get("wesker")) == (env.get("detective"), env.get("wesker")),
+        prev_env.get("version") == env.get("version"),
+    )
+
+    herb = (herb_of or COMMAND_HERB).get(verb, "")
+    func_key = str(target) if target and "::" in str(target) else ""
+    ever_pinned = _target_ever_pinned(root, func_key)
+    measured = any(r.get("target") == target and r.get("verb") in ("converge", "audit") for r in subjects)
+    out["order"] = _L.order_disposition(herb, ever_pinned, measured)
+
+    obs = latest.get("outcome") or []
+    mine = [o for o in obs if len(o) >= 2 and o[1] == verb]
+    others = [o for o in obs if len(o) >= 2 and o[1] != verb]
+    codes = {o[2] for o in mine if len(o) >= 3}
+    out["outcome"] = _L.outcome_disposition(len(mine), len(others), len(codes) <= 1)
+    out["outcome_code"] = next(iter(codes), "") if len(codes) == 1 else ""
+    return out
+
+
+def _target_ever_pinned(root: str, func_key: str) -> bool:
+    """Whether the certificate ledger records a COMPLETE standing for this target (never raises).
+
+    Consumed from the certificate the behaviour layer already writes, rather than asking the ledger
+    whether a converge "looked successful" — a converge that ran is not a converge that pinned, and
+    `order_disposition`'s question is about the CONTRACT existing, not about the command having
+    been issued.
+    """
+    if not func_key:
+        return False
+    try:
+        from .certificates import load_certificate
+
+        cert = load_certificate(root, func_key, "")
+        return bool(cert) and cert.get("standing") == "complete"
+    # BLE001: an unreadable certificate is "not pinned", never a raised diagnostic
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def pytest_importable() -> bool:
