@@ -5,7 +5,7 @@ seam is cognitive complexity, and it refuses a transform it cannot prove — whi
 is), so a greenfield author was left with no tool that acts. `extract` closes that gap propose-only.
 These pin, from intent: extract and survey flag the IDENTICAL functions (they must never disagree —
 the exact contradiction D found); a data-object param yields a concrete primitive-extraction proposal;
-a heavy-import trap yields a MOVE proposal; and it writes nothing / proves nothing / has no --apply.
+a heavy-import trap yields a MOVE proposal; and it writes no project files / proves nothing / has no --apply.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def test_a_reachable_function_has_nothing_to_extract():
     assert extract_proposal(_CLEAN, "add") is None
 
 
-# ------------------------------------------------------------------ render_extract (advisory, writes nothing)
+# ---------------------------------------------------------- render_extract (advisory, writes no project files)
 
 
 def test_render_nothing_trapped_is_a_stated_clean_bill():
@@ -98,7 +98,7 @@ def test_render_propose_names_the_signature_and_the_converge_command():
     assert "def decide_decision(" in out
     assert "detective converge 'game.py::decide_decision'" in out
     # Advisory framing is always present — it proposes, never performs.
-    assert "writes nothing and proves nothing" in out
+    assert "writes nothing to your project and proves nothing" in out
 
 
 def test_render_move_points_to_a_leaf_module_not_a_sub_decision():

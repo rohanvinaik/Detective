@@ -537,16 +537,29 @@ Silent on a clean run, silent on `--json` (a parsed contract must not gain a pro
 silent on any internal failure — a signpost that breaks the command it decorates has cost a verdict
 to deliver a hint.
 
-### OPEN — founder call: should a pre-empted command still emit?
+### RULED 2026-09-09 — a pre-empted command WITHHOLDS its verdict
 
-§4's wording is stricter than what is built: *"a command may emit its own verdict only when no
-higher-ranked herb has a live finding. Otherwise it names that finding and offers the full mix"* —
-which reads as WITHHOLDING the verdict, not merely preceding it.
+§4's literal reading, and it reverses what was built first. The banner form printed the taste report
+under a warning; the strict form does not print it at all.
 
-Built as a pre-emption BANNER that precedes the report, and the report still arrives. Withholding a
-survey the operator explicitly asked for changes an existing command's contract, and the softer form
-delivers the warning without that. Not taken unilaterally; if the strict reading is wanted, the
-lattice already returns `preempted_by_setup` and the change is at the one dispatch site.
+The argument for the strict reading is the one the mix exists to make: **a taste verdict measured
+through a live setup fault is a measurement of the ENVIRONMENT, not of the code.** Printing it under
+a warning still leaves the reader free to act on it — which is the unreliability doctor exists to
+NAME rather than decorate. A warning the reader may act past is not a pre-emption.
+
+Exit **2** — the documented "your world is wrong — fix that, not the code", and the same code
+`doctor` returns for the same finding, so a caller branching on it gets ONE answer from both
+surfaces rather than two.
+
+The **machine channel is exempt**, deliberately: `--json` is a parsed contract and must not silently
+change shape. A programmatic consumer gets its green facts from `detective doctor`'s structured
+surface, which is where they belong.
+
+And the banner's own copy changed with it. It used to say "what this command just told you was
+measured THROUGH that fault… RE-DERIVE this read", which described a report that no longer arrives.
+It now says why the read was withheld — because a refusal that does not explain itself is the same
+defect as advice that cannot be acted on, and "withheld" with no reason reads as the tool being
+broken, which is exactly the conclusion U2's greenfield user draws.
 
 Also open: the signpost currently fires for GREEN faults only. RED pre-emption of the taste verbs —
 "you are running the taste half before behaviour is pinned" — needs the invocation ledger, and will

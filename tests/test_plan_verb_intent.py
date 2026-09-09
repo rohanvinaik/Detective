@@ -117,7 +117,9 @@ def test_path_form_prints_the_terse_block_and_writes_the_report(tmp_path, capsys
     out = capsys.readouterr().out
     lines = out.strip().splitlines()
     assert code == 0
-    assert lines[-1].startswith("FINAL plan pkg:") and lines[-1].endswith("advisory — writes nothing")
+    assert lines[-1].startswith("FINAL plan pkg:") and lines[-1].endswith(
+        "advisory — writes no project files"
+    )
     assert "1 constructive" in lines[1] and "1 silent (clean 1 · unread 0)" in lines[1]
     assert "every exclusion named" in out and "unpinned 1" in out
     assert "converge first" in out and "pkg/smelly.py::dedupe_many" in out

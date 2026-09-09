@@ -75,13 +75,18 @@ def test_it_names_the_finding_rather_than_just_the_command(repo, capsys) -> None
     assert out.index("jax") < out.index("detective doctor"), "finding first, command second"
 
 
-def test_it_says_the_verdict_below_was_measured_through_the_fault(repo, capsys) -> None:
-    """The whole point. Naming a setup fault beside a taste report without saying the report was
-    measured through it leaves the reader free to act on both — which is the unreliability the mix
-    exists to name."""
+def test_it_says_WHY_the_verdict_was_withheld_not_merely_that_it_was(repo, capsys) -> None:
+    """A refusal that does not explain itself is the same defect as advice that cannot be acted on.
+    The reader has to learn that the read would have measured their ENVIRONMENT rather than their
+    code — otherwise "withheld" reads as the tool being broken, which is exactly the conclusion a
+    greenfield user draws (U2, the motivating case).
+
+    Reworded when D1 landed: the previous form asserted "RE-DERIVE this read", which described a
+    report that no longer arrives."""
     _, out = _run(capsys, "survey", "needs.py", "--project-root", str(repo))
     assert "measured THROUGH" in out
-    assert "RE-DERIVE" in out
+    assert "your ENVIRONMENT rather than of your" in out
+    assert "fix the setup, then run this command again" in out
 
 
 @pytest.mark.parametrize("verb", ["survey", "plan", "parsimony", "censor"])
@@ -154,12 +159,37 @@ def test_it_never_breaks_the_command_it_decorates(tmp_path, capsys) -> None:
     assert code in (0, 1, 2)
 
 
-def test_it_precedes_rather_than_replaces_the_commands_own_output(repo, capsys) -> None:
-    """§4's stricter reading — that a pre-empted command should not emit its verdict AT ALL — is a
-    founder call, because withholding a survey the operator explicitly asked for changes an existing
-    command's contract. Recorded in DOCTOR.md §11 rather than taken unilaterally. Until then the
-    signpost pre-empts by ORDERING and by saying so, and the report still arrives."""
-    _, out = _run(capsys, "survey", "needs.py", "--project-root", str(repo))
+def test_a_preempted_command_WITHHOLDS_its_verdict(repo, capsys) -> None:
+    """FOUNDER RULING 2026-09-09 — §4's literal reading, and it reverses what was built first.
+
+    A taste verdict measured THROUGH a live setup fault is a measurement of the ENVIRONMENT. Printing
+    it under a warning still leaves the reader free to act on it, which is the unreliability the mix
+    exists to NAME rather than decorate. So the report does not arrive at all.
+
+    Exit 2 — the documented "your world is wrong — fix that, not the code" — and the same code
+    `doctor` returns for the same finding, so a caller branching on it gets ONE answer from both.
+    """
+    code, out = _run(capsys, "survey", "needs.py", "--project-root", str(repo))
     assert "SETUP FAULT" in out
-    assert "survey ·" in out, "the command's own report must still be there"
-    assert out.index("SETUP FAULT") < out.index("survey ·"), "the pre-emption comes first"
+    assert "Why withheld" in out
+    assert "survey ·" not in out, "the verdict must be WITHHELD, not merely preceded"
+    assert code == 2
+
+
+def test_a_clean_run_still_gets_its_report(repo, capsys) -> None:
+    """The other half, and the one that makes withholding safe to ship: nothing is suppressed unless
+    a green finding is actually live."""
+    code, out = _run(capsys, "survey", "clean.py", "--project-root", str(repo))
+    assert "SETUP FAULT" not in out
+    assert "survey ·" in out
+    assert code == 0
+
+
+def test_the_machine_channel_is_never_withheld(repo, capsys) -> None:
+    """`--json` is a parsed contract. A consumer gets its green facts from `detective doctor`'s
+    structured surface, not from a verb silently returning a different shape — so the exemption is
+    the same one that keeps the banner off this channel."""
+    code, out = _run(capsys, "survey", "needs.py", "--project-root", str(repo), "--json")
+    payload = json.loads(out)
+    assert payload["kind"] == "survey", "the document still arrives, intact"
+    assert code != 2

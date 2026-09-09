@@ -271,7 +271,7 @@ def survey_scan_status(scanned: int, failed: int) -> str:
 
 
 def render_survey(path: str, findings: list[SurveyFinding]) -> list[str]:
-    """The `detective survey` report — advisory, writes nothing."""
+    """The `detective survey` report — advisory, writes nothing to your project."""
     total = len(findings)
     if total == 0:
         return [

@@ -194,9 +194,9 @@ def test_terse_block_shape() -> None:
     assert lines[-1].startswith(
         "FINAL plan pkg: 1 funded · 4 constructive · 1 escalated · 0 fenced · 2 silent (clean 1 · unread 1)"
     )
-    assert lines[-1].endswith("advisory — writes nothing")
+    assert lines[-1].endswith("advisory — writes no project files")
     assert "4 constructive · 1 ambiguous · 0 destructive · 2 silent (clean 1 · unread 1)" in lines[1]
-    assert "(advisory — static, writes nothing)" in lines[1]
+    assert "(advisory — static, writes nothing to your project)" in lines[1]
     # the funded move and its next command
     assert any(
         "a.py::f   agreement 3 · quadratic_membership_scan → set_membership · cost 20" in ln for ln in lines

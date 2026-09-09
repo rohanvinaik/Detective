@@ -364,7 +364,7 @@ def _parsimony_rows(scope) -> list[str]:
 def _format_parsimony_map(score, top: int = 10) -> str:
     """The `detective parsimony <path>` report: a repo/module/class SICP map, worst-first.
 
-    Static and ADVISORY — it runs no mutant and writes nothing, and every line here says so, the
+    Static and ADVISORY — it runs no mutant and writes nothing to your project, and every line says so, the
     same way `_format_scope` never lets the per-function advisory touch the DO THIS action. A scope
     lists only its FLAGGED members (the report's "show what matters" rule); a fully clean tree gets
     one line, not a wall of green.
@@ -405,7 +405,9 @@ def _format_parsimony_map(score, top: int = 10) -> str:
         lines.append(_row("✓ clean", "no function trips ≥2 static lenses — nothing to flag"))
         lines.append("")
     lines.append(_row("· advisory", "a STATIC read (complexity · cohesion · interface · seam) — guidance,"))
-    lines.append(_row("", "NOT a proof, and it writes nothing. For the behavioural lenses (overload,"))
+    lines.append(
+        _row("", "NOT a proof, and it writes nothing to your project. For the behavioural lenses (overload,")
+    )
     lines.append(_row("", "regime) and the PROOF: detective diagnose <file>::<function>"))
     return "\n".join(lines)
 
@@ -439,7 +441,8 @@ def _format_parsimony_plan(score, top: int = 10) -> str:
 # The taste layer's report. Everything printed here is a NAMED code's tally or a named region's row:
 # no score, no percentage but clean% (defined: clean / measured), every exclusion by reason, and the
 # next command per region from the ONE pinned decision (`plan.next_command`). Advisory — static,
-# proves nothing, writes nothing — and it says so in the header, the unexamined line, and the banner.
+# proves nothing, writes no project files — and it says so in the header, the unexamined
+# line, and the banner.
 
 
 def _plan_reason_index(assembly) -> dict[str, str]:
@@ -473,7 +476,7 @@ def _plan_final_banner(summary, scope: str) -> str:
     return (
         f"FINAL plan {scope}: {summary.funded} funded · {v.get('CONSTRUCTIVE', 0)} constructive · "
         f"{v.get('AMBIGUOUS', 0)} escalated · {v.get('DESTRUCTIVE', 0)} fenced · {v.get('SILENT', 0)} silent "
-        f"(clean {c.get('clean', 0)} · unread {c.get('unread', 0)}) · advisory — writes nothing"
+        f"(clean {c.get('clean', 0)} · unread {c.get('unread', 0)}) · advisory — writes no project files"
     )
 
 
@@ -491,7 +494,7 @@ def _format_plan_terse(assembly, report_path: str = "", top: int = 5) -> str:
         f"{assembly.scope} — plan · {s.regions} regions · {v.get('CONSTRUCTIVE', 0)} constructive · "
         f"{v.get('AMBIGUOUS', 0)} ambiguous · {v.get('DESTRUCTIVE', 0)} destructive · "
         f"{v.get('SILENT', 0)} silent (clean {c.get('clean', 0)} · unread {c.get('unread', 0)})"
-        "   (advisory — static, writes nothing)",
+        "   (advisory — static, writes nothing to your project)",
         "",
         _row(
             "funded",
@@ -647,7 +650,9 @@ def _plan_payload(assembly, report_path: str = "") -> dict:
 
     return {
         "kind": "plan",
-        "note": "advisory — static, proves nothing, writes nothing; every count is a named code's tally",
+        "note": (
+            "advisory — static, proves nothing, writes no project files; every count is a named code's tally"
+        ),
         "scope": assembly.scope,
         "budget": assembly.budget,
         "spent": s.spent,
@@ -4244,7 +4249,7 @@ _COMMAND_HELP = {
     # `_build_parser` loop below (its arguments differ: a path OR a target, a budget); listed here so
     # its one-liner obeys the same headline rule as the behavior verbs.
     "plan": "START HERE for STYLE — what a codebase's PINNED regions could safely become: priced, gated, "
-    "every exclusion named (advisory; writes nothing)",
+    "every exclusion named (advisory; writes nothing to your project)",
 }
 
 
@@ -4916,7 +4921,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "Roll up the AST-only parsimony lenses (complexity, cohesion, interface width, "
             "structural seam) over a file or directory and report the shape of its parsimony: a "
             "clean-percent score per module and class, and the worst-offending functions.\n\n"
-            "ADVISORY, not a proof. It runs no mutant and writes nothing — the one repo-scale "
+            "ADVISORY, not a proof. It runs no mutant and writes nothing to your project — the one "
+            "repo-scale "
             "surface, and it says so. There is no repo-scale PROOF: the behavioural lenses "
             "(overload, regime), the per-function detail, and any proof stay in "
             "`detective diagnose`/`converge`, one function at a time."
@@ -5019,7 +5025,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "  --green   SETUP    present damage — the project or environment is malformed\n"
             "  --red     PROCESS  you are doing something wrong, or in the wrong order\n"
             "  --yellow  TASTE    nothing is broken; something CAPS how much of the tool you reach\n\n"
-            "ADVISORY. It writes nothing, runs no suite, profiles no mutants, and never imports "
+            "ADVISORY. It writes nothing to your project, runs no suite, profiles no mutants, and "
+            "never imports "
             "your target. It NEVER emits a correctness verdict: a clean read means 'no damage in "
             "what was looked at', never 'your code is fine'. Exit 2 when a setup fault is live "
             "(your world is wrong — fix that, not the code), else 0."
@@ -5066,7 +5073,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "fences the systematically-absent None. Rank them by marginal coverage κ over the call graph "
             "and report the promotion PRIORITY.\n\n"
             "ADVISORY / static — an AST call-site + call-graph pass, no mutant. Read-only by default "
-            "(proposes, prints, writes nothing). --promote runs the κ→0 corpus fixpoint and PERSISTS the "
+            "(proposes, prints, writes nothing to your project). --promote runs the κ→0 corpus "
+            "fixpoint and PERSISTS the "
             "promoted censors to .detective/censors.json; --list shows that ledger. On clean data the loop "
             "is conservative-empty by construction — the honest 'the spine is the bottleneck' outcome, a "
             "censor is UNVERIFIED until promoted or triaged (Def. 9.5), never a gate."
@@ -5147,7 +5155,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "source): each input where the old (correct) and new (bad) implementations differed is "
         "a near-miss whose new output is forbidden. The candidates are κ-scored over the call graph "
         "and the promoted ones persisted to .detective/censors.json (`censor --list` shows them). "
-        "Off by default — verify-rewrite stays a pure verdict command and writes nothing.",
+        "Off by default — verify-rewrite stays a pure verdict command and writes nothing to your project.",
     )
     return parser
 
@@ -7080,7 +7088,7 @@ def _run_parsimony(args) -> int:
             return _emit_json(
                 {
                     "kind": "parsimony-plan",
-                    "note": "schedule (advisory) — ranks no quality, proves nothing, writes nothing",
+                    "note": "schedule (advisory) — ranks no quality, proves nothing, writes no project files",
                     "functions": score.functions,
                     "flagged": score.flagged,
                     "trace_groups": len(groups),
@@ -7140,7 +7148,7 @@ def _run_survey(args) -> int:
                 "kind": "survey",
                 "scan_status": status,
                 "unexamined": failed,
-                "note": "static advisory — proposes extractions, performs none, writes nothing",
+                "note": "static advisory — proposes extractions, performs none, writes no project files",
                 "trapped": sum(len(f) for _p, f in scanned),
                 "files": [
                     {
@@ -7209,7 +7217,7 @@ def _run_extract(args, file, function) -> int:
     if args.json:
         payload: dict = {
             "kind": "extract",
-            "note": "static advisory — proposes an extraction, performs none, writes nothing",
+            "note": "static advisory — proposes an extraction, performs none, writes nothing to your project",
             "trapped": proposal is not None,
         }
         if proposal is not None:
@@ -7645,7 +7653,8 @@ def _render_doctor_mix(green_live: bool, red_live: bool, yellow_live: bool) -> l
 def _run_doctor(args) -> int:
     """`detective doctor` — what is blocking correct USE of the tool (`docs/DOCTOR.md`).
 
-    ADVISORY and it writes nothing. Exit 2 when a GREEN finding is live, 0 otherwise: "exit codes
+    ADVISORY and it writes nothing to your project. Exit 2 when a GREEN finding is live, 0
+    otherwise: "exit codes
     are epistemics, not pass/fail", and the documented `2 = your world is wrong — fix that, not the
     code` IS a setup fault. Always-0 would make this command say nothing is wrong about a fault it
     just found — the blur the project exists to kill. It still never gates a certificate and is not
@@ -7812,9 +7821,11 @@ def _signpost_rows(verb: str, root: str, target_file: str = "") -> list[str]:
             "",
             _row("⚠ SETUP FAULT", f"{named} — a GREEN finding outranks this {herb} verdict"),
             _row("", detail),
-            _row("· Why it matters", "what this command just told you was measured THROUGH that"),
-            _row("", "fault. Fix the setup first, then RE-DERIVE this read — acting on"),
-            _row("", "it now is acting on a measurement of your environment."),
+            _row("· Why withheld", "this read would have been measured THROUGH that fault, so it"),
+            _row("", "would be a measurement of your ENVIRONMENT rather than of your"),
+            _row("", "code. Printing it under a warning still leaves you free to act"),
+            _row("", "on it, which is the unreliability this exists to name."),
+            _row("· Do this", "fix the setup, then run this command again."),
             _row("· The full read", f"detective doctor{scope}"),
         ]
     except Exception:  # noqa: BLE001
@@ -7834,6 +7845,17 @@ def _run(args) -> int:
         rows = _signpost_rows(args.command, root, _signpost_target(args, root))
         if rows and not getattr(args, "json", False):
             print("\n".join(rows))
+            # WITHHOLD, not merely precede (founder ruling 2026-09-09 — DOCTOR.md §4's literal
+            # reading). A taste verdict measured THROUGH a live setup fault is a measurement of the
+            # environment, and printing it under a banner still leaves the reader free to act on it
+            # — which is the unreliability the mix exists to name, not to decorate. `2` is the
+            # documented "your world is wrong — fix that, not the code", the same code doctor
+            # returns for the same finding, so a caller branching on it sees one answer from both.
+            #
+            # The MACHINE channel is exempt above and deliberately: `--json` is a parsed contract,
+            # and a consumer gets its green facts from `detective doctor`'s structured surface
+            # rather than from a verb silently returning a different shape.
+            return 2
 
     if args.command == "doctor":
         # Above `_split_target`: the target is OPTIONAL and may be a bare path, so it must not fall

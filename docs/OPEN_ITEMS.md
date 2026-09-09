@@ -20,11 +20,32 @@ answer, and each is cheap to act on once answered.
 
 | # | Question | Where | Why it is a call and not a task |
 |---|---|---|---|
-| **D1** | Should a pre-empted command **withhold** its verdict entirely, rather than being preceded by a banner? | [`DOCTOR.md` §11](DOCTOR.md) | §4's wording ("a command may emit its own verdict ONLY when no higher-ranked herb has a live finding") reads as withholding. Built as a banner, because suppressing a `survey` the operator explicitly asked for changes an existing command's contract. The lattice already returns `preempted_by_setup`; the change is at ONE dispatch site. |
-| **D2** | The cache guard now **skips more often than it runs**. Leave it / give it a target that reliably admits a certificate / move the property to the cache seam. | [`CORRECTNESS_REPAIRS` §S10b](CORRECTNESS_REPAIRS_2026-09-08.md) | Strictly better than before (it used to compare two cold computes and call that a cache test), but a guard that never runs is a guard in name only. The three options trade honesty against coverage differently. |
-| **D3** | Every advisory verb's help says **"writes nothing"**, and that is now imprecise for all six. | [`INVOCATION_LEDGER` §9.1](INVOCATION_LEDGER.md) | The contract was sharpened in code — "writes nothing" is about the PROJECT; the invocation ledger records that you RAN a command. But the user-facing copy across six verbs still says it flatly, and that is the founder's prose. |
+| ~~**D1**~~ | ~~strict pre-emption~~ | | **RULED AND BUILT 2026-09-09: WITHHOLD.** §4's literal reading. A taste verdict measured through a live setup fault is a measurement of the ENVIRONMENT, and printing it under a warning still leaves the reader free to act on it — which is the unreliability the mix exists to NAME rather than decorate. Exit 2, the same code `doctor` returns for the same finding. `--json` exempt: a parsed contract must not silently change shape. |
+| **D2** | The cache guard **skips more often than it runs**. | [`CORRECTNESS_REPAIRS` §S10b](CORRECTNESS_REPAIRS_2026-09-08.md) | **RULED 2026-09-09: give it a target that reliably admits a certificate**, so the cold run stores and the warm read genuinely replays — the docstring's claim, tested every run. NOT BUILT. Needs a fixture function whose measurement is clean under load; if none exists on a shared runner, that finding is itself worth recording rather than working around. |
+| ~~**D3**~~ | ~~"writes nothing" copy~~ | | **RULED AND BUILT 2026-09-09: "writes nothing to your project".** 17 sites. Machine-facing `note` fields and terse chips use "writes no project files" — the same claim, fewer characters, where the long form did not fit. |
 | **D4** | Should the witness search **try un-exercised branches**? | [`CORRECTNESS_REPAIRS` §R5.1](CORRECTNESS_REPAIRS_2026-09-08.md) | Costs a synthesis pass against a branch no operator asked about. R5/R5b measured that 4/4 "unproven-equivalents" fell to literal inputs, so part of the `modulo N` residual is search budget rather than an undecidability frontier. |
-| **D5** | **U1** — should an un-evaluable universe REFUSE, rather than folding into a 0-kill Incomplete? | [`CORRECTNESS_REPAIRS` §R5 / pabkit ledger](CORRECTNESS_REPAIRS_2026-09-08.md) | Much cheaper to answer now than when filed: S13 named the reasons, §MI made them legible on disk, and S14 routes them. The decision is whether "nothing could be evaluated" is a REFUSAL or a result. |
+| **D5** | **U1** — un-evaluable universe: REFUSE or Incomplete? | [`CORRECTNESS_REPAIRS` §R5 / pabkit ledger](CORRECTNESS_REPAIRS_2026-09-08.md) | **RULED 2026-09-09: it DEPENDS ON WHY — two facts, two answers.** See §2a below. NOT BUILT; it is engine-depth work and deserves a fresh session. |
+
+### 2a. D5's ruling, in full — because the distinction IS the decision
+
+> **It depends on WHY it was un-evaluable. Refuse when the cause is STRUCTURAL; stay Incomplete when
+> the universe was genuinely empty of killable mutants.**
+
+Those are two different facts and collapsing them is the defect this project keeps finding:
+
+| cause | verdict | why |
+|---|---|---|
+| the module would not import; no mutant was installed; no test entered one | **REFUSE** | nothing was observed. A 0-kill here is BLINDNESS, not a result, and the counts describe an empty observation. `target_load_failed` already refuses on exactly this reasoning. |
+| the universe genuinely held no killable mutants | **Incomplete** | something WAS measured and it found nothing to pin. That is a real, honest answer about the code. |
+
+The vocabulary to tell them apart already exists and did not when U1 was filed: S13 split the
+three mutant-phase reasons, §MI made them readable from the certificate, and S14 routes them.
+`validity.CUT_REASONS` membership is very close to the structural/empty line already — the build is
+mostly deciding which reasons are on which side and threading one more standing through
+`certificate_standing`, NOT inventing a signal.
+
+**Do not build this by extending `admits_certificate`.** The absorbing rule is deliberately
+absorbing; a third state wants its own place, the way `measurement_invalid` did in §MI.
 
 ---
 

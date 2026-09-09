@@ -260,7 +260,7 @@ def extract_proposal(source: str, qualname: str) -> ExtractionProposal | None:
 
 
 def render_extract(path: str, proposal: ExtractionProposal | None) -> list[str]:
-    """The `detective extract` report — advisory, writes nothing, proves nothing."""
+    """The `detective extract` report — advisory, writes nothing to your project, proves nothing."""
     if proposal is None:
         return [
             f"{path} — extract · nothing trapped   (static advisory)",
@@ -277,7 +277,7 @@ def render_extract(path: str, proposal: ExtractionProposal | None) -> list[str]:
             f"  Known primitive inputs: {', '.join(proposal.primitive_inputs) or 'none established'}",
             f"  Unresolved dependencies: {', '.join(proposal.unresolved_inputs)}",
             "  Establish these values and dependencies before choosing a complete extraction signature.",
-            "  Advisory: writes nothing and proves nothing.",
+            "  Advisory: writes nothing to your project and proves nothing.",
         ]
     target = proposal.qualname.split(".")[-1]
     if readiness == "move":
@@ -292,7 +292,7 @@ def render_extract(path: str, proposal: ExtractionProposal | None) -> list[str]:
             f"      move `{target}` to a leaf module with no heavy imports, then pin it there:",
             f"      detective converge '<leaf_module>.py::{target}'",
             "",
-            "  · Advisory       proposes, never performs; writes nothing and proves nothing. The",
+            "  · Advisory       proposes, never performs; writes no project files and proves nothing. The",
             "                   guarantee comes from converging the MOVED function, not this proposal.",
         ]
     boundary = ", ".join(proposal.trapped_params) or "an impure body"
@@ -321,7 +321,7 @@ def render_extract(path: str, proposal: ExtractionProposal | None) -> list[str]:
         ]
     out += [
         "",
-        "  · Advisory       proposes, never performs; writes nothing and proves nothing. The",
+        "  · Advisory       proposes, never performs; writes nothing to your project and proves nothing. The",
         "                   guarantee comes from converging the EXTRACTED function, not this proposal.",
     ]
     return out
