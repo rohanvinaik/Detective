@@ -176,6 +176,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/ledger.py::state_basis": {
+    "cut_reasons": [],
+    "function_digest": "db2322ec1804b855",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/plan.py::clean_disposition": {
     "function_digest": "65782f3448b91ea3",
     "refusal": "",

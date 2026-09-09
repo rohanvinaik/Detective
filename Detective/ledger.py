@@ -15,6 +15,10 @@ doctor's verdicts would have pre-empted it.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+
 __all__ = [
     "environment_drift_disposition",
     "observe",
@@ -120,6 +124,204 @@ def reset_observations() -> None:
     # BLE001: observation is advisory and never fatal
     except Exception:  # noqa: BLE001
         pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The persistence shell (impure — hand-tested for durability, never converge-pinned).
+#
+# JSONL rather than one JSON document because a single `open(..., "a")` plus one newline-terminated
+# `write()` needs no read-modify-write: concurrent runs cannot lose each other's entries, and a
+# truncated final line costs ONE record instead of the file.
+#
+# HARD REQUIREMENT: it must never fail a run. A correctness tool does not acquire a new failure
+# source for an advisory artifact, so every write is wrapped and swallowed. But the absence is
+# DISCLOSED at read time — swallowing at write time is right; swallowing at read time is the thing
+# this project exists to prevent, and an empty process section reads as "nothing wrong".
+#
+# NOT PURGED, and this needed no new rule: `verdict_cache.purge` works from an explicit ALLOWLIST
+# (the cache file plus `.detective/reports/*`), not a sweep of `.detective/`, so history survives by
+# construction. It also fails purge's own stated criterion — "everything removed is regeneratable by
+# re-running" — because a re-run produces a NEW entry and cannot reproduce the one that recorded
+# what you did an hour ago.
+# ─────────────────────────────────────────────────────────────────────────────
+
+LEDGER_REL = os.path.join(".detective", "ledger.jsonl")
+LEDGER_SCHEMA = 1
+# 5 MB, oldest-evicted. At this schema that is on the order of 10^4 entries — far more than any
+# process question needs, and deliberately generous because the founder named this as a data source
+# for later inference work. PRUNING IS NOT PURGING: eviction is logged in-band so a reader never
+# mistakes a pruned head for the beginning of history.
+LEDGER_CAP_BYTES = 5 * 1024 * 1024
+
+
+def _sha(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:32]
+
+
+def ledger_path(root: str) -> str:
+    return os.path.join(os.path.abspath(root), LEDGER_REL)
+
+
+def file_digest(path: str) -> str:
+    """Content digest of one file, or "" when it cannot be read (never raises).
+
+    "" is a REPORTED absence, not a value: two runs that both could not read the target must not
+    compare equal on it, which is why the readers treat "" as unknown rather than as a digest.
+    """
+    try:
+        with open(path, "rb") as fh:
+            return "sha256:" + hashlib.sha256(fh.read()).hexdigest()[:32]
+    except OSError:
+        return ""
+
+
+def suite_digest(write_dir: str, exact: bool = False) -> str:
+    """Digest of the generated suite directory (never raises).
+
+    Cheap by default — sorted ``(name, size, mtime_ns)``, one stat-walk, no reads. ``exact=True``
+    content-hashes each file instead, and is paid for only where `state_basis` says the cheap basis
+    can lie. See that function for which situation that is and why it is the only one.
+    """
+    try:
+        names = sorted(n for n in os.listdir(write_dir) if n.endswith(".py"))
+    except OSError:
+        return ""
+    parts: list[str] = []
+    for name in names:
+        full = os.path.join(write_dir, name)
+        try:
+            if exact:
+                parts.append(f"{name}:{file_digest(full)}")
+            else:
+                st = os.stat(full)
+                parts.append(f"{name}:{st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            parts.append(f"{name}:?")
+    return _sha("\n".join(parts))
+
+
+def append(root: str, record: dict) -> bool:
+    """Append one record. Returns whether it landed; NEVER raises.
+
+    One `open(..., "a")` and one `write()` of a newline-terminated line — no read-modify-write, so
+    two concurrent runs cannot lose each other's entries. Eviction is checked BEFORE the write and
+    only pays the rewrite when the cap is actually exceeded, so the common path is one stat.
+    """
+    path = ledger_path(root)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _evict_if_over_cap(path)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _evict_if_over_cap(path: str) -> None:
+    """Drop the oldest records until the file is under the cap, recording that it happened."""
+    try:
+        if os.path.getsize(path) <= LEDGER_CAP_BYTES:
+            return
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return
+    keep = lines[len(lines) // 2 :]
+    dropped = len(lines) - len(keep)
+    marker = json.dumps({"v": LEDGER_SCHEMA, "evicted": dropped}, sort_keys=True) + "\n"
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(marker)
+            fh.writelines(keep)
+        os.replace(tmp, path)
+    except OSError:
+        return
+
+
+def read_recent(root: str, limit: int = 50) -> tuple[dict, ...]:
+    """The most recent records, oldest-first, or () when there is no readable ledger.
+
+    () is AMBIGUOUS on purpose at this layer — no file, unreadable file, empty file — and the
+    caller must not render it as "nothing happened". `ledger_available` answers that separately,
+    because "we have no history" and "you have run nothing" are different facts and only one of
+    them is a finding about the operator.
+
+    A truncated final line (an interrupted write) is skipped rather than fatal: JSONL's whole
+    argument is that a bad tail costs one record.
+    """
+    try:
+        with open(ledger_path(root), encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return ()
+    out: list[dict] = []
+    for line in lines[-max(limit, 1) * 2 :]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and "evicted" not in row:
+            out.append(row)
+    return tuple(out[-limit:])
+
+
+def ledger_available(root: str) -> bool:
+    """Whether a ledger EXISTS to be read — the fact `read_recent`'s empty tuple cannot carry.
+
+    Doctor's red axis reports "process findings are UNAVAILABLE" on False and "no prior
+    invocations" on True-with-no-rows. Collapsing them would let a missing ledger render as a clean
+    process read, which is the one thing this surface must never do.
+    """
+    return os.path.isfile(ledger_path(root))
+
+
+def state_basis(has_prior: bool, same_args: bool, cheap_says_changed: bool) -> str:
+    """Which digest basis this comparison needs — cheap by default, exact where cheap can LIE
+    (pure — pinned; founder ruling 2026-09-09: "cheap with fallback triggered when the situation
+    knowably calls for it").
+
+    `state.suite` is a hash over sorted ``(name, size, mtime_ns)``. That is one stat-walk and no
+    reads, and it is EXACT in one direction and not the other:
+
+      cheap says UNCHANGED  →  content is unchanged, barring deliberate mtime restoration
+      cheap says CHANGED    →  content may be identical. A `touch`, a checkout, a copy, a
+                               `git stash` round-trip all move mtime without moving a byte.
+
+    The second is the one that matters, and only in one situation. If the operator re-ran the SAME
+    command with the SAME arguments and the cheap digest says the state moved, then either they
+    genuinely edited something — normal work, nothing to report — or the mtimes shifted underneath
+    them and this is a SPIRAL the cheap basis is about to hide. Those two are worth one full read
+    to tell apart, and nothing else is.
+
+      "cheap"           the stat-walk is conclusive here. No prior to compare against, or the
+                        arguments moved (so the state question is moot), or cheap already says
+                        unchanged — which is the direction it cannot get wrong.
+      "escalate_exact"  same command, same arguments, cheap reports a change. Content-hash the
+                        suite before believing it, because this is exactly where a repeat that
+                        changed NOTHING gets excused as normal work.
+
+    THE HEALTHY PATH NEVER PAYS. A first run, a progressed run, and an unchanged run all take the
+    stat-walk. Only a same-args repeat that appears to have moved buys the read, which is the
+    smallest set that closes the hole.
+
+    KNOWN LIMIT, stated rather than papered over: the other direction — content changed while mtime
+    was RESTORED — would let cheap report `unchanged` and produce a false spiral accusation, which
+    is the worse error. It is not escalated because catching it costs a full read on every repeat,
+    including every healthy one, and its precondition is deliberate mtime restoration rather than
+    anything an operator does by accident.
+    """
+    if not has_prior:
+        return "cheap"
+    if not same_args:
+        return "cheap"
+    if not cheap_says_changed:
+        return "cheap"
+    return "escalate_exact"
 
 
 def spiral_disposition(

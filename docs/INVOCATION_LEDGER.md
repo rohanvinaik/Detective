@@ -1,6 +1,10 @@
 # The invocation ledger — design
 
-Status: DESIGN, for founder mark-up. Nothing built. Written 2026-09-08.
+Status: BUILDING. Written 2026-09-08; founder rulings and grounding corrections 2026-09-09.
+Built: the four pure decisions, the process-scoped observation channel, `state_basis`, and the
+PERSISTENCE SHELL (append / read / digests / eviction).
+Not built: the `try/finally` call site in `main`, `outcome` propagation, `purge --prune`, and
+doctor's RED axis on top.
 
 Prerequisite for [`DOCTOR.md`](DOCTOR.md)'s **red / process** axis, which cannot be built without
 it. Standalone artifact: the founder has named a second use — mining the space past the boundary
@@ -242,3 +246,74 @@ by whether the ledger is watching.
 4. **Does `--json` mode append?** It is the same invocation and a programmatic caller can spiral
    exactly as a human can, so yes by default. Recorded because it is the kind of default that is
    easier to argue now than to change later.
+
+
+---
+
+## 8. Founder rulings and grounding, 2026-09-09
+
+### 8.1 §7.1 suite-digest basis — RULED: cheap, with an escalation where cheap can lie
+
+"Cheap with fallback triggered when the situation knowably calls for it." That is a better answer
+than either option the section offered, and it is built as `ledger.state_basis` (✓ COMPLETE 11/11).
+
+The cheap basis — sorted `(name, size, mtime_ns)`, one stat-walk, no reads — is **exact in one
+direction and not the other**:
+
+| cheap says | truth |
+|---|---|
+| UNCHANGED | content unchanged, barring deliberate mtime restoration |
+| CHANGED | content **may be identical** — a `touch`, a checkout, a copy, a `git stash` round-trip all move mtime without moving a byte |
+
+Only the second matters, and only in one situation: the operator re-ran the SAME command with the
+SAME arguments and the digest says the state moved. Either they genuinely edited something (normal
+work, nothing to report) or the mtimes shifted underneath them and **this is a spiral the cheap
+basis is about to hide**. Those two are worth one full read to tell apart; nothing else is.
+
+So the healthy path never pays — a first run, a progressed run and an unchanged run all take the
+stat-walk. Measured 2026-09-09: `touch` on a synth moves the cheap digest and leaves the exact one
+identical, and `state_basis` returns `escalate_exact` for exactly that case.
+
+**Known limit, stated rather than papered over:** the other direction — content changed while mtime
+was RESTORED — would let cheap report `unchanged` and produce a FALSE spiral accusation, which is
+the worse error of the two. It is not escalated because catching it costs a full read on every
+repeat including every healthy one, and its precondition is deliberate mtime restoration rather
+than anything an operator does by accident.
+
+### 8.2 §7.2 `purge --prune` — RULED: yes, with confirmation. Not built yet.
+
+"Was very useful during debugging/building, and should only be removed if there's no possible way
+for a mistake in operation, which is obviously far away. Theoretically possible, but not today."
+
+So the escape exists and asks first. `purge` currently has no confirmation because everything it
+removes is regeneratable; this is the one thing it would remove that is not.
+
+**AND THE LEDGER NEEDED NO EXEMPTION TO SURVIVE ORDINARY PURGE.** The section asked whether an
+invocation ledger belongs in a directory `purge` is documented to clear. Grounded against current
+code: `verdict_cache.purge` works from an explicit ALLOWLIST — the cache file plus
+`.detective/reports/*` — rather than sweeping `.detective/`, so history survives by construction.
+A test pins it, because a future purge that switched to a sweep would silently destroy evidence
+while reporting a clean state.
+
+### 8.3 §7.3 cross-project reads — RULED: project scope
+
+No machine-level index. Green already probes interpreters live, so RED does not need one, and a
+machine-wide index is a much larger commitment than the deferred meaningfulness work should
+inherit. `.detective/` is gitignored, which is correct: this is the OPERATOR's invocation history,
+not a fact about the project, and it must not travel with a clone.
+
+### 8.4 The shell, as built
+
+`.detective/ledger.jsonl`, one `open(..., "a")` and one newline-terminated `write()` per record —
+no read-modify-write, so concurrent runs cannot lose each other's entries and a truncated final
+line costs ONE record instead of the file. Both are pinned by tests rather than asserted.
+
+`read_recent` returns `()` for a missing, unreadable OR empty ledger, so `ledger_available` exists
+beside it: **"we have no history" and "you have run nothing" are different claims about the
+operator**, and rendering the first as the second would let a missing ledger read as a clean
+process report — the one thing this surface must never do. Doctor's red axis consumes both.
+
+Eviction: 5 MB cap, oldest half dropped, and the drop recorded IN BAND as
+`{"v":1,"evicted":N}` so a reader never mistakes a pruned head for the beginning of history. The
+marker is filtered out of `read_recent` — it is bookkeeping about the FILE, not a fact about the
+operator, and a consumer counting repeats must not see it as one.
