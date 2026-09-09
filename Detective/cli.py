@@ -5448,7 +5448,12 @@ def _record_invocation(args, exit_code, refusal: str, started: float) -> None:
         root = os.path.abspath(getattr(args, "project_root", ".") or ".")
         raw_target = getattr(args, "target", None) or getattr(args, "path", None) or ""
         rel = str(raw_target).split("::", maxsplit=1)[0] if raw_target else ""
-        target_file = "" if not rel else (rel if os.path.isabs(rel) else os.path.join(root, rel))
+        if not rel:
+            target_file = ""
+        elif os.path.isabs(rel):
+            target_file = rel
+        else:
+            target_file = os.path.join(root, rel)
         write_dir = os.path.join(root, "tests", "detective")
         record = {
             "v": _L.LEDGER_SCHEMA,
