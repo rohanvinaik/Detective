@@ -355,24 +355,40 @@ def _render_converge(result: Any, file: str, function: str, full_text: str | Non
     # This surface consulted NEITHER signal and went straight to "DONE: every killable mutant is
     # killed", which is the measurement/decision gap in its purest form: the engine computed the
     # fact, the CLI consumed it, and the renderer re-derived a narrower proxy that could not see it.
-    # Read through `certificate_standing` rather than testing the fields here, so this surface
-    # cannot drift from the property and the CLI the way it already had.
-    from .converge import certificate_standing
-
-    standing = certificate_standing(
-        result.functionally_complete,
-        result.line_complete,
-        result.stale_target,
-        result.verification is not None,
-        result.verification is not None and result.verification.ok,
-        getattr(result, "measurement_gateable", True),
-    )
+    # Read `result.standing` — the property — rather than re-deriving its ARGUMENTS here.
+    #
+    # This block used to call `certificate_standing` with its own six arguments, which closed the
+    # function-level drift and left an argument-level one: the sixth was
+    # `getattr(result, "measurement_gateable", True)` where the property passes
+    # `admits_certificate`. Those differ exactly when the engine reports gateable while a cut
+    # reason is present — the absorbing seam #60 exists to close. Measured 2026-09-08 on the shape
+    # five in-repo targets actually have (`gateable=True` + `mutant_not_entered`): the CLI and the
+    # certificate said `ungateable` while THIS surface said `complete` and printed DONE to an
+    # agent. `ConvergeResult.standing`'s own docstring names the failure — "a third caller
+    # re-deriving the arguments is the drift these two seams exist to prevent" — and this was the
+    # third caller. It is also the `getattr` default the block above bans in this very file: a
+    # default that silently absorbs the narrower signal.
+    #
+    # Reading the property has no argument to get wrong, so the class of bug is gone rather than
+    # this instance of it.
+    standing = result.standing
     if standing == "ungateable":
+        # NAME THE REASON, from the one owner. This branch used to hardcode "the profile was cut,
+        # or a timed-out worker could not be contained ... re-run with a larger budget" — two
+        # causes offered for eleven typed reasons, which is S13's collapse in a second renderer.
+        # For `mutant_not_entered` a larger budget cannot help (route a test through the patched
+        # name); for `target_load_failed` a settled machine cannot help (install the dependency).
+        # `cut_reason_sentence`'s own docstring says why this must be consumed rather than
+        # rewritten: "ONE OWNER, because #60 requires CLI, --json, MCP and receipts to preserve
+        # IDENTICAL cut reasons" — MCP is named in it, and was the surface not honouring it.
+        from .validity import cut_reason_sentence
+
         out.append("")
-        out.append("STOP. This is NOT a verdict. Wesker declared the measurement UNGATEABLE —")
-        out.append("  the profile was cut, or a timed-out worker could not be contained and may")
-        out.append("  still be running. The counts below are a FLOOR, not a result. Re-run on a")
-        out.append("  settled machine, or with a larger budget, before reporting anything.")
+        out.append("STOP. This is NOT a verdict. The measurement could not support a certificate.")
+        out.append("  The counts below are a FLOOR, not a result. Do not report them.")
+        for reason in result.validity_cut_reasons:
+            out.append(f"  · {reason} — {cut_reason_sentence(reason)}")
+        out.append("  Resolve the cause named above and re-run; more budget is not a generic fix.")
         return "\n".join(out)
     if standing == "stale":
         out.append("")

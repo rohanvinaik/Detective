@@ -146,6 +146,17 @@ def test_every_surface_reads_the_same_derivation():
     they answered it independently — which is exactly how one came to refuse a stale run while
     the other announced it was done. Any future state added to `certificate_standing` is checked
     against both here, rather than against whichever surface the author happened to be editing.
+
+    AND IT MISSED ONE, for the reason worth recording. It called `certificate_standing` with FIVE
+    arguments, letting the sixth — `admits_certificate` — take its default of True, and no case in
+    the list produced an ungateable result. So the guard compared the two surfaces over exactly the
+    subspace in which they cannot disagree, and reported agreement. Meanwhile the renderer passed
+    `measurement_gateable` where the property passes `admits_certificate`; measured 2026-09-08 on
+    `gateable=True` + `mutant_not_entered`, the CLI said `ungateable` and the MCP said `complete`.
+    Three layers agreeing about a subspace is not agreement.
+
+    The derivation is now taken from `result.standing` — the property both surfaces are supposed to
+    consume — so the test cannot pick its own arguments either, and `ungateable` is a case.
     """
     cases = [
         {"stale_target": True},
@@ -154,19 +165,52 @@ def test_every_surface_reads_the_same_derivation():
         {"functionally_complete": False},
         {"line_complete": False},
         {},
+        # The case the five-argument call could not reach: the engine reports gateable while a cut
+        # reason is present, which is the absorbing seam (#60) and the shape of every in-repo
+        # target that refuses with `mutant_not_entered`.
+        {"measurement_gateable": True, "cut_reasons": ("mutant_not_entered",)},
+        {"measurement_gateable": False, "cut_reasons": ("uncontained_worker",)},
     ]
+    refusing = ("stale", "unverified", "ungateable")
+    seen = set()
     for overrides in cases:
         result = _result(**overrides)
-        standing = certificate_standing(
+        standing = result.standing
+        seen.add(standing)
+        # The property and the free function must still agree when handed the property's own
+        # arguments — that is the function-level check the original made.
+        assert standing == certificate_standing(
             result.functionally_complete,
             result.line_complete,
             result.stale_target,
             result.verification is not None,
             result.verification is not None and result.verification.ok,
-        )
+            result.admits_certificate,
+        ), overrides
         assert result.complete is (standing == "complete"), overrides
         refused = "STOP" in _render_converge(result, "m.py", "f", None)
-        assert refused is (standing in ("stale", "unverified")), overrides
+        assert refused is (standing in refusing), overrides
+    assert "ungateable" in seen, "the case that exposed the drift must stay reachable here"
+
+
+def test_the_mcp_surface_names_the_cut_reason_rather_than_guessing_at_it():
+    """The refusal branch hardcoded "the profile was cut, or a timed-out worker could not be
+    contained ... re-run with a larger budget" — two causes offered for eleven typed reasons, which
+    is S13's collapse in a second renderer. `cut_reason_sentence`'s docstring names this surface:
+    "ONE OWNER, because #60 requires CLI, --json, MCP and receipts to preserve IDENTICAL cut
+    reasons"."""
+    text = _rendered(measurement_gateable=True, cut_reasons=("mutant_not_entered",))
+    assert "STOP" in text
+    assert "DONE" not in text
+    assert "mutant_not_entered" in text, "the reason is named, not paraphrased"
+    assert "larger budget" not in text, "a remedy that cannot help this cause"
+
+
+def test_the_mcp_refusal_uses_the_same_sentence_the_other_surfaces_do() -> None:
+    from Detective.validity import cut_reason_sentence
+
+    text = _rendered(measurement_gateable=True, cut_reasons=("target_load_failed",))
+    assert cut_reason_sentence("target_load_failed") in text
 
 
 # --------------------------------------------------------------------------------------
