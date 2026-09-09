@@ -4335,7 +4335,7 @@ def _resolved_engines() -> str:
 # STATIC pass (no mutant, no live pytest session), and is dispatched in `_run` ABOVE `_split_target`. One
 # named set so `_run_live`'s session bypass and `_run`'s pre-split dispatch cannot silently drift as verbs
 # are added (the dispatch-ordering fragility of the flat `_run` ladder — patched by naming the contract).
-_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor", "plan", "survey", "extract")
+_STATIC_COMMANDS = ("purge", "regime", "parsimony", "censor", "plan", "survey", "extract", "doctor")
 
 # The exit-code contract, one place. Each verb's result IS its exit status (CI branches on the code, a
 # `--json` consumer on the field) — this consolidates the per-handler semantics into one discoverable map.
@@ -4886,6 +4886,41 @@ def _build_parser() -> argparse.ArgumentParser:
     survey_p.add_argument("path", help="a .py file or a directory to scan")
     survey_p.add_argument("--project-root", default=".", help="project root the path is relative to")
     survey_p.add_argument("--json", action="store_true", help="emit JSON")
+
+    doctor_p = sub.add_parser(
+        "doctor",
+        help="what is blocking correct USE of this tool — setup / process / taste (advisory)",
+        description=(
+            "Detective refuses rather than measure the wrong thing. Nothing in that guarantee "
+            "reaches YOU. `doctor` diagnoses the OPERATOR and the ENVIRONMENT — never the code — "
+            "and answers the one question the other verbs cannot: not 'what is true of this "
+            "function', but 'why can I not proceed / what am I doing wrong'.\n\n"
+            "Where the CLI states what is literally true and measured, doctor interrogates the "
+            "PREMISE that true statement rests on. `No module named 'funcy'` is true in every "
+            "word — and the premise a reader infers, that you do not have funcy, can be false: it "
+            "may be installed under a different interpreter on this same machine, which makes "
+            "installing it again a move AWAY from the fix.\n\n"
+            "Three axes, and the mix is the default because making you find the right combination "
+            "is a puzzle:\n"
+            "  --green   SETUP    present damage — the project or environment is malformed\n"
+            "  --red     PROCESS  you are doing something wrong, or in the wrong order\n"
+            "  --yellow  TASTE    nothing is broken; something CAPS how much of the tool you reach\n\n"
+            "ADVISORY. It writes nothing, runs no suite, profiles no mutants, and never imports "
+            "your target. It NEVER emits a correctness verdict: a clean read means 'no damage in "
+            "what was looked at', never 'your code is fine'. Exit 2 when a setup fault is live "
+            "(your world is wrong — fix that, not the code), else 0."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    doctor_p.add_argument(
+        "target",
+        nargs="?",
+        help="optional file.py::function or file.py — scopes the dependency and certificate reads",
+    )
+    doctor_p.add_argument("--project-root", default=".", help="project root the target is relative to")
+    doctor_p.add_argument("--green", action="store_true", help="setup only (partial read — banner says so)")
+    doctor_p.add_argument("--red", action="store_true", help="process only (partial read)")
+    doctor_p.add_argument("--yellow", action="store_true", help="taste only (partial read)")
 
     extract_p = sub.add_parser(
         "extract",
@@ -7074,7 +7109,174 @@ def _run_purge(args) -> int:
     return 0
 
 
+def _doctor_green(root: str, target_file: str, func_key: str) -> tuple[str, dict]:
+    """Gather GREEN and name its disposition. Returns (code, facts) — never raises.
+
+    Ordered so the CHEAP consumption happens first and the subprocess probe is paid for only when
+    something is actually missing here: `found_elsewhere` shells out once per candidate interpreter,
+    and a clean run must not pay for that.
+    """
+    from . import doctor as _doc
+    from .regime import resolve_regime
+
+    facts: dict = {"probed_target": target_file}
+    try:
+        conflicts = resolve_regime(root).conflicts
+    except Exception:  # noqa: BLE001
+        conflicts = ()
+    facts["regime_conflict"] = conflicts[0] if conflicts else ""
+    facts["pytest_importable"] = _doc.pytest_importable()
+    imports = _doc.target_imports(target_file) if target_file else ()
+    facts["missing"] = _doc.missing_here(imports) if imports else ()
+    facts["elsewhere"] = (
+        _doc.found_elsewhere(facts["missing"], _doc.candidate_interpreters(root)) if facts["missing"] else {}
+    )
+    recorded = _doc.recorded_cut_reasons(root, func_key)
+    facts["recorded"] = recorded
+    code = _doc.setup_disposition(
+        facts["regime_conflict"],
+        facts["pytest_importable"],
+        facts["missing"],
+        tuple(facts["elsewhere"]),
+        "target_load_failed" in recorded,
+        "collection_incomplete" in recorded,
+    )
+    return code, facts
+
+
+def _render_doctor_green(code: str, facts: dict, root: str) -> list[str]:
+    """GREEN's rows. Every branch names the FIX, because a diagnosis whose remedy the reader has to
+    infer is the gap doctor exists to close."""
+    out = [_row("GREEN — setup", code)]
+    if code == "clean":
+        out.append(_row("", "no setup damage found in what was looked at (not a certificate)"))
+        return out
+    if code == "regime_conflict":
+        out += [
+            _row("· The finding", f"the regime reports {facts['regime_conflict']}"),
+            _row("· Why first", "every verdict from this repo is untrustworthy — not worse, WRONG"),
+            _row("· Fix", "detective regime   # it names the conflict and the migration"),
+        ]
+    elif code == "no_pytest":
+        out += [
+            _row("· The finding", f"this interpreter cannot import pytest: {sys.executable}"),
+            _row("· Why first", "Detective opens a LIVE pytest session; without it nothing can run"),
+            _row("· Fix", "run detective from a venv that has pytest AND the project's deps"),
+        ]
+    elif code in ("deps_elsewhere", "deps_missing"):
+        elsewhere = facts["elsewhere"]
+        for name in facts["missing"]:
+            where = elsewhere.get(name)
+            out.append(_row("· Not importable", f"{name}   (by this run's interpreter)"))
+            if where:
+                out.append(_row("  …but present in", where))
+        out.append(_row("· This run uses", sys.executable))
+        if elsewhere:
+            out += [
+                _row("· Why this matters", "you do not have an INSTALLATION problem — you have a"),
+                _row("", "PROPAGATION problem. The package exists on this machine and is"),
+                _row("", "invisible to this run, so installing it again moves you AWAY"),
+                _row("", "from the fix. The tool's 'No module named ...' is true, and the"),
+                _row("", "premise it invites — you do not have it — is false."),
+                _row("· Fix", "install into THIS interpreter, or run detective under the one"),
+                _row("", "that already has it (detective regime names the one in use)."),
+            ]
+        else:
+            out += [
+                _row("· Fix", "install the missing package(s) into this interpreter, then re-run."),
+                _row("", "Not found under any interpreter this probe is allowed to ask."),
+            ]
+    elif code in ("stale_load_failure", "stale_collection_failure"):
+        from .validity import cut_reason_sentence
+
+        reason = "target_load_failed" if code == "stale_load_failure" else "collection_incomplete"
+        out += [
+            _row("· Recorded", f"a prior run recorded {reason}"),
+            _row("· What it means", cut_reason_sentence(reason)),
+            _row("· But right now", "nothing in this environment reproduces it — the record may be"),
+            _row("", "stale. Re-run the command that produced it before repairing anything."),
+        ]
+    return out
+
+
+def _run_doctor(args) -> int:
+    """`detective doctor` — what is blocking correct USE of the tool (`docs/DOCTOR.md`).
+
+    ADVISORY and it writes nothing. Exit 2 when a GREEN finding is live, 0 otherwise: "exit codes
+    are epistemics, not pass/fail", and the documented `2 = your world is wrong — fix that, not the
+    code` IS a setup fault. Always-0 would make this command say nothing is wrong about a fault it
+    just found — the blur the project exists to kill. It still never gates a certificate and is not
+    in the completeness chain, so the fence holds (founder ruling 2026-09-09, reversing §7.2).
+    """
+    root = os.path.abspath(getattr(args, "project_root", ".") or ".")
+    raw = getattr(args, "target", None) or ""
+    func_key, target_file = "", ""
+    if raw:
+        if "::" in raw:
+            # `_split_target` returns the file ALREADY relative to the project root, which is
+            # exactly the certificate ledger's key form. Re-relativising it here produced a
+            # `../../..` path that matched nothing, so the recorded-failure branch was unreachable
+            # and a ledger recording `target_load_failed` rendered `clean`. Caught by driving the
+            # real command at the branch rather than trusting the unit tests, which never went near
+            # it — "validate end-to-end through the real command", verbatim.
+            rel_file, function = _split_target(raw, root)
+            func_key = f"{rel_file}::{function}"
+            target_file = rel_file if os.path.isabs(rel_file) else os.path.join(root, rel_file)
+        else:
+            target_file = raw if os.path.isabs(raw) else os.path.join(root, raw)
+    asked = tuple(h for h in ("green", "red", "yellow") if getattr(args, h, False)) or (
+        "green",
+        "red",
+        "yellow",
+    )
+
+    lines = [f"detective doctor · {root}"]
+    if raw:
+        lines.append(f"  target: {raw}")
+    lines.append("")
+
+    green_code = "clean"
+    if "green" in asked:
+        green_code, facts = _doctor_green(root, target_file, func_key)
+        lines += _render_doctor_green(green_code, facts, root)
+        lines.append("")
+    # NOT-READ IS A REPORTED STATE, never an empty section. Swallowing at WRITE time is right;
+    # swallowing at READ time is the thing this project exists to prevent — an empty process section
+    # reads as "nothing wrong", which is the one thing it must not say.
+    if "red" in asked:
+        lines += [
+            _row("RED — process", "not read"),
+            _row("· Why", "the invocation ledger is not built yet, so what ran before this"),
+            _row("", "command is not knowable. Process findings are UNAVAILABLE —"),
+            _row("", "which is not the same as absent. See docs/INVOCATION_LEDGER.md."),
+            "",
+        ]
+    if "yellow" in asked:
+        lines += [
+            _row("YELLOW — taste", "not read"),
+            _row("· Why", "not wired yet; until then: detective survey <path>"),
+            "",
+        ]
+    if len(asked) < 3:
+        lines.append(_row("PARTIAL READ", f"only {', '.join(asked)} was read — an unread axis may"))
+        lines.append(_row("", "invalidate what this reports. The full mix is the default."))
+        lines.append("")
+    live = green_code != "clean"
+    lines.append(
+        "exit 2 — a setup fault is live; fix it before trusting any verdict from this repo"
+        if live
+        else "exit 0 — no setup damage found in what was read (this is not a certificate)"
+    )
+    print("\n".join(lines))
+    return 2 if live else 0
+
+
 def _run(args) -> int:
+    if args.command == "doctor":
+        # Above `_split_target`: the target is OPTIONAL and may be a bare path, so it must not fall
+        # into the separator menu the way a required `file::func` verb would.
+        return _run_doctor(args)
+
     if args.command == "regime":
         return _run_regime(args)
 

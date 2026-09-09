@@ -1,10 +1,12 @@
 # `detective doctor` — design
 
 Status: BUILDING. Written 2026-09-08; founder rulings and grounding corrections 2026-09-09.
-Built so far: the precedence lattice (`doctor.signpost_disposition`, ✓ COMPLETE 24/28) and the
-GREEN axis — its decision (`setup_disposition`, ✓ COMPLETE 15/15) and its gathering layer.
-Not built: the `doctor` verb itself, YELLOW, RED (blocked on the invocation ledger's
-persistence shell), and the per-command signpost.
+Built so far: the precedence lattice (`doctor.signpost_disposition`, ✓ COMPLETE 24/28), the GREEN
+axis (`setup_disposition`, ✓ COMPLETE 15/15, plus its gathering layer), and **the `detective doctor`
+verb** — green live, red and yellow reporting `not read` WITH their reason rather than an empty
+section. Exit 2 on a live setup fault, 0 otherwise.
+Not built: YELLOW's wiring (cheap — pure consumption of `survey_disposition`), RED (blocked on the
+invocation ledger's persistence shell), and the per-command signpost.
 
 ---
 
@@ -365,3 +367,66 @@ child, which executes code — drop stdlib and relative imports, then ask `find_
 (`found_elsewhere`). Verified on the real machine, 2026-09-09: `funcy` and `jax` absent from the
 project venv, both found under `~/miniconda3`, `definitely_not_a_real_package_xyz` found nowhere —
 `setup_disposition` → `deps_elsewhere`. That is §1's acceptance test, passing.
+
+
+---
+
+## 9. The verb, as built (2026-09-09)
+
+```
+detective doctor [target] [--green] [--red] [--yellow] [--project-root DIR]
+```
+
+`target` is optional and may be `file.py::function` or a bare `file.py`. It scopes two reads: the
+dependency probe (which imports to check) and the certificate read (whose recorded cut reasons).
+With no target the ledger is unioned — "your recent runs recorded these" — which is the honest
+repo-scoped answer.
+
+Dispatched from `_STATIC_COMMANDS`, above `_split_target`, because an OPTIONAL target that may be a
+bare path must not fall into the separator menu a required `file::func` verb uses.
+
+### What it looks like on the case it exists for
+
+```
+detective doctor · /…/scratchpad/s10
+  target: motion.py::sync_step
+
+  GREEN — setup        deps_elsewhere
+  · Not importable     funcy   (by this run's interpreter)
+    …but present in    /Users/…/miniconda3/bin/python3
+  · Not importable     jax   (by this run's interpreter)
+    …but present in    /Users/…/miniconda3/bin/python3
+  · This run uses      /Users/…/tools/Detective/.venv/bin/python3
+  · Why this matters   you do not have an INSTALLATION problem — you have a
+                       PROPAGATION problem. …
+  · Fix                install into THIS interpreter, or run detective under the one
+                       that already has it (detective regime names the one in use).
+
+exit 2 — a setup fault is live; fix it before trusting any verdict from this repo
+```
+
+### Not-read is a rendered state, not an omission
+
+RED and YELLOW are not built, and the report says so in their own sections with the reason. This is
+§2's hard requirement applied to doctor itself: swallowing at WRITE time is right, swallowing at
+READ time is what the project exists to prevent, and an empty process section reads as "nothing
+wrong" — the one thing it must not say.
+
+### A bug this found, worth recording because of HOW
+
+The recorded-failure branch was UNREACHABLE on first write. `_split_target` returns the file already
+relative to the project root — which is exactly the certificate ledger's key form — and the handler
+re-relativised it against the CWD, producing a `../../..` path that matched nothing. A ledger
+recording `target_load_failed` rendered `clean`.
+
+Every unit test passed while that was true, because none went near the branch. It was caught by
+driving the real command at it, which is the project's own recorded rule: *validate end-to-end
+through the real command, not by calling the internal function directly*. The regression test now
+covers both directions — the key that matched nothing, and the over-correction where one target's
+recorded failure leaks into another's read.
+
+The same pass caught a FALSE ALARM in the fence guard: it banned the word "mutant", which
+`cut_reason_sentence('target_load_failed')` legitimately contains. That test passed on a clean repo
+because the branch was unreachable and would have fired wrongly the first time a real user hit the
+stale case — agreement over a subspace, the same shape as §MI, the #60 MCP drift and S10. It now
+bans verdict PHRASINGS and exercises both branches.
