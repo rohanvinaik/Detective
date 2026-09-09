@@ -24,7 +24,8 @@ than by trusting. And they are split in two on purpose:
 
 One list would have let a defect sit among the design decisions and read as one of them, which is
 the hiding the reason requirement exists to prevent. Two lists mean `len(OPEN)` is a number that
-changes visibly.
+changes visibly. It is 0 today — both entries it opened with were resolved on 2026-09-09, one to
+BY_DESIGN on a reason that predated the finding and one by DELETING a cross-repo duplicate.
 
 WHAT THIS IS NOT. It does not judge whether a decision is meaningful, correct or well named — it
 answers one question with a countable answer and hands everything else to a person. That is what
@@ -66,26 +67,25 @@ BY_DESIGN: dict[str, str] = {
         "EXP-DS-002 — the σ_form read-cost whose corpus distribution locates the bulk/tail knee. "
         "Consumed by dev/exp_ds_002_norms_knee.py."
     ),
+    "equivalence.structural_residual_handback": (
+        "REDUNDANT BY CONSTRUCTION, and documented as such in docs/F2_RESIDUAL_TYPING.md §4 since "
+        "2026-08-25 — before the sweep that re-found it. `residual_disposition` returns "
+        "`fixture_residual` BEFORE the structural gate, so `structural_residual` already implies "
+        "`inputs_expressible`, and this helper's `structural_fixture` branch cannot be reached from "
+        "production. Kept as a reserved helper for a finer hand-back TEXT if that is ever surfaced "
+        "apart from the caveat. Worth knowing rather than assuming: its pin therefore covers a "
+        "branch nothing in production can reach, which looks like coverage and is not."
+    ),
     "norms.weighted_median": (
         "EXP-DS-002 norms mining — the κ-weighted corpus zero. Consumed by "
         "dev/exp_ds_002_norms_knee.py. See norms.norm_disposition for the module-level split."
     ),
 }
 
-# Real gaps. Carried here so they are VISIBLE rather than absent, and so the count is a number.
-OPEN: dict[str, str] = {
-    "equivalence.structural_residual_handback": (
-        "W5 — the CONSUMER was never built. `residual_disposition` IS wired (via "
-        "`cli.candidate_equivalent_caveat`, which maps its code to a caveat inline); this decides "
-        "the NEXT question — whether an honest hand-back is `--input` or a hand-built fixture — and "
-        "nothing asks it. Design: docs/F2_RESIDUAL_TYPING.md."
-    ),
-    "session_manifest.module_identity_conflicts": (
-        "W6 — built for #58, which is CLOSED, and never wired. `session_manifest.py` contains this "
-        "function and nothing else, so the entire module is unconsumed. Its own docstring says 'a "
-        "caller has to say which one' — that caller does not exist."
-    ),
-}
+# Real gaps. Carried here so they are VISIBLE rather than absent, and so the count is a NUMBER.
+# Empty as of 2026-09-09, and it got there by resolution rather than by tidying: see the two
+# BY_DESIGN/deleted notes below. It is meant to be repopulated the moment a finding arrives.
+OPEN: dict[str, str] = {}
 
 
 @pytest.fixture(scope="module")
@@ -159,13 +159,13 @@ def test_every_reason_actually_says_something() -> None:
         assert len(reason.strip()) > 40, f"{qual}: a reason has to name what consumes it, or what it needs"
 
 
-def test_the_open_gaps_are_exactly_the_two_we_know_about() -> None:
-    """`len(OPEN)` is the number this whole instrument exists to make visible. It should go DOWN.
-    If it goes up, that is a finding arriving — which is the guard working, not failing."""
-    assert set(OPEN) == {
-        "equivalence.structural_residual_handback",
-        "session_manifest.module_identity_conflicts",
-    }
+def test_the_open_gaps_are_exactly_what_we_know_about() -> None:
+    """`len(OPEN)` is the number this whole instrument exists to make visible, and it is 0.
+
+    That is not the same as "clean", and the distinction is the point of the two lists: six decisions
+    are still unconsumed and every one of them says in writing why. What 0 means is that none of them
+    is a gap anybody is waiting on. If it goes UP, that is a finding arriving — the guard working."""
+    assert OPEN == {}
 
 
 def test_a_decision_is_never_in_both_registries() -> None:
