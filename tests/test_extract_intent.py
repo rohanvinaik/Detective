@@ -85,7 +85,7 @@ def test_a_reachable_function_has_nothing_to_extract():
     assert extract_proposal(_CLEAN, "add") is None
 
 
-# ---------------------------------------------------------- render_extract (advisory, writes no project files)
+# ------------------------------------------------- render_extract (advisory, writes no project files)
 
 
 def test_render_nothing_trapped_is_a_stated_clean_bill():
