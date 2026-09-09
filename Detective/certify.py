@@ -791,6 +791,11 @@ def generated_function_digest(path: str) -> str:
 # are invalid MEASUREMENTS (the run described a moved source, or was cut / uncontained) and assert
 # nothing about the definition; "" is no record at all.
 _TERMINAL_STANDINGS = ("complete", "incomplete", "unverified")
+# …but asserting nothing about the DEFINITION is not the same as asserting nothing at all, and
+# these two were falling through to codes that describe an absence. A record exists; it says the
+# run could not be trusted, and the two say so for different reasons with different remedies.
+_INVALID_STANDINGS = ("stale", "ungateable")
+_RECORDED_STANDINGS = _TERMINAL_STANDINGS + _INVALID_STANDINGS
 
 
 def behavior_status(
@@ -830,20 +835,42 @@ def behavior_status(
                            remedy converge named, never more inputs
       "pinned_stale"       the certificate or the suite belongs to an OLDER definition, or a human
                            edited the generated suite — re-converge
-      "pinned_unverified"  a generated suite exists but NO valid certificate for this definition
-                           does (never recorded; or the last run was stale / cut) — what it pins is
-                           undetermined; re-converge to find out
+      "pinned_unverified"  a generated suite exists but NO certificate for this definition does —
+                           what it pins is undetermined; re-converge to find out
+      "measurement_invalid" a certificate for THIS definition exists and records that the run could
+                           not support one (`ungateable`: cut, uncontained, load-failed, a mutant
+                           never entered). The ONLY state whose remedy is not `converge` — the last
+                           converge is what produced it, so repeating it reproduces it. The
+                           certificate's recorded `cut_reasons` name what to fix instead.
       "unpinned"           no certificate ever, and no generated suite
 
     Slice 1 read `pinned` off a current-digest suite alone; slice 1b makes the certificate primary
     and demotes that case to `pinned_unverified` — a suite is evidence that tests were written,
     a certificate is evidence of what they pin, and only the second is the law's fact.
+
+    THE INVALID STANDINGS ARE RECORDS, NOT ABSENCES. `stale` and `ungateable` assert nothing about
+    the DEFINITION, which is why they are not terminal — but they were falling through to codes
+    that describe an absence, and measured on this repo five `ungateable` entries read `unpinned`
+    ("no certificate ever") or `pinned_unverified` ("re-converge to find out"). Both are false: a
+    certificate exists, and for the second the answer is already recorded. `pinned_unverified`'s
+    prescription then closed a loop — plan says converge, converge re-reports `ungateable`, plan
+    says converge — which is the over-refusal `certificates.py` was written to end for a different
+    standing in 2026-09-05. `stale` keeps `converge` as its remedy (the source settled; the next run
+    measures the current one) and only stops claiming no record exists; `ungateable` gets its own
+    state, because for it `converge` is the thing that just failed.
     """
     if suite_owned and suite_edited:
         return pins.PINNED_STALE
-    if cert_standing in _TERMINAL_STANDINGS:
+    if cert_standing in _RECORDED_STANDINGS:
         if not cert_current:
             return pins.PINNED_STALE
+        # A separate line from the one above on purpose: "the record is for an older definition"
+        # and "the run spanned a change to this one" are different facts that share a remedy, and
+        # collapsing them into one condition is how the second stops being visible.
+        if cert_standing == "stale":
+            return pins.PINNED_STALE
+        if cert_standing == "ungateable":
+            return pins.MEASUREMENT_INVALID
         if cert_standing == "complete":
             return pins.PINNED
         if cert_standing == "incomplete" and cert_refused:

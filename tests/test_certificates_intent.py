@@ -81,6 +81,9 @@ def test_record_then_load_round_trips(tmp_path) -> None:
         "function_digest": "abc123",
         "standing": "complete",
         "refusal": "",
+        # Written even when empty: `[]` is "recorded, nothing cut" and a missing key is "written
+        # before the field existed". Exact-equality on purpose — the shape is the contract.
+        "cut_reasons": [],
     }
 
 
@@ -92,11 +95,13 @@ def test_entries_for_other_targets_survive_and_same_target_is_replaced(tmp_path)
         "function_digest": "d3",
         "standing": "complete",
         "refusal": "",
+        "cut_reasons": [],
     }
     assert load_certificate(str(tmp_path), "m.py::g") == {
         "function_digest": "d2",
         "standing": "complete",
         "refusal": "",
+        "cut_reasons": [],
     }
 
 

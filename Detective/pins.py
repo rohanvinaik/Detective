@@ -63,14 +63,32 @@ _FIELDS = (
 # layers so neither depends on the other: the behavior layer's reader (`certify.behavior_status`)
 # produces it, the taste layer's controller (`controller.admission_reason`) consumes it. It lives
 # here because it is a statement about a pin's currency, and this module owns the function's
-# content identity. Only PINNED arms a style gate; every other state routes to `converge`.
+# content identity. Only PINNED arms a style gate; every other state routes to `converge` EXCEPT
+# MEASUREMENT_INVALID, which names a measurement no re-run will change (see below).
 PINNED = "pinned"
 PINNED_INCOMPLETE = "pinned_incomplete"
 REFUSED = "refused"
 PINNED_STALE = "pinned_stale"
 PINNED_UNVERIFIED = "pinned_unverified"
 UNPINNED = "unpinned"
-BEHAVIOR_STATUSES = (PINNED, PINNED_INCOMPLETE, REFUSED, PINNED_STALE, PINNED_UNVERIFIED, UNPINNED)
+# The run for THIS definition was recorded and its measurement could not support a certificate
+# (`certificate_standing` == "ungateable"). Distinct from every state above because the remedy is
+# NOT `converge`: the last converge is what produced this, and repeating it reproduces it. That is
+# the loop this module's own ledger was built to close once already — `certificates.py` records it
+# verbatim: an over-refusal "would send the best-pinned functions to `converge` forever, since
+# converging them again writes nothing again" (2026-09-05, for a `complete` run that wrote no
+# synth). `ungateable` reopened it, because the status reader admitted three standings and the
+# ledger records five. The recorded `cut_reasons` name the remedy; this names that one is needed.
+MEASUREMENT_INVALID = "measurement_invalid"
+BEHAVIOR_STATUSES = (
+    PINNED,
+    PINNED_INCOMPLETE,
+    REFUSED,
+    PINNED_STALE,
+    PINNED_UNVERIFIED,
+    UNPINNED,
+    MEASUREMENT_INVALID,
+)
 
 
 def function_digest(node: ast.AST) -> str:

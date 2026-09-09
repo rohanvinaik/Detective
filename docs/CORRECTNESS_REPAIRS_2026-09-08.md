@@ -450,8 +450,8 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 |---|---|---|---|
 | **S1** | Header count and listed values disagreed: `uncovered 11 line(s): [93, 95, 97, 98, 100, 101, 104, 107]` — eleven counted, eight shown, no marker. `audit` already used `_first_n` on the identical fact; converge's row was the one place that did not. | GofL `Game.update_cell` | **RESOLVED 2026-09-08** — converge now uses the same helper |
 | **S2** | `--version` printed `detective 0.13.0 (Wesker 0.13.0)` for two DIFFERENT engines — a version is a property of the release, not of the bytes running. | A/B harness, both arms | **RESOLVED 2026-09-08** — it now names where each engine was imported from |
-| **S3** | Audit's row `unproven-equiv N survivor(s) — no input distinguishes them` drops the scope converge's DONE block keeps (*"any input **Detective found**"*). A claim about all inputs, asserted from a bounded search. | arc-dsl `dsl.py::add` | open — lands with **R2** (§R5.2) |
-| **S4** | `certificates.json` records `standing: "ungateable"` with `refusal: ""` for `Detective/validity.py::measurement_cut_reasons`. An empty reason beside a refusal is precisely the state `measurement_cut_reasons`' own docstring exists to prevent, reproduced in the ledger that records it. | this repo, pre-existing | open |
+| **S3** | Audit's row `unproven-equiv N survivor(s) — no input distinguishes them` drops the scope converge's DONE block keeps (*"any input **Detective found**"*). A claim about all inputs, asserted from a bounded search. | arc-dsl `dsl.py::add` | **RESOLVED 2026-09-08 with R2** — the row was left stale. `_UNPROVEN_EQUIV_BASIS` is consumed by BOTH renderers (`cli.py:2220` `_format_converge_terse`, `cli.py:3906` `_format_audit`); verified by trace 2026-09-08. |
+| **S4** | `certificates.json` records `standing: "ungateable"` with `refusal: ""` for `Detective/validity.py::measurement_cut_reasons`. An empty reason beside a refusal is precisely the state `measurement_cut_reasons`' own docstring exists to prevent, reproduced in the ledger that records it. | this repo, pre-existing | **STRUCK — the premise was false.** `certificate_refusal`'s docstring scopes `refusal` to disambiguating `incomplete` into `pinned_incomplete` vs `refused`, and `behavior_status` reads it only under that standing. An empty string on an `ungateable` record is contract-conformant. Filed by reading the field's NAME instead of its contract. What the trace found instead is below (§MI). |
 | **S5** | `measurement_cut_reasons` — a load-bearing decision *on the certificate path* — is itself pinned **UNGATEABLE** (`mutant_evaluation_failed`), stably across runs, and was so before R1 touched it. The function that decides what refuses a certificate cannot currently earn one. | this repo, pre-existing | open |
 | **S6** | Was filed as "converge exits 3, audit exits 0 on the same state". **Largely a MIS-FILING**: bare `audit` is read-only by design and gates only when asked, and `audit --check` returns 1, which the table defines as *"a real gap **or typed REFUSAL**"* — a load failure is a typed refusal. What IS real is narrower: `--check-strict`'s help promised *"code 2, distinct from a spec gap's 1"* without stating that a spec gap OUTRANKS it (deliberate, per `audit_gate_exit`'s docstring), so 2 is unreachable whenever a line gap co-exists — which on an unloadable module is always. | conorheins `str2bool` | **RESOLVED 2026-09-08** — help corrected to state the precedence; no logic changed |
 | **S7** | converge's `repair_measurement` render paired R1's precise cut sentence with a generic `· Resolve  inspect the reported engine failure` — which asserts an ENGINE failure that need not exist (`mutant_not_entered` means the engine worked and no test called the mutant). Root cause: **R1 added `target_load_failed` and did not teach `repair_measurement_route` about it**, so the run fell through to `inspect_refusal`. | conorheins `str2bool`, post-R1 | **RESOLVED with R3** |
@@ -604,3 +604,76 @@ CLI copy.
 proof run from inside `/Users/rohanvinaik/tools/Detective` reports the working tree for *both*
 arms and silently makes any A/B vacuous. Prove resolution from the target repo's cwd. `--version`
 prints `0.13.0` for both engine states and does not distinguish them.
+
+
+---
+
+## §MI — `measurement_invalid`: a status that prescribed a loop (RESOLVED 2026-09-08)
+
+Filed as S4 ("an empty `refusal` beside an ungateable record"). **That premise was false**, and the
+correction is the useful part: `certificate_refusal`'s docstring scopes `refusal` to disambiguating
+`incomplete` into `pinned_incomplete` vs `refused`, and `behavior_status` reads it under exactly
+that standing. The empty string is contract-conformant. It was filed by reading the field's NAME
+instead of its contract — the same move as inferring wiring from a string.
+
+### What the trace found instead
+
+`certificate_standing` produces five codes; `certify._TERMINAL_STANDINGS` admitted three. Excluding
+`stale` and `ungateable` is CORRECT — an invalid measurement asserts nothing about the definition —
+but exclusion is not representation, and with no state of their own they fell through into codes
+that describe an ABSENCE:
+
+| certificate | `read_behavior_status` said | which is documented as |
+|---|---|---|
+| `converge_next_action` · `repair_measurement_route` · `survey_disposition` | `unpinned` | "no certificate ever, and no generated suite" |
+| `line_gap_why` · `measurement_cut_reasons` | `pinned_unverified` | "re-converge to find out" |
+
+Both false: a certificate exists, and the answer is already recorded. And the second **closed a
+loop** — `plan` → `admission_reason` → `next_move` → `next_command` → `detective converge <region>`,
+where converge is what produced the `ungateable`. All five are functions the running Detective calls
+while profiling itself (S15), so no re-run can change any of them.
+
+**The loop is not new.** `certificates.py`'s docstring records it being closed once already for a
+different standing — a `complete` run that wrote no synth read `unpinned`, "an over-refusal that
+would send the best-pinned functions to `converge` forever, since converging them again writes
+nothing again" (2026-09-05). This ledger exists because of it; `ungateable` reopened it through the
+reader. So this repair COMPLETES that one rather than inventing a state.
+
+### The repair
+
+- **`pins.MEASUREMENT_INVALID`** — the seventh behaviour status, and the only one whose remedy is
+  not `converge`. Deliberately kept OUT of `plan._STATUS_REASONS`, so `next_move` returns `""` —
+  the state the architecture already had for "nothing to run; the reason itself is the message" —
+  and `converge_first` stops queueing it. **No renderer changed**: `next_command` and
+  `mcp_server._plan_call` both already handled `""`, and `admission_reason` passes any member of
+  `BEHAVIOR_STATUSES` through as its own named exclusion.
+- **`stale` → `pinned_stale`** (founder call: fix it now, not later). It keeps `converge` as its
+  remedy — the source settled, so the next run measures the current one — and only stops claiming
+  no record exists. Two invalid standings, two different facts, two different remedies.
+- **`certificates.json` gains `cut_reasons`** (`certificate_cut_reasons`, pure, ✓ COMPLETE 4/9
+  modulo 5). The ledger predated S13's vocabulary, so an invalid measurement was recorded as a
+  category with no remedy. Written as a LIST even when empty: `[]` is "recorded, nothing cut"; a
+  MISSING key is "written before the field existed".
+- **`ConvergeResult.validity_cut_reasons`** mirrors `admits_certificate`'s source selection, so the
+  recorded tuple is the one that produced the `standing` rather than a second choice made at the
+  call site — the R3 sibling-drift shape, avoided rather than repeated.
+
+### `reason_unrecorded`, and why it is not paranoia
+
+Measured exhaustively: of `measurement_cut_reasons`' **7680** input combinations, **6** refuse a
+certificate with an empty reason tuple — all with `reported_gateable=False`, which
+`normalize_validity` makes unreachable (`gateable` defaults True when the engine does not report).
+But `admits_certificate` deliberately falls back to the flattened fields for a result built without
+a live measurement, where `measurement_gateable=False` with no reasons IS constructible. So the
+recorder names that state rather than persisting the empty list that `measurement_cut_reasons`' own
+docstring calls "no problems found" — the identical move it makes with `engine_refused_unspecified`
+one layer up.
+
+### Verified end to end, on this repo
+
+All five now read `measurement_invalid`, and `next_command` returns `""` where it returned
+`detective converge '<region>'`. Re-converging `measurement_cut_reasons` records
+`"cut_reasons": ["mutant_not_entered"]` — the remedy legible in the file. The other four still show
+the key ABSENT, which is the pre-field record reading exactly as designed.
+
+Gates: 2803 passed, 24 skipped, exit 0. `behavior_status` ✓ COMPLETE 35/35.

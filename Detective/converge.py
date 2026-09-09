@@ -452,6 +452,21 @@ class ConvergeResult:
         return self.measurement_gateable and not self.cut_reasons
 
     @property
+    def validity_cut_reasons(self) -> tuple[str, ...]:
+        """The cut reasons from the SAME source :attr:`admits_certificate` consulted (§14.1).
+
+        Exists so the certificate ledger records the tuple that actually produced its ``standing``,
+        rather than a second selection written at the call site. The two fields agree today — one
+        construction site sets both from ``_validity`` — but ``admits_certificate`` was written to
+        tolerate their parting (a result built without a live measurement has ``validity is None``
+        and only the flattened field), and a consumer that picks its own source is exactly the
+        sibling that drifts once that case is real. One derivation, mirrored, not re-chosen.
+        """
+        if self.validity is not None:
+            return self.validity.cut_reasons
+        return self.cut_reasons
+
+    @property
     def complete(self) -> bool:
         """The full acceptance bar: mutant-complete AND line-complete AND not proof-basis-red (#38).
 
@@ -1496,7 +1511,12 @@ def converge(
     # complete writes NO synth and would otherwise leave no artifact at all. Recorded HERE, after
     # every path through the impl, so the CLI, decompose, receipt and the MCP all leave the same
     # record. Best-effort like the report: a failed ledger write never fails the run.
-    from .certificates import DEFAULT_WRITE_DIR, certificate_refusal, record_certificate
+    from .certificates import (
+        DEFAULT_WRITE_DIR,
+        certificate_cut_reasons,
+        certificate_refusal,
+        record_certificate,
+    )
 
     record_certificate(
         project_root,
@@ -1505,6 +1525,8 @@ def converge(
         result.standing,
         certificate_refusal(result.needs_receiver or "", tuple(result.environment_gated)),
         write_dir=write_dir or DEFAULT_WRITE_DIR,  # beside the suite — versioned with it, never purged
+        # `validity_cut_reasons`, not the flattened field: the same source `standing` consumed.
+        cut_reasons=certificate_cut_reasons(result.standing, result.validity_cut_reasons),
     )
     return result
 

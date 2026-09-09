@@ -34,13 +34,18 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/certificates.py::certificate_cut_reasons": {
+    "function_digest": "619a9ee8d2df868e",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/certificates.py::certificate_refusal": {
     "function_digest": "0329f0c7ffe74d1b",
     "refusal": "",
     "standing": "complete"
   },
   "Detective/certify.py::behavior_status": {
-    "function_digest": "b52bbfc05851f495",
+    "function_digest": "c4dda614e211b211",
     "refusal": "",
     "standing": "complete"
   },
@@ -225,6 +230,9 @@
     "standing": "complete"
   },
   "Detective/validity.py::measurement_cut_reasons": {
+    "cut_reasons": [
+      "mutant_not_entered"
+    ],
     "function_digest": "053fbac463dfa852",
     "refusal": "",
     "standing": "ungateable"

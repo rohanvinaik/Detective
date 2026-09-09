@@ -11,11 +11,15 @@ best-pinned functions to ``converge`` forever, since converging them again write
 Measured 2026-09-05 on `behavior_status`, `admission_reason`, `controller_verdict` themselves.
 
 WHAT. ``<write-dir>/certificates.json`` — beside the generated suites, ``tests/detective/`` by
-default: ``{func_key: {"function_digest", "standing", "refusal"}}``. ``standing`` is
+default: ``{func_key: {"function_digest", "standing", "refusal", "cut_reasons"}}``. ``standing`` is
 `converge.certificate_standing`'s code, recorded VERBATIM — one derivation, consumed, never
 re-derived here (#17/#38/#60). ``refusal`` names why an incomplete run was a DECLINE rather than a
-gap (`certificate_refusal`, pure). No timestamp: determinism is the product, and a ledger whose
-bytes change on identical runs is noise, not a record.
+gap (`certificate_refusal`, pure) — it is scoped to ``incomplete`` and says nothing about the other
+standings. ``cut_reasons`` names why an ``ungateable`` run could not support a certificate at all
+(`certificate_cut_reasons`, pure), in `validity.CUT_REASONS`' vocabulary: added because this ledger
+predates that vocabulary, so an invalid measurement was recorded as a category with no remedy.
+No timestamp: determinism is the product, and a ledger whose bytes change on identical runs is
+noise, not a record.
 
 VERSIONED WITH THE SUITE IT CERTIFIES — NOT A CACHE, NOT PURGED (founder ruling 2026-09-06: "the
 synths and the certificates should be synced properly"). This ledger first lived under
@@ -63,6 +67,34 @@ def certificate_refusal(needs_receiver: str, environment_gated: tuple[str, ...])
     return ""
 
 
+def certificate_cut_reasons(standing: str, cut_reasons: tuple[str, ...]) -> tuple[str, ...]:
+    """WHICH invalidity an ``ungateable`` certificate rests on (§14.1 — pure, pinned).
+
+    ``standing`` already says the measurement could not support a certificate; this says which of
+    `validity.CUT_REASONS` refused it, so the record names a remedy instead of a category. The
+    ledger predates that vocabulary: S13 split one `mutant_evaluation_failed` flag into three
+    reasons with three different fixes (report an engine defect / unwrap the target / route a test
+    through the patched name), and a reader of this file could see only that something was wrong.
+
+    Carried for EVERY standing, not just the invalid one. A tuple that is empty because nothing was
+    cut is itself a fact, and folding it into "absent" would make "recorded, none" and "recorded
+    before this field existed" the same bytes — the distinction an absent-sentinel exists for.
+
+    ``reason_unrecorded`` is the load-bearing state, and it is the move `measurement_cut_reasons`
+    already makes with ``engine_refused_unspecified`` one layer up: an empty reason list beside a
+    refusal reads as "no problems found", which is how a refusal gets talked past. Through
+    `normalize_validity` it cannot arise — an engine that does not report ``is_gateable`` cannot
+    refuse, so ``gateable`` defaults True — but ``ConvergeResult.admits_certificate`` deliberately
+    falls back to the flattened fields for a result built without a live measurement, and
+    ``measurement_gateable=False`` with no reasons is constructible there. Measured: 6 of
+    `measurement_cut_reasons`' 7680 input combinations refuse with an empty tuple, all of them
+    ``reported_gateable=False``. Named here rather than persisted as an empty list.
+    """
+    if standing != "ungateable":
+        return cut_reasons
+    return cut_reasons or ("reason_unrecorded",)
+
+
 def _path(root: str, write_dir: str) -> str:
     """The ledger beside the suite: ``write_dir`` absolute as given, else under ``root`` — the same
     resolution `certify.read_behavior_status` applies to the synths, so the two cannot part."""
@@ -88,6 +120,7 @@ def record_certificate(
     standing: str,
     refusal: str,
     write_dir: str = DEFAULT_WRITE_DIR,
+    cut_reasons: tuple[str, ...] = (),
 ) -> str:
     """Record ``func_key``'s terminal verdict for the definition ``function_digest`` (the I/O
     shell — unit-guarded, not pinned). Returns the ledger path, or "" when nothing was written.
@@ -104,7 +137,15 @@ def record_certificate(
     if not function_digest:
         return ""
     entries = _load_all(root, write_dir)
-    entries[func_key] = {"function_digest": function_digest, "standing": standing, "refusal": refusal}
+    entries[func_key] = {
+        "function_digest": function_digest,
+        "standing": standing,
+        "refusal": refusal,
+        # A LIST, and always written: `[]` means "recorded, nothing cut", while a MISSING key means
+        # "written before this field existed". A reader that cannot tell those apart re-acquires
+        # the ambiguity the field was added to remove.
+        "cut_reasons": list(cut_reasons),
+    }
     path = _path(root, write_dir)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)

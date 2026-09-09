@@ -73,12 +73,16 @@ def _node(src: str) -> ast.FunctionDef:
 
 
 def _expected(cs, cur, ref, owned, has, match, edited) -> str:
-    # The reference table, written from the docstring's six states — not from the code.
+    # The reference table, written from the docstring's seven states — not from the code.
     if owned and edited:
         return "pinned_stale"
-    if cs in ("complete", "incomplete", "unverified"):
+    if cs in ("complete", "incomplete", "unverified", "stale", "ungateable"):
         if not cur:
             return "pinned_stale"
+        if cs == "stale":
+            return "pinned_stale"
+        if cs == "ungateable":
+            return "measurement_invalid"
         if cs == "complete":
             return "pinned"
         if cs == "incomplete" and ref:
@@ -104,7 +108,7 @@ def test_behavior_status_truth_table(cs, cur, ref, owned, has, match, edited) ->
     )
 
 
-def test_the_six_states_are_all_reachable_and_distinct() -> None:
+def test_the_seven_states_are_all_reachable_and_distinct() -> None:
     states = {
         behavior_status("complete", True, False, False, False, False, False),
         behavior_status("incomplete", True, False, False, False, False, False),
@@ -112,9 +116,10 @@ def test_the_six_states_are_all_reachable_and_distinct() -> None:
         behavior_status("complete", False, False, False, False, False, False),
         behavior_status("", False, False, True, False, False, False),
         behavior_status("", False, False, False, False, False, False),
+        behavior_status("ungateable", True, False, False, False, False, False),
     }
     assert states == set(pins.BEHAVIOR_STATUSES)
-    assert len(pins.BEHAVIOR_STATUSES) == 6
+    assert len(pins.BEHAVIOR_STATUSES) == 7
 
 
 def test_a_complete_certificate_with_no_suite_is_pinned() -> None:
@@ -147,11 +152,48 @@ def test_a_measured_gap_and_a_decline_are_different_states() -> None:
 
 
 def test_an_invalid_measurement_asserts_nothing_about_the_function() -> None:
-    # stale / ungateable standings are about the RUN, not the definition: fall through to the suite.
+    """The ORIGINAL intent of this test, preserved: a stale or cut run says nothing about the
+    definition, so neither standing may ever produce `pinned` and neither may arm a style gate."""
     for standing in ("stale", "ungateable"):
-        assert behavior_status(standing, True, False, False, False, False, False) == "unpinned"
-        assert behavior_status(standing, True, False, True, True, True, False) == "pinned_unverified"
-        assert behavior_status(standing, True, False, True, True, False, False) == "pinned_stale"
+        for cur, owned, has, match in ((True, False, False, False), (True, True, True, True)):
+            assert behavior_status(standing, cur, False, owned, has, match, False) != "pinned"
+
+
+def test_an_invalid_measurement_is_a_RECORD_not_an_absence() -> None:
+    """What this test asserted BEFORE, and why that was the defect it was hiding.
+
+    It pinned `unpinned` / `pinned_unverified` for both invalid standings, under the reasoning
+    "about the RUN, not the definition: fall through to the suite". The reasoning is sound and the
+    conclusion did not follow: a status is not only an assertion, it is also a PRESCRIPTION, and
+    those two codes prescribe things that are false here. `unpinned` is documented "no certificate
+    ever" — one exists. `pinned_unverified` is documented "re-converge to find out" — for
+    `ungateable` the answer is already recorded, and converge is what produced it.
+
+    Measured on this repo, 2026-09-08: five `ungateable` certificates, three reading `unpinned`
+    and two `pinned_unverified`, all five for functions the running Detective calls while profiling
+    itself (S15) — so `converge` cannot change any of them, and plan prescribed it forever.
+    """
+    # A record exists and is for THIS definition: never the code that means no record exists.
+    assert behavior_status("ungateable", True, False, False, False, False, False) == "measurement_invalid"
+    assert behavior_status("ungateable", True, False, True, True, True, False) == "measurement_invalid"
+    # `stale` keeps `converge` as its remedy — the source settled, so the next run measures the
+    # current one — and only stops claiming that no record exists.
+    assert behavior_status("stale", True, False, False, False, False, False) == "pinned_stale"
+    assert behavior_status("stale", True, False, True, True, True, False) == "pinned_stale"
+
+
+def test_a_record_for_an_older_definition_outranks_its_own_invalidity() -> None:
+    """Same precedence `certificate_standing` itself uses — it checks `stale_target` before
+    `admits_certificate`. If the certificate is not even about the current definition, why its
+    measurement was refused is moot, and `converge` is the right move rather than a loop: the
+    definition changed, so the next run is a different measurement."""
+    for standing in ("stale", "ungateable"):
+        assert behavior_status(standing, False, False, False, False, False, False) == "pinned_stale"
+
+
+def test_an_edited_suite_outranks_an_invalid_measurement_too() -> None:
+    # The suite-edit check is first for every standing; a human took the basis over regardless.
+    assert behavior_status("ungateable", True, False, True, True, True, True) == "pinned_stale"
 
 
 def test_an_edited_suite_outranks_a_complete_certificate() -> None:
@@ -277,12 +319,23 @@ def test_incomplete_and_refused_certificates_read_as_themselves(tmp_path) -> Non
     assert _status(tmp_path, node) == "refused"
 
 
-def test_a_cut_run_leaves_no_verdict(tmp_path) -> None:
+def test_a_cut_run_leaves_no_verdict_but_does_leave_a_RECORD(tmp_path) -> None:
+    """Through the real reader, both halves of the repair.
+
+    The name was right and the assertion was not: a cut run leaves no verdict ABOUT THE FUNCTION,
+    which is why `ungateable` is not terminal — but it does leave a record, and this asserted the
+    two codes that say the opposite (`unpinned` = "no certificate ever"; `pinned_unverified` =
+    "re-converge to find out", whose prescription is the loop). Both halves now hold: still not a
+    verdict, no longer an absence, and the answer no longer depends on whether a synth happens to
+    be on disk — which was itself the tell, since a suite's presence says nothing about why the
+    measurement was cut.
+    """
     node = _node(BEFORE)
     _certify(tmp_path, node, "ungateable")
-    assert _status(tmp_path, node) == "unpinned"
+    assert _status(tmp_path, node) == "measurement_invalid"
     _write_suite(tmp_path, node)
-    assert _status(tmp_path, node) == "pinned_unverified"
+    assert _status(tmp_path, node) == "measurement_invalid"
+    assert _status(tmp_path, node) != "pinned", "a cut run still asserts nothing about the function"
 
 
 def test_a_current_suite_with_no_certificate_is_unverified(tmp_path) -> None:
