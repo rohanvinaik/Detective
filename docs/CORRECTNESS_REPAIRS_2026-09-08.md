@@ -464,7 +464,7 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 
 | **S12** | `S7632` on 19 suppression comments. **My first diagnosis was wrong and so is the one recorded in CLAUDE.md** — it is not the comma. Sonar objects to ANY trailing prose after the codes, which is the documented house form itself. Nothing is broken: ruff honours every one of them (proved below). | local SonarQube, pre-push | **RESOLVED 2026-09-08** — option A: 70 comments migrated; CLAUDE.md's rule corrected |
 | **S13** | `normalize_validity` collapsed **three distinct reasons** — `harness_error`, `not_installed`, `not_entered` — into one `evaluation_failed` flag rendered *"the harness failed"*. Three causes, three remedies, one sentence naming only the first. | `Detective/validity.py` | **RESOLVED 2026-09-08** — see below |
-| **S14** | When a run carries SEVERAL cut reasons, `repair_measurement_route` leads with one remedy. `target_load_failed` is now placed first (R3), which settles the case that mattered; the general question — which reason leads when e.g. `coverage_truncated` and `mutant_not_entered` are both live, and the second carries the more actionable fix — is still undecided. | this repo, surfaced by the S13 repair | **partly addressed by R3**; general ordering open |
+| **S14** | When a run carries SEVERAL cut reasons, `repair_measurement_route` leads with one remedy. `target_load_failed` is now placed first (R3), which settles the case that mattered; the general question — which reason leads when e.g. `coverage_truncated` and `mutant_not_entered` are both live, and the second carries the more actionable fix — is still undecided. | this repo, surfaced by the S13 repair | **RESOLVED 2026-09-09 — it was two defects, see §S14** (disclosure, and an ordering that inverted Wesker's own phase precedence) |
 | **S15** | Three in-repo pure decisions now refuse with `mutant_not_entered`: `measurement_cut_reasons`, `line_gap_why`, `converge_next_action`, `repair_measurement_route`. All are functions the RUNNING Detective calls while profiling itself — the mutant lands in `Detective.cli` while the live caller holds the original. That is the documented self-analysis constraint (`memory/project_dogfood_harness.md`: only a renamed package copy can self-analyse), and S13 is what made it legible instead of "the harness failed". Whether these get the `DetectiveUUT` harness or stay on hand pins is a founder call. | this repo | open — diagnosis now correct, remedy undecided |
 
 ### S13 — RESOLVED, and the repair diagnosed itself
@@ -707,3 +707,61 @@ not stored, and `admits_certificate` is absorbing. Options, none taken unilatera
 Worth noting the shape this shares with §MI and the #60 MCP finding, all three found the same day:
 a claim that holds over the subspace where it was checked, with nothing recording that the subspace
 was a subspace.
+
+
+---
+
+## §S14 — a multi-reason cut named one reason and led with the wrong one (RESOLVED 2026-09-09)
+
+Filed as "which reason leads when several are live is undecided". The trace found two separable
+things, and only the second was ever a matter of preference.
+
+### S14a — disclosure (a defect on the project's own stated rule)
+
+`measurement_cut_reasons` states the requirement in its own docstring:
+
+> **Plural on purpose.** A run can be cut for more than one reason at once, and reporting only the
+> first makes the second invisible to whoever fixes the first — they re-run, hit the next refusal,
+> and have no way to know it was always there.
+
+The engine computed plural and the renders collapsed it. Of the eight repair routes, four rendered
+every live reason; **two hardcoded exactly one** (`fix_load`, `fix_collection`); and **three
+rendered none at all** — `regime` / `deadline` / `trace_budget` printed `DO THIS: <command>` plus a
+hardcoded why-line and never mentioned a cut reason. On the observed
+`(coverage_truncated, mutant_not_entered)` the operator got `--trace-budget 0` and the words
+`mutant_not_entered` appeared nowhere in the output. Raise the budget, re-run, same refusal, with
+nothing ever having named the second cause: Finding F's spiral in a new spelling.
+
+`_also_live_rows` now names every reason the leading remedy does not address, with its sentence,
+and closes with "fixing the cause above does NOT clear these; they were always live" — because
+naming a second cause without saying it survives the first fix still invites re-running to see.
+
+### S14b — order (the founder call, ruled on an external authority)
+
+The three reasons S13 split out had **no branch in the ladder at all**, reachable only as the
+residual, so every partiality reason outranked every mutant-phase one. Measured before the fix:
+
+    (mutant_construction_failed, budget_exhausted) -> deadline
+    (mutant_not_installed, sampled_universe)       -> enumerate
+    (coverage_truncated, mutant_not_entered)       -> trace_budget
+
+The first is the clearest: the engine could not BUILD the mutant — its sentence says report a
+defect, "it measures the engine, not your suite" — and the operator was told to raise a deadline.
+
+This is not Detective's preference to set. `Wesker.engine.mutant_disposition` fixes the precedence
+and says why: *"earliest failed phase first — each answers a question the later ones presuppose"*,
+ordering `harness_error` → `not_installed` → `not_entered` → `cut`. `coverage_truncated` IS the
+`cut` family, so **the ladder was inverting its own engine.** A new `mutant_phase` band sits
+between run-level blockers and measurement-partiality, in Wesker's order.
+
+`mutant_phase` is a distinct code from `inspect_refusal` on purpose: the latter means the engine
+refused and named nothing we recognise, the former that it named the phase exactly. Two codes, one
+render, deliberately — collapsing them would put a precise diagnosis behind a vague one's name.
+
+### Scope discipline
+
+An INSERTION, not a reordering: every pre-existing route is pinned unchanged
+(`test_every_other_reason_keeps_the_route_it_had`), and all 50 route guards across four files pass
+untouched. `repair_measurement_route` remains one of S15's five self-refusing decisions
+(re-converged: `⚠ UNGATEABLE — mutant_not_entered`), so per the founder ruling the hand-written
+intent tests are its pin.

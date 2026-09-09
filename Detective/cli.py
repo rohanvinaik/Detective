@@ -2488,11 +2488,34 @@ def repair_measurement_route(
       * ``trace_budget``   — a genuine trace cut (coverage truncated / sampled / uncontained worker / an
                              unnamed engine refusal): re-run unbounded. The old default, now the residual
                              rather than the catch-all.
+      * ``mutant_phase``   — the engine named WHICH mutant phase failed (construction / installation /
+                             entry). Three different remedies, each carried by its own
+                             ``cut_reason_sentence``; the render defers to them rather than inventing a
+                             fourth. Distinct from ``inspect_refusal``, which means the opposite: the
+                             engine refused and named nothing we understand.
 
     ``has_collection_conflicts`` / ``budget_exhausted`` are raw-field fallbacks for a result whose engine
     reports the boolean but not the typed reason (older Wesker, #60): they only ADD their route, never
     suppress a typed one. ``collection_incomplete`` has no raw fallback, so an engine too old to report
     it degrades to ``trace_budget`` — exactly the previous behaviour.
+
+    ORDER — WESKER'S PHASE PRECEDENCE, NOT DETECTIVE'S PREFERENCE (S14b). The ladder ranks:
+    run-level blockers (nothing was measured, or the test FLOOR is wrong) → mutant-phase failures →
+    measurement PARTIALITY. The middle band is new, and it is where this ladder used to invert its
+    own engine. `Wesker.engine.mutant_disposition` fixes the precedence and says why: "earliest
+    failed phase first — each answers a question the later ones presuppose", ordering
+    ``harness_error`` → ``not_installed`` → ``not_entered`` → ``cut``. ``coverage_truncated`` IS the
+    ``cut`` family, and it sat ABOVE all three while they had no branch at all, so every partiality
+    reason outranked every mutant-phase one. Measured before the fix:
+
+        (mutant_construction_failed, budget_exhausted) -> deadline
+        (mutant_not_installed, sampled_universe)       -> enumerate
+        (coverage_truncated, mutant_not_entered)       -> trace_budget
+
+    The first is the clearest: the engine could not BUILD the mutant — its sentence says report a
+    defect, "it measures the engine, not your suite" — and the operator was sent to raise a
+    deadline. A mutant that was never constructed, installed or entered is not evidence about
+    coverage depth, which is exactly what "the later ones presuppose" means.
     """
     # FIRST, because nothing downstream of a failed import is meaningful: no mutant was evaluated,
     # so no other reason on the run describes anything. Added with R3 — R1 introduced the reason
@@ -2505,6 +2528,17 @@ def repair_measurement_route(
         return "regime"
     if "collection_incomplete" in cut_reasons:
         return "fix_collection"
+    # THE MUTANT-PHASE BAND (S14b) — above every partiality reason, in Wesker's own precedence.
+    # These three had no branch, so they reached `inspect_refusal` only as the residual and lost to
+    # anything below. `mutant_disposition`: "earliest failed phase first — each answers a question
+    # the later ones presuppose". A mutant never built, never bound, or never called is not
+    # evidence about coverage depth, so the depth's remedy must not lead over it.
+    if (
+        "mutant_construction_failed" in cut_reasons
+        or "mutant_not_installed" in cut_reasons
+        or "mutant_not_entered" in cut_reasons
+    ):
+        return "mutant_phase"
     if "nonreproducible_in_process" in cut_reasons:
         return "reprofile"
     if "uncontained_worker" in cut_reasons:
@@ -2516,6 +2550,46 @@ def repair_measurement_route(
     if "coverage_truncated" in cut_reasons:
         return "trace_budget"
     return "inspect_refusal"
+
+
+# Which reasons each route's remedy actually ADDRESSES. Everything else live on the run is named
+# separately (`_also_live_rows`) instead of going unmentioned. Routes absent here already render
+# every reason, so they have nothing left over.
+_ROUTE_ADDRESSES: dict[str, tuple[str, ...]] = {
+    "fix_load": ("target_load_failed",),
+    "fix_collection": ("collection_incomplete",),
+    "regime": ("ambiguous_module_identity",),
+    "deadline": ("budget_exhausted",),
+    "trace_budget": ("coverage_truncated",),
+}
+
+
+def _also_live_rows(reasons: tuple[str, ...], route: str) -> list[str]:
+    """Every cut reason the leading remedy does NOT address, named (S14a).
+
+    `measurement_cut_reasons` is plural on purpose, and says why: "A run can be cut for more than
+    one reason at once, and reporting only the first makes the second invisible to whoever fixes
+    the first — they re-run, hit the next refusal, and have no way to know it was always there."
+
+    The engine computed plural and three renders showed ZERO reasons (`regime` / `deadline` /
+    `trace_budget` printed a command and a hardcoded why-line) while two hardcoded a single one
+    (`fix_load`, `fix_collection`). So a run cut several ways disclosed only its leading remedy —
+    the Finding F spiral in a new spelling, since raising the budget the output asked for left the
+    other cause in place with nothing having named it. Observed on
+    (coverage_truncated, mutant_not_entered): the operator got `--trace-budget 0` and the words
+    "mutant_not_entered" appeared nowhere.
+
+    Whatever LEADS is a separate question (S14b, the ladder's order). This is the half that is true
+    under any order: the rest must still be named.
+    """
+    rest = [r for r in reasons if r not in _ROUTE_ADDRESSES.get(route, ())]
+    if not rest:
+        return []
+    return [
+        _row("· Also live", f"{rest[0]} — {cut_reason_sentence(rest[0])}"),
+        *[_row("", f"{r} — {cut_reason_sentence(r)}") for r in rest[1:]],
+        _row("", "fixing the cause above does NOT clear these; they were always live."),
+    ]
 
 
 def measurement_block_route(
@@ -2702,6 +2776,7 @@ def _converge_action(
                 _row(
                     "", f"dependency; detective regime names the one in use), then: detective converge '{fn}'"
                 ),
+                *_also_live_rows(reasons, route),
             ]
         if route in ("reprofile", "isolate"):
             return [
@@ -2734,6 +2809,22 @@ def _converge_action(
                 _row("", "neither regime --migrate nor a larger budget can fix an import."),
                 _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
                 _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
+                *_also_live_rows(reasons, route),
+            ]
+        if route == "mutant_phase":
+            # The engine named WHICH phase failed, and each of the three carries its own remedy in
+            # `cut_reason_sentence` (report a defect / unwrap the target / route a test through the
+            # patched name). Defers to them for the same reason `inspect_refusal` does after S7: a
+            # second, vaguer diagnosis on top of a precise one sends the operator to the wrong
+            # thing. What differs from `inspect_refusal` is the FACT, not the render — there the
+            # engine refused and named nothing we recognise; here it named the phase exactly.
+            return [
+                "STOP:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                "",
+                _row("· Why first", "a mutant that was never built, never bound, or never called is"),
+                _row("", "not evidence about your suite — and not evidence about coverage depth,"),
+                _row("", "so no --trace-budget, --deadline or --isolated re-run addresses it."),
+                _row("· Resolve", "the reason above names the repair; re-run once it is resolved."),
             ]
         if route == "inspect_refusal":
             return [
@@ -2767,6 +2858,7 @@ def _converge_action(
             "",
             _row("· Why first", why),
             _row("", "An invalid measurement cannot justify an input/test action."),
+            *_also_live_rows(reasons, route),
         ]
     if kind == "rerun_stale":
         return [

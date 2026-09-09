@@ -70,7 +70,10 @@
     "standing": "complete"
   },
   "Detective/cli.py::repair_measurement_route": {
-    "function_digest": "42a8613d2c294c8e",
+    "cut_reasons": [
+      "mutant_not_entered"
+    ],
+    "function_digest": "e7bc7f6f5f5bd29f",
     "refusal": "",
     "standing": "ungateable"
   },
