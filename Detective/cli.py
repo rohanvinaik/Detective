@@ -7144,7 +7144,7 @@ def _doctor_green(root: str, target_file: str, func_key: str) -> tuple[str, dict
     return code, facts
 
 
-def _render_doctor_green(code: str, facts: dict, root: str) -> list[str]:
+def _render_doctor_green(code: str, facts: dict) -> list[str]:
     """GREEN's rows. Every branch names the FIX, because a diagnosis whose remedy the reader has to
     infer is the gap doctor exists to close."""
     out = [_row("GREEN — setup", code)]
@@ -7294,7 +7294,7 @@ def _run_doctor(args) -> int:
     green_code = "clean"
     if "green" in asked:
         green_code, facts = _doctor_green(root, target_file, func_key)
-        lines += _render_doctor_green(green_code, facts, root)
+        lines += _render_doctor_green(green_code, facts)
         lines.append("")
     green_live = green_code != "clean"
     # NOT-READ IS A REPORTED STATE, never an empty section. Swallowing at WRITE time is right;
@@ -7417,13 +7417,12 @@ def _signpost_rows(verb: str, root: str, target_file: str = "") -> list[str]:
         if signpost_disposition(herb, True, False, False) != "preempted_by_setup":
             return []
         named = fault if fault != "none" else "dependency_not_importable"
-        detail = (
-            f"{', '.join(missing)} not importable by this interpreter"
-            if fault == "none"
-            else cut_reason_sentence(named)
-            if named in CUT_REASONS
-            else f"the regime reports {named}"
-        )
+        if fault == "none":
+            detail = f"{', '.join(missing)} not importable by this interpreter"
+        elif named in CUT_REASONS:
+            detail = cut_reason_sentence(named)
+        else:
+            detail = f"the regime reports {named}"
         scope = f" '{os.path.relpath(target_file, root)}'" if target_file else ""
         return [
             "",
