@@ -204,14 +204,35 @@ def test_a_clean_read_refuses_to_be_a_certificate(repo, capsys) -> None:
     assert "not a certificate" in out
 
 
-def test_it_writes_nothing(repo, capsys) -> None:
-    """Advisory, same class as plan/survey/parsimony/censor. A diagnostic that mutates the project
-    it is diagnosing cannot be run safely by someone who does not yet understand the tool."""
-    before = {p: p.stat().st_mtime_ns for p in repo.rglob("*") if p.is_file()}
+def test_it_writes_nothing_to_the_project_it_is_diagnosing(repo, capsys) -> None:
+    """Advisory, same class as plan/survey/parsimony/censor: a diagnostic that mutates the project
+    it is diagnosing cannot be run safely by someone who does not yet understand the tool.
+
+    NARROWED 2026-09-09, and the narrowing is the finding rather than a relaxation. This asserted
+    whole-tree mtime equality, which was a PROXY for the intent above — and it agreed with that
+    intent only over the subspace where the invocation ledger did not exist. `main` now records
+    every invocation, doctor's included, so the proxy started catching something the intent never
+    meant.
+
+    "Writes nothing" is about the PROJECT — your source, your suite, Detective's own artifacts.
+    The invocation ledger is a different category: it is the operator's record of having used the
+    tool, not a change to what the tool is looking at. Every advisory verb writes it now, and
+    doctor must be no exception — "you ran doctor five times" is precisely a process fact, and
+    excluding one verb would put a hole in exactly the axis being built to read it.
+
+    So both halves are pinned: nothing in the project moves, and the ledger DOES.
+    """
+
+    def _project_files():
+        return {
+            f: f.stat().st_mtime_ns for f in repo.rglob("*") if f.is_file() and ".detective" not in f.parts
+        }
+
+    before = _project_files()
     _run(capsys, "--project-root", str(repo))
-    after = {p: p.stat().st_mtime_ns for p in repo.rglob("*") if p.is_file()}
-    assert before == after, "doctor wrote to the project"
-    assert not (repo / ".detective").exists()
+    assert _project_files() == before, "doctor wrote to the project it was diagnosing"
+    assert not (repo / "tests" / "detective").exists(), "no synths, no certificates"
+    assert (repo / ".detective" / "ledger.jsonl").is_file(), "the invocation IS recorded"
 
 
 def test_it_survives_a_project_that_is_barely_a_project(tmp_path, capsys) -> None:
@@ -249,4 +270,4 @@ def test_the_target_may_be_a_bare_path_or_a_function(repo, capsys) -> None:
     a, _ = _run(capsys, "m.py", "--project-root", str(repo))
     b, _ = _run(capsys, "m.py::add", "--project-root", str(repo))
     assert a == 0 and b == 0
-    assert not os.path.exists(os.path.join(str(repo), ".detective"))
+    assert not os.path.exists(os.path.join(str(repo), "tests", "detective"))

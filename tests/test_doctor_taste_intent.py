@@ -190,13 +190,18 @@ def test_an_unparseable_target_yields_nothing_to_read_rather_than_raising(repo, 
     assert "nothing_to_read" in out
 
 
-def test_the_ledger_is_untouched_by_a_taste_read(repo, capsys) -> None:
-    """Advisory, writes nothing — asserted separately for yellow because it is the axis that reads
-    the most source and would be the easiest place to accidentally cache something."""
+def test_a_taste_read_caches_nothing_and_certifies_nothing(repo, capsys) -> None:
+    """Asserted separately for yellow because it reads the most source and would be the easiest
+    place to accidentally cache something.
+
+    The CERTIFICATE ledger and the verdict cache are the artifacts that would matter here — a taste
+    read that wrote either would be claiming to have measured something. The INVOCATION ledger is
+    not in that class: it records that you ran a command, which every verb now does and which is
+    the whole basis of the process axis."""
     (repo / "t.py").write_text(_TRAPPED)
     _run(capsys, "t.py", "--project-root", str(repo))
-    assert not (repo / ".detective").exists()
-    assert not (repo / "tests" / "detective").exists()
+    assert not (repo / "tests" / "detective").exists(), "no certificate, no synths"
+    assert not (repo / ".detective" / "verdict_cache.json").exists(), "nothing measured, nothing cached"
 
 
 def test_a_recorded_green_fault_also_triggers_the_ordered_remediation(repo, capsys) -> None:

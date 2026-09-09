@@ -3,8 +3,8 @@
 Status: BUILDING. Written 2026-09-08; founder rulings and grounding corrections 2026-09-09.
 Built: the four pure decisions, the process-scoped observation channel, `state_basis`, and the
 PERSISTENCE SHELL (append / read / digests / eviction).
-Not built: the `try/finally` call site in `main`, `outcome` propagation, `purge --prune`, and
-doctor's RED axis on top.
+the `try/finally` CALL SITE in `main`.
+Not built: full `outcome` propagation, `purge --prune`, and doctor's RED axis on top.
 
 Prerequisite for [`DOCTOR.md`](DOCTOR.md)'s **red / process** axis, which cannot be built without
 it. Standalone artifact: the founder has named a second use — mining the space past the boundary
@@ -317,3 +317,86 @@ Eviction: 5 MB cap, oldest half dropped, and the drop recorded IN BAND as
 `{"v":1,"evicted":N}` so a reader never mistakes a pruned head for the beginning of history. The
 marker is filtered out of `read_recent` — it is bookkeeping about the FILE, not a fact about the
 operator, and a consumer counting repeats must not see it as one.
+
+
+---
+
+## 9. The call site, as built (2026-09-09)
+
+§6's structural claim was checked against current source rather than trusted — the section cites
+`cli.py:4970-5036` and the file has grown ~450 lines since — and it holds exactly. `main` carries
+three typed-refusal paths:
+
+| path | leaves via |
+|---|---|
+| `GeneratedSuiteCollision` | `return 1` (json) or `raise SystemExit` |
+| `AuditAccountingError` | `return 1` (json) or `raise SystemExit` |
+| `LookupError / FileNotFoundError / SyntaxError` | `raise SystemExit` |
+
+A TAIL append misses all three, and a refusal is the most process-shaped event there is — "you
+pointed at a target that does not exist, three times" is a red finding and nothing else can see it.
+So: `try/finally` around the body, `_exit`/`_refusal` set beside each exit, and where an exception
+path leaves the code unbound the record keeps `exit: null` rather than inventing a number.
+
+Verified through the real command:
+
+```
+{'verb': 'survey',   'target': 'shipping.py',                    'exit': 0,    'refusal': None}
+{'verb': 'diagnose', 'target': 'shipping.py::no_such_function',  'exit': None, 'refusal': 'target_not_found'}
+{'verb': 'converge', 'target': 'shipping.py::shipping_cost',     'exit': 0,
+ 'outcome': [['outcome', 'converge', 'settled']], 'dur_ms': 1842}
+```
+
+### `args` is an EXCLUSION list, deliberately
+
+`_LEDGER_ARG_NOISE` names the rendering flags (`--json`, `--verbose`, colour) plus the fields that
+have their own slot. Everything else is keyed by default.
+
+An INCLUSION list would have been the obvious shape and is the wrong one: it silently drops every
+new flag nobody remembered to add, and a measurement-affecting flag that is not keyed makes two
+DIFFERENT questions look like a repeat — or worse, makes a repeat look like progress. §3 states the
+rule this implements: "two runs differing only in rendering are the same invocation for process
+purposes", and the exclusion list is the only shape where forgetting fails safe.
+
+### A regression this introduced and how it was caught
+
+`time.monotonic()` in `main` against a `time` that cli.py never imported at module scope — every
+command died with `NameError` on the first line of the new block. Caught by driving `detective
+survey` immediately after wiring, not by the suite; the tests were written afterwards. Recorded
+because the lesson is the ordering, not the typo: the wiring step's verification is the real
+command, and it costs seconds.
+
+### `outcome` is PARTIAL, and says so
+
+Only `converge` calls `observe` today, so a converge run carries its named next-action code and
+every other verb records `[]`. The field is always PRESENT — absent must never read as none — and
+the recorder's own comment names the gap rather than leaving it to look complete. Full propagation
+is the next step, and its constraint stands: it must not change any command's rendered output or
+exit code, because a run's verdict cannot depend on whether the ledger is watching.
+
+
+### 9.1 Does the ledger break "writes nothing"? — the contract, sharpened
+
+Wiring the call site broke three doctor tests, and the break was a finding rather than a
+regression. `doctor`, `plan`, `survey`, `parsimony` and `censor` are all documented **advisory:
+writes nothing** — and `main` now records every invocation, theirs included.
+
+The tests asserted whole-tree mtime equality, which was a PROXY for the intent "does not mutate
+the project it is diagnosing". That proxy agreed with the intent only over the subspace where the
+invocation ledger did not exist. Same shape as §MI, the #60 MCP drift, S10 and the doctor fence
+guard — the fifth instance this session of a claim that held over the subspace where it was checked.
+
+The contract, stated precisely rather than left as a flat phrase:
+
+> **"Writes nothing" is about the PROJECT** — your source, your suite, Detective's own artifacts
+> (synths, certificates, verdict cache). The invocation ledger is a different category: it records
+> that you RAN a command, not a change to what the command was looking at.
+
+Doctor must be no exception. "You ran doctor five times" is precisely a process fact, and exempting
+one verb would put a hole in exactly the axis being built to read it. The tests now pin BOTH halves
+— nothing in the project moves, and the ledger does — which is strictly stronger than the mtime
+proxy was.
+
+Worth carrying forward: every advisory verb's help text says "writes nothing", and that sentence is
+now imprecise for all of them. Not rewritten here, because it is user-facing copy across six verbs
+and a wording change is the founder's call.

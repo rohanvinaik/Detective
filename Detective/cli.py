@@ -15,6 +15,7 @@ import os
 import shlex
 import sys
 import textwrap
+import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -5291,6 +5292,93 @@ def _target_error(exc: Exception, args) -> str:
     return f"detective: {exc}\n  functions in that file: {shown}"
 
 
+# argparse attributes that describe HOW to render rather than WHAT was measured. Two runs differing
+# only in these are the SAME invocation for process purposes, so keying on them would make every
+# `--json` re-run look like progress and hide the spiral it is. `command`, `target` and
+# `project_root` are excluded because they are their own fields.
+_LEDGER_ARG_NOISE = frozenset(
+    {"command", "target", "path", "project_root", "json", "verbose", "quiet", "no_color", "color"}
+)
+
+
+def _ledger_args(args) -> dict:
+    """The measurement-affecting flags of this invocation, normalised and sorted (never raises)."""
+    out: dict = {}
+    for name in sorted(vars(args)):
+        if name in _LEDGER_ARG_NOISE or name.startswith("_"):
+            continue
+        value = getattr(args, name)
+        if value in (None, False, (), [], ""):
+            continue
+        out[name] = sorted(map(str, value)) if isinstance(value, (list, tuple)) else value
+    return out
+
+
+def _record_invocation(args, exit_code, refusal: str, started: float) -> None:
+    """Append THIS invocation to the ledger (`docs/INVOCATION_LEDGER.md`) — never raises.
+
+    Called from a `finally`, which is the whole point: `main` has three typed-refusal paths, two of
+    which leave via `raise SystemExit` and one via `return 1`, and a TAIL append would miss all
+    three. A refusal is a process fact — "you pointed at a target that does not exist, three times"
+    is precisely a red finding — so the paths that refuse are the ones that most need recording.
+    Where the exception path leaves the code unbound the entry records `exit: null` with `refusal`
+    set, rather than inventing a number.
+
+    `env` is the two-knob fact, recorded: the interpreter selects the target's dependencies and the
+    engine paths select the code doing the measuring. They are what will let doctor say "your last
+    five runs used .venv-det; the packages you installed went to ~/miniconda3" — the propagation
+    case, answerable from history instead of from a live probe.
+    """
+    try:
+        from . import ledger as _L
+
+        root = os.path.abspath(getattr(args, "project_root", ".") or ".")
+        raw_target = getattr(args, "target", None) or getattr(args, "path", None) or ""
+        rel = str(raw_target).split("::", maxsplit=1)[0] if raw_target else ""
+        target_file = "" if not rel else (rel if os.path.isabs(rel) else os.path.join(root, rel))
+        write_dir = os.path.join(root, "tests", "detective")
+        record = {
+            "v": _L.LEDGER_SCHEMA,
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "dur_ms": int((time.monotonic() - started) * 1000),
+            "verb": str(getattr(args, "command", "") or ""),
+            "target": str(raw_target) or None,
+            "args": _ledger_args(args),
+            "exit": exit_code,
+            "refusal": refusal or None,
+            "env": _ledger_env(root),
+            "state": {
+                "target_src": _L.file_digest(target_file) if target_file else "",
+                "suite": _L.suite_digest(write_dir),
+                "inputs": _L.file_digest(os.path.join(root, ".detective", "inputs.json")),
+                "equivalents": _L.file_digest(os.path.join(root, ".detective", "equivalents.json")),
+            },
+            # PARTIAL, and named as such rather than left to look complete. Only converge currently
+            # calls `observe`, so a converge run carries its named next-action code and every other
+            # verb records []. Full propagation is its own step (INVOCATION_LEDGER.md §6).
+            "outcome": [list(o) for o in _L.take_observations()],
+        }
+        _L.append(root, record)
+    # BLE001: the ledger is advisory; a run's verdict must not depend on whether it was watched
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _ledger_env(root: str) -> dict:
+    """Interpreter + engine paths + version — the two-knob fact (never raises)."""
+    out = {"interpreter": sys.executable, "project_root": root, "detective": "", "wesker": "", "version": ""}
+    for name, key in (("Detective", "detective"), ("Wesker", "wesker")):
+        try:
+            out[key] = str(getattr(__import__(name), "__file__", "") or "")
+        except Exception:  # noqa: BLE001 — an engine that will not import is recorded as absent
+            out[key] = ""
+    try:
+        out["version"] = str(__version__)
+    except Exception:  # noqa: BLE001 — a missing version is recorded empty, never fabricated
+        out["version"] = ""
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run a command, then emit a lightweight memory-telemetry footer (human mode).
     The footer is best-effort: monitoring must never fail the actual work. It goes to
@@ -5302,63 +5390,86 @@ def main(argv: list[str] | None = None) -> int:
     from .certify import GeneratedSuiteCollision
 
     args = _build_parser().parse_args(argv)
+    # THE LEDGER'S ONE CALL SITE (docs/INVOCATION_LEDGER.md §6). `finally`, not a tail block: the
+    # three typed-refusal paths below leave via `raise SystemExit` or `return 1` and would bypass a
+    # tail entirely — and a refusal is exactly the process fact red needs. `_exit`/`_refusal` are
+    # set beside each exit so the record describes what actually happened; where an exception path
+    # leaves the code unbound the entry keeps `exit: null` rather than inventing a number.
+    _started = time.monotonic()
+    _exit: int | None = None
+    _refusal = ""
     try:
-        code = _run_live(args)
-    except GeneratedSuiteCollision as exc:
-        # A destination occupied by a file this target does not own (#61). It reached the
-        # terminal as a traceback, which is the one shape a caller cannot distinguish from a
-        # crash — and the refusal is the OPPOSITE of a crash: nothing was written precisely
-        # because the guard worked. Both channels carry it, for the reason #57 gives: a
-        # refusal only the human surface can see leaves every programmatic consumer with an
-        # empty stdout and an exception it has to parse from stderr.
-        if getattr(args, "json", False):
-            print(
-                json.dumps(
-                    {
-                        "verdict": "REFUSED",
-                        "reason": "generated_suite_collision",
-                        "detail": str(exc),
-                    },
-                    indent=2,
-                )
-            )
-            return 1
-        raise SystemExit(f"detective: {exc}") from exc
-    except AuditAccountingError as exc:
-        # An internal accounting inconsistency (#65) — the audit's value partition did not reconcile
-        # with its classification. NOT a fact about the user's suite, and with the single-profile
-        # reuse it should be unreachable; if it ever fires it is a Detective bug to report. Render a
-        # clean typed refusal on both channels rather than leaking a raw traceback (the #65 UX).
-        if getattr(args, "json", False):
-            print(
-                json.dumps(
-                    {"verdict": "REFUSED", "reason": "audit_accounting_inconsistency", "detail": str(exc)},
-                    indent=2,
-                )
-            )
-            return 1
-        raise SystemExit(f"detective: internal accounting inconsistency — please report this: {exc}") from exc
-    except (LookupError, FileNotFoundError, SyntaxError) as exc:
-        # A target that does not exist is a USER error, and it was reaching the terminal as a
-        # 36-line Python traceback — the one shape a caller cannot tell from a crash. Every other
-        # bad input here already exits clean (`_split_target`: "target must be 'file.py::function'"),
-        # so these two were the gap, not the rule. The consumer that matters is a small model
-        # driving refactors from this output: a traceback gives it nothing to route on, while
-        # "not found · here are the names that ARE in the file" is the next action itself.
-        raise SystemExit(_target_error(exc, args)) from exc
-    # Telemetry is for a run you are DEBUGGING, not every run. It answered a question nobody
-    # asked ("41 MB of a 2048 MB budget") on every invocation, and — being unbuffered stderr
-    # written after a buffered stdout report — it surfaced ABOVE the result it postdates,
-    # reading as a header. Behind --verbose, where someone chasing memory will look for it.
-    if getattr(args, "verbose", False) and not getattr(args, "json", False):
         try:
-            from Wesker.memory_guard import telemetry
+            code = _run_live(args)
+        except GeneratedSuiteCollision as exc:
+            # A destination occupied by a file this target does not own (#61). It reached the
+            # terminal as a traceback, which is the one shape a caller cannot distinguish from a
+            # crash — and the refusal is the OPPOSITE of a crash: nothing was written precisely
+            # because the guard worked. Both channels carry it, for the reason #57 gives: a
+            # refusal only the human surface can see leaves every programmatic consumer with an
+            # empty stdout and an exception it has to parse from stderr.
+            _refusal = "generated_suite_collision"
+            if getattr(args, "json", False):
+                print(
+                    json.dumps(
+                        {
+                            "verdict": "REFUSED",
+                            "reason": "generated_suite_collision",
+                            "detail": str(exc),
+                        },
+                        indent=2,
+                    )
+                )
+                _exit = 1
+                return 1
+            raise SystemExit(f"detective: {exc}") from exc
+        except AuditAccountingError as exc:
+            # An internal accounting inconsistency (#65) — the audit's value partition did not reconcile
+            # with its classification. NOT a fact about the user's suite, and with the single-profile
+            # reuse it should be unreachable; if it ever fires it is a Detective bug to report. Render a
+            # clean typed refusal on both channels rather than leaking a raw traceback (the #65 UX).
+            _refusal = "audit_accounting_inconsistency"
+            if getattr(args, "json", False):
+                print(
+                    json.dumps(
+                        {
+                            "verdict": "REFUSED",
+                            "reason": "audit_accounting_inconsistency",
+                            "detail": str(exc),
+                        },
+                        indent=2,
+                    )
+                )
+                _exit = 1
+                return 1
+            raise SystemExit(
+                f"detective: internal accounting inconsistency — please report this: {exc}"
+            ) from exc
+        except (LookupError, FileNotFoundError, SyntaxError) as exc:
+            # A target that does not exist is a USER error, and it was reaching the terminal as a
+            # 36-line Python traceback — the one shape a caller cannot tell from a crash. Every other
+            # bad input here already exits clean (`_split_target`: "target must be 'file.py::function'"),
+            # so these two were the gap, not the rule. The consumer that matters is a small model
+            # driving refactors from this output: a traceback gives it nothing to route on, while
+            # "not found · here are the names that ARE in the file" is the next action itself.
+            _refusal = "target_not_found"
+            raise SystemExit(_target_error(exc, args)) from exc
+        # Telemetry is for a run you are DEBUGGING, not every run. It answered a question nobody
+        # asked ("41 MB of a 2048 MB budget") on every invocation, and — being unbuffered stderr
+        # written after a buffered stdout report — it surfaced ABOVE the result it postdates,
+        # reading as a header. Behind --verbose, where someone chasing memory will look for it.
+        if getattr(args, "verbose", False) and not getattr(args, "json", False):
+            try:
+                from Wesker.memory_guard import telemetry
 
-            sys.stderr.write(f"  [{telemetry()}]\n")
-        # BLE001: telemetry is advisory and never fatal
-        except Exception:  # noqa: BLE001
-            pass
-    return code
+                sys.stderr.write(f"  [{telemetry()}]\n")
+            # BLE001: telemetry is advisory and never fatal
+            except Exception:  # noqa: BLE001
+                pass
+        _exit = code
+        return code
+    finally:
+        _record_invocation(args, _exit, _refusal, _started)
 
 
 def hang_watchdog_seconds(session_budget_s: float | None) -> float:
