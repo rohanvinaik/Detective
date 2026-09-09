@@ -102,6 +102,18 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/doctor.py::setup_disposition": {
+    "cut_reasons": [],
+    "function_digest": "83c068e309f5c55a",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/doctor.py::signpost_disposition": {
+    "cut_reasons": [],
+    "function_digest": "8946e7cbf21b9dad",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/engine.py::widen_admission": {
     "function_digest": "73cedde34adfb8a2",
     "refusal": "",

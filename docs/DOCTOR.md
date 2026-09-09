@@ -1,6 +1,10 @@
 # `detective doctor` — design
 
-Status: DESIGN, for founder mark-up. Nothing built. Written 2026-09-08.
+Status: BUILDING. Written 2026-09-08; founder rulings and grounding corrections 2026-09-09.
+Built so far: the precedence lattice (`doctor.signpost_disposition`, ✓ COMPLETE 24/28) and the
+GREEN axis — its decision (`setup_disposition`, ✓ COMPLETE 15/15) and its gathering layer.
+Not built: the `doctor` verb itself, YELLOW, RED (blocked on the invocation ledger's
+persistence shell), and the per-command signpost.
 
 ---
 
@@ -85,6 +89,29 @@ the mix is worth more than the sum.
 **Yellow is the mapping that earns the scheme.** Taste findings heal nothing — an entangled
 function, an overly broad discovery, a pure decision trapped in an impure shell: none of that is
 damage. What they do is cap how much of the tool is available to you. That is max health exactly.
+
+### Why the herb names stay — the opacity is the feature (founder ruling, 2026-09-09)
+
+The obvious usability move is to rename these `--setup` / `--process` / `--taste`, on the grounds
+that a self-describing flag is kinder than a video-game reference. That move is wrong, and it is
+wrong for a reason worth writing down, because it will look like an improvement to everyone who
+meets it fresh.
+
+**Nobody playing Resident Evil thinks through what each herb does.** They remember that the
+combination is the goal, and that green is the one you can eat in an emergency. It is not
+knowledge, it is a *heuristic* — a spot in your head, reached for by habit under pressure. That is
+precisely how a human uses a diagnostic tool, and pretending otherwise is a pretension the naming
+should refuse rather than flatter.
+
+**And the opacity is a check on false confidence — especially for an LLM.** A flag named
+`--process` invites a model to fire it by pattern-match: the token *means* something, so reaching
+for it feels like reasoning, and the reach is indistinguishable from a guess. `--red` carries no
+such affordance. An LLM that calls `--red` without the actual purposive context for why has done
+something that reads as an utterly ridiculous choice — visibly, to itself and to a reviewer. The
+token that carries no meaning cannot lend borrowed meaning to a guess.
+
+So the herb names do double duty: a mnemonic for the human, and a deliberate absence of semantic
+handle for the model. Both are the design. Neither survives the rename.
 
 ### GREEN — setup
 
@@ -274,7 +301,67 @@ exists to close.
    needs a static pass. Does the default mix run yellow every time, or does yellow degrade to
    "not read" with a named reason when the target is large? A "not read" state is honest and
    consistent with `plan`'s `regime — unread`.
-5. **Naming.** `detective doctor` is the command. Whether the herb vocabulary surfaces to the
-   user (`--green` / `--red` / `--yellow`) or stays internal with plain flags
-   (`--setup` / `--process` / `--taste`) is a taste call. The herbs are a good *mnemonic* and a
-   bad *requirement*.
+5. ~~**Naming.**~~ **RULED 2026-09-09: the herbs ARE the user-facing vocabulary.**
+   `--green` / `--red` / `--yellow`. The proposal to "clarify" them into
+   `--setup` / `--process` / `--taste` was rejected, and the reasoning is load-bearing rather
+   than aesthetic — see §2, *Why the herb names stay*. Do not re-open this as a usability
+   improvement; the opacity is the feature.
+
+
+---
+
+## 8. Grounding corrections, 2026-09-09
+
+Written when the build started, because this document predates R1–R4, S13, §MI and S14 and was
+therefore partly fix-guiding — anti-correlated with current truth wherever it describes a defect
+those repairs eliminated. Each item below was checked against current source before building.
+
+### 8.1 `emission_disposition` was already taken
+
+§4 proposes that name. `Detective/emission.py::emission_disposition` already exists — the
+cross-language C-codegen gate, pinned, returning `PRESERVED_PORTABLE` / `VACUOUS` / `CHANGED` /
+`INVALID_MEASUREMENT`. Unrelated in every respect except the name. **Built as
+`doctor.signpost_disposition`**, which names the surface it drives.
+
+### 8.2 The R3 worry does not apply
+
+§4 argues D should land before R3 "which is why the repairs should consume *this*, not get
+`measurement_block_route` bolted on and rewired later". R3 landed first, and on inspection there is
+nothing to rewire: the two answer different questions. `measurement_block_route` picks WHICH block
+route a measurement problem needs; the signpost decides WHETHER a command may speak at all given a
+higher-ranked herb finding. Orthogonal. No absorption, no rework.
+
+### 8.3 The three axes are in very different states — which sets the build order
+
+| Axis | Consumption point | State at build time |
+|---|---|---|
+| **Yellow** | `survey.survey_disposition` → 4 finding codes + `reachable` | complete; pure consumption, no new machinery |
+| **Green** | `regime.TestRegime.conflicts` → only `shadowed-target` / `conftest-collision` | thin; interpreter, deps, target load and collection are all NEW gathering — and that gap IS the motivating case (U2) |
+| **Red** | four pinned dispositions in `Detective/ledger.py` | **no data**: `observe` has one production call site and `.detective/ledger.jsonl` does not exist |
+
+So red is the expensive axis and is entirely blocked on the ledger's persistence shell, while green
+is the motivating case and yellow is nearly free. Build order: **lattice + green + the verb →
+yellow → ledger shell + red → the signpost.** This is slicing by AXIS, not building narrow and
+widening: the lattice is built once, sized for all three, and each axis is complete when it lands.
+It also matches the mechanic — green heals and works alone, yellow raises the ceiling, red does
+nothing alone and completes green.
+
+### 8.4 §MI made the stale-failure probe possible INSIDE the fence
+
+§1 forbids importing the target to find out, and §2 nevertheless lists "Target load — the module
+will not import" as a green finding. Those were in tension when this was written. They no longer
+are: §MI added `cut_reasons` to the certificate ledger, so `target_load_failed` and
+`collection_incomplete` are readable **from disk**, as facts a prior run recorded. Before that a
+load failure was stored as a bare `ungateable` standing with no reason and this probe could not
+have existed without breaking the fence. The capability and the fence arrived together, by accident.
+
+### 8.5 The dependency probe, as built
+
+The motivating case needs the missing module NAME, which no recorded reason carries. Resolved
+statically and inside the fence: AST the target's top-level imports (`target_imports`), keep only
+the first dotted segment — `find_spec` on a dotted name imports the parent packages to locate the
+child, which executes code — drop stdlib and relative imports, then ask `find_spec` here
+(`missing_here`) and one bounded subprocess per candidate interpreter for the rest
+(`found_elsewhere`). Verified on the real machine, 2026-09-09: `funcy` and `jax` absent from the
+project venv, both found under `~/miniconda3`, `definitely_not_a_real_package_xyz` found nowhere —
+`setup_disposition` → `deps_elsewhere`. That is §1's acceptance test, passing.
