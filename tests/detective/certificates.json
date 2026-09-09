@@ -49,10 +49,22 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::audit_next_action": {
+    "cut_reasons": [],
+    "function_digest": "b8e488fc2cee7ade",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::converge_next_action": {
     "function_digest": "1f576a572e4f200a",
     "refusal": "",
     "standing": "ungateable"
+  },
+  "Detective/cli.py::diagnose_next_action": {
+    "cut_reasons": [],
+    "function_digest": "ccc9b5e1d78c68cc",
+    "refusal": "",
+    "standing": "complete"
   },
   "Detective/cli.py::line_gap_rationale": {
     "function_digest": "2cbb8cd2939a9b50",

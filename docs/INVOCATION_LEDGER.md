@@ -4,7 +4,8 @@ Status: BUILDING. Written 2026-09-08; founder rulings and grounding corrections 
 Built: the four pure decisions, the process-scoped observation channel, `state_basis`, and the
 PERSISTENCE SHELL (append / read / digests / eviction).
 the `try/finally` CALL SITE in `main`.
-Not built: full `outcome` propagation, `purge --prune`, and doctor's RED axis on top.
+and `outcome` propagation across the four verbs an operator actually repeats.
+Not built: `purge --prune`, propagation for the remaining verbs, and doctor's RED axis.
 
 Prerequisite for [`DOCTOR.md`](DOCTOR.md)'s **red / process** axis, which cannot be built without
 it. Standalone artifact: the founder has named a second use — mining the space past the boundary
@@ -400,3 +401,68 @@ proxy was.
 Worth carrying forward: every advisory verb's help text says "writes nothing", and that sentence is
 now imprecise for all of them. Not rewritten here, because it is user-facing copy across six verbs
 and a wording change is the founder's call.
+
+
+---
+
+## 10. `outcome` propagation, as built (2026-09-09)
+
+Four sites live: **converge · audit · diagnose · doctor**.
+
+    doctor     exit=2   outcome=[['outcome','doctor','deps_elsewhere/trapped_by_imports']]
+    diagnose   exit=0   outcome=[['outcome','diagnose','settled']]
+    audit      exit=0   outcome=[['outcome','audit','remove_redundant']]
+    converge   exit=0   outcome=[['outcome','converge','settled']]
+
+### The handoff's warning was mine, and it was overcautious
+
+`docs/dogfood/SESSION_HANDOFF_2026-09-08.md` said `_audit_action` is "deliberately NOT wired: its
+ladder has no single named code, and inventing one recreates the drift R3 removed." That was my own
+note, not a founder ruling, and grounding struck it.
+
+R3's drift was **two readers of ONE report answering differently**. Extracting `audit_next_action`
+is one decision with one renderer, and its first branch DELEGATES to `measurement_block_route`
+rather than restating it — the same consumption R3 installed. Nothing about it recreates the drift.
+
+What it buys: "you ran `fix_load` three times" instead of "you ran audit three times with nothing
+changing". Only the first names what to stop doing.
+
+`audit_next_action` — ✓ COMPLETE 60/64 modulo 4. Nine codes, and the ORDER is the judgement, each
+rank with a reason rather than a preference: a measurement that could not RUN outranks everything
+(Finding E); a failing suite outranks the numbers it invalidates; real gaps outrank bloat; and
+`flag` — the one claim a human makes against the engine — comes last, so it is never offered while
+a real gap is open.
+
+`diagnose_next_action` — ✓ COMPLETE 21/21. Three codes, two of which are CONVERGE'S
+(`close_the_gap`, `settled`) reused rather than paraphrased. The record is `(kind, verb, code)` so
+the verb disambiguates, and a shared vocabulary makes "you got `close_the_gap` from diagnose and
+then from converge" ONE story — two spellings of the same state would be two, and the repeat would
+be invisible.
+
+Doctor observes its own read, because the command that diagnoses the operator must not be the one
+verb exempt from being observed. "You ran doctor five times and it said `deps_elsewhere` every
+time" is precisely what red exists to name.
+
+### Scope, stated rather than implied
+
+Wired: the four verbs an operator actually repeats when stuck. NOT wired: plan, survey, extract,
+decompose, receipt, verify-rewrite, parsimony, censor, flag, regime, purge. Those record
+`outcome: []` — the field is always PRESENT, so absent never reads as none.
+
+That is a real gap and not a finished job. The four were chosen because they are where a spiral
+happens; the taste verbs are advisory reads rather than instructions to repeat, and the bracket
+commands are one-shot. Worth revisiting once red has run against real history and shown which
+absences actually cost a finding.
+
+### The constraint, held
+
+No command's rendered output or exit code changed. The strongest evidence is not in the new tests:
+it is the **126 pre-existing audit tests passing unchanged** over a renderer whose entire branch
+structure was rewritten to dispatch on the named code.
+
+### A test that failed for the right reason
+
+The wiring test first asserted on the observation CHANNEL after running `main`, and found it empty
+— because `_record_invocation` drains it in its `finally`, which is exactly the per-invocation
+property another test in the same file pins. Reading the channel after the drain tests the drain,
+not the wiring. Corrected to read the LEDGER, which is the surface that actually carries the claim.

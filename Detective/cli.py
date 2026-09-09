@@ -753,6 +753,30 @@ def _trace_cut_rows(scope) -> list[str]:
     ]
 
 
+def diagnose_next_action(entangled: bool, seams: int, unspecified_dof: int) -> str:
+    """Diagnose's ONE next action, as a named code (pure — pinned).
+
+    Priority IS the judgement: split before you pin. When both signals agree the function is more
+    than one thing, `decompose` is the move even though behaviour is unpinned — it converges
+    internally, and pinning the pieces afterwards is cheaper than pinning the tangle first and then
+    re-deriving a suite.
+
+      "decompose_first"  two signals agree this is more than one function
+      "close_the_gap"    behaviours with no test pinning them — converge writes them
+      "settled"          every behaviour this function makes is already pinned
+
+    `close_the_gap` and `settled` are CONVERGE'S codes, reused rather than paraphrased. The ledger
+    records (kind, verb, code) so the verb disambiguates, and a shared vocabulary is the point: "you
+    got `close_the_gap` from diagnose and then from converge" is one coherent story, where two
+    spellings of the same state would be two.
+    """
+    if entangled and seams >= 1:
+        return "decompose_first"
+    if unspecified_dof > 0:
+        return "close_the_gap"
+    return "settled"
+
+
 def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
     """Diagnose's ONE next action, in the report's row style.
 
@@ -767,7 +791,11 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
     whole action.
     """
     fn = scope.function
-    if entangled and seams >= 1:
+    kind = diagnose_next_action(entangled, seams, int(spec.unspecified_dof or 0))
+    # The ledger's third outcome site (docs/INVOCATION_LEDGER.md §6) — no output, no branch, no
+    # exit code changes; it records WHICH instruction diagnose gave.
+    observe("outcome", "diagnose", kind)
+    if kind == "decompose_first":
         return [
             f"DO THIS:  detective decompose '{fn}' --apply",
             "",
@@ -776,7 +804,7 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
             _row("", "behaviour survived. If it cannot, it says what it needs"),
             _row("", "and leaves your source untouched."),
         ]
-    if spec.unspecified_dof:
+    if kind == "close_the_gap":
         return [
             f"DO THIS:  detective converge '{fn}'",
             "",
@@ -4016,6 +4044,64 @@ def _format_audit(a, removing: bool = False) -> str:
     return "\n".join(lines)
 
 
+def audit_next_action(
+    block: str,
+    has_failing_tests: bool,
+    killable_gaps: int,
+    missing_lines: int,
+    redundant_tests: int,
+    removing: bool,
+    candidate_equivalent: int,
+    has_equivalent_ids: bool,
+    unclassified: int,
+) -> str:
+    """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
+
+    Extracted 2026-09-09 so the ledger can record WHICH instruction audit gave. The previous
+    session's handoff said this should not be done — "its ladder has no single named code, and
+    inventing one recreates the drift R3 removed" — and that was my own note rather than a ruling,
+    and it was overcautious. R3's drift was two readers of ONE report answering differently; this
+    is one decision with one renderer, and its first branch DELEGATES to `measurement_block_route`
+    rather than restating it, which is the same consumption R3 installed. What the extraction buys
+    is the difference between "you ran audit three times with nothing changing" and "you ran
+    `fix_load` three times" — and only the second names what to stop doing.
+
+      "fix_load"          the module would not import: nothing ran, so every count is blindness
+      "provide_sample"    the search ran and no input reached the function — a sample, not a migrate
+      "fix_failing_test"  the suite contradicts the code, so every number below was measured
+                          against a suite that does not pass. The one branch with no single
+                          command, legitimately: whether the TEST or the CODE is wrong is a call
+                          only a human has standing to make.
+      "close_the_gap"     real killable mutants or uncovered lines — converge writes them
+      "removing_now"      `--remove` is EXECUTING: recommending it mid-run would be a stale
+                          self-instruction computed for the pre-action state
+      "remove_redundant"  tests that kill no mutant and cover no line another does not
+      "flag_equivalents"  every killable behaviour pinned; what remains is undecidable, and `flag`
+                          is the one claim a human makes against the engine — never offered while
+                          a real gap is open, which is why it ranks below all of them
+      "done_unclassified" no gaps, but survivors the search could not run on. Not gaps, not
+                          equivalents — a named unknown rather than a clean DONE
+      "done_complete"     complete and minimal
+
+    ORDER, and each rank has a reason rather than a preference: a measurement that could not RUN
+    outranks everything (Finding E); a failing suite outranks the numbers it invalidates; real gaps
+    outrank bloat; and the human's equivalence judgement comes last.
+    """
+    if block in ("fix_load", "provide_sample"):
+        return block
+    if has_failing_tests:
+        return "fix_failing_test"
+    if killable_gaps > 0 or missing_lines > 0:
+        return "close_the_gap"
+    if redundant_tests > 0:
+        return "removing_now" if removing else "remove_redundant"
+    if candidate_equivalent > 0 and has_equivalent_ids:
+        return "flag_equivalents"
+    if unclassified > 0:
+        return "done_unclassified"
+    return "done_complete"
+
+
 def _audit_action(a, removing: bool = False) -> list[str]:
     """Audit's ONE next action, in the report's row style. Priority order — the order IS the
     judgement.
@@ -4048,7 +4134,23 @@ def _audit_action(a, removing: bool = False) -> list[str]:
         getattr(a, "inputs_expressible", None),
         _needs_sample,
     )
-    if _block == "fix_load":
+    kind = audit_next_action(
+        _block,
+        bool(a.failing_tests),
+        len(a.killable_gaps),
+        len(a.missing_lines),
+        len(a.redundant_tests),
+        removing,
+        int(a.candidate_equivalent or 0),
+        bool(a.candidate_equivalent_ids),
+        int(a.unclassified or 0),
+    )
+    # The ledger's second outcome site (docs/INVOCATION_LEDGER.md §6). Records WHICH instruction
+    # audit gave, so a repeat reads "you ran `fix_load` three times" rather than "you ran this
+    # three times with nothing changing". Process-scoped and swallowed; it changes no output, no
+    # branch and no exit code.
+    observe("outcome", "audit", kind)
+    if kind == "fix_load":
         reason = getattr(a, "note", "") or "the target module could not be imported"
         return [
             f"STOP:  {reason}",
@@ -4059,7 +4161,7 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
             _row("", f"(detective regime names the one in use), then: detective audit '{a.function}'"),
         ]
-    if _block == "provide_sample":
+    if kind == "provide_sample":
         note = getattr(a, "note", "") or "no synthesized input reached the function"
         return [
             f"AUTHOR INPUT:  {note}",
@@ -4069,7 +4171,7 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row("", "`regime --migrate` cannot change. A real sample can."),
             _row("· Then", f"detective converge '{a.function}'"),
         ]
-    if a.failing_tests:
+    if kind == "fix_failing_test":
         # The one branch with no single command, and legitimately so: the next move is a
         # decision only a human has standing to make (is the CODE wrong, or the TEST?), and
         # either answer is a different edit. The mechanical parts are still commands.
@@ -4081,7 +4183,7 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row("", "Detective will not touch it — that call is yours alone."),
             _row("· After fixing", f"detective audit '{a.function}'"),
         ]
-    if a.killable_gaps or a.missing_lines:
+    if kind == "close_the_gap":
         gaps = len(a.killable_gaps)
         lines = len(a.missing_lines)
         why = ", ".join(
@@ -4098,12 +4200,12 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row("· Why", f"{why} — real gaps, not equivalents."),
             _row("· Writes", "the missing tests, and wires them into pytest."),
         ]
-    if a.redundant_tests:
-        if removing:
-            return [
-                _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
-                _row("", "a test pointless here can still be a sibling's only pin."),
-            ]
+    if kind == "removing_now":
+        return [
+            _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
+            _row("", "a test pointless here can still be a sibling's only pin."),
+        ]
+    if kind == "remove_redundant":
         return [
             f"DO THIS:  detective audit '{a.function}' --remove",
             "",
@@ -4112,7 +4214,7 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row("", "re-checks every sibling in the file, keeps any a candidate still contributes"),
             _row("", "to, and edits only this function's own test file — never a cross-file test."),
         ]
-    if a.candidate_equivalent and a.candidate_equivalent_ids:
+    if kind == "flag_equivalents":
         first = a.candidate_equivalent_ids[0]
         more = f"   ({a.candidate_equivalent - 1} more in the report)" if a.candidate_equivalent > 1 else ""
         return [
@@ -4123,7 +4225,7 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row("", "general — the engine will not claim it. Leave them."),
             _row("· If you can PROVE", f"detective flag '{a.function}' {first} --note \"why\"{more}"),
         ]
-    if a.unclassified:
+    if kind == "done_unclassified":
         return [
             "DONE:  no gaps found.",
             "",
@@ -7453,6 +7555,10 @@ def _run_doctor(args) -> int:
         lines.append(_row("", "invalidate what this reports. The full mix is the default."))
         lines.append("")
     live = green_code != "clean"
+    # The ledger's fourth outcome site. Doctor's own read is a process fact — "you ran doctor five
+    # times and it said `deps_elsewhere` every time" is precisely what red exists to name, and the
+    # command that diagnoses the operator must not be the one verb exempt from being observed.
+    observe("outcome", "doctor", f"{green_code}/{yellow_code}")
     lines.append(
         "exit 2 — a setup fault is live; fix it before trusting any verdict from this repo"
         if live
