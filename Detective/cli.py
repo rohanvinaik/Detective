@@ -7351,7 +7351,107 @@ def _run_doctor(args) -> int:
     return 2 if live else 0
 
 
+# The verbs the signpost decorates. Every one is YELLOW in `COMMAND_HERB` and none resolves the
+# regime on its own — the two facts that make the line load-bearing there and redundant on the live
+# verbs, which `_run_live` already guards. One tuple so five handlers cannot drift apart.
+_SIGNPOSTED = ("plan", "survey", "extract", "parsimony", "censor")
+
+
+def _signpost_target(args, root: str) -> str:
+    """The absolute .py file a signposted verb is pointed at, or "" for a directory/other (never
+    raises). Split out of `_run` so the dispatch ladder does not grow branches for it — the flat
+    ladder's fragility is already named at `_STATIC_COMMANDS`."""
+    raw = str(getattr(args, "target", None) or getattr(args, "path", None) or "")
+    if not raw:
+        return ""
+    rel = raw.split("::", maxsplit=1)[0] if "::" in raw else raw
+    if not rel.endswith(".py"):
+        return ""
+    return rel if os.path.isabs(rel) else os.path.join(root, rel)
+
+
+def _signpost_rows(verb: str, root: str, target_file: str = "") -> list[str]:
+    """The per-command signpost (`docs/DOCTOR.md` §4) — never raises, and silent on a clean run.
+
+    A repair system that is not obvious in turn-by-turn output is pointless: the user in the failure
+    state is BY DEFINITION the one who does not know what is wrong, so they never think to run the
+    diagnostic. This is Finding A's failure mode generalised — `decompose` existed all along marked
+    `Next (optional)` and a greenfield user skipped it every time, as did the founder.
+
+    WHY THE STATIC/TASTE COMMANDS AND NOT THE LIVE ONES. Traced 2026-09-09 rather than assumed:
+    `_run_live` already resolves the regime and REFUSES on a conflict for both channels, and R1/R3
+    already route a load failure to `fix_load`. So the live commands hold their own green awareness.
+    The static verbs — plan / survey / extract / parsimony / censor — never resolve the regime at
+    all, and every one of them is YELLOW: they emit taste advice with no way of knowing the
+    environment makes it meaningless. That is exactly §3's G+Y product (unreliability), and it is
+    where the signpost is load-bearing rather than decorative.
+
+    CHEAP BY CONSTRUCTION. It runs inside another command, so it pays only for what is free: the
+    regime resolution these verbs should arguably be doing anyway, one AST parse, `find_spec` per
+    top-level import, and one JSON read of the certificate ledger. It does NOT run green's
+    cross-interpreter probe — that shells out per candidate interpreter, and taxing every healthy
+    `survey` for it would be the diagnostic charging rent. Naming the finding is this line's job;
+    the inference about WHICH interpreter has the package is what `detective doctor` is for.
+    """
+    try:
+        from .doctor import COMMAND_HERB, command_setup_fault, missing_here, signpost_disposition
+        from .doctor import recorded_cut_reasons as _recorded
+        from .doctor import target_imports as _imports
+        from .regime import resolve_regime
+        from .validity import CUT_REASONS
+
+        herb = COMMAND_HERB.get(verb, "")
+        try:
+            conflicts = resolve_regime(root).conflicts
+        except Exception:  # noqa: BLE001
+            conflicts = ()
+        missing = missing_here(_imports(target_file)) if target_file else ()
+        recorded = _recorded(root)
+        fault = command_setup_fault(
+            conflicts[0] if conflicts else "",
+            "target_load_failed" in recorded,
+            "collection_incomplete" in recorded,
+        )
+        if fault == "none" and not missing:
+            return []
+        if signpost_disposition(herb, True, False, False) != "preempted_by_setup":
+            return []
+        named = fault if fault != "none" else "dependency_not_importable"
+        detail = (
+            f"{', '.join(missing)} not importable by this interpreter"
+            if fault == "none"
+            else cut_reason_sentence(named)
+            if named in CUT_REASONS
+            else f"the regime reports {named}"
+        )
+        scope = f" '{os.path.relpath(target_file, root)}'" if target_file else ""
+        return [
+            "",
+            _row("⚠ SETUP FAULT", f"{named} — a GREEN finding outranks this {herb} verdict"),
+            _row("", detail),
+            _row("· Why it matters", "what this command just told you was measured THROUGH that"),
+            _row("", "fault. Fix the setup first, then RE-DERIVE this read — acting on"),
+            _row("", "it now is acting on a measurement of your environment."),
+            _row("· The full read", f"detective doctor{scope}"),
+        ]
+    except Exception:  # noqa: BLE001
+        # A signpost that breaks the command it is decorating is worse than no signpost. It is
+        # advisory about an advisory surface; silence here costs a hint, never a verdict.
+        return []
+
+
 def _run(args) -> int:
+    # THE SIGNPOST, one pre-dispatch site so five verbs cannot drift apart (§4). It PRECEDES the
+    # command's own output rather than replacing it: §4's stricter reading — that a pre-empted
+    # command should not emit its verdict at all — would change what existing commands print, and
+    # withholding a survey the operator asked for is a founder call, not mine. Recorded in
+    # DOCTOR.md §11 rather than taken unilaterally.
+    if args.command in _SIGNPOSTED:
+        root = os.path.abspath(getattr(args, "project_root", ".") or ".")
+        rows = _signpost_rows(args.command, root, _signpost_target(args, root))
+        if rows and not getattr(args, "json", False):
+            print("\n".join(rows))
+
     if args.command == "doctor":
         # Above `_split_target`: the target is OPTIONAL and may be a bare path, so it must not fall
         # into the separator menu the way a required `file::func` verb would.

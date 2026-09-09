@@ -194,6 +194,42 @@ def setup_disposition(
     return "clean"
 
 
+def command_setup_fault(
+    regime_conflict: str,
+    load_failed: bool,
+    collection_incomplete: bool,
+) -> str:
+    """The GREEN fault a RUNNING command already holds the evidence for (pure — pinned).
+
+    The signpost fires inside OTHER commands, so it cannot pay for green's full gathering: the
+    cross-interpreter probe shells out once per candidate interpreter, and making every `converge`
+    pay that would be a diagnostic tax on the healthy path. This is the free read — every input is
+    something the command has already computed.
+
+      "regime_conflict"        `TestRegime.conflicts`, which every command resolves before it runs
+      "target_load_failed"     the run's OWN cut reason: the module would not import
+      "collection_incomplete"  the run's OWN cut reason: a test file failed to collect
+      "none"                   no setup fault this run can see for free. NOT "the setup is fine" —
+                               the full read (`detective doctor`) probes things this cannot.
+
+    DELIBERATELY NOT `setup_disposition` with empty probe arguments. That would return
+    `stale_load_failure` for a load failure the CURRENT run just hit, and "a prior run recorded
+    this, it may be stale" is the opposite of the truth here. Two questions that differ in tense
+    are two decisions; collapsing them would put the wrong remedy under the right code, which is
+    S13's defect one layer out.
+
+    THE ORDER IS THE SAME AS `setup_disposition`'S and for the same reason: a regime conflict makes
+    every verdict from the repo untrustworthy, so it outranks a fault in one target's measurement.
+    """
+    if regime_conflict:
+        return "regime_conflict"
+    if load_failed:
+        return "target_load_failed"
+    if collection_incomplete:
+        return "collection_incomplete"
+    return "none"
+
+
 def taste_disposition(
     scanned: int,
     extractable_core: int,

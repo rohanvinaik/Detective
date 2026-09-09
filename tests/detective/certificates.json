@@ -102,6 +102,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/doctor.py::command_setup_fault": {
+    "cut_reasons": [],
+    "function_digest": "d7f8d8d33869b69c",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/doctor.py::setup_disposition": {
     "cut_reasons": [],
     "function_digest": "83c068e309f5c55a",

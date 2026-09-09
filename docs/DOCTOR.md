@@ -6,7 +6,8 @@ axis (`setup_disposition`, ✓ COMPLETE 15/15, plus its gathering layer), the **
 (`taste_disposition`, ✓ COMPLETE 47/47, consuming `survey_source`), the **`detective doctor` verb**,
 and the first superadditive product (**G+Y ordered remediation**). RED reports `not read` WITH its
 reason rather than an empty section. Exit 2 on a live setup fault, 0 otherwise.
-Not built: RED (blocked on the invocation ledger's persistence shell) and the per-command signpost.
+the **per-command signpost** on the static taste verbs.
+Not built: RED (blocked on the invocation ledger's persistence shell).
 
 ---
 
@@ -478,3 +479,67 @@ independent yellow-only fixture needs a package that is installed and is not a h
 `numpy` (declared by S11) annotated as `np.ndarray`, which is in `_INEXPRESSIBLE_ROOTS`. Four tests
 were written on a wrong model of what `survey_source` flags and were corrected by querying it
 directly rather than by adjusting the assertions.
+
+
+---
+
+## 11. The signpost, as built (2026-09-09)
+
+§4 says "every command knows its own herb", and the first thing grounding changed is WHICH commands
+need the line.
+
+### Traced, not assumed: the live commands already hold their green awareness
+
+`_run_live` resolves the regime and **refuses** on a conflict, for both the human and the `--json`
+channel. R1/R3 already route a `target_load_failed` measurement to `fix_load` with the dependency
+named. So converge / audit / diagnose / decompose / receipt / verify-rewrite are covered, and a
+signpost there would be a second voice saying what the command already says.
+
+The **static taste verbs — plan, survey, extract, parsimony, censor — never resolve the regime at
+all.** Every one is YELLOW. They emit taste advice with no way of knowing the environment makes it
+meaningless, which is precisely §3's G+Y product (unreliability) arriving at the surface where it
+was missing. That is where the signpost is load-bearing rather than decorative.
+
+### Cheap by construction
+
+The signpost runs INSIDE another command, so it pays only for what is free: the regime resolution
+these verbs should arguably be doing anyway, one AST parse, `find_spec` per top-level import, and
+one JSON read of the certificate ledger. It does **not** run green's cross-interpreter probe —
+that shells out per candidate interpreter, and taxing every healthy `survey` for it would be the
+diagnostic charging rent. Naming the finding is the line's job; the inference about WHICH
+interpreter has the package is what `detective doctor` is for.
+
+`command_setup_fault` (✓ COMPLETE 8/8) is deliberately NOT `setup_disposition` with empty probe
+arguments: that would return `stale_load_failure` for a fault the current run just hit, and "a
+prior run recorded this, it may be stale" is the opposite of the truth. Two questions that differ
+in tense are two decisions.
+
+### What it prints
+
+```
+  ⚠ SETUP FAULT        dependency_not_importable — a GREEN finding outranks this yellow verdict
+                       funcy, jax not importable by this interpreter
+  · Why it matters     what this command just told you was measured THROUGH that
+                       fault. Fix the setup first, then RE-DERIVE this read — acting on
+                       it now is acting on a measurement of your environment.
+  · The full read      detective doctor 'motion.py'
+```
+
+Silent on a clean run, silent on `--json` (a parsed contract must not gain a prose banner), and
+silent on any internal failure — a signpost that breaks the command it decorates has cost a verdict
+to deliver a hint.
+
+### OPEN — founder call: should a pre-empted command still emit?
+
+§4's wording is stricter than what is built: *"a command may emit its own verdict only when no
+higher-ranked herb has a live finding. Otherwise it names that finding and offers the full mix"* —
+which reads as WITHHOLDING the verdict, not merely preceding it.
+
+Built as a pre-emption BANNER that precedes the report, and the report still arrives. Withholding a
+survey the operator explicitly asked for changes an existing command's contract, and the softer form
+delivers the warning without that. Not taken unilaterally; if the strict reading is wanted, the
+lattice already returns `preempted_by_setup` and the change is at the one dispatch site.
+
+Also open: the signpost currently fires for GREEN faults only. RED pre-emption of the taste verbs —
+"you are running the taste half before behaviour is pinned" — needs the invocation ledger, and will
+light up the same site when red lands.
