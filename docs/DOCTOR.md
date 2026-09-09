@@ -410,7 +410,9 @@ exit 2 — a setup fault is live; fix it before trusting any verdict from this r
 
 ### Not-read is a rendered state, not an omission
 
-RED and YELLOW are not built, and the report says so in their own sections with the reason. This is
+RED and YELLOW were not built WHEN THIS SECTION WAS WRITTEN (both landed later the same day — §10,
+§12), and the report said so in their own sections with the reason. The principle is what survives,
+and it is the one doctor is most likely to lose: an unread axis is a REPORTED state. This is
 §2's hard requirement applied to doctor itself: swallowing at WRITE time is right, swallowing at
 READ time is what the project exists to prevent, and an empty process section reads as "nothing
 wrong" — the one thing it must not say.

@@ -280,6 +280,31 @@ def ledger_available(root: str) -> bool:
     return os.path.isfile(ledger_path(root))
 
 
+def prune(root: str) -> tuple[str, int]:
+    """DELETE the invocation history. Returns ``(path, bytes)``, or ``("", 0)`` if there was none.
+
+    Deliberately NOT part of ordinary `purge`, and it is the one destructive thing in the tool.
+    Everything `purge` removes is regeneratable by re-running — that is its stated criterion and why
+    it needs no confirmation. History fails that criterion: a re-run appends a NEW entry and cannot
+    reproduce the one that recorded what you did an hour ago.
+
+    Founder ruling 2026-09-09, kept because it is an argument about when a safety rail comes OFF
+    rather than when it goes on: the history "was very useful during debugging/building, and should
+    only be removed if there's no possible way for a mistake in operation, which is obviously far
+    away. Theoretically possible, but not today."
+
+    The CALLER owns the confirmation. A library function that prompts cannot be used by anything
+    that is not a terminal, and this one is also the thing a future automated consumer would want.
+    """
+    path = ledger_path(root)
+    try:
+        size = os.path.getsize(path)
+        os.remove(path)
+    except OSError:
+        return "", 0
+    return path, size
+
+
 def state_basis(has_prior: bool, same_args: bool, cheap_says_changed: bool) -> str:
     """Which digest basis this comparison needs — cheap by default, exact where cheap can LIE
     (pure — pinned; founder ruling 2026-09-09: "cheap with fallback triggered when the situation

@@ -5,7 +5,9 @@ Built: the four pure decisions, the process-scoped observation channel, `state_b
 PERSISTENCE SHELL (append / read / digests / eviction).
 the `try/finally` CALL SITE in `main`.
 and `outcome` propagation across the four verbs an operator actually repeats.
-Not built: `purge --prune`, propagation for the remaining verbs, and doctor's RED axis.
+Not built: propagation for the verbs beyond converge/audit/diagnose/doctor.
+(`purge --prune` landed 2026-09-09 — §11.)
+(Doctor's RED axis landed 2026-09-09 on this ledger — see `DOCTOR.md` §12.)
 
 Prerequisite for [`DOCTOR.md`](DOCTOR.md)'s **red / process** axis, which cannot be built without
 it. Standalone artifact: the founder has named a second use — mining the space past the boundary
@@ -281,7 +283,7 @@ the worse error of the two. It is not escalated because catching it costs a full
 repeat including every healthy one, and its precondition is deliberate mtime restoration rather
 than anything an operator does by accident.
 
-### 8.2 §7.2 `purge --prune` — RULED: yes, with confirmation. Not built yet.
+### 8.2 §7.2 `purge --prune` — RULED: yes, with confirmation. BUILT — see §11.
 
 "Was very useful during debugging/building, and should only be removed if there's no possible way
 for a mistake in operation, which is obviously far away. Theoretically possible, but not today."
@@ -466,3 +468,39 @@ The wiring test first asserted on the observation CHANNEL after running `main`, 
 — because `_record_invocation` drains it in its `finally`, which is exactly the per-invocation
 property another test in the same file pins. Reading the channel after the drain tests the drain,
 not the wiring. Corrected to read the LEDGER, which is the surface that actually carries the claim.
+
+
+---
+
+## 11. `purge --prune`, as built (2026-09-09)
+
+    detective purge --prune [--yes]
+
+The one destructive thing in the tool, and the only one that asks. Everything ordinary `purge`
+removes is regeneratable by re-running — its own stated criterion, and why it needs no
+confirmation. History fails that criterion, so it gets the prompt.
+
+**The safe direction is NO.** A closed stdin, a pipe or a CI job answers no rather than defaulting
+to destructive; `--yes` exists precisely so the scripted case that genuinely wants this can have it
+without the prompt, which is also why silence must not be read as consent. Anything that is not an
+explicit yes is a no.
+
+**Reported apart from the cache count.** History is not cache — that is exactly why it survives an
+ordinary purge — and folding it into "purged N cache file(s)" would undo the distinction at the one
+surface where the user can see it.
+
+```
+nothing to purge — no cached analysis found (a clean state)
+pruned the invocation history (2 KB) — /…/.detective/ledger.jsonl
+  this run is now its first entry; there is no undo.
+```
+
+**The run that pruned becomes the first entry**, and the output says so rather than leaving the
+reader to find a file they asked to be gone. That is not a leak: the prune IS a process fact, and a
+history whose first entry records how it started is self-documenting — the same reasoning as the
+in-band eviction marker. It is also self-limiting: a second prune removes only the first prune's
+record.
+
+The library half (`ledger.prune`) returns what it removed and never raises. The CALLER owns the
+confirmation, because a library function that prompts cannot be used by anything that is not a
+terminal — and this is the function a future automated consumer would most want.

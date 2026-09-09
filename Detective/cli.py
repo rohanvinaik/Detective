@@ -4791,11 +4791,22 @@ def _build_parser() -> argparse.ArgumentParser:
             "NEVER deleted: your test files, and the two things you AUTHORED — "
             "`.detective/inputs.json` (the --input samples you supplied) and "
             "`.detective/equivalents.json` (the mutants you flagged equivalent). Those are "
-            "judgements no re-run can reproduce, so purge does not treat them as cache."
+            "judgements no re-run can reproduce, so purge does not treat them as cache.\n\n"
+            "ALSO NEVER deleted by default: `.detective/ledger.jsonl`, your invocation history. It "
+            "fails the same criterion — a re-run appends a NEW entry and cannot reproduce the one "
+            "that recorded what you did an hour ago — so it is evidence rather than cache. "
+            "`--prune` deletes it deliberately, and asks first, because it is the one thing here "
+            "that no re-run can bring back."
         ),
     )
     purge_p.add_argument("--project-root", default=".", help="project root to purge caches under")
     purge_p.add_argument("--json", action="store_true", help="emit JSON")
+    purge_p.add_argument(
+        "--prune",
+        action="store_true",
+        help="ALSO delete the invocation history (.detective/ledger.jsonl) — asks first; not undoable",
+    )
+    purge_p.add_argument("--yes", action="store_true", help="skip --prune's confirmation (for scripts)")
     regime_p = sub.add_parser(
         "regime",
         help="read how this repo imports its code and runs its tests — the stage every command runs",
@@ -7301,6 +7312,22 @@ def _run_regime(args) -> int:
     return 2 if regime.conflicts else 0
 
 
+def _confirm_prune(root: str) -> bool:
+    """Ask before deleting history. Returns False on anything that is not an explicit yes.
+
+    A non-interactive stdin (a pipe, CI) answers NO rather than defaulting to destructive — the
+    safe direction, and the reason `--yes` exists for the scripted case that genuinely wants it.
+    """
+    from . import ledger as _L
+
+    try:
+        n = len(_L.read_recent(root, limit=100000))
+        reply = input(f"delete {n} recorded invocation(s) at {_L.ledger_path(root)}? [y/N] ")
+    except (EOFError, OSError, KeyboardInterrupt):
+        return False
+    return reply.strip().lower() in ("y", "yes")
+
+
 def _run_purge(args) -> int:
     from Wesker.memory_guard import purge_caches
 
@@ -7313,14 +7340,41 @@ def _run_purge(args) -> int:
     d_removed, d_reclaimed = _vc.purge(args.project_root)
     removed = tuple(w_removed) + tuple(d_removed)
     reclaimed = w_reclaimed + d_reclaimed
+    # --prune: the ONE destructive thing in this tool, and the only one that asks. Everything above
+    # is regeneratable by re-running — purge's own criterion, and why it needs no confirmation.
+    # History is not: a re-run appends a new entry and cannot reproduce the one that recorded what
+    # you did an hour ago. Founder ruling 2026-09-09 — the escape exists and it asks, because "it
+    # should only be removed if there's no possible way for a mistake in operation, which is
+    # obviously far away".
+    pruned: tuple[str, int] | None = None
+    if getattr(args, "prune", False):
+        from . import ledger as _L
+
+        if not _L.ledger_available(args.project_root):
+            print("no invocation history to prune.")
+        elif not (getattr(args, "yes", False) or args.json or _confirm_prune(args.project_root)):
+            print("left the invocation history alone.")
+        else:
+            path, size = _L.prune(args.project_root)
+            if path:
+                pruned = (path, size)
     if args.json:
-        return _emit_json({"removed": list(removed), "reclaimed_bytes": reclaimed}, 0)
+        payload = {"removed": list(removed), "reclaimed_bytes": reclaimed}
+        if pruned:
+            payload["pruned_history"] = {"path": pruned[0], "bytes": pruned[1]}
+        return _emit_json(payload, 0)
     if removed:
         print(f"purged {len(removed)} cache file(s), reclaimed {reclaimed // 1024} KB:")
         for path in removed:
             print(f"  - {path}")
     else:
         print("nothing to purge — no cached analysis found (a clean state)")
+    if pruned:
+        # Reported apart from the cache count on purpose: history is not cache, which is exactly why
+        # it survives an ordinary purge, and folding it into that number would undo the distinction
+        # at the one surface where the user can see it.
+        print(f"pruned the invocation history ({pruned[1] // 1024} KB) — {pruned[0]}")
+        print("  this run is now its first entry; there is no undo.")
     return 0
 
 
