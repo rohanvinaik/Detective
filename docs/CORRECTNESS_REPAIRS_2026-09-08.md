@@ -457,7 +457,7 @@ same axis as the large ones, which is why they are worth carrying rather than fi
 | **S7** | converge's `repair_measurement` render paired R1's precise cut sentence with a generic `· Resolve  inspect the reported engine failure` — which asserts an ENGINE failure that need not exist (`mutant_not_entered` means the engine worked and no test called the mutant). Root cause: **R1 added `target_load_failed` and did not teach `repair_measurement_route` about it**, so the run fell through to `inspect_refusal`. | conorheins `str2bool`, post-R1 | **RESOLVED with R3** |
 | **S8** | The reproducibility-verification step announced itself on every converge / decompose / receipt run and rendered a verdict only on FAILURE — so the certificate silently came to rest on a different measurement than the progress lines described, and silence read as "not run" rather than "passed". | all arms, wave only | **RESOLVED 2026-09-08** — it now confirms on success, on the progress channel so no report row moves |
 | **S9** | ~15 lines of the target repo's own `DeprecationWarning` precede the verdict, burying the next action. Honest passthrough of the repo's warnings. | conorheins | open — calibration, explicitly NOT a correctness finding |
-| **S10** | `test_a_cached_verdict_is_served_consistently_before_and_after_purge` flaked once in three full-suite runs (`rewarm != recold`) and passes 3/3 in isolation. Its own docstring asserts *"Every assert here compares a cold compute to ITS OWN warm read, so it cannot flake on the count noise regardless of load."* That claim is falsified: the warm read after a purge diverged from the recompute that populated it. Either the post-purge warm read is re-measuring rather than serving stored bytes, or the design does not close what it says it closes. | this repo, under full-suite load | **open — measured, not chased.** 0 failures in 10 isolated runs and 0 in the last four full-suite runs; 1 failure in the first three. Load-dependent and rare. The likely mechanism is that the post-purge WARM read sometimes MISSES and recomputes, which re-exposes it to the count noise its docstring claims it is immune to — so the claim, not the cache, is what is wrong. Next step is to assert the warm read was a cache HIT rather than assuming it. Left open deliberately: it is a test-quality issue, the product behaviour it guards is sound in isolation, and chasing it would be a deep cache investigation for a rare flake. |
+| **S10** | `test_a_cached_verdict_is_served_consistently_before_and_after_purge` flaked once in three full-suite runs (`rewarm != recold`) and passes 3/3 in isolation. Its own docstring asserts *"Every assert here compares a cold compute to ITS OWN warm read, so it cannot flake on the count noise regardless of load."* That claim is falsified: the warm read after a purge diverged from the recompute that populated it. Either the post-purge warm read is re-measuring rather than serving stored bytes, or the design does not close what it says it closes. | this repo, under full-suite load | **RESOLVED 2026-09-09 — the CLAIM was wrong, not the cache, and the cause is two correct refusals.** The docstring promised "a cold compute vs ITS OWN warm read, so it cannot flake on the count noise regardless of load" and never checked that the second read was a HIT. It often is not. The dominant reason is the WRITE side: `engine.profile` gates the cache insert on `proof_cache_admits`, and `admits_certificate` is ABSORBING — any cut reason at all means nothing is stored, so the next read recomputes. (Load makes cuts likelier, which is the correlation.) The second reason is `_cache_allowed`: an unobservable regime bypasses read AND write. Both are the tool being careful. With the premise asserted via `diagnose --json`'s `served_from_cache`, the bypass is caught IMMEDIATELY and reproducibly (5/5 on the real fixture) rather than 1-in-3 under load. NOTE FOR THE FOUNDER: the guard now SKIPS more often than it runs, which is honest but means the "stale cache served as fresh" property is largely unexercised — see §S10b |
 | **S11** | **numpy was not a declared dependency** — absent from `pyproject.toml` and `uv.lock`, so CI (which installs from the lock) skipped every test exercising the array work against a real array. | discovered during the pre-push lock bump | **RESOLVED 2026-09-08** — see below |
 | **S16** | CI ran `uv run pytest tests/ … -q` while `pyproject`'s `addopts` **already** sets `-q`. That is `-qq`, which suppresses pytest's summary line entirely — **CI was not printing its own test count.** Same trap that ate my count earlier in this session, in the workflow rather than at my prompt. | `.github/workflows/ci.yml:54` | **RESOLVED with S11** (now `-ra`, which also prints skip reasons) |
 | **S17** | **The documented local gate is NARROWER than CI's.** CLAUDE.md prescribes `ruff format --check Detective tests`; CI runs `ruff format --check .` — deliberately, with a comment recording why (*"#34: docs/theory/*.py drifted unformatted for a release because the gate did not reach docs/"*). So a file outside `Detective/`+`tests/` can pass every documented local gate and redden CI. It just did: `docs/theory/operator_completeness/submission/build_knowability.py` came in with the closure wave unformatted, and I pushed it. | pre-push, this session | **RESOLVED 2026-09-08** — CLAUDE.md's gate now uses `format --check .`, matching CI |
@@ -677,3 +677,33 @@ All five now read `measurement_invalid`, and `next_command` returns `""` where i
 the key ABSENT, which is the pre-field record reading exactly as designed.
 
 Gates: 2803 passed, 24 skipped, exit 0. `behavior_status` ✓ COMPLETE 35/35.
+
+
+---
+
+## §S10b — the guard now skips more than it runs (NEW, founder call)
+
+Asserting S10's premise fixed the flake and exposed a second thing: on the real fixture the warm
+read after a purge is **not** a cache hit, 5 runs out of 5. So
+`test_a_cached_verdict_is_served_consistently_before_and_after_purge` — the "stale cache served as
+fresh" guard — now skips its second half almost every run.
+
+That is strictly better than before, when it silently compared two cold computes and called that a
+cache test. But it means the property is largely UNEXERCISED, and a guard that never runs is a
+guard in name only. Recorded rather than papered over.
+
+The cause is not a defect (see the S10 row): a measurement carrying any cut reason is deliberately
+not stored, and `admits_certificate` is absorbing. Options, none taken unilaterally:
+
+1. **Leave it.** The skip is honest and CI prints the reason (`-ra`, S16), so a change in frequency
+   is visible. Cheapest; the property stays mostly unchecked.
+2. **Give the guard a target that reliably admits a certificate**, so the cold run stores and the
+   warm read genuinely replays. This tests what the docstring claims, every run. Needs a fixture
+   function whose measurement is clean under load — which may not exist on a shared runner.
+3. **Test the property at the cache seam instead** (`put` then `get`, already covered by
+   `test_verdict_cache_roundtrip_intent`) and let the e2e assert only the exit contract. Honest
+   about what an e2e can guarantee, but gives up the end-to-end reading of the property.
+
+Worth noting the shape this shares with §MI and the #60 MCP finding, all three found the same day:
+a claim that holds over the subspace where it was checked, with nothing recording that the subspace
+was a subspace.

@@ -18,6 +18,7 @@ module-scoped fixture (converge is not free) and each runs in its own copy where
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -292,6 +293,51 @@ def test_purge_is_honest_when_there_is_nothing_to_purge(project):
     assert "nothing to purge" in (r.stdout + r.stderr).lower()
 
 
+def _skip_if_cache_bypassed(payload: dict, which: str) -> None:
+    """A read that was NOT served from the cache is not a warm read, and the guard below has no
+    subject (S10).
+
+    TWO CORRECT BEHAVIOURS produce this, and the dominant one is the write side:
+
+    * The preceding run's measurement did not admit a certificate, so it was never STORED.
+      `engine.profile` gates the insert on `verdict_cache.proof_cache_admits(...)`, whose own
+      docstring gives the reason — an invalid measurement "cached and later served as a verdict,
+      with the fact of its invalidity dropped at the moment of storage". `admits_certificate` is
+      ABSORBING: any cut reason at all refuses, so a truncated trace, an uncontained worker or an
+      un-entered mutant each mean nothing is written and the next read recomputes. Load makes cuts
+      likelier, which is why this correlates with a full-suite run.
+    * The regime was unobservable, so the cache was bypassed for read AND write. `engine.py`:
+      "Inside a live session, an empty regime means at least one plugin/config identity was not
+      observable. Two unknown regimes must never compare equal."
+
+    Both are the tool being careful, not a defect. What was wrong is the claim below assuming a
+    warm read always happens. Named rather than silent, because a silent bypass is what made this
+    test flake: the equality quietly stopped being "a cold compute vs its own warm read" and became
+    two INDEPENDENT cold computes, which is exposed to the `approximate:mutant_universe` count
+    noise the docstring claims immunity from. CI prints skip reasons (`-ra`, S16), so a bypass that
+    becomes common is visible in the log instead of being a dot.
+    """
+    if not payload.get("served_from_cache", False):
+        pytest.skip(
+            f"the {which} read was not served from the cache, so there is no warm read to "
+            "compare — the preceding measurement did not admit a certificate (nothing stored), "
+            "or the regime was unobservable (cache bypassed). Both are correct refusals."
+        )
+
+
+def test_the_bypass_guard_fires_on_a_miss_and_stays_out_of_the_way_on_a_hit() -> None:
+    """Both branches of the new guard, pinned. An untested skip path is how a guard silently stops
+    guarding — and this one exists precisely because a silent path made the test above vacuous."""
+    with pytest.raises(Exception, match="not served from the cache") as caught:
+        _skip_if_cache_bypassed({"served_from_cache": False}, "rewarm")
+    assert caught.typename == "Skipped", "a bypass is inconclusive, never a failure"
+    assert "rewarm" in str(caught.value), "the guard names WHICH read was not a hit"
+    # An absent field is a miss, not a hit: the same absence-is-not-falsehood rule the adapter uses.
+    with pytest.raises(Exception, match="not served from the cache"):
+        _skip_if_cache_bypassed({}, "warm")
+    _skip_if_cache_bypassed({"served_from_cache": True}, "warm")  # a hit must not skip
+
+
 def test_a_cached_verdict_is_served_consistently_before_and_after_purge(project):
     """A warm read must equal the cold verdict that POPULATED it — the real "stale cache served as
     fresh" guard — and it must hold again after a purge repopulates. This is deterministic: a cache
@@ -302,21 +348,42 @@ def test_a_cached_verdict_is_served_consistently_before_and_after_purge(project)
     drifts run-to-run by a few borderline mutants flipping scored↔unscored, while the value-kill
     PROOF the certificate rests on is exact (A2, ``project_converge_determinism_bug``). Asserting two
     cold counts are byte-identical tests the estimate, not the verdict — the documented flake this
-    replaces (it reddened CI at 68122d8: ``67`` vs ``66 unpinned``). Every assert here compares a
-    cold compute to ITS OWN warm read, so it cannot flake on the count noise regardless of load."""
+    replaces (it reddened CI at 68122d8: ``67`` vs ``66 unpinned``).
 
-    def headline(r: subprocess.CompletedProcess) -> str:
+    THE PREMISE IS NOW ASSERTED RATHER THAN ASSUMED (S10). This said "every assert here compares a
+    cold compute to ITS OWN warm read, so it cannot flake on the count noise regardless of load",
+    and then never checked that the second read was a HIT. It is not always: the cache is bypassed
+    by design when the pytest regime is unobservable (see :func:`_skip_if_cache_bypassed`), and a
+    bypassed read IS a second independent cold compute — so the sentence promising immunity
+    described a premise the test did not establish. Measured 2026-09-08: `rewarm != recold` once in
+    three full-suite runs, 0/10 isolated. The claim was wrong, not the cache.
+
+    Reads ``--json`` rather than the rendered headline for two reasons: ``served_from_cache`` is a
+    real ``ScopeMap`` field that the human renderer only prints when a trace was truncated
+    (``cli.py``'s ``if not cut: return []``), so stdout is structurally blind to it; and
+    ``specification`` carries the same three numbers the headline renders, making this a strictly
+    stronger comparison at identical subprocess cost.
+    """
+
+    def probe() -> dict:
+        r = _run(project, "diagnose", "shipping.py::shipping_cost", "--json")
+        _skip_if_proof_cut(r)
         assert r.returncode == 0, r.stderr
-        return next(ln for ln in r.stdout.splitlines() if "diagnose ·" in ln)
+        return json.loads(r.stdout)
 
-    def diagnose():
-        return _run(project, "diagnose", "shipping.py::shipping_cost")
-
-    cold = headline(diagnose())  # cache empty → cold compute → populates the verdict cache
-    warm = headline(diagnose())  # cache warm → served from cache → the stored bytes
-    assert warm == cold, "warm cache diverged from the cold verdict it stored"
+    cold = probe()  # cache empty → cold compute → populates the verdict cache
+    assert not cold["served_from_cache"], "the first read of an empty cache cannot be a hit"
+    warm = probe()  # cache warm → served from cache → the stored bytes
+    _skip_if_cache_bypassed(warm, "warm")
+    assert warm["specification"] == cold["specification"], (
+        "warm cache diverged from the cold verdict it stored"
+    )
 
     _run(project, "purge")
-    recold = headline(diagnose())  # purged → cold recompute → repopulates
-    rewarm = headline(diagnose())  # warm read of the repopulated verdict
-    assert rewarm == recold, "warm cache after purge diverged from the recomputed verdict it stored"
+    recold = probe()  # purged → cold recompute → repopulates
+    assert not recold["served_from_cache"], "a purged cache cannot serve the read that follows it"
+    rewarm = probe()  # warm read of the repopulated verdict
+    _skip_if_cache_bypassed(rewarm, "rewarm")
+    assert rewarm["specification"] == recold["specification"], (
+        "warm cache after purge diverged from the recomputed verdict it stored"
+    )
