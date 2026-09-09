@@ -287,6 +287,69 @@ the worse error of the two. It is not escalated because catching it costs a full
 repeat including every healthy one, and its precondition is deliberate mtime restoration rather
 than anything an operator does by accident.
 
+#### 8.1a The escalation was NOT WIRED until 2026-09-09 — and the status line above is why
+
+For a full wave this section read as delivered while the escalation could not fire. `state_basis`
+was ✓ COMPLETE 11/11, exported, documented and tested, with **zero production callers**;
+`"escalate_exact"` appeared nowhere in `Detective/` outside its own definition, and
+`suite_digest(exact=True)` was never called outside tests.
+
+Nothing here was false. This document's status line said *"Built: … `state_basis` …"* — true of the
+decision. What it never said is whether the ESCALATION HAPPENS, and those are two different facts
+about the same name. That is this project's own rule — *two conditions that mean different things
+must not collapse into one truthy check* — applied to a status vocabulary instead of to code, and
+no index built from the vocabulary could have caught it. It was found by asking a question nobody
+had posed: **is every pinned pure decision consumed in production?** (10 of 157 were not; most are
+deliberately library-only research decisions, two were real.)
+
+Measured before the repair, through the real command: three identical `survey` runs reported
+`RED — process  spiral`; a `touch` that moved **zero bytes** (sha identical either side) made the
+finding vanish. Precisely what `state_basis`'s own docstring predicts.
+
+**Where the wire goes, and why it is not a placement preference.** §7.1 posed the digest question as
+a per-run RECORDING choice; `state_basis`'s three parameters are all facts about a COMPARISON
+between two records. The comparison happens in `doctor.red_facts`, by which time the prior run's
+suite bytes are gone — only what a record kept survives it. So the escalation is paid at write time
+(`cli._escalate_suite_digest`), in exactly the terms the ruling used.
+
+**The read side needed its own decision.** `red_facts` compared `prior.state == latest.state`, and a
+record that escalated carries `suite_exact` while one that did not carries no such key — plain dict
+equality would read the PRESENCE of the field as a state change, manufactured by the measurement.
+`ledger.suite_state_comparison` (✓ COMPLETE 7/7) names four facts, and the fourth is the load-bearing
+one:
+
+| code | meaning |
+|---|---|
+| `unchanged_exact` | both records content-hashed the suite and the hashes match — the case the escalation exists for |
+| `changed_exact` | both content-hashed and they differ — a genuine edit, established |
+| `unchanged_cheap` | no exact pair, cheap agrees. Still conclusive: cheap is exact in THAT direction |
+| `unknown` | cheap differs and there is no exact pair. A touch, a checkout, a copy **and a real edit** all land here |
+
+`unknown` maps to "changed", which keeps a state nobody can establish QUIET rather than letting it
+accuse — the safe direction §7.1 named. `doctor.same_recorded_state` (✓ COMPLETE 42/45) is the one
+place the named codes collapse to the bool `spiral_disposition`'s signature takes.
+
+**THE LAG, stated rather than left to be discovered.** An exact pair needs BOTH records to have
+escalated, and a run escalates only when it is a same-args repeat whose cheap digest moved. So a
+ONE-OFF perturbation yields `unknown` and stays quiet, while a REPEATED one — a CI checkout each
+run, a `git stash` loop — is caught from its second comparable pair. A perturbed series therefore
+needs one more invocation to read as a spiral than an unperturbed one does. That is the price of the
+ruled option, which in exchange never taxes a healthy repeat.
+
+Driven end to end, 2026-09-09, five `survey` runs with the bytes constant throughout:
+
+```
+run 1  suite=sha256:d15  suite_exact=(absent)      first run — no prior, pays nothing
+run 2  suite=sha256:d15  suite_exact=(absent)      unchanged repeat — pays nothing
+run 3  suite=sha256:c49  suite_exact=sha256:2ef    touched; cheap moved, so it buys the read
+run 4  suite=sha256:2df  suite_exact=sha256:2ef    touched again — exact digest identical
+run 5  suite=sha256:ce4  suite_exact=sha256:2ef    → RED — process  spiral
+```
+
+And the three directions that had to keep working, each driven: plain identical repeats still report
+`spiral` (the `unchanged_cheap` path, no read bought); a genuine edit is still never a spiral; a
+one-off perturbation still stays quiet.
+
 ### 8.2 §7.2 `purge --prune` — RULED: yes, with confirmation. BUILT — see §11.
 
 "Was very useful during debugging/building, and should only be removed if there's no possible way

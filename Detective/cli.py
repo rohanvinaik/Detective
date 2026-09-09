@@ -5435,6 +5435,45 @@ def _ledger_args(args) -> dict:
     return out
 
 
+def _escalate_suite_digest(
+    root: str, write_dir: str, verb: str, target: str | None, ledger_args: dict, state: dict
+) -> None:
+    """Buy the exact suite digest for the one run that needs it (`INVOCATION_LEDGER.md` §8.1).
+
+    The founder's ruling — "cheap with fallback triggered when the situation knowably calls for it"
+    — has to be paid HERE, and that is not a placement preference. The comparison wanting the exact
+    digest happens later, between two RECORDS, and by then the prior run's suite bytes are gone:
+    only what a record kept survives it. §7.1 posed the question as a per-run recording choice and
+    the ruling answers it in those terms — a first run, a progressed run and an unchanged run all
+    take the stat-walk; only a same-args repeat whose cheap digest moved buys the read.
+
+    `state_basis` is CONSUMED over every case rather than consulted behind a narrower gate written
+    here, which is the measurement/decision gap R3 and §MI both turned out to be instances of.
+
+    Guarded separately from the caller's own guard, deliberately: this is an ENRICHMENT, so failing
+    it must cost the field and never the record. The caller's `except` would have swallowed the
+    whole append.
+    """
+    try:
+        from . import ledger as _L
+
+        prior = [
+            r
+            for r in _L.read_recent(root, limit=200)
+            if isinstance(r, dict) and r.get("verb") == verb and r.get("target") == target
+        ]
+        basis = _L.state_basis(
+            bool(prior),
+            bool(prior) and prior[-1].get("args") == ledger_args,
+            bool(prior) and (prior[-1].get("state") or {}).get("suite") != state.get("suite"),
+        )
+        if basis == "escalate_exact":
+            state["suite_exact"] = _L.suite_digest(write_dir, exact=True)
+    # BLE001: an enrichment that fails costs the field it would have added, never the record
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _record_invocation(args, exit_code, refusal: str, started: float) -> None:
     """Append THIS invocation to the ledger (`docs/INVOCATION_LEDGER.md`) — never raises.
 
@@ -5463,22 +5502,27 @@ def _record_invocation(args, exit_code, refusal: str, started: float) -> None:
         else:
             target_file = os.path.join(root, rel)
         write_dir = os.path.join(root, "tests", "detective")
+        verb = str(getattr(args, "command", "") or "")
+        target = str(raw_target) or None
+        ledger_args = _ledger_args(args)
+        state = {
+            "target_src": _L.file_digest(target_file) if target_file else "",
+            "suite": _L.suite_digest(write_dir),
+            "inputs": _L.file_digest(os.path.join(root, ".detective", "inputs.json")),
+            "equivalents": _L.file_digest(os.path.join(root, ".detective", "equivalents.json")),
+        }
+        _escalate_suite_digest(root, write_dir, verb, target, ledger_args, state)
         record = {
             "v": _L.LEDGER_SCHEMA,
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "dur_ms": int((time.monotonic() - started) * 1000),
-            "verb": str(getattr(args, "command", "") or ""),
-            "target": str(raw_target) or None,
-            "args": _ledger_args(args),
+            "verb": verb,
+            "target": target,
+            "args": ledger_args,
             "exit": exit_code,
             "refusal": refusal or None,
             "env": _ledger_env(root),
-            "state": {
-                "target_src": _L.file_digest(target_file) if target_file else "",
-                "suite": _L.suite_digest(write_dir),
-                "inputs": _L.file_digest(os.path.join(root, ".detective", "inputs.json")),
-                "equivalents": _L.file_digest(os.path.join(root, ".detective", "equivalents.json")),
-            },
+            "state": state,
             # PARTIAL, and named as such rather than left to look complete. Only converge currently
             # calls `observe`, so a converge run carries its named next-action code and every other
             # verb records []. Full propagation is its own step (INVOCATION_LEDGER.md §6).

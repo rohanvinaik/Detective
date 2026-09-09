@@ -539,6 +539,38 @@ def recorded_cut_reasons(root: str, func_key: str = "", write_dir: str = "") -> 
     return tuple(out)
 
 
+def same_recorded_state(a: dict | None, b: dict | None) -> bool:
+    """Whole-`state` equality, with the SUITE component DECIDED rather than compared (pure — pinned).
+
+    Not `a == b`, for a reason the plain form hides: a record that escalated carries `suite_exact`
+    and one that did not carries no such key, so dict equality would read the PRESENCE of the extra
+    field as a state change — a change manufactured by the measurement itself, which is precisely the
+    failure this axis exists to name.
+
+    Every other field is a content digest and compares directly. Only `suite` has two possible bases,
+    so only `suite` needs a decision, and it consumes `ledger.suite_state_comparison` rather than a
+    second reading of the same facts written here.
+
+    Returns a BOOL, against the house rule, because `spiral_disposition`'s signature takes one: the
+    named codes live in the decision this delegates to, and collapsing them happens exactly once, at
+    the boundary that demands it. `unknown` maps to "changed", which keeps a state nobody can
+    establish QUIET rather than letting it accuse — the safe direction `INVOCATION_LEDGER.md` §7.1
+    named, and the one whose opposite is the worse error.
+    """
+    from . import ledger as _L
+
+    a, b = a or {}, b or {}
+    for key in {k for k in (*a, *b) if k not in ("suite", "suite_exact")}:
+        if a.get(key) != b.get(key):
+            return False
+    a_exact, b_exact = a.get("suite_exact", ""), b.get("suite_exact", "")
+    return _L.suite_state_comparison(
+        a.get("suite") == b.get("suite"),
+        bool(a_exact) and bool(b_exact),
+        a_exact == b_exact,
+    ) in ("unchanged_exact", "unchanged_cheap")
+
+
 def red_facts(root: str, herb_of: dict | None = None) -> dict:
     """Read the ledger and answer RED's four questions about the operator (never raises).
 
@@ -576,10 +608,12 @@ def red_facts(root: str, herb_of: dict | None = None) -> dict:
     # work across a codebase.
     prior = [r for r in subjects[:-1] if r.get("verb") == verb and r.get("target") == target]
     same_args = bool(prior) and prior[-1].get("args") == latest.get("args")
-    same_state = bool(prior) and prior[-1].get("state") == latest.get("state")
+    same_state = bool(prior) and same_recorded_state(prior[-1].get("state"), latest.get("state"))
     identical = 0
     for row in reversed(prior):
-        if row.get("args") == latest.get("args") and row.get("state") == latest.get("state"):
+        if row.get("args") == latest.get("args") and same_recorded_state(
+            row.get("state"), latest.get("state")
+        ):
             identical += 1
         else:
             break

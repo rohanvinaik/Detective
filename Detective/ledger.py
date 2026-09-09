@@ -349,6 +349,46 @@ def state_basis(has_prior: bool, same_args: bool, cheap_says_changed: bool) -> s
     return "escalate_exact"
 
 
+def suite_state_comparison(cheap_same: bool, both_exact: bool, exact_same: bool) -> str:
+    """Did the generated suite actually move between two records — and on WHAT basis (pure — pinned).
+
+    The READ half of the founder's ruling in `docs/INVOCATION_LEDGER.md` §8.1. `state_basis` decides
+    at WRITE time whether a run buys the exact digest; this decides what the two records being
+    compared are entitled to conclude. They are separate decisions because they answer questions in
+    different TENSES over different data, and folding them into one would be the sibling drift every
+    repair in `CORRECTNESS_REPAIRS_2026-09-08.md` turned out to be an instance of.
+
+    The names carry the BASIS as well as the verdict, because "the content is unchanged" and "the
+    stat-walk agreed and nobody looked further" are different claims:
+
+      "unchanged_exact"  both records content-hashed the suite and the hashes match. THE case the
+                         escalation exists for: the mtime moved and no byte did.
+      "changed_exact"    both content-hashed and they differ — a genuine edit, established.
+      "unchanged_cheap"  no exact pair, and the cheap digests agree. Still conclusive: the cheap
+                         basis is exact in THAT direction (§8.1's table). Only "changed" can lie.
+      "unknown"          the cheap digests differ and there is no exact pair to check. The one that
+                         must not be rendered as either answer — a `touch`, a checkout, a copy and a
+                         real edit all land here, and the caller treats it as changed (quiet), which
+                         is the safe direction §7.1 named.
+
+    Exact evidence outranks cheap wherever both exist — including the combination the write side
+    cannot currently produce (cheap agreeing while exact disagrees, §8.1's KNOWN LIMIT: content
+    changed with the mtime restored). Deciding it here costs one branch and means a later write-side
+    change cannot silently acquire a wrong answer by fall-through.
+
+    THE LAG, stated rather than left to be discovered. An exact pair needs BOTH records to have
+    escalated, and a run escalates only when it is a same-args repeat whose cheap digest moved. So a
+    ONE-OFF perturbation yields `unknown` and stays quiet, while a REPEATED one — a CI checkout each
+    run, a `git stash` loop — is caught from its second occurrence. That is the price of the ruled
+    option, which in exchange never taxes a healthy repeat.
+    """
+    if both_exact:
+        return "unchanged_exact" if exact_same else "changed_exact"
+    if cheap_same:
+        return "unchanged_cheap"
+    return "unknown"
+
+
 def spiral_disposition(
     has_prior: bool,
     same_args: bool,

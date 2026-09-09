@@ -23,7 +23,7 @@ answer, and each is cheap to act on once answered.
 | ~~**D1**~~ | ~~strict pre-emption~~ | | **RULED AND BUILT 2026-09-09: WITHHOLD.** §4's literal reading. A taste verdict measured through a live setup fault is a measurement of the ENVIRONMENT, and printing it under a warning still leaves the reader free to act on it — which is the unreliability the mix exists to NAME rather than decorate. Exit 2, the same code `doctor` returns for the same finding. `--json` exempt: a parsed contract must not silently change shape. |
 | **D2** | The cache guard **skips more often than it runs**. | [`CORRECTNESS_REPAIRS` §S10b](CORRECTNESS_REPAIRS_2026-09-08.md) | **RULED 2026-09-09: give it a target that reliably admits a certificate**, so the cold run stores and the warm read genuinely replays — the docstring's claim, tested every run. NOT BUILT. Needs a fixture function whose measurement is clean under load; if none exists on a shared runner, that finding is itself worth recording rather than working around. |
 | ~~**D3**~~ | ~~"writes nothing" copy~~ | | **RULED AND BUILT 2026-09-09: "writes nothing to your project".** 17 sites. Machine-facing `note` fields and terse chips use "writes no project files" — the same claim, fewer characters, where the long form did not fit. |
-| **D4** | Should the witness search **try un-exercised branches**? | [`CORRECTNESS_REPAIRS` §R5.1](CORRECTNESS_REPAIRS_2026-09-08.md) | Costs a synthesis pass against a branch no operator asked about. R5/R5b measured that 4/4 "unproven-equivalents" fell to literal inputs, so part of the `modulo N` residual is search budget rather than an undecidability frontier. |
+| **D4** | Does `modulo N unproven-equivalent` **assert a frontier it has not established**? | [`CORRECTNESS_REPAIRS` §R5.1 / §R5b](CORRECTNESS_REPAIRS_2026-09-08.md) | **RE-FRAMED 2026-09-09 — the old wording here ("should the search try un-exercised branches?") was R5.1's, and §R5b explicitly supersedes it:** *"the gap is not 'un-exercised branches' — it is the witness search under-searching a domain it can fully express."* Now **three for three**: `outcome_disposition` 24/28 → 28/28 on four hand inputs; `suite_state_comparison` 7/7 first try; **`same_recorded_state` 23/45 → 42/45**, 18 of 22 "unproven-equivalents" killed by obvious boundary probes — and that third instance is a DICT domain, so the finding is not confined to primitives. The DONE block says the residual *"cannot be distinguished by any input Detective found — whether it is truly equivalent is UNDECIDABLE in general"*, which blurs search budget with Rice. The wording half is explicitly **not** a founder call (§R5); the search half is. This is the only open item where the tool may assert more than it established. |
 | **D5** | **U1** — un-evaluable universe: REFUSE or Incomplete? | [`CORRECTNESS_REPAIRS` §R5 / pabkit ledger](CORRECTNESS_REPAIRS_2026-09-08.md) | **RULED 2026-09-09: it DEPENDS ON WHY — two facts, two answers.** See §2a below. NOT BUILT; it is engine-depth work and deserves a fresh session. |
 
 ### 2a. D5's ruling, in full — because the distinction IS the decision
@@ -55,6 +55,7 @@ absorbing; a third state wants its own place, the way `measurement_invalid` did 
 |---|---|---|---|
 | **W1** | `outcome` propagation for the remaining verbs: plan, survey, extract, decompose, receipt, verify-rewrite, parsimony, censor, flag, regime, purge. | [`INVOCATION_LEDGER` §10](INVOCATION_LEDGER.md) | They record `outcome: []` today; the field is always PRESENT so absent never reads as none. **Recommend waiting for evidence**: converge/audit/diagnose/doctor are where spirals actually happen, and red running against real history will show which absences cost a finding. Building the other eleven now is speculative. |
 | **W2** | Issue **#68(a)** — recursive, import-collecting constructor emitter for nested-object dataclass fields. | [GH #68](https://github.com/rohanvinaik/Detective/issues/68) | The issue calls it "a clean bounded build". Main risk named there: import-name collisions and depth caps. |
+| **W4** | **`reproducibility_verdict` is called AROUND, not called.** `converge.py:2317` computes `set(_survivor_ids(final)) == set(_survivor_ids(verify))` inline and passes it as a **bool** — which is exactly what the pinned decision is, verbatim per its own intent test ("*the verdict is set equality over the survivor ids*"). `should_verify_reproducibility` beside it IS wired, so the gate runs; only the verdict is re-derived. | `Detective/converge.py:2312-2317` | Found 2026-09-09 by the same sweep that found `state_basis`. Lower severity than that one — the information is identical today — but it is the measurement/decision gap in its textbook form, and a third state added to the decision later would not reach the call site. Bounded: one call site. |
 | **W3** | Issue **#70** — BLAS last-ULP drift makes golden float captures platform-specific. | [GH #70](https://github.com/rohanvinaik/Detective/issues/70) | Filed 2026-09-08, untouched by this session. Three suggestions in the issue; the sharpest framing is its own: *"the certificate reads as a platform-independent claim, but a golden of a BLAS result is a platform-specific observation."* |
 
 ---
@@ -80,6 +81,7 @@ grounding off a design doc alone would re-litigate settled ground.
 |---|---|
 | **doctor** | BUILT — green · yellow · red · the verb · the signpost · all four superadditive products. `DOCTOR.md` §8–§12. |
 | **The invocation ledger** | BUILT — persistence shell, the one `try/finally` call site, `outcome` propagation for four verbs, `purge --prune`. `INVOCATION_LEDGER.md` §8–§11. |
+| **The §8.1 digest escalation** | **WIRED 2026-09-09** — it was not, for a full wave, while this file and `INVOCATION_LEDGER.md` both read as delivered. `state_basis` had zero production callers. Now paid at write time (`cli._escalate_suite_digest`) and read through `ledger.suite_state_comparison` ✓ 7/7 + `doctor.same_recorded_state` ✓ 42/45. See `INVOCATION_LEDGER.md` §8.1a, which also states the one-invocation lag. |
 | **S3** | RESOLVED with R2; the row said "open" for a wave after it landed. |
 | **S4** | **STRUCK — the premise was false.** `refusal` is the `incomplete`-disambiguator, not a "why ungateable" field. Filed by reading the field's NAME instead of its contract. |
 | **S5** | Diagnosed by S13, remedy ruled by S15. Closed. |
@@ -113,6 +115,22 @@ because it is not a coding error — it is an epistemic one:
   passing tests.
 - **"Writes nothing"** — asserted by whole-tree mtime, a proxy that agreed with the intent only
   while the invocation ledger did not exist.
+- **The §8.1 escalation** (found 2026-09-09) — the subspace was the DECISION. `state_basis` was
+  ✓ COMPLETE, exported, documented and tested, and had no production caller, so every check that
+  could pass did, and none of them covered whether the escalation happens. The status vocabulary is
+  what carried it: "Built: … `state_basis` …" is true of a decision and silent about a behaviour,
+  which is *"two conditions that mean different things must not collapse into one truthy check"*
+  applied to prose instead of to code.
+
+**A seventh instance, and it is worth separating from the six.** The six above were all found by
+grounding a claim someone had already written down. The seventh was found by asking a question
+**nobody had posed** — *is every pinned pure decision consumed in production?* No index can list an
+item nobody thought to file, so the closure discipline needs questions of that shape, not just
+better indexing. The other two worth asking, both decidable properties of the reference graph rather
+than proxies for meaning: *does every consumer distinguish ALL of a decision's states?* (the
+generalised form of §MI and #60) and *does each layer consume the computed signal or re-derive it?*
+(which is W4). The sweep that asked the first one returned 10 of 157 unconsumed — most deliberately
+library-only research decisions, two real.
 
 The common remedy is not more tests; it is **asking what the check does NOT cover, and recording
 that**. A guard that swallows its own failure needs a test per BRANCH, because its failure mode is
