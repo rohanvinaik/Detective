@@ -2314,7 +2314,12 @@ def _converge_impl(
                 bool(getattr(_verify_result, "served_from_cache", False)),
                 bool(_before_basis and _after_basis),
                 _before_basis == _after_basis,
-                set(_survivor_ids(final_result)) == set(_survivor_ids(_verify_result)),
+                # W4: this WAS an inline `set(a) == set(b)`, which made
+                # `test_the_verdict_is_set_equality_over_the_survivor_ids` — the intent guard for
+                # exactly this property — point at a function production never called. Order- or
+                # duplicate-sensitivity could have been introduced here and that test stayed green.
+                reproducibility_verdict(_survivor_ids(final_result), _survivor_ids(_verify_result))
+                == "reproducible",
                 _measured_mutant_ids(final_result) == _measured_mutant_ids(_verify_result),
             )
             if _check == "reproducible":

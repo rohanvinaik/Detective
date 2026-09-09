@@ -94,6 +94,18 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/consumption.py::consumption_disposition": {
+    "cut_reasons": [],
+    "function_digest": "a6362f174311a027",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/consumption.py::declares_pinned_decision": {
+    "cut_reasons": [],
+    "function_digest": "36c3dc3957cb5550",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/converge.py::regression_recovery": {
     "function_digest": "7e75a398531f11cd",
     "refusal": "",
