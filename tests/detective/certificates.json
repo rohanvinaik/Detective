@@ -324,10 +324,34 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/synthesis/characterization.py::float_bearing": {
+    "cut_reasons": [],
+    "function_digest": "6a0afd721517709f",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/synthesis/characterization.py::golden_observation_scope": {
+    "cut_reasons": [],
+    "function_digest": "aec73fe1483cd6ef",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/synthesis/characterization.py::observation_stamp": {
+    "cut_reasons": [],
+    "function_digest": "41d56a490508c84f",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/synthesis/typed_synthesis.py::_extract": {
     "function_digest": "7cd9190bc2dabe35",
     "refusal": "",
     "standing": "complete"
+  },
+  "Detective/synthesis/writer.py::numeric_backend_for": {
+    "cut_reasons": [],
+    "function_digest": "b5d7911dded337c1",
+    "refusal": "",
+    "standing": "incomplete"
   },
   "Detective/validity.py::cut_reason_sentence": {
     "function_digest": "9b6852d884447520",

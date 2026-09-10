@@ -511,6 +511,82 @@ def value_capture_coupling(disposition: str) -> str:
     return "none"
 
 
+def float_bearing(value: Any) -> bool:
+    """Does this captured value carry a float anywhere inside it (#70, pure — pinned).
+
+    Recursive through containers for the same reason :func:`is_expressible` is: a golden of
+    ``{"score": 0.44001427868311976}`` is exactly as platform-exposed as a bare float, and a flat
+    check would stamp the first and miss the second.
+
+    ``bool`` is excluded deliberately — it is an ``int`` subclass in Python and never carries a last
+    ULP. Ints and strings are exact on every platform, which is the whole point of asking.
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, float):
+        return True
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(float_bearing(v) for v in value)
+    if isinstance(value, dict):
+        return any(float_bearing(k) or float_bearing(v) for k, v in value.items())
+    return False
+
+
+def golden_observation_scope(has_float_golden: bool, numeric_backend: str) -> str:
+    """What a suite's float goldens are a claim ABOUT (#70, pure — pinned).
+
+    Issue #70, in its own words: *"the certificate reads as a platform-independent claim, but a
+    golden of a BLAS result is a platform-specific observation."* Measured there: three captures
+    from `numpy.linalg` differ by one unit in the last place between macOS/Accelerate and
+    ubuntu/OpenBLAS, while every pure-Python float pin in the same repository passes on both.
+
+    THE EPISTEMIC SHAPE, and it is this session's recurring one. A capture is called deterministic
+    because `corroborate_captures` observed it twice — ON ONE MACHINE. That establishes stability
+    over the subspace it sampled and says nothing about the other axis, and nothing recorded that
+    the subspace was a subspace. Founder ruling 2026-09-09 chose the issue's option 2: **scope the
+    claim, do not weaken it.** No tolerance, no approximate equality — the pin stays exact and the
+    file says what it is exact ABOUT.
+
+      "platform_specific"     a float golden, produced with a platform-dependent numeric backend
+                              loaded. The bits are an observation of THIS machine's numeric stack.
+      "platform_independent"  no float golden, or no such backend. Pure-Python float arithmetic is
+                              IEEE-deterministic across platforms, so a 17-digit repr from it is
+                              NOT platform-specific and must not be stamped as though it were.
+
+    BOTH INPUTS ARE REQUIRED, and that is what keeps the stamp meaningful rather than universal. A
+    stamp on every float would make the note the line nobody reads — the signpost discipline's own
+    defect — and would also be false about the ordinary case.
+
+    KNOWN LIMIT, stated rather than papered over: `numeric_backend` is "a backend is loaded in this
+    process", not "this function called into it". A module that imports numpy and computes its float
+    in pure Python is stamped anyway. That is the safe direction on purpose — over-stamping costs a
+    comment, under-stamping costs a reader diagnosing a platform difference as a regression — and it
+    is why this SCOPES rather than refuses: a wrong stamp is a wrong note, never a lost pin.
+    """
+    if has_float_golden and numeric_backend:
+        return "platform_specific"
+    return "platform_independent"
+
+
+def observation_stamp(platform: str, backend: str) -> str:
+    """The header line a `platform_specific` suite carries, or "" (#70, pure — pinned).
+
+    Written to be read at the moment of failure by someone who did not generate the file, so it
+    states the fact, the reason and the action in that order and does not editorialise. Empty for
+    either fact missing, because a stamp naming an unknown platform is worse than none: it looks
+    like provenance and carries none.
+    """
+    if not platform or not backend:
+        return ""
+    return (
+        f"Float goldens below were OBSERVED on {platform} with {backend}. A float produced "
+        f"through a platform-dependent numeric backend is an observation of that stack, not a "
+        f"platform-independent claim: the same call can differ in the last unit in the last "
+        f"place elsewhere. A mismatch on another platform is a DIFFERENT PLATFORM before it is "
+        f"a regression — re-generate there and compare the two, rather than treating this as red."
+    )
+
+
 def _try_capture(
     func: Callable[..., Any],
     args: tuple[Any, ...],

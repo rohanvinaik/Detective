@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import ast
 import os
+import platform
 import re
 import sys
+import textwrap
 
+from .characterization import float_bearing, golden_observation_scope, observation_stamp
 from .oracle_light import ExecutableProperty, generate_executable_property
 
 _INDENT = "    "
@@ -99,7 +102,69 @@ def _ruff_format(source: str) -> str:
     return proc.stdout
 
 
-def render_module(func_key: str, props: list[ExecutableProperty], function_digest: str | None = None) -> str:
+def _has_float_golden(props: list[ExecutableProperty]) -> bool:
+    """Does any golden in this suite pin a value carrying a float (#70)?
+
+    `golden_case` holds REPRS, not values, so the literal is evaluated back before asking. A repr
+    that is not a literal (an object pinned by `repr(result) ==`) cannot be read this way and is
+    treated as float-free — under-stamping rather than guessing, on the same reasoning as the rest
+    of this path: a wrong stamp looks like provenance and carries none.
+    """
+    for prop in props:
+        if prop.golden_case is None:
+            continue
+        try:
+            if float_bearing(ast.literal_eval(prop.golden_case[1])):
+                return True
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            continue
+    return False
+
+
+def numeric_backend_for(target_source: str) -> str:
+    """The platform-dependent numeric backend THIS TARGET imports, with its loaded version, or "".
+
+    Two facts, and both are needed. The AST of the target's own source says whether this FUNCTION's
+    module reaches a backend; `sys.modules` says which version is actually here to name.
+
+    THE FIRST VERSION OF THIS ASKED ONLY THE SECOND, and driving it caught the mistake immediately:
+    a pure-Python `ratio(a, b)` in a project whose `tests/detective/` held one numpy-importing
+    generated test came out STAMPED, because the live pytest session had loaded numpy into the
+    process. "A backend is loaded somewhere" is true of every file in any project that uses numpy
+    anywhere — a stamp on all of them is the line that always appears, which is the signpost
+    discipline's own named defect, and it would also be false about the ordinary case.
+
+    Reads the SOURCE TEXT it is given rather than importing anything: asking a module whether it
+    uses numpy by importing it would execute the target to answer a question about the target.
+    """
+    try:
+        tree = ast.parse(target_source)
+    except (SyntaxError, ValueError):
+        return ""
+    roots: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            roots.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            roots.add(node.module.split(".")[0])
+    for name in ("numpy", "scipy"):
+        if name in roots:
+            mod = sys.modules.get(name)
+            return f"{name} {getattr(mod, '__version__', '?')}" if mod is not None else name
+    return ""
+
+
+def _observation_platform() -> str:
+    """This machine's identity, for the #70 stamp — impure accessor."""
+    return f"{sys.platform}-{platform.machine()}"
+
+
+def render_module(
+    func_key: str,
+    props: list[ExecutableProperty],
+    function_digest: str | None = None,
+    numeric_backend: str = "",
+) -> str:
     """Render a pytest module from already-built (and possibly filtered) properties.
 
     The final layout is ruff's, not ours — see :func:`_ruff_format`. What this function
@@ -147,6 +212,23 @@ def render_module(func_key: str, props: list[ExecutableProperty], function_diges
     # is the file's manners in a consumer repo (issue #21): who regenerates it,
     # and why its lines lint loudly.
     digest_line = f"{FUNCTION_DIGEST_PREFIX}{function_digest}.\n" if function_digest else ""
+    # #70, founder ruling 2026-09-09: SCOPE the claim, do not weaken it. A float golden produced
+    # with a platform-dependent numeric backend loaded is an observation of THIS machine's numeric
+    # stack — measured there as a last-ULP difference between Accelerate and OpenBLAS. The pin stays
+    # exact; the file says what it is exact ABOUT, so a mismatch elsewhere reads as a different
+    # platform before it reads as a regression. Emitted ONLY for a `platform_specific` suite, so a
+    # pure-Python float pin (IEEE-deterministic across platforms) is untouched and the header of
+    # every existing suite is byte-identical.
+    # Supplied by the caller (which holds the target's source) rather than sniffed here, and
+    # defaulting to "" so every existing caller and test renders a byte-identical header — the same
+    # opt-in contract `function_digest` above keeps, and for the same reason.
+    backend = numeric_backend
+    stamp = ""
+    if golden_observation_scope(_has_float_golden(props), backend) == "platform_specific":
+        # Wrapped here rather than left to ruff, which does not reflow docstrings — an over-long
+        # line would fail the `ruff check` of the repo this file lands in, which is the one promise
+        # a generated suite must keep.
+        stamp = "\n" + textwrap.fill(observation_stamp(_observation_platform(), backend), width=88) + "\n"
     header = (
         f'"""Auto-generated by Detective — warrant-classed tests for {func_key}.\n'
         f"{digest_line}"
@@ -154,7 +236,7 @@ def render_module(func_key: str, props: list[ExecutableProperty], function_diges
         "Regenerated wholesale by `detective converge`; hand edits will be\n"
         "overwritten. Witness lines carry full fidelity on purpose — for the\n"
         'per-glob lint-ignore snippet see "Generated tests & lint" in\n'
-        'Detective\'s README."""'
+        f'Detective\'s README.{stamp}"""'
     )
     parts = [header, ""]
     if imports:

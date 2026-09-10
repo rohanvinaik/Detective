@@ -1676,6 +1676,19 @@ def _converge_impl(
     from . import pins
 
     fn_digest = pins.function_digest(node)
+    # #70: whether THIS target's module reaches a platform-dependent numeric backend. Computed here,
+    # once, because this is the layer that holds the target's source — the renderer must not sniff
+    # the process, which answers "is numpy loaded anywhere" and stamps every float in any project
+    # that uses numpy at all. Empty on any read failure, which renders exactly today's header.
+    try:
+        from .synthesis.writer import numeric_backend_for
+
+        _full_target = file if os.path.isabs(file) else os.path.join(project_root, file)
+        with open(_full_target, encoding="utf-8") as _fh:
+            fn_backend = numeric_backend_for(_fh.read())
+    # BLE001: a provenance stamp must never be what stops a suite being written
+    except Exception:  # noqa: BLE001
+        fn_backend = ""
     # Keyed by SEMANTIC identity, not assertion text (#61). Two properties whose assertion
     # reads the same but whose setup, inputs, preconditions or intended mutant differ are
     # different obligations; keying on the text dropped the second as a duplicate and silently
@@ -1815,7 +1828,9 @@ def _converge_impl(
         new_sound = [p for p in sound if property_identity(p) not in accumulated]
         for p in new_sound:
             accumulated[property_identity(p)] = p
-        source = render_module(func_key, list(accumulated.values()), function_digest=fn_digest)
+        source = render_module(
+            func_key, list(accumulated.values()), function_digest=fn_digest, numeric_backend=fn_backend
+        )
         if source and write_dir:
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, func_key, root) or None
@@ -1954,7 +1969,9 @@ def _converge_impl(
                 "(crash-only survivor reached by no existing test)"
             )
         if witnessed:
-            source = render_module(func_key, list(accumulated.values()), function_digest=fn_digest)
+            source = render_module(
+                func_key, list(accumulated.values()), function_digest=fn_digest, numeric_backend=fn_backend
+            )
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, func_key, root) or None
             say(f"witness pass: +{n_witnessed} distinguishing kill test(s) auto-written")
@@ -2039,7 +2056,12 @@ def _converge_impl(
             accumulated = {k: v for k, v in accumulated.items() if k not in drop}
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             if accumulated:
-                source = render_module(func_key, list(accumulated.values()), function_digest=fn_digest)
+                source = render_module(
+                    func_key,
+                    list(accumulated.values()),
+                    function_digest=fn_digest,
+                    numeric_backend=fn_backend,
+                )
                 written_path = _write(source, target, func_key, root) or None
             elif written_path:
                 # Every generated property was redundant against stable user evidence:
@@ -2132,7 +2154,9 @@ def _converge_impl(
         )
         accumulated = pre_minimal
         target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-        source = render_module(func_key, list(accumulated.values()), function_digest=fn_digest)
+        source = render_module(
+            func_key, list(accumulated.values()), function_digest=fn_digest, numeric_backend=fn_backend
+        )
         written_path = _write(source, target, func_key, root) or None
         final_result = profile(
             file,
