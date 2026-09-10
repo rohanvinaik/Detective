@@ -2,44 +2,6 @@
 
 Notable changes, newest first. Dates are the commit dates.
 
-## Unreleased
-
-### The rewrite itself is now a proof obligation
-
-`verify-rewrite` could return `PRESERVED` for a rewrite that provably changed behaviour, and this
-was measured on the shipped 1.0.0 rather than reasoned about. Wesker's own policy had disclosed
-the gap all along — `order: 1`, `generation: original-ast`, and in `exclusions`: *"kills do not
-certify compositions of operators (see the composite-blind-spot witness in issue #11)."*
-
-That witness: `f(a,b,c) → g(a,b,c)` rewritten to `g(c,b,a)`. Both adjacent transpositions are
-killed, so converge reports `✓ COMPLETE · 4/4 killed`; their composite agrees at the tested point
-and differs at `(1,2,3)` — 14 against 10. The verb returned `✓ PRESERVED` and printed *"matches
-old-vs-new at every tested input"*, which was **true about an empty set**: no new dimension meant
-no witness meant no comparison ever ran. The policy was honest; the rendering was not.
-
-The cause was upstream of mutation entirely. Replay describes the suite, and profiling describes
-the new source; neither describes the **transformation**. `verify_rewrite` read the rewritten
-source into a variable called `_new_source` — underscore-prefixed, deliberately discarded.
-
-- **`Detective/delta.py`** computes the semantic delta between the receipt's original and the
-  rewrite, names each change as its own hypothesis (`call_arg_order`, `constant_value`,
-  `exception_region`, …), and directs a separation search at it. More operators would not have
-  helped: both versions of that call are *identical syntax*.
-- **A versioned transformation census** carries a disposition for every kind the emitter can
-  produce, with a test that reads the emitter's own AST and fails if any kind is undeclared. An
-  unclassified delta **cannot** produce `PRESERVED` — fail-safe, not fail-open.
-- **The probe families are reasoned, not random.** A permutation is invisible exactly when the
-  permuted positions hold equal values, so an ordering delta is probed with pairwise-**distinct**
-  inputs, across several types — `a + b + c` reversed is equivalent over numbers and is not over
-  strings or lists.
-- **"We did not look" can no longer render as "we looked and found nothing."** An identity rewrite
-  and an unsearched one both arrive with `searched=False`; they now return different codes.
-
-The census criterion is **observability, not structure** — a correction the build itself forced.
-The first version called every structural edit unsupported, which read as conservative and was
-wrong: introducing a local temporary is a statement-count change, the most common benign refactor
-there is, and it came back `UNREVIEWED`.
-
 ## 1.0.0 — 2026-09-09
 
 First stable release. 113 commits since 0.13.0 (2026-08-27). Requires `Wesker>=1.0.0`.

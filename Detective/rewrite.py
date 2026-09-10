@@ -15,42 +15,19 @@ exercised the newly introduced predicate. This module closes that gap with a two
 
 The verdict never upgrades "no witness found" to "preserved": a new dimension or an old/new
 difference refuses automatic preservation, and replacing the receipt requires explicit acceptance.
-
-Step 2 gained a THIRD obligation in #37/#15: the rewrite itself. Replay and mutant-profiling both
-describe the suite and the new source; neither describes the TRANSFORMATION, so a rewrite whose
-delta nothing examined could reach PRESERVED on a green replay alone. Measured on the shipped
-1.0.0 with Wesker #11's composite-permutation witness — every first-order argument swap killed,
-their composite not. :mod:`Detective.delta` computes the delta, classifies it against a versioned
-census, and directs a separation search at it; an unclassified or unmodelled delta cannot produce
-PRESERVED.
 """
 
 from __future__ import annotations
 
 import ast
 import hashlib
-import inspect
 import json
 import os
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from .delta import (
-    census_id,
-    delta_disposition,
-    semantic_deltas,
-    separation_probes,
-    separation_verdict,
-)
-
 _RECEIPT_SCHEMA = "detective-rewrite-receipt/1"
-
-# `equivalence._outcome`'s marker for a call it could not observe. Named once because the two
-# places that read it must agree: a timeout is "could not observe", never "observed something
-# else", and a differential that counted it as a difference would manufacture a CHANGED verdict
-# out of a slow machine.
-_TIMEOUT_MARKER = "<classifier-timeout"
 
 
 @dataclass(frozen=True)
@@ -213,14 +190,6 @@ class RewriteVerification:
     differences: tuple[str, ...]  # inputs where OLD and NEW implementations produced different results
     abstentions: tuple[str, ...]  # inputs where old-vs-new could not be safely compared
     note: str = ""
-    # The rewrite ITSELF as an obligation (#37/#15). `deltas` is what structurally changed between
-    # the receipt's original source and the new one; `delta_status` is what the delta-directed
-    # separation search warrants. Before these existed, a rewrite whose delta nothing looked at
-    # could ride a green replay to PRESERVED — the composite blind spot Wesker's policy discloses
-    # in `exclusions` and which `Detective/delta.py` documents with its shipped witness.
-    deltas: tuple[str, ...] = ()
-    delta_status: str = ""
-    census_id: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, default=str)
@@ -233,7 +202,6 @@ def rewrite_verdict(
     new_dimensions: int,
     differences: int,
     abstentions: int,
-    delta_status: str,
 ) -> str:
     """The rewrite-preservation verdict (issue #37, pure — Detective-pinned).
 
@@ -250,32 +218,15 @@ def rewrite_verdict(
     * ABSTAIN again for any residual that could not be compared (unclassified / candidate-equivalent
       survivors fold into ``abstentions``).
     * PRESERVED only when ALL hold: valid baseline, classification ran, proof replays green, no new
-      dimension, no difference, no abstention, AND the rewrite's own delta is discharged.
-
-    ``delta_status`` is :func:`Detective.delta.separation_verdict`'s code, and it is the axis that
-    was missing. The other six describe the SUITE and the new source's mutant profile; none of them
-    describes the TRANSFORMATION. A rewrite whose delta nothing examined used to reach PRESERVED
-    through this function on the strength of a green replay — measured on the shipped 1.0.0 with
-    Wesker #11's composite-permutation witness, where every first-order swap was killed and their
-    composite was not. Each code lands where its evidence puts it:
-
-    * ``changed`` is PROOF of a behavioural difference (a probe separated old from new), so it
-      joins the CHANGED clause alongside a red replay.
-    * ``unmodelled_delta`` is a named delta kind this census version models no search for. It is
-      UNREVIEWED for the same reason a new dimension is: the rewrite contains something real that
-      was not reviewed, and the reader must look.
-    * ``unclassified_delta`` and ``not_searched`` are ABSTAIN — the first is a defect in the census
-      (the emitter produced a kind nobody declared), the second is the soundness gate that keeps
-      "we did not look" from rendering as "we looked and found nothing".
-    * ``no_delta`` and ``separated_none`` carry no objection and fall through.
+      dimension, no difference, no abstention.
     """
     if not receipt_valid or not classification_ran:
         return "ABSTAIN"
-    if not proof_replayed_ok or differences > 0 or delta_status == "changed":
+    if not proof_replayed_ok or differences > 0:
         return "CHANGED"
-    if new_dimensions > 0 or delta_status == "unmodelled_delta":
+    if new_dimensions > 0:
         return "UNREVIEWED"
-    if abstentions > 0 or delta_status in ("unclassified_delta", "not_searched"):
+    if abstentions > 0:
         return "ABSTAIN"
     return "PRESERVED"
 
@@ -392,65 +343,6 @@ def _node_file_digest(root: str, node_id: str) -> str:
             return hashlib.sha256(fh.read(), usedforsecurity=False).hexdigest()[:16]
     except OSError:
         return ""
-
-
-def _positional_arity(fn: Callable[..., Any]) -> int:
-    """How many plain positional parameters ``fn`` takes, or ``-1`` if it cannot be probed.
-
-    ``-1`` (rather than 0) for a signature carrying ``*args``/``**kwargs``, keyword-only params, or
-    no readable signature: those are shapes this version's probe families do not model, and a
-    fabricated probe would be a distinction the search cannot actually make. The caller turns a
-    ``-1`` into "not searched", which forbids PRESERVED — the honest reading.
-    """
-    try:
-        sig = inspect.signature(fn)
-    except (TypeError, ValueError):
-        return -1
-    n = 0
-    for p in sig.parameters.values():
-        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD, p.KEYWORD_ONLY):
-            return -1
-        n += 1
-    return n
-
-
-def _separation_search(
-    old_fn: Callable[..., Any] | None,
-    new_fn: Callable[..., Any] | None,
-    separable: list[str],
-) -> tuple[bool, list[str]]:
-    """Probe old and new at inputs aimed at the symmetries ``separable`` could hide behind.
-
-    Returns ``(searched, separations)``. ``searched`` is False whenever the search could not be
-    MADE — either callable is missing, the signature is unprobeable, or no separable delta exists
-    — and the caller must not read that as a clean result. This mirrors the ``classification_ran``
-    gate directly above it: no measurement, no verdict.
-
-    A probe that makes BOTH sides raise is agreement, not a difference: two implementations that
-    both reject ``('a','b','c')`` with TypeError have not been distinguished by it. Only a genuine
-    outcome mismatch counts, and a timeout on either side is discarded rather than counted, since
-    ``<classifier-timeout>`` is "could not observe", not "observed something else".
-    """
-    if old_fn is None or new_fn is None or not separable:
-        return False, []
-    arity = _positional_arity(new_fn)
-    if arity < 0 or arity != _positional_arity(old_fn):
-        return False, []
-    probes = separation_probes(arity, list(separable))
-    if not probes:
-        return False, []
-
-    from .equivalence import _outcome
-
-    found: list[str] = []
-    for probe in probes:
-        old_out = _outcome(old_fn, tuple(probe))
-        new_out = _outcome(new_fn, tuple(probe))
-        if old_out.startswith(_TIMEOUT_MARKER) or new_out.startswith(_TIMEOUT_MARKER):
-            continue
-        if old_out != new_out:
-            found.append(f"{tuple(probe)!r}: old={old_out} new={new_out}")
-    return True, found
 
 
 def _function_source(file_full: str, function: str) -> tuple[str, Any, str] | None:
@@ -581,9 +473,7 @@ def verify_rewrite(
     fs = _function_source(full, function)
     if fs is None:
         raise LookupError(f"function {function!r} not found in {file}")
-    # Named rather than discarded as of #37/#15. This was `_new_source` — read, then thrown away —
-    # which is the whole defect in one identifier: the rewrite was in hand and nothing looked at it.
-    new_source, new_node, qualname = fs
+    _new_source, new_node, qualname = fs
 
     # BIND the receipt to the requested target BEFORE anything is measured (#37, reopened). The
     # requested key is built exactly as ``converge`` builds a receipt's ``function`` (relpath::qualname,
@@ -690,7 +580,7 @@ def verify_rewrite(
                 continue
             old_out = _outcome(old_fn, w.args)
             new_out = _outcome(new_fn, w.args)
-            if old_out.startswith(_TIMEOUT_MARKER) or new_out.startswith(_TIMEOUT_MARKER):
+            if old_out.startswith("<classifier-timeout") or new_out.startswith("<classifier-timeout"):
                 abstentions.append(f"{verdict.mutant_id} @ {w.args!r}")
             elif old_out != new_out:
                 differences.append(f"{w.args!r}: old={old_out} new={new_out}")
@@ -721,38 +611,8 @@ def verify_rewrite(
         say("⚠ the receipt is not a complete, verified baseline — preservation cannot be established")
     if not classification_ran:
         say("⚠ survivor classification could not run on the rewritten source — abstaining")
-
-    # 4. THE REWRITE ITSELF (#37/#15). Everything above describes the SUITE and the new source's
-    #    mutant profile; none of it describes the TRANSFORMATION. Compute what actually changed,
-    #    classify it against the versioned census, and direct a search at the symmetries those
-    #    kinds could hide behind. Without this a rewrite nothing examined rode a green replay to
-    #    PRESERVED — see `Detective/delta.py` for the shipped witness.
-    deltas = semantic_deltas(receipt.original_source, new_source)
-    dispositions = [delta_disposition(k) for k in deltas]
-    separable = [k for k, d in zip(deltas, dispositions, strict=True) if d == "separable"]
-    n_unsupported = sum(1 for d in dispositions if d == "unsupported")
-    n_unclassified = sum(1 for d in dispositions if d == "unclassified")
-    searched, separations = _separation_search(old_fn, new_fn, separable)
-    differences.extend(separations)
-    delta_status = separation_verdict(
-        len(separable), searched, len(separations), n_unsupported, n_unclassified
-    )
-    if separations:
-        say(f"⚠ the rewrite's own delta is behaviour-changing at {len(separations)} probed input(s)")
-    elif delta_status == "unmodelled_delta":
-        unmodelled = ", ".join(k for k, d in zip(deltas, dispositions, strict=True) if d == "unsupported")
-        say(f"⚠ this rewrite changes {unmodelled} — no search is modelled for it")
-    elif delta_status == "unclassified_delta":
-        say("⚠ the rewrite contains a change this census version cannot name — abstaining")
-
     verdict_str = rewrite_verdict(
-        receipt_valid,
-        classification_ran,
-        proof_ok,
-        len(new_dimensions),
-        len(differences),
-        len(abstentions),
-        delta_status,
+        receipt_valid, classification_ran, proof_ok, len(new_dimensions), len(differences), len(abstentions)
     )
     return RewriteVerification(
         verdict=verdict_str,
@@ -761,9 +621,6 @@ def verify_rewrite(
         new_dimensions=tuple(dict.fromkeys(new_dimensions)),
         differences=tuple(dict.fromkeys(differences)),  # many mutants share one witness input
         abstentions=tuple(dict.fromkeys(abstentions)),
-        deltas=deltas,
-        delta_status=delta_status,
-        census_id=census_id(),
         note=getattr(report, "note", None)
         or ("" if classification_ran else f"classification: {classification_status}"),
     )

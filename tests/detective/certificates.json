@@ -304,12 +304,6 @@
     "refusal": "",
     "standing": "complete"
   },
-  "Detective/rewrite.py::rewrite_verdict": {
-    "cut_reasons": [],
-    "function_digest": "d99c901e9d5df0e8",
-    "refusal": "",
-    "standing": "complete"
-  },
   "Detective/rewrite.py::verify_rewrite_note_shown": {
     "function_digest": "603bc0092a30df7f",
     "refusal": "",
