@@ -608,6 +608,66 @@ class DecompositionApply:
     stdout_bytes: int = 0
 
 
+def decompose_outcome(
+    apply_requested: bool,
+    applied: int,
+    proof_complete: bool,
+    budget_exhausted: bool,
+    unsafe: int,
+) -> str:
+    """What decompose actually DID, as a named code (pure — pinned).
+
+    `decompose_exit`'s docstring says "decompose has no single verdict — its outcome is structural",
+    and that was true of the EXIT CODE. It was never true of the outcome: the ladder below already
+    distinguished six states, it just spelled them as integers on the way out.
+
+    Naming them costs nothing and buys two things. `decompose_exit` now consumes this instead of
+    running a second copy of the same ladder — one derivation, two renderers, which is R3's rule.
+    And the invocation ledger can record WHICH ending an operator got, which the `exit` field
+    structurally cannot: six states over three codes, and the collisions are the cases that differ
+    most.
+
+      "proof_cut"              the proof converge hit the wall — nothing was established. Re-run.
+      "applied"                a decomposition was proven and written.
+      "proposed"               a dry run: advisory, never a gate.
+      "preservation_unproven"  `--apply`, and the proof is not functionally complete. The remedy is
+                               to SUPPLY THE RESIDUAL `--input` — a different instruction from
+                               `proof_cut`, and the two share exit 3.
+      "blocked_unsafe"         `--apply`, proof complete, and a block could not be safely extracted.
+                               A determined refusal the caller asked for and did not get.
+      "already_atomic"         `--apply` with nothing to extract. A clean no-op, and NOT the same
+                               fact as `applied` — which shares exit 0 with it and with `proposed`.
+
+    Order is load-bearing and is `decompose_exit`'s, unchanged: a cut proves nothing so it outranks
+    all; an applied extraction is clean regardless of dry-run; only then does an unfulfilled
+    `--apply` split on proof-completeness and unsafe blocks.
+    """
+    if budget_exhausted:
+        return "proof_cut"
+    if applied > 0:
+        return "applied"
+    if not apply_requested:
+        return "proposed"
+    if not proof_complete:
+        return "preservation_unproven"
+    if unsafe > 0:
+        return "blocked_unsafe"
+    return "already_atomic"
+
+
+# The four-valued contract, keyed by the named outcome above. A dict rather than a second ladder:
+# two ladders over one set of facts is the sibling drift every repair in CORRECTNESS_REPAIRS turned
+# out to be, and a missing key here is a KeyError at the call site rather than a silent wrong code.
+_DECOMPOSE_EXIT: dict[str, int] = {
+    "proof_cut": 3,
+    "applied": 0,
+    "proposed": 0,
+    "preservation_unproven": 3,
+    "blocked_unsafe": 1,
+    "already_atomic": 0,
+}
+
+
 def decompose_exit(
     apply_requested: bool,
     applied: int,
@@ -635,18 +695,16 @@ def decompose_exit(
     Order is load-bearing: ``budget_exhausted`` outranks all (a cut proves nothing); an applied
     extraction is clean regardless of dry-run; only then does an unfulfilled ``--apply`` split on
     proof-completeness and unsafe blocks.
+
+    THE ORDER NOW LIVES IN :func:`decompose_outcome`, which this consumes. It used to live here as a
+    second copy of that ladder, and two ladders over one set of facts is the sibling drift every
+    repair in ``CORRECTNESS_REPAIRS_2026-09-08.md`` turned out to be an instance of — they agreed
+    only because nothing had edited one of them yet. Behaviour is byte-identical; the mapping below
+    is the same six-to-three collapse, written down instead of re-derived.
     """
-    if budget_exhausted:
-        return 3
-    if applied > 0:
-        return 0
-    if not apply_requested:
-        return 0
-    if not proof_complete:
-        return 3
-    if unsafe > 0:
-        return 1
-    return 0
+    return _DECOMPOSE_EXIT[
+        decompose_outcome(apply_requested, applied, proof_complete, budget_exhausted, unsafe)
+    ]
 
 
 def preservation_admissible(functionally_complete: bool, stale: bool, candidate_equivalents: int) -> bool:

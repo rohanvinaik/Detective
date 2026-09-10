@@ -87,6 +87,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::regime_outcome": {
+    "cut_reasons": [],
+    "function_digest": "aab92e14691dc641",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::repair_measurement_route": {
     "cut_reasons": [
       "mutant_not_entered"
@@ -97,6 +103,12 @@
   },
   "Detective/cli.py::residual_input_route": {
     "function_digest": "677f51e538afeab7",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::universe_claim": {
+    "cut_reasons": [],
+    "function_digest": "64fcdc5a4e7ba652",
     "refusal": "",
     "standing": "complete"
   },
@@ -129,6 +141,12 @@
   },
   "Detective/converge.py::verification_disposition": {
     "function_digest": "88e3b0c341240d8a",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/decompose_apply.py::decompose_outcome": {
+    "cut_reasons": [],
+    "function_digest": "e9f305f177507d5c",
     "refusal": "",
     "standing": "complete"
   },

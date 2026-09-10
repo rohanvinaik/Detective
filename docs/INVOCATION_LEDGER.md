@@ -512,16 +512,43 @@ Doctor observes its own read, because the command that diagnoses the operator mu
 verb exempt from being observed. "You ran doctor five times and it said `deps_elsewhere` every
 time" is precisely what red exists to name.
 
-### Scope, stated rather than implied
+### Scope — and the CRITERION that settled it (2026-09-09)
 
-Wired: the four verbs an operator actually repeats when stuck. NOT wired: plan, survey, extract,
-decompose, receipt, verify-rewrite, parsimony, censor, flag, regime, purge. Those record
-`outcome: []` — the field is always PRESENT, so absent never reads as none.
+Wired at first: the four verbs an operator repeats when stuck. The other eleven recorded
+`outcome: []` — the field is always PRESENT, so absent never reads as none — and this section called
+that "a real gap and not a finished job", to revisit once red had run against real history.
 
-That is a real gap and not a finished job. The four were chosen because they are where a spiral
-happens; the taste verbs are advisory reads rather than instructions to repeat, and the bracket
-commands are one-shot. Worth revisiting once red has run against real history and shown which
-absences actually cost a finding.
+Working through them produced something better than eleven propagations: **the rule that says which
+verbs the field is for.**
+
+> `outcome` earns its place where a verb's named ending is **not recoverable from its exit code**,
+> AND the verb issues an **instruction an operator would repeat**.
+
+Both halves are load-bearing. Drop the first and `outcome` duplicates a column the ledger already
+has — `decompose_exit` and `verify_rewrite_exit` are pinned decisions, but a decision whose output IS
+the exit code adds nothing to a record that stores the exit code. Drop the second and the field
+fills with re-reads: reading a `survey` report twice is not a spiral, and red would learn to cry
+wolf.
+
+Applying it moved **three** verbs, each a non-1:1 mapping that had been sitting in plain sight:
+
+| verb | states → codes | why it matters |
+|---|---|---|
+| `verify-rewrite` | 7 verdicts → 4 | `INVALID_RECEIPT` / `STALE_RECEIPT` / `BASIS_MOVED` all exit **2** — three different things to fix, one number |
+| `decompose` | 6 endings → 3 | the two sharing **3** have OPPOSITE remedies: `proof_cut` says re-run, `preservation_unproven` says supply the residual `--input`. Decompose is the slowest verb here, so repeating the wrong one is the most expensive spiral in the CLI |
+| `regime` | every conflict KIND → **2** | and after a `--migrate` the conflict should be gone, so the same code twice is a migration that missed the cause |
+
+`decompose_outcome` (✓ COMPLETE 28/28) and `regime_outcome` (✓ COMPLETE 9/9) are new; both were
+converged in isolation before wiring. `decompose_exit` now CONSUMES the first rather than carrying a
+second copy of its ladder — one derivation, two renderers — and the extraction is pinned
+byte-identical over all 144 input combinations.
+
+**The remaining eight — plan, survey, extract, parsimony, censor, receipt, flag, purge — fail the
+SECOND half, not the first.** The five taste verbs are advisory reads whose ending is the report
+itself, and their cross-axis pre-emption is already handled by the signpost; `receipt`, `flag` and
+`purge` are one-shot acts whose ending is their exit code. That is a reason, recorded, rather than a
+TODO — and the criterion above is what a future reader should re-apply if one of them ever starts
+costing a finding.
 
 ### The constraint, held
 

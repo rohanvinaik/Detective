@@ -2001,6 +2001,37 @@ def _written_count(result) -> int | None:
     return result.wiring.passed if result.wiring is not None else None
 
 
+def universe_claim(fast: bool, approximate_universe: bool) -> str:
+    """Which claim a run may make about the mutant UNIVERSE it tested (pure — pinned).
+
+    The report has always said `comprehensive — full mutant universe` for any non-fast run. Under a
+    LIVE in-process session that overstates one thing: `normalize_validity` flags
+    `approximate:mutant_universe` because the scored COUNT is run-to-run noisy under shared module
+    state. The flag has existed since fix A2 and had **no production consumer** — read only by
+    tests — so the label the pabkit ledger recorded as *"never seen in any output"* was computed and
+    never rendered. Same shape as `state_basis`, one layer over.
+
+      "fast_sampled"             a greedy per-category sample; the (1−1/e) floor is the claim
+      "comprehensive_exact"      every operator-universe mutant, scored where the count is stable
+      "comprehensive_estimated"  every operator-universe mutant tested, but SCORED IN-PROCESS — the
+                                 killset and the proof are deterministic, the COUNT is an estimate
+
+    The distinction is narrow ON PURPOSE and the third code says so: this is not a soundness hole.
+    Isolated runs are exact and unflagged, the certificate rests on the deterministic proof, and
+    converge's own reproducibility check re-observes in isolation before certifying. What was wrong
+    was only the report claiming an exactness it had already measured itself not to have.
+
+    Rendered in `_format_converge` — the full REPORT — and deliberately not in the terse headline:
+    almost every run is in-process, so a headline clause would be the line that always appears,
+    which is the signpost discipline's own named defect.
+    """
+    if fast:
+        return "fast_sampled"
+    if approximate_universe:
+        return "comprehensive_estimated"
+    return "comprehensive_exact"
+
+
 def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> str:
     """Validation report: what converge measured and what it left standing.
 
@@ -2032,13 +2063,24 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
     # exposes the speed/completeness trade honestly rather than hiding it.
     universe = result.universe_size or total
     if universe:
-        if result.fast:
+        # W11a: the report claimed a full universe on every non-fast run, including the in-process
+        # ones `normalize_validity` had ALREADY flagged `approximate:mutant_universe` — a flag with
+        # no production consumer until now, which is why the pabkit ledger recorded the label as
+        # "never seen in any output". Only the COUNT is qualified; "every mutant was tested" stays
+        # true in-process, and the tail below is left alone for exactly that reason.
+        _flags = getattr(getattr(result, "validity", None), "capability_flags", ()) or ()
+        _claim = universe_claim(bool(result.fast), "approximate:mutant_universe" in _flags)
+        if _claim == "fast_sampled":
             from .converge import _FAST_MAX_PER_CATEGORY
 
             passes = len(result.iterations)
             mode = (
                 f"fast — greedy ≤{_FAST_MAX_PER_CATEGORY}/category × "
                 f"{passes} pass{'es' if passes != 1 else ''}"
+            )
+        elif _claim == "comprehensive_estimated":
+            mode = (
+                "comprehensive — full mutant universe (count ≈ in-process estimate; killset and proof stable)"
             )
         else:
             mode = "comprehensive — full mutant universe"
@@ -6307,7 +6349,7 @@ def _format_rewrite(r) -> str:
 
 
 def _run_decompose(args, file, function) -> int:
-    from .decompose_apply import apply_decomposition, decompose_exit
+    from .decompose_apply import apply_decomposition, decompose_exit, decompose_outcome
 
     supplied = (
         _parse_supplied_inputs(args.input, _target_ns(file, function, args.project_root))
@@ -6326,13 +6368,19 @@ def _run_decompose(args, file, function) -> int:
         # command in the CLI, and until now the only one that printed nothing while it ran.
         notify=None if args.json else _notify_stderr,
     )
-    exit_code = decompose_exit(
-        apply_requested=bool(args.apply),
-        applied=len(result.applied),
-        proof_complete=result.proof is not None and result.proof.functionally_complete,
-        budget_exhausted=result.budget_exhausted,
-        unsafe=len(result.unsafe_blocks),
-    )
+    _facts = {
+        "apply_requested": bool(args.apply),
+        "applied": len(result.applied),
+        "proof_complete": result.proof is not None and result.proof.functionally_complete,
+        "budget_exhausted": result.budget_exhausted,
+        "unsafe": len(result.unsafe_blocks),
+    }
+    exit_code = decompose_exit(**_facts)
+    # W1. Six structural endings over three exit codes, so `exit` alone cannot say WHICH one — and
+    # the two that share 3 have opposite remedies (`proof_cut` re-run vs `preservation_unproven`
+    # supply the residual --input). Decompose is also the slowest command here, which makes a
+    # repeat of the wrong one the most expensive spiral in the CLI to sit inside unknowingly.
+    observe("outcome", "decompose", decompose_outcome(**_facts))
     if args.json:
         return _emit_json(asdict(result), exit_code)
     text = _format_decompose(result, args.apply, args.target, args.project_root)
@@ -6973,6 +7021,11 @@ def _run_verify_rewrite(args, file, function) -> int:
             note=reason,
         )
         code = verify_rewrite_exit(res.verdict)  # INVALID_RECEIPT is a precondition (2), not a gap
+        # W1: the refusal endings need this MORE than the happy one. INVALID_RECEIPT, STALE_RECEIPT
+        # and BASIS_MOVED all exit 2, so the ledger's `exit` field cannot tell them apart — and
+        # "you got STALE_RECEIPT three times" names what to stop doing where "you ran this three
+        # times" does not. That gap is exactly what `outcome` exists to carry.
+        observe("outcome", "verify-rewrite", res.verdict)
         if args.json:
             return _emit_json(asdict(res), code)
         print(_format_rewrite(res))
@@ -7002,6 +7055,11 @@ def _run_verify_rewrite(args, file, function) -> int:
     # PRESERVED 0 to a 3 — "the payoff could not be measured" — never a 1 to anything else: the
     # gate owns validity, the budget is only ever the payoff (`budget_exit`, pinned).
     code = verify_rewrite_exit(result.verdict)
+    # W1. Seven verdicts over four exit codes — CHANGED/UNREVIEWED share 1, and the three receipt
+    # failures share 2 — so the verdict carries what `exit` structurally cannot. That NON-1:1 mapping
+    # is the criterion for wiring `outcome` at all: where a verb's named ending is recoverable from
+    # its exit code, this field would only duplicate a column the ledger already has.
+    observe("outcome", "verify-rewrite", result.verdict)
     budget = None
     if getattr(args, "budget", False):
         from .budget import budget_exit
@@ -7406,6 +7464,33 @@ def _run_plan(args) -> int:
     return code
 
 
+def regime_outcome(conflict: str, migration_applied: bool, migration_needed: bool) -> str:
+    """What a `regime` run ended in, as a named code (pure — pinned).
+
+    W1's criterion, applied: `_run_regime` returns 2 for ANY conflict and 0 otherwise, so the exit
+    code cannot say WHICH — and the kinds have different fixes. `regime --migrate` is also an
+    instruction an operator repeats, which is the second half of the criterion: after a migration
+    the conflict should be GONE, so getting the same code again means the migration did not reach
+    the cause, and that is a spiral worth naming rather than a re-read.
+
+      <the conflict kind>    passed through VERBATIM, never renamed. The regime's own vocabulary is
+                             what `doctor`'s green axis consumes and what `regime` prints; a second
+                             spelling here would make one state read as two across surfaces.
+      "migrated"             a migration was applied on this run.
+      "migration_available"  clean, but the plan says something could be migrated. Distinct from
+                             `clean` because "nothing to do" and "something to do that you have not
+                             done" are different facts about the operator.
+      "clean"                nothing to fix and nothing to offer.
+    """
+    if conflict:
+        return conflict
+    if migration_applied:
+        return "migrated"
+    if migration_needed:
+        return "migration_available"
+    return "clean"
+
+
 def _run_regime(args) -> int:
     from dataclasses import asdict as _asdict
 
@@ -7433,6 +7518,18 @@ def _run_regime(args) -> int:
         # tells you it fixed something and shows you the evidence that it did not.
         regime = resolve_regime(args.project_root, target_file)
         plan = plan_migration(regime)
+    # W1. Every conflict KIND exits 2, so the ledger's `exit` cannot tell shadowed-target from
+    # conftest-collision — and after a `--migrate` the conflict should be gone, which makes the same
+    # code twice a migration that did not reach the cause rather than a re-read.
+    observe(
+        "outcome",
+        "regime",
+        regime_outcome(
+            str(regime.conflicts[0]) if regime.conflicts else "",
+            bool(applied),
+            bool(getattr(plan, "needed", False)),
+        ),
+    )
     if args.json:
         return _emit_json({"regime": _asdict(regime), "applied": list(applied)}, 2 if regime.conflicts else 0)
     print(_format_regime(regime, plan, applied, args.target))
