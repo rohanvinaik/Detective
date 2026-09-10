@@ -164,6 +164,30 @@ Detective, and the first work order its planner ever produced named a function i
 
 ---
 
+## The party holding the rest
+
+The theorem hands the question to you. It assumes you can take it.
+
+Mid-build, the author of this tool installed two missing dependencies, watched them land, and
+re-ran. Same report: the module will not import. The packages were on the machine — they had
+gone to a different interpreter than the one the run used. Every word was true, and it described
+a state he believed he had already left. Followed literally, it sends you to install a package you
+have just installed. Nothing below the line prevents that, because nothing below the line is
+wrong: a true sentence read against a stale model produces a confident wrong action, and the
+person in that position is by definition the one who cannot tell.
+
+So there is a command for the other half. `detective doctor` reads your interpreter, your regime
+and your last few invocations, and never says a word about your code — the moment it did, it would
+be the guesswork the rest of this page refuses. It names the dependency that exists under an
+interpreter that is not this one, and gives you both paths. It tells you the report you are
+reading was measured through a broken environment, and is therefore a measurement of your
+environment. It tells you when you have run the same command three times and been handed the same
+instruction three times, which is enough to know the instruction is not the one that helps.
+
+None of that is a fact about your code. The tool was right the whole time. That was the problem.
+
+---
+
 ## Where it stops
 
 A system this hungry owes you the list of what it will not eat.
@@ -205,14 +229,15 @@ by naming the next one.
 | `parsimony path/` | nothing | where does this codebase drift? (advisory) |
 | `flag file.py::fn ID [--fence]` | ledger | record an equivalence — or author a must-not |
 | `regime` | config | can a verdict here even be trusted? |
+| `doctor [file.py::fn]` | nothing | why can't I get a verdict — and is the problem me? |
 
 Exit codes are epistemics, not pass/fail: `0` clean · `1` a measured gap, or a refusal · `2`
 your world is wrong — fix that, not the code · `3` the measurement can't be trusted — re-run.
 Machine consumers get the same verdicts as JSON; agents get an MCP surface
 (`detective-spec[mcp]`) whose every reply ends in `DO THIS:`, `STOP.`, or `DONE:`. The full
 command reference and the symptom→cause map live in [ARCHITECTURE.md](./ARCHITECTURE.md); the
-theorems — the ceiling, the boundary between effect and meaning, and the rest — live in
-[`docs/theory/`](./docs/theory/), in full academic dress.
+theorems — the ceiling, the boundary between effect and meaning, why the output is shaped the way
+it is — live in [`docs/theory/`](./docs/theory/), in full academic dress.
 
 ---
 
