@@ -200,7 +200,29 @@ packages = ["Detective"]
 # and it is what the release actually depends on. Stated here so a leak needs an edit to
 # this file rather than an accident of whose machine ran `build`.
 [tool.hatch.build.targets.sdist]
+# A DENYLIST, so it is VERIFIED rather than trusted: `scripts/check_sdist.py` fails if the built
+# sdist carries a file git does not track. A denylist is a claim about what you remembered to name,
+# and 1.0.0 was one command from publishing a 38 MB sdist whose bulk was
+# `docs/theory/operator_completeness/proofs/.lake` — 6.9 GB of vendored Lean packages, untracked and
+# gitignored and swept in anyway. Size was the symptom. The defect is that such an sdist is a
+# function of the BUILDER's working tree rather than of the commit, so two people running
+# `uv build` on the same sha ship different tarballs and neither can tell.
+#
+# The mechanism, measured 2026-09-09 with a minimal two-.gitignore probe project rather than
+# assumed: hatchling's VCS-ignore default reads the ROOT `.gitignore` ONLY. A nested one is
+# invisible to it — `nested/deep/.gitignore` naming `junk/` shipped `junk/` anyway, while the root
+# rule excluded its target. `.lake/` was ignored by `proofs/.gitignore`, which is why it was
+# gitignored and packaged at the same time, and why nobody looking at git status would see it.
+# So the default guard holds exactly over root-level rules, with nothing recording that this is a
+# subspace — which is why the guard below is a checked artifact contract and not an ignore rule.
 exclude = [
+    ".lake/",
+    "dist/",
+    ".venv*/",
+    "scratchpad/",
+    "ab/",
+    "coverage.xml",
+    ".coverage",
   # Agent-instruction files carry absolute /Users/... paths and references to local agent-memory
   # files — useful in the repo, a machine-identity leak in a published sdist (and ironic beside the
   # .claude note above). The wheel never ships them (packages=["Detective"]); only an sdist reader

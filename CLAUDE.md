@@ -197,6 +197,24 @@ PYTHONPATH=$PP python3 -m pytest 2>&1 | tail -3
 Run pytest twice — once with `-q` to see failures, once bare with `| tail -1` to capture the
 exact count that goes into the commit body.
 
+### Before every PUBLISH: build, then check the artifact against git
+
+```bash
+rm -rf dist && uv build --out-dir dist && python3 scripts/check_sdist.py
+```
+
+Non-optional, and specifically a LOCAL step — CI runs it too, but CI checks out a clean tree, so
+the case it cannot see is the one that actually happened: untracked output sitting in *your* tree
+and getting swept into the tarball. Detective 1.0.0 was one command from publishing a 38 MB sdist,
+110 MB of it `docs/theory/operator_completeness/proofs/.lake` — vendored Lean packages, gitignored,
+invisible to `git status`, packaged anyway.
+
+Why an exclude list is not enough on its own: **hatchling's VCS-ignore default reads the ROOT
+`.gitignore` only.** A nested `.gitignore` is not consulted (measured with a probe project,
+2026-09-09). So "it's gitignored" is not a reason to believe it will not ship. The checker asks git
+what it *tracks* instead, and an sdist member is either tracked or backend-generated — no third
+category. Exit `1` is a measured defect, `2` is "could not ask" (no sdist, not a checkout).
+
 ### Before every PUSH: pylint-as-Sonar, then the REAL Sonar, locally
 
 Ruff is the commit gate; a push needs two more passes, in this order, and neither is optional

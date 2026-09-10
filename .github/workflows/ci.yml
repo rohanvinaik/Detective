@@ -58,3 +58,32 @@ jobs:
         # ran as `-qq`, which suppresses pytest's summary line entirely. CI was not printing its own
         # test count (S16).
         run: uv run pytest tests/ --cov=Detective --cov-report=xml:coverage.xml -ra
+
+  package:
+    # The artifact gate. One cell: an sdist's CONTENTS do not vary by OS or interpreter, so a
+    # matrix here would buy six identical answers.
+    #
+    # What it catches and what it cannot, stated because the difference is the whole point. In a
+    # fresh clone the working tree IS the tracked set, so this run proves the build itself does not
+    # generate files into the tree and package them, and that no exclude has been dropped. It
+    # CANNOT catch the failure that actually happened before 1.0.0 — untracked output sitting in a
+    # developer's tree and getting swept in — because CI has no such tree. That case is caught only
+    # by running `python3 scripts/check_sdist.py` locally before publishing, which is why it is in
+    # the pre-push gate too. A green job here is not a licence to skip the local one.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Detective
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Build sdist and wheel
+        working-directory: Detective
+        run: uv build --out-dir dist
+
+      - name: Sdist carries only tracked files
+        working-directory: Detective
+        run: python3 scripts/check_sdist.py

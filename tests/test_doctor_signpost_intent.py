@@ -18,7 +18,23 @@ import pytest
 from Detective.cli import main
 from Detective.doctor import COMMAND_HERB, command_setup_fault
 
-_TRAPPED = "import jax\n\n\ndef f(x):\n    if x <= 0:\n        return 0\n    return x * 2\n"
+# The fixture's broken environment has to be broken BY CONSTRUCTION. This file previously used
+# `import jax`, which quietly made its premise "jax is not installed in whichever interpreter runs
+# pytest" — true in the project venv, false anywhere else, and written down nowhere.
+#
+# Measured 2026-09-09: eight tests in this file passed under `.venv` (3.11) and failed under a
+# miniconda 3.11+ carrying jax 0.11.1, because `needs.py` then imported cleanly, no fault existed,
+# and the signpost was correct to stay silent. The suite was not wrong about the code — it was
+# asserting over a subspace of interpreters without recording that it was a subspace. Which is the
+# doctor's own thesis (a true reading against a stale model of the environment) landing on the
+# doctor's own tests.
+#
+# A name no index can serve is a premise no environment can falsify. Same sentinel already used by
+# `test_doctor_taste_intent` and `test_doctor_verb_intent`; this conforms to that, rather than
+# inventing a third spelling.
+_ABSENT = "definitely_not_a_real_package_xyz"
+
+_TRAPPED = f"import {_ABSENT}\n\n\ndef f(x):\n    if x <= 0:\n        return 0\n    return x * 2\n"
 _CLEAN = "def add(a, b):\n    if a > b:\n        return a\n    return b\n"
 
 
@@ -70,9 +86,9 @@ def test_it_names_the_finding_rather_than_just_the_command(repo, capsys) -> None
     """§4, verbatim: "Run `detective doctor`" is as useless as "Next (optional)". It must say what
     doctor will tell them — the finding is the content, the command is the follow-up."""
     _, out = _run(capsys, "survey", "needs.py", "--project-root", str(repo))
-    assert "jax" in out, "the missing module is NAMED"
+    assert _ABSENT in out, "the missing module is NAMED"
     assert "detective doctor" in out, "…and the full read is offered"
-    assert out.index("jax") < out.index("detective doctor"), "finding first, command second"
+    assert out.index(_ABSENT) < out.index("detective doctor"), "finding first, command second"
 
 
 def test_it_says_WHY_the_verdict_was_withheld_not_merely_that_it_was(repo, capsys) -> None:

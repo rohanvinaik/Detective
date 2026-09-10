@@ -99,6 +99,15 @@ was checked, with nothing recording that the subspace was a subspace.*
   reason naming what does consume it. Two were neither.
 - `pylint`-as-Sonar configuration and the local SonarQube recipe in `pyproject.toml`, so the
   pre-push gate is reproducible rather than reconstructed.
+- **The sdist is checked against git rather than trusted to an exclude list.** This release was one
+  command from publishing a 38 MB sdist, 110 MB of it vendored Lean build output that `git status`
+  never showed. The size was the symptom; the defect is that such an artifact is a function of the
+  builder's working tree rather than of the commit, so the same `uv build` on the same sha ships
+  different tarballs to different people. The cause is worth stating because it is invisible from
+  the outside: hatchling's VCS-ignore default reads the **root** `.gitignore` only — a nested one
+  is not consulted — so a path can be genuinely gitignored and packaged at the same time. Measured
+  with a probe project rather than inferred. `scripts/check_sdist.py` now fails on any sdist member
+  git does not track, in CI and in the pre-push gate, and the decision under it is pinned.
 
 ### Known limits
 
