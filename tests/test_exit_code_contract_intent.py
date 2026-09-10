@@ -36,7 +36,13 @@ import pytest
 
 from Detective.cli import main
 
-_UNIMPORTABLE = "import definitely_not_a_real_package_xyz as dep\n\n\ndef classify(n):\n    if n > 10:\n        return dep.big(n)\n    return 'small'\n"
+_UNIMPORTABLE = (
+    "import definitely_not_a_real_package_xyz as dep\n\n\n"
+    "def classify(n):\n"
+    "    if n > 10:\n"
+    "        return dep.big(n)\n"
+    "    return 'small'\n"
+)
 
 
 @pytest.fixture(scope="module")
