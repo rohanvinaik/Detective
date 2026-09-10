@@ -638,5 +638,6 @@ PYTHONPATH=/Users/rohanvinaik/tools/Detective \
 - Engine-core / integration fns that can't self-profile are guarded by the unit suite — the
   *only* exemption from the converge rule.
 
-Suites: Detective `python -m pytest` (258 green) + Wesker (92 green), run with the Wesker
-venv python and `PYTHONPATH` at the repo root. Push / PyPI publish are **user-only**.
+Suites: Detective `python -m pytest` (3188 green, 2026-09-09) + Wesker (703 green), run with
+`PYTHONPATH` covering both repos. Counts drift; the discipline does not — if this line is stale
+again, it is the same defect the rest of this file is about. Push / PyPI publish are **user-only**.

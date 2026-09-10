@@ -265,8 +265,9 @@ Green pytest at each step is the proof; a kill count with a red suite is nothing
 
 ## 10. Honesty invariants (the things a reviewer checks)
 
-- Advisory output **never** triggers a write. Grep the call graph: no path from `ParsimonySignals`
-  to `apply_decomposition`.
+- Advisory output **never** triggers a write. `find_referencing_symbols` on `ParsimonySignals`:
+  no path to `apply_decomposition`. (Was "grep the call graph" — a hook now blocks grepping
+  Python for wiring, because strings find sites and the reference graph finds the pattern.)
 - Every lens carries `measured`; an unmeasured lens votes 0. No `getattr(..., default)` that could
   absorb a wrong field name into a silent clean verdict (the MCP bug Detective already caught once).
 - No hand-tuned weighted sum anywhere. Fusion is agreement-count over ternary votes.
