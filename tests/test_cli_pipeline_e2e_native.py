@@ -345,13 +345,12 @@ def test_the_bypass_guard_fires_on_a_miss_and_stays_out_of_the_way_on_a_hit() ->
     assert "rewarm" in str(caught.value), "the guard names WHICH read was not a hit"
     # D2: and it names WHICH CAUSE. One test per branch, because the two are indistinguishable in
     # the log otherwise — which is how S10b's guard came to look like it was running when it was not.
-    with pytest.raises(Exception) as cut:
+    with pytest.raises(Exception, match="coverage_truncated") as cut:
         _skip_if_cache_bypassed({"served_from_cache": False, "cut_reasons": ["coverage_truncated"]}, "warm")
-    assert "coverage_truncated" in str(cut.value), "a cut measurement must name the reason it was cut"
-    assert "nothing was stored" in str(cut.value)
-    with pytest.raises(Exception) as bypass:
+    assert "nothing was stored" in str(cut.value), "a cut measurement must name the reason it was cut"
+    with pytest.raises(Exception, match="unobservable") as bypass:
         _skip_if_cache_bypassed({"served_from_cache": False, "cut_reasons": []}, "warm")
-    assert "unobservable" in str(bypass.value), "no cut reason means the OTHER cause, and says so"
+    assert "refused store" in str(bypass.value), "no cut reason means the OTHER cause, and says so"
     # An absent field is a miss, not a hit: the same absence-is-not-falsehood rule the adapter uses.
     with pytest.raises(Exception, match="not served from the cache"):
         _skip_if_cache_bypassed({}, "warm")
