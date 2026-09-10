@@ -57,6 +57,26 @@ absorbing; a third state wants its own place, the way `measurement_invalid` did 
 | **W2** | Issue **#68(a)** — recursive, import-collecting constructor emitter for nested-object dataclass fields. | [GH #68](https://github.com/rohanvinaik/Detective/issues/68) | The issue calls it "a clean bounded build". Main risk named there: import-name collisions and depth caps. |
 | **W3** | Issue **#70** — BLAS last-ULP drift makes golden float captures platform-specific. | [GH #70](https://github.com/rohanvinaik/Detective/issues/70) | Filed 2026-09-08, untouched by this session. Three suggestions in the issue; the sharpest framing is its own: *"the certificate reads as a platform-independent claim, but a golden of a BLAS result is a platform-specific observation."* |
 
+### 2b. The tail this index did not carry — folded in 2026-09-09
+
+Every row below was written down in a ledger *"recorded so they are not silently dropped"* and then
+not indexed, because this file was scoped to the doctor/ledger wave's residual and the older ledgers
+predate it. Found by sweeping every `.md` in the repo for open markers rather than by remembering.
+
+| # | Item | Where | State |
+|---|---|---|---|
+| **W7** | The **load-failure exit-code contract**. `CORRECTNESS_REPAIRS` records it open: *"which exit code a load-failure refusal carries… CI branches on this, so it should be chosen, not emergent."* | `CORRECTNESS_REPAIRS` "Regression cases" | **MEASURED 2026-09-09, and it is already coherent** — converge `3`, `audit --check` `1`, bare `audit` `0` (read-only by design, S6), `diagnose` `0`. So the work is to DOCUMENT and PIN what the code chose, not to change it. Still emergent until then. |
+| **W8** | **Regression case 3** — "repairing the import allows progress". Untested; needs a second venv carrying jax+funcy, because `ab/.venv-det` must stay deps-absent — that absence IS the repro. | `CORRECTNESS_REPAIRS` | Infrastructure, not code. |
+| **W9** | **Regression case 5** — `verify-rewrite` under a target-load failure; the note must surface. R3 found `RewriteVerification` has no load-failure field ("sound but mute"). | `CORRECTNESS_REPAIRS` §R3 | Same *type* defect as `ScopeMap` had. Unverified whether R3's repair reached it. |
+| **W10** | **R0's stated residual** — the probe was exhaustive over tuple-element SWAPs, not every SWAP form, and the 40→48 universe difference is unaccounted for. | `CORRECTNESS_REPAIRS` §R0 | R0 is otherwise RESOLVED; this is the named remainder. |
+| **W11** | The **pabkit queue**: the count-noise label, the trace-cache body-digest hypothesis, U4 (a written test that kills 0), U5 ("proposed removals: your own test"), the exception-message-only CLI copy. | `CORRECTNESS_REPAIRS` "Not in scope here" | Small, individually cheap, never indexed. |
+| **W12** | **TEST_BASIS Phase C: "drop-to-synthesis for the residual"** — named as *"the remaining C-phase work, still open"*. C1′/C2/C3 are all ✅; this one is not. | [`TEST_BASIS`](TEST_BASIS.md) Phase C | The largest of the tail, and arguably research rather than bounded work — see §3. |
+
+**Deferred with a reason, and NOT engineering debt** — recorded here only so a future sweep does not
+re-find them as gaps: `ARCHITECTURE.md`:585 (σ-based spec-completeness ETA, "not blocking");
+`PARSIMONY_ADVISORY.md`:231 (duplication and import-layering axes) and :74 (repo-scale axes, which
+are **Uroboros's**, not Detective's — a scope boundary, not a backlog).
+
 ---
 
 ## 3. RESEARCH — no bounded shape yet

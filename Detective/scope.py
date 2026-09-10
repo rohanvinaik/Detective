@@ -130,6 +130,17 @@ class ScopeMap:
     # authoritative object, not only the derived counts. ``getattr``-defaulted: an older result/engine
     # simply omits it, and ``None`` must read as "not attached", never as an empty basis.
     function_basis: FunctionBasis | None = None
+    # WHY the live original could not be imported, verbatim from the interpreter, or "" when it
+    # loaded. Attached by ``engine.diagnose``; see there for why it is probed rather than read off
+    # the profiling result.
+    #
+    # It exists because a renderer cannot consume a field the type does not define — the defect R3
+    # found on ``RewriteVerification`` and, before it, on ``SuiteAudit``. Without it `_format_scope`
+    # attributed a 0-pin run to ABSENT TESTS ("the counts above reflect ABSENT tests, not weak
+    # ones") on a module that never imported, and routed to a `converge` that then exits 3 for the
+    # import. A false CAUSE is worse than silence: it sends the reader to write tests for a module
+    # no test can run.
+    load_failure: str = ""
 
 
 def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -> str | None:

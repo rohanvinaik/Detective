@@ -252,9 +252,15 @@ def _format_scope(scope) -> str:
     head += f" · {spec.distinctions_pinned} pinned · {spec.unspecified_dof} unpinned"
     lines = [_RULE, head, ""]
 
-    if getattr(scope, "tests_discovered", -1) == 0:
+    _attribution = no_tests_attribution(
+        int(getattr(scope, "tests_discovered", -1)), bool(getattr(scope, "load_failure", ""))
+    )
+    if _attribution == "absent_tests":
         lines.append(_row("⚠ NO tests", "nothing pins this function yet — the counts above"))
         lines.append(_row("", "reflect ABSENT tests, not weak ones."))
+    elif _attribution == "cause_below":
+        lines.append(_row("⚠ NO tests", "nothing pins this function yet — and the counts above"))
+        lines.append(_row("", "are not a measurement at all. See STOP, below."))
     for row in _trace_cut_rows(scope):
         lines.append(row)
     routing = getattr(scope, "test_routing", {}) or {}
@@ -758,23 +764,68 @@ def _trace_cut_rows(scope) -> list[str]:
     ]
 
 
-def diagnose_next_action(entangled: bool, seams: int, unspecified_dof: int) -> str:
+def no_tests_attribution(tests_discovered: int, load_failed: bool) -> str:
+    """What the "no tests" row may claim about WHY (pure — pinned).
+
+    R2a's repair, one renderer further along: "a claim asserted where a measurement exists to derive
+    it", and its remedy — extract the choice as a named code rather than leave an inline literal.
+
+    The row's FACT (zero tests were discovered) is always true when it fires. Its CAUSE is not ours
+    to assert. Measured 2026-09-09 on a module whose import fails, the report said "the counts above
+    reflect ABSENT tests, not weak ones" — and eight lines later the STOP block said the counts were
+    blindness because nothing could run. Two lines of one report contradicting each other, and the
+    reader has no basis to pick.
+
+      "silent"        tests were discovered — the row does not fire at all
+      "absent_tests"  zero tests AND the module loaded, so absent tests IS the cause and saying so
+                      is the useful thing: it stops a reader reading 0-pinned as weak tests
+      "cause_below"   zero tests, but the module would not import. The count is real and the cause
+                      is NOT absent tests; the load failure outranks it and is named below. State
+                      the fact, defer the cause — never assert one the next block will contradict.
+
+    `cause_below` is a distinct code rather than reusing `silent`: suppressing the row entirely
+    would drop a true observation, and this project's whole subject is that "we did not say" and
+    "there is nothing to say" are different.
+    """
+    if tests_discovered != 0:
+        return "silent"
+    if load_failed:
+        return "cause_below"
+    return "absent_tests"
+
+
+def diagnose_next_action(block: str, entangled: bool, seams: int, unspecified_dof: int) -> str:
     """Diagnose's ONE next action, as a named code (pure — pinned).
 
-    Priority IS the judgement: split before you pin. When both signals agree the function is more
-    than one thing, `decompose` is the move even though behaviour is unpinned — it converges
-    internally, and pinning the pieces afterwards is cheaper than pinning the tangle first and then
-    re-deriving a suite.
+    A measurement that could not RUN outranks every structural signal below it, and `block` is
+    `measurement_block_route`'s answer — DELEGATED, exactly as `audit_next_action` delegates it,
+    never restated here. That is R3's rule ("one shared route, three renderers") and diagnose is the
+    renderer R3's own table did not list: it named `_audit_action`, `converge_next_action` and
+    `verify_rewrite`, and diagnose was neither wired nor noticed.
 
+    What that cost, measured 2026-09-09 on a module whose import fails: diagnose reported
+    `0 pinned`, attributed it to "⚠ NO tests — the counts above reflect ABSENT tests, not weak
+    ones", routed to `converge`, and exited 0 — while converge on the same target exits 3 naming
+    the missing dependency. A reader who starts at diagnose is told to write tests for a module no
+    test can run. A false CAUSE is worse than silence.
+
+    Priority IS the judgement below the block: split before you pin. When both signals agree the
+    function is more than one thing, `decompose` is the move even though behaviour is unpinned — it
+    converges internally, and pinning the pieces afterwards is cheaper than pinning the tangle first
+    and then re-deriving a suite.
+
+      "fix_load"         the module would not import — nothing ran, so nothing below means anything
       "decompose_first"  two signals agree this is more than one function
       "close_the_gap"    behaviours with no test pinning them — converge writes them
       "settled"          every behaviour this function makes is already pinned
 
-    `close_the_gap` and `settled` are CONVERGE'S codes, reused rather than paraphrased. The ledger
-    records (kind, verb, code) so the verb disambiguates, and a shared vocabulary is the point: "you
-    got `close_the_gap` from diagnose and then from converge" is one coherent story, where two
-    spellings of the same state would be two.
+    `fix_load` is the SHARED route's code, and `close_the_gap` / `settled` are CONVERGE'S, all
+    reused rather than paraphrased. The ledger records (kind, verb, code) so the verb disambiguates,
+    and a shared vocabulary is the point: "you got `close_the_gap` from diagnose and then from
+    converge" is one coherent story, where two spellings of the same state would be two.
     """
+    if block:
+        return block
     if entangled and seams >= 1:
         return "decompose_first"
     if unspecified_dof > 0:
@@ -796,10 +847,31 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
     whole action.
     """
     fn = scope.function
-    kind = diagnose_next_action(entangled, seams, int(spec.unspecified_dof or 0))
+    # The SHARED route, not a second reading of the same facts (R3). Diagnose carries neither an
+    # expressibility verdict nor a sample signal — it never classifies survivors — so it supplies
+    # the one observation it does have and lets the shared decision rank it.
+    _block = measurement_block_route(bool(getattr(scope, "load_failure", "")), None, False)
+    kind = diagnose_next_action(_block, entangled, seams, int(spec.unspecified_dof or 0))
     # The ledger's third outcome site (docs/INVOCATION_LEDGER.md §6) — no output, no branch, no
     # exit code changes; it records WHICH instruction diagnose gave.
     observe("outcome", "diagnose", kind)
+    if kind == "fix_load":
+        # Audit's words, deliberately: the same state reached from two commands must not arrive in
+        # two dialects, or "you got fix_load twice" stops being one story for the reader and for the
+        # ledger. Only the trailing re-run command differs, because that is the one thing that is
+        # genuinely per-verb.
+        reason = getattr(scope, "load_failure", "") or "the target module could not be imported"
+        return [
+            f"STOP:  the live original could not be loaded: {reason}",
+            "",
+            _row("· Why first", "the module would not import, so nothing ran — the counts above"),
+            _row("", "are blindness, not a result, and the unpinned behaviours are"),
+            _row("", "unpinned because NOTHING could run, not because tests are absent."),
+            _row("· Not converge", "it cannot write a test that runs either; on this target it"),
+            _row("", "refuses with the same reason."),
+            _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
+            _row("", f"(detective regime names the one in use), then: detective diagnose '{fn}'"),
+        ]
     if kind == "decompose_first":
         return [
             f"DO THIS:  detective decompose '{fn}' --apply",

@@ -62,7 +62,7 @@
   },
   "Detective/cli.py::diagnose_next_action": {
     "cut_reasons": [],
-    "function_digest": "ccc9b5e1d78c68cc",
+    "function_digest": "f080290e34eb30e4",
     "refusal": "",
     "standing": "complete"
   },
@@ -78,6 +78,12 @@
   },
   "Detective/cli.py::measurement_block_route": {
     "function_digest": "039a79c196da373c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::no_tests_attribution": {
+    "cut_reasons": [],
+    "function_digest": "d71fbb93750aaf5e",
     "refusal": "",
     "standing": "complete"
   },

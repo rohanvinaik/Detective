@@ -441,10 +441,24 @@ The essential combinations, several of which nothing currently covers:
 9. An identical rewrite keeps scoped treatment; a genuinely changed rewrite still reports
    `CHANGED` (both arms currently correct — do not lose this).
 
-**Open contract question:** which exit code a load-failure refusal carries. The documented table
-has `1 = a real gap or typed REFUSAL` and `3 = INVALID MEASUREMENT, re-run`. "Nothing was
-measured" argues 3. CI branches on this, so it should be chosen, not emergent. Note the wave
-already moved verify-rewrite's ABSTAIN from 1 → 3 (**observed**).
+~~**Open contract question:**~~ **RESOLVED 2026-09-09 — measured, then CHOSEN and pinned.** The
+question was which exit code a load-failure refusal carries; the concern was that "CI branches on
+this, so it should be chosen, not emergent". Driving every verb against an unimportable module found
+the implementation had already converged on a coherent answer, and **nothing pinned it** — which is
+the actual defect: not a wrong code, an unguarded one.
+
+| verb | code | why this one rather than merely the current one |
+|---|---|---|
+| `converge` | **3** | nothing was measured, so the measurement cannot be trusted — the table's own gloss. Not 1: a "measured gap" claims a measurement happened. |
+| `audit --check` | **1** | a typed REFUSAL, which is what 1 covers. S6 settled that a spec gap outranks the strict code, so 2 is unreachable while a line gap co-exists — on an unloadable module, always. |
+| `audit` (bare) | **0** | read-only BY DESIGN, gates only when asked (S6). |
+| `diagnose` | **0** | the same read-only contract, for the same reason. |
+
+**And the rule the codes rest on, pinned as its own test:** a verb may exit 0 here ONLY because it
+NAMES the cause. Silence plus 0 is the state that sent an operator to author inputs for a module
+that could not import. `tests/test_exit_code_contract_intent.py`, including a guard that no verb
+emits `AUTHOR INPUTS` on this target. Note the wave already moved verify-rewrite's ABSTAIN from
+1 → 3 (**observed**).
 
 ---
 

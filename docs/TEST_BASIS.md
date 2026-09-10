@@ -835,11 +835,15 @@ pure decision **in isolation** → full suite + `uvx ruff@0.14.10` → commit.
 
 ### Phase B — make the current system honest (no deletions yet)
 
-| # | slice | seam | risk | proves |
-|---|---|---|---|---|
-| **B1** | Land the identity types — `TestId`/`ModuleId` `NewType`s, `FileIdentity`, `RevisionId` — in `regime.py`. **No deletions** (`module_name` waits for C1, §6) | `resolve_regime` | low | §4.6's identity divergence is now *expressible* |
-| **B2** | `_reachable_paths` returns a reason-carrying result — `scoped` / `roots(reason)` / `declined(reason)` — not `list \| None` | `_reachable_paths` (32 lines) | low | "declined" and "crashed" stop being one value |
-| **B3** | Settle **[?] §2.2**; make the replayed-negative precondition explicit or demote it | `observed_function_reach` | medium | the only cached value that can shrink the search is warranted |
+**ALL THREE ARE DONE** — grounded against current source 2026-09-09, because this table carried no
+status column while Phase C's did, so it read as open work when the code had long since landed it.
+A plan table that cannot say "done" is a plan table that misinforms.
+
+| # | slice | seam | status |
+|---|---|---|---|
+| **B1** | Land the identity types — `TestId`/`ModuleId` `NewType`s, `FileIdentity`, `RevisionId` — in `regime.py`. **No deletions** (`module_name` waits for C1, §6) | `resolve_regime` | ✅ `FileIdentity` is `regime.py:52` |
+| **B2** | `_reachable_paths` returns a reason-carrying result — `scoped` / `roots(reason)` / `declined(reason)` — not `list \| None` | `_reachable_paths` | ✅ returns a `PathScope`; its docstring names `declined_error` as the state that used to be "a silent `None` indistinguishable from the two other reasons" |
+| **B3** | Settle **[?] §2.2**; make the replayed-negative precondition explicit or demote it | `observed_function_reach` | ✅ §2.2 records the ruling AND the build — option (a), Wesker `05be94d`, `replayed_negative_admission` ✓ COMPLETE 9/9 |
 
 B2 precedes every deletion on purpose: it is 32 lines with one caller and changes no verdict, but
 it makes Phase C's risk *observable* — once a decline carries a reason, the ARC measurement can

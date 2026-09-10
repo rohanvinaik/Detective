@@ -1361,6 +1361,22 @@ def diagnose(
 
     from dataclasses import replace
 
+    # WHY DIAGNOSE PROBES THE IMPORT, when converge and audit do not have to. `load_failed` is not a
+    # Wesker fact — `validity.normalize_validity`'s docstring says so in as many words: the engine
+    # profiles fine because mutants come from the AST without importing anything, and the failure is
+    # discovered later by `classify_survivors`. Converge and audit run that; diagnose does not, so
+    # the signal was simply absent here, and the report attributed a 0-pin run to ABSENT TESTS on a
+    # module that never imported — then routed to a `converge` that exits 3 for the import.
+    #
+    # The SAME derivation those two use, never a second one that can drift from it.
+    #
+    # GATED so the healthy path never pays: a mutant killed by a test is proof the module imported,
+    # so the probe only runs when nothing was value-killed. That is also the condition
+    # `classify_survivors` itself uses (`if unclassified_descs`), for the same reason.
+    if not result.value_killed:
+        _full = file if os.path.isabs(file) else os.path.join(project_root, file)
+        scope = replace(scope, load_failure=_load_failure_reason(_full, function) or "")
+
     # Attach the structural seam count FIRST, then the parsimony read — its seam / regime lenses
     # read the finished map (§ the advisory is a superset of the seam+regime "is this >1 thing").
     scope = replace(scope, decompose_seams=_count_decompose_seams(file, function, project_root))

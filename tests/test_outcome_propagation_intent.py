@@ -101,15 +101,15 @@ def test_removing_now_is_a_different_fact_from_recommending_removal() -> None:
 def test_diagnose_splits_before_it_pins(entangled, seams, dof, expected) -> None:
     """Priority IS the judgement. `decompose` wins only when BOTH signals agree — entangled and at
     least one seam — because pinning a tangle and then splitting means re-deriving the suite."""
-    assert diagnose_next_action(entangled, seams, dof) == expected
+    assert diagnose_next_action("", entangled, seams, dof) == expected
 
 
 def test_diagnose_reuses_converges_vocabulary_rather_than_paraphrasing_it() -> None:
     """The ledger records (kind, verb, code), so the verb disambiguates. A shared vocabulary makes
     "you got `close_the_gap` from diagnose and then from converge" one coherent story; two
     spellings of the same state would be two, and the repeat would be invisible."""
-    assert diagnose_next_action(False, 0, 1) == "close_the_gap"
-    assert diagnose_next_action(False, 0, 0) == "settled"
+    assert diagnose_next_action("", False, 0, 1) == "close_the_gap"
+    assert diagnose_next_action("", False, 0, 0) == "settled"
 
 
 # ---------------------------------------------------------------- the observation channel
