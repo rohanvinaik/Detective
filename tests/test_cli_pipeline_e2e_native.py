@@ -318,10 +318,21 @@ def _skip_if_cache_bypassed(payload: dict, which: str) -> None:
     becomes common is visible in the log instead of being a dot.
     """
     if not payload.get("served_from_cache", False):
+        # D2, 2026-09-09: this used to name BOTH causes and leave the reader to guess, which made
+        # every occurrence a dot in the log. `ScopeMap.cut_reasons` now carries the measurement's
+        # own normalised reasons, so the skip says WHICH of the two happened — a skip that cannot
+        # distinguish its own causes is the same defect S10b found one level up.
+        cuts = tuple(payload.get("cut_reasons") or ())
+        cause = (
+            f"the preceding measurement was cut ({', '.join(cuts)}), so `admits_certificate` "
+            "refused and nothing was stored"
+            if cuts
+            else "no reason was cut, so the bypass was the regime being unobservable "
+            "(cache skipped for read AND write) rather than a refused store"
+        )
         pytest.skip(
             f"the {which} read was not served from the cache, so there is no warm read to "
-            "compare — the preceding measurement did not admit a certificate (nothing stored), "
-            "or the regime was unobservable (cache bypassed). Both are correct refusals."
+            f"compare — {cause}. Both are correct refusals."
         )
 
 
@@ -332,6 +343,15 @@ def test_the_bypass_guard_fires_on_a_miss_and_stays_out_of_the_way_on_a_hit() ->
         _skip_if_cache_bypassed({"served_from_cache": False}, "rewarm")
     assert caught.typename == "Skipped", "a bypass is inconclusive, never a failure"
     assert "rewarm" in str(caught.value), "the guard names WHICH read was not a hit"
+    # D2: and it names WHICH CAUSE. One test per branch, because the two are indistinguishable in
+    # the log otherwise — which is how S10b's guard came to look like it was running when it was not.
+    with pytest.raises(Exception) as cut:
+        _skip_if_cache_bypassed({"served_from_cache": False, "cut_reasons": ["coverage_truncated"]}, "warm")
+    assert "coverage_truncated" in str(cut.value), "a cut measurement must name the reason it was cut"
+    assert "nothing was stored" in str(cut.value)
+    with pytest.raises(Exception) as bypass:
+        _skip_if_cache_bypassed({"served_from_cache": False, "cut_reasons": []}, "warm")
+    assert "unobservable" in str(bypass.value), "no cut reason means the OTHER cause, and says so"
     # An absent field is a miss, not a hit: the same absence-is-not-falsehood rule the adapter uses.
     with pytest.raises(Exception, match="not served from the cache"):
         _skip_if_cache_bypassed({}, "warm")

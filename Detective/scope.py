@@ -141,6 +141,16 @@ class ScopeMap:
     # import. A false CAUSE is worse than silence: it sends the reader to write tests for a module
     # no test can run.
     load_failure: str = ""
+    # The measurement's own cut reasons, normalised (`validity.normalize_validity`). Empty means
+    # nothing was cut, which is what lets a verdict be STORED: `engine.profile` gates the cache
+    # insert on `proof_cache_admits`, and `admits_certificate` is absorbing.
+    #
+    # Carried for the same reason `load_failure` is: a consumer cannot report a fact the type does
+    # not define. The D2 cache guard skips when a read was not served from the cache and names TWO
+    # possible causes — "nothing was stored" or "the regime was unobservable" — because it had no
+    # way to tell them apart. A skip that cannot say which of two things happened is a dot in the
+    # log, and S10b's whole finding was that such a dot hid the guard not running at all.
+    cut_reasons: tuple[str, ...] = ()
 
 
 def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -> str | None:
@@ -151,6 +161,22 @@ def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -
     if by_crash > by_assertion * _CRASH_HEAVY_FACTOR:
         return _CRASH_HEAVY
     return None
+
+
+def _cut_reasons(result: ProfilingResult) -> tuple[str, ...]:
+    """The measurement's normalised cut reasons — never raises.
+
+    Wrapped because a scope map is a REPORT: it must not acquire a new way to fail in order to carry
+    a diagnostic field. An older engine, or a result shape the normaliser does not model, costs the
+    field and nothing else — which is the same contract every `getattr`-defaulted field above keeps.
+    """
+    try:
+        from .validity import normalize_validity
+
+        return tuple(normalize_validity(result).cut_reasons)
+    # BLE001: a diagnostic field must never be what breaks the report carrying it
+    except Exception:  # noqa: BLE001
+        return ()
 
 
 def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
@@ -207,6 +233,11 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         # The FunctionBasis engine.profile attached to the result (#X4). getattr-defaulted like the
         # fields above: an older engine that does not attach one leaves it None (not an empty basis).
         function_basis=getattr(result, "function_basis", None),
+        # The ONE normalisation, consumed rather than a second reading of the same result fields.
+        # `load_failed` is deliberately NOT passed: it is not a Wesker fact and this path never ran
+        # `classify_survivors` (see `engine.diagnose`), so claiming it here would fabricate a reason
+        # from a question nobody asked. Every other cut reason IS derivable from the result.
+        cut_reasons=_cut_reasons(result),
     )
 
 
