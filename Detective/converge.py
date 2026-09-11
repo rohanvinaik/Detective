@@ -97,6 +97,53 @@ class ConvergeIteration:
     written: int
 
 
+def swap_budget_disclosure(withheld: int, generated: int) -> str:
+    """Whether the argument-order BUDGET narrowed this run, and how (pure — pinned).
+
+    Wesker policy 7 asks about every PAIR of positional arguments at a call site, selected greedily
+    under a hard budget. What the budget does not reach is WITHHELD: the engine counts it, and until
+    something renders that count no user can tell a narrowed measurement from a complete one — which
+    is the exact shape this project refuses, absence of evidence wearing the costume of evidence of
+    absence. The census carries the number; this decides what it OBLIGES the report to say.
+
+    Three states, because they ask the reader for different things:
+
+    * ``not_budgeted`` — nothing was withheld. The report must stay SILENT: a withholding line on a
+      run that withheld nothing would teach readers to ignore the line on the runs that matter.
+    * ``budgeted_partial`` — some pairs were asked and some were not. The certificate still stands
+      for what it measured; the count rides alongside it, and the reader is owed a way to close the
+      rest (a distinguishing ``--input``, or a narrower interface).
+    * ``budgeted_none`` — candidate pairs exist and NOT ONE was asked. Distinct from the partial
+      case because no argument-order evidence was gathered at all, so there is nothing to be
+      partially confident about.
+
+    Note what this never returns: a failure. A withheld question is not a gap the suite left open —
+    it is a question the POLICY declined to ask, and the two have different remedies. Spending the
+    budget changes the recorded evidence state; it never changes what "verified" means.
+    """
+    if withheld <= 0:
+        return "not_budgeted"
+    if generated > 0:
+        return "budgeted_partial"
+    return "budgeted_none"
+
+
+def _swap_census_counts(profile) -> tuple[int, int]:
+    """(withheld, generated) argument-order questions, read off the engine's operator census.
+
+    The census is keyed by Wesker's ``MutationCategory`` enum in-process, so match on the member's
+    ``value`` rather than importing the enum — Detective resolves against a FLOOR Wesker, and an
+    engine predating the census (or predating policy 7's withheld count) must degrade to "nothing
+    withheld" rather than raise. That default is the safe direction: it claims no narrowing, where
+    the opposite would announce a narrowing nobody measured.
+    """
+    census = getattr(profile, "operator_census", None) or {}
+    for cat, row in census.items():
+        if getattr(cat, "value", cat) == "SWAP":
+            return int(row.get("withheld", 0) or 0), int(row.get("generated", 0) or 0)
+    return 0, 0
+
+
 def certificate_standing(
     functionally_complete: bool,
     line_complete: bool,
@@ -326,6 +373,15 @@ class ConvergeResult:
     # Wesker mutation policy — never universality beyond it. None = the installed
     # engine predates policy versioning (policy unversioned, not unchanged).
     policy_id: str | None = None
+    # What the argument-order BUDGET declined to ask (Wesker policy 7). The engine has counted
+    # this in its operator census since policy 7; nothing READ it, so a narrowed measurement and a
+    # complete one reached the user identically. Both fields are carried rather than derived by
+    # each renderer: `swap_budget` is the single decision (`swap_budget_disclosure`) and
+    # `swap_withheld` the evidence behind it, so `--json` hands a consumer the conclusion instead
+    # of inviting it to rebuild a narrower one. 0 / "not_budgeted" is also what an older Wesker
+    # yields, which reads as "nothing withheld" — the safe direction, since it claims no narrowing.
+    swap_withheld: int = 0
+    swap_budget: str = "not_budgeted"
     # Golden captures refused because the invocation opened default-path files
     # (issue #23) — each entry names the call and the touched path(s). The
     # capture would have pinned the ENVIRONMENT, so it was not emitted; these
@@ -2455,6 +2511,8 @@ def _converge_impl(
     # inputs the witness search does not synthesize? Advisory only — the CLI uses it to caution
     # against a false `flag` on a survivor that may be killable-with-harder-input, never a gate.
     structural_difficulty = structural_input_difficulty(**structural_shape(node))
+    # The argument-order budget's disclosure, read off the FINAL profile's census (policy 7).
+    _swap_withheld, _swap_generated = _swap_census_counts(final_result)
     # Rebuild the FunctionBasis with the REAL classified count (review — converge governs its own
     # basis, not profile()'s equivalent=0 advisory object). U_t = every VALUE-undischargeable survivor
     # (candidate-equivalent + crash-only + manual-equivalent, the `.equivalent` union + manual), so the
@@ -2523,6 +2581,10 @@ def _converge_impl(
         function_basis=_basis,
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(two_sign=two_sign),
+        # Consumed from the engine's census, never re-derived — and DECIDED once here, so every
+        # renderer reads the same conclusion instead of rebuilding a narrower one from the count.
+        swap_withheld=_swap_withheld,
+        swap_budget=swap_budget_disclosure(_swap_withheld, _swap_generated),
         stale_target=stale,
         # Consumed from the profile, never re-derived (#60). `getattr` with a True default is the
         # release-skew guard the issue names: an older Wesker without the field must not be read

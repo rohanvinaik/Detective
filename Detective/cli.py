@@ -2197,6 +2197,14 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
             f"  · not consulted: {skipped} collected test(s) have no static path to this function — "
             "not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)"
         )
+    # The argument-order budget, stated in the archive too — same single decision the banner reads.
+    if (_budget := getattr(result, "swap_budget", "not_budgeted")) != "not_budgeted":
+        lines.append(
+            f"  · order withheld: {getattr(result, 'swap_withheld', 0)} argument-order question(s) "
+            f"were not asked ({'none asked' if _budget == 'budgeted_none' else 'nearest asked'}) — "
+            "the per-call-site budget bounds them. Never asked is not the same as asked-and-passed: "
+            "supply a distinguishing --input, or narrow the call's interface"
+        )
     if result.minimal_test_count:
         lines.append(f"  minimal suite: {result.minimal_test_count} test(s) cover all kills + lines")
     if result.redundant_tests:
@@ -2447,6 +2455,19 @@ def _format_converge_terse(
                 "· not consulted",
                 f"{skipped} collected test(s) have no static path to this function — not traced "
                 "(a missed dynamic reacher costs a redundant generated test, never a certificate)",
+            )
+        )
+    # The argument-order budget (Wesker policy 7). Reads the DECISION the result carries, never
+    # re-derived from the count — the withheld number is shown as its evidence. Silent when nothing
+    # was withheld, so the line means something on the runs where it appears.
+    if (_budget := getattr(result, "swap_budget", "not_budgeted")) != "not_budgeted":
+        _asked = "none of them were asked" if _budget == "budgeted_none" else "the nearest were asked"
+        lines.append(
+            _row(
+                "· order withheld",
+                f"{getattr(result, 'swap_withheld', 0)} argument-order question(s) were not asked — "
+                f"a per-call-site budget bounds them and {_asked}. Not a gap in the suite and not "
+                "verified either: supply a distinguishing --input, or narrow the call's interface",
             )
         )
     if report_path:
