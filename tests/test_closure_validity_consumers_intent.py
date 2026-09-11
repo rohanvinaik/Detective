@@ -10,6 +10,7 @@ from _support import make_pr
 from Detective import audit, engine, pins
 from Detective.equivalence import SurvivorReport
 from Detective.rewrite import RewriteReceipt, verify_rewrite
+from Detective.verdict_cache import wesker_policy_id
 
 
 def test_an_empty_invalid_profile_is_not_a_completed_audit(monkeypatch, tmp_path):
@@ -49,7 +50,10 @@ def test_a_refused_empty_classification_cannot_preserve_a_rewrite(monkeypatch, t
         original_source=original,
         source_digest=hashlib.sha256(original.encode()).hexdigest(),
         function_digest=pins.function_digest(ast.parse(original).body[0]),
-        policy_id="test",
+        # The engine's live policy: the policy gate runs before classification, so a placeholder id
+        # would return POLICY_MOVED and this test would pass without ever reaching the empty
+        # measurement it exists to check.
+        policy_id=wesker_policy_id(),
         universe_size=1,
         proof_suite=(proof.name,),
         proof_status="passed",

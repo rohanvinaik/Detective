@@ -299,10 +299,32 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/rewrite.py::basis_freshness": {
+    "cut_reasons": [],
+    "function_digest": "a4c295fd4d34c381",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/rewrite.py::policy_identity": {
+    "cut_reasons": [
+      "mutant_not_entered"
+    ],
+    "function_digest": "5df73c97152b7cc8",
+    "refusal": "",
+    "standing": "ungateable"
+  },
   "Detective/rewrite.py::rewrite_classification_status": {
     "function_digest": "dc18ab182c1b1ba2",
     "refusal": "",
     "standing": "complete"
+  },
+  "Detective/rewrite.py::verify_rewrite_exit": {
+    "cut_reasons": [
+      "mutant_not_entered"
+    ],
+    "function_digest": "bba2b1722a33fe7d",
+    "refusal": "",
+    "standing": "ungateable"
   },
   "Detective/rewrite.py::verify_rewrite_note_shown": {
     "function_digest": "603bc0092a30df7f",

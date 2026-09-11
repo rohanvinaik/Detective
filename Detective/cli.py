@@ -6436,6 +6436,7 @@ def _format_rewrite(r) -> str:
         "ABSTAIN": "⚠",
         "STALE_RECEIPT": "·",
         "INVALID_RECEIPT": "✗",
+        "POLICY_MOVED": "⚠",
     }
     from .rewrite import verify_rewrite_note_shown, verify_rewrite_replay_row_shown
 
@@ -6484,6 +6485,11 @@ def _format_rewrite(r) -> str:
         "INVALID_RECEIPT": (
             "STOP.  this receipt does not apply to the requested target — wrong function, or a\n"
             "       corrupt/foreign receipt. No preservation claim was made; see the reason below."
+        ),
+        "POLICY_MOVED": (
+            "STOP.  this receipt was measured under a different mutation policy than this engine\n"
+            "       asks — its completeness does not transfer across that gap. Re-take the receipt\n"
+            "       against the current policy, then verify the rewrite again."
         ),
     }
     lines.append(verdict_msg.get(r.verdict, ""))
@@ -7201,7 +7207,7 @@ def _run_verify_rewrite(args, file, function) -> int:
     # PRESERVED 0 to a 3 — "the payoff could not be measured" — never a 1 to anything else: the
     # gate owns validity, the budget is only ever the payoff (`budget_exit`, pinned).
     code = verify_rewrite_exit(result.verdict)
-    # W1. Seven verdicts over four exit codes — CHANGED/UNREVIEWED share 1, and the three receipt
+    # W1. Eight verdicts over four exit codes — CHANGED/UNREVIEWED share 1, and the four receipt
     # failures share 2 — so the verdict carries what `exit` structurally cannot. That NON-1:1 mapping
     # is the criterion for wiring `outcome` at all: where a verb's named ending is recoverable from
     # its exit code, this field would only duplicate a column the ledger already has.

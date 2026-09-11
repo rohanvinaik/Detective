@@ -33,6 +33,10 @@ def test_unusable_receipts_are_a_precondition_not_a_gap():
     assert verify_rewrite_exit("INVALID_RECEIPT") == 2
     assert verify_rewrite_exit("STALE_RECEIPT") == 2
     assert verify_rewrite_exit("BASIS_MOVED") == 2
+    # A receipt measured under a different mutation policy asks a different set of questions. Like a
+    # moved basis, re-running cannot change it — the receipt must be re-taken. A precondition, not a
+    # gap: reporting 1 here would tell CI the rewrite broke something, which nobody measured.
+    assert verify_rewrite_exit("POLICY_MOVED") == 2
 
 
 def test_abstain_is_an_invalid_measurement_to_rerun():

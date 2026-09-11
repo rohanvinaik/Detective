@@ -278,10 +278,11 @@ def verify_rewrite_exit(verdict: str) -> int:
       * ``0`` — ``PRESERVED``: preservation established on every axis.
       * ``1`` — ``CHANGED`` / ``UNREVIEWED``: a DETERMINED negative — behaviour provably changed, or
         the new source added a dimension the proof never covered. A real gap CI must catch.
-      * ``2`` — ``INVALID_RECEIPT`` / ``STALE_RECEIPT`` / ``BASIS_MOVED``: a PRECONDITION — the receipt
-        is unusable as given (malformed/foreign; describes no rewrite, source identical to the
-        original; or its frozen proof basis moved). Regenerate it; re-running the same command cannot
-        change the answer.
+      * ``2`` — ``INVALID_RECEIPT`` / ``STALE_RECEIPT`` / ``BASIS_MOVED`` / ``POLICY_MOVED``: a
+        PRECONDITION — the receipt is unusable as given (malformed/foreign; describes no rewrite,
+        source identical to the original; its frozen proof basis moved; or it was measured under a
+        different mutation policy than this engine asks). Regenerate it; re-running the same command
+        cannot change the answer.
       * ``3`` — ``ABSTAIN``: an INVALID MEASUREMENT — the baseline was not a complete verified proof,
         classification could not run, or survivors were unresolved ("no measurement, no verdict").
         Re-run. This is the contract's "weak receipt baseline".
@@ -296,6 +297,7 @@ def verify_rewrite_exit(verdict: str) -> int:
         "INVALID_RECEIPT": 2,
         "STALE_RECEIPT": 2,
         "BASIS_MOVED": 2,
+        "POLICY_MOVED": 2,
         "ABSTAIN": 3,
     }.get(verdict, 1)
 
@@ -327,6 +329,45 @@ def basis_freshness(frozen: dict[str, str], current: dict[str, str]) -> str:
         if current.get(path) != digest:
             return "moved"
     return "fresh"
+
+
+def policy_identity(receipt_policy_id: str | None, current_policy_id: str | None) -> str:
+    """Whether the receipt's obligations were measured under the questions THIS run asks
+    (#37, pure — pinned).
+
+    A receipt records ``policy_id`` (issue #14: "complete" means specified under THIS versioned
+    Wesker mutation policy, never universality beyond it) — and until now NOTHING read it back.
+    So a receipt taken under policy 6 could be verified after a policy bump, and the new-dimension
+    scan would run the NEW question set while the verdict spoke for the old one. The failure is
+    asymmetric and silent in the dangerous direction: the engine that grows a question cannot find
+    what the receipt never asked, and the engine that drops one reports a completeness the receipt
+    did not have. This is the same defect class as :func:`receipt_refusal` and
+    :func:`basis_freshness` — binding a claim to the conditions it was actually measured under.
+
+    Four states, because the ways to be unable to compare are not one fact and do not share a
+    remedy — checked most-fundamental first, as ``receipt_refusal`` orders its gates:
+
+    * ``unversioned`` — the INSTALLED engine publishes no policy id (``wesker_policy_id()`` returns
+      ``None`` on a pre-policy Wesker). This run cannot name the question set it is about to measure
+      under, so no comparison is possible at all, whatever the receipt holds. A missing capability
+      here, not a detected change; the remedy is the engine, not the receipt.
+    * ``unrecorded`` — the RECEIPT names no policy (a pre-#14 receipt). The engine can name its
+      own; there is simply nothing to check it against. The remedy is to re-take the receipt.
+    * ``moved`` — both name a policy and they differ. The obligations were measured against a
+      different set of questions than this verification will ask. Preservation is unprovable
+      across that gap, exactly as it is across a proof basis that moved.
+    * ``match`` — the recorded policy is the one this run measures under.
+
+    An empty id is no id: it reads as absent rather than as a value that could coincidentally
+    compare equal. Nothing here is 'measure anyway' — absence never becomes a silent pass.
+    """
+    if not current_policy_id:
+        return "unversioned"
+    if not receipt_policy_id:
+        return "unrecorded"
+    if receipt_policy_id != current_policy_id:
+        return "moved"
+    return "match"
 
 
 def _node_file_digest(root: str, node_id: str) -> str:
@@ -465,6 +506,7 @@ def verify_rewrite(
     from .certify import run_pytest_verification
     from .engine import _load_original, classify_survivors
     from .equivalence import _outcome
+    from .verdict_cache import wesker_policy_id
 
     say = notify or (lambda _m: None)
     root = os.path.abspath(project_root)
@@ -500,6 +542,32 @@ def verify_rewrite(
             (),
             (),
             note="the current source is identical to the receipt's original — nothing was rewritten",
+        )
+
+    # POLICY GATE (#37, closing #14's open end): the receipt's obligations were measured under a
+    # specific set of QUESTIONS — Wesker's versioned mutation policy. The receipt has always RECORDED
+    # that id and nothing ever read it back, so a receipt taken under policy 6 could be verified after
+    # a bump while the new-dimension scan below asked policy 7's questions — a verdict speaking for a
+    # universe it was not measured over. `classify_survivors` is called one-sign below (no
+    # `two_sign=`), so the id this run actually measures under is the one-sign id, and that is what
+    # the receipt is held against. `unrecorded`/`unversioned` do NOT refuse — they cannot establish a
+    # match either, so they bar PRESERVED through `receipt_valid`, exactly as `unfrozen` does.
+    current_policy = wesker_policy_id()
+    policy_state = policy_identity(receipt.policy_id, current_policy)
+    if policy_state == "moved":
+        say("⚠ the mutation policy moved since the receipt — preservation cannot be established")
+        return RewriteVerification(
+            "POLICY_MOVED",
+            requested_key,
+            "skipped",
+            (),
+            (),
+            (),
+            note=(
+                f"the receipt's obligations were measured under mutation policy "
+                f"{receipt.policy_id!r}, but this engine asks {current_policy!r} — a different set "
+                f"of questions, so the receipt's completeness does not transfer"
+            ),
         )
 
     # FREEZE GATE (#37): the receipt's obligations were measured against a specific proof suite.
@@ -597,10 +665,17 @@ def verify_rewrite(
     # ground PRESERVED (its basis may have moved unseen), so it abstains via this gate. A `moved`
     # basis already returned BASIS_MOVED above.
     receipt_valid = (
-        receipt.functionally_complete and receipt.proof_status == "passed" and freshness == "fresh"
+        receipt.functionally_complete
+        and receipt.proof_status == "passed"
+        and freshness == "fresh"
+        and policy_state == "match"
     )
     if freshness == "unfrozen":
         say("⚠ this older receipt did not freeze its proof basis — cannot establish preservation")
+    if policy_state == "unrecorded":
+        say("⚠ this receipt records no mutation policy — cannot establish which questions it answered")
+    elif policy_state == "unversioned":
+        say("⚠ this engine publishes no mutation policy id — cannot establish which questions it asks")
     classification_status = rewrite_classification_status(
         report is not None,
         bool(getattr(report, "load_failed", False)),

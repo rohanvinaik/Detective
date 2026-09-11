@@ -18,6 +18,12 @@ import hashlib
 
 from Detective import pins
 from Detective.rewrite import RewriteReceipt, basis_freshness, verify_rewrite
+from Detective.verdict_cache import wesker_policy_id
+
+# The receipt's policy must be the one THIS engine asks, or the (earlier) policy gate returns
+# POLICY_MOVED and these tests would pass for a reason that has nothing to do with the basis.
+# Read from the engine rather than hardcoded, so a policy bump does not silently re-point them.
+_LIVE_POLICY = wesker_policy_id()
 
 # ── the pure decision ──────────────────────────────────────────────────────────
 
@@ -82,7 +88,7 @@ def test_a_proof_file_edited_after_the_receipt_is_refused(tmp_path):
         original_source=original,
         source_digest=hashlib.sha256(original.encode()).hexdigest(),
         function_digest=pins.function_digest(onode),
-        policy_id="p",
+        policy_id=_LIVE_POLICY,
         universe_size=1,
         proof_suite=("test_m37.py",),
         proof_status="passed",

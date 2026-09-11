@@ -54,11 +54,12 @@ def test_verify_rewrite_verdicts_are_not_recoverable_from_the_exit_code() -> Non
         "INVALID_RECEIPT",
         "STALE_RECEIPT",
         "BASIS_MOVED",
+        "POLICY_MOVED",
         "ABSTAIN",
     )
     codes = {verify_rewrite_exit(v) for v in verdicts}
-    assert len(verdicts) == 7
-    assert len(codes) == 4, "7 verdicts over 4 codes — three collisions the ledger could not see"
+    assert len(verdicts) == 8
+    assert len(codes) == 4, "8 verdicts over 4 codes — four collisions the ledger could not see"
     assert verify_rewrite_exit("INVALID_RECEIPT") == verify_rewrite_exit("STALE_RECEIPT")
 
 
