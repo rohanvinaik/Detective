@@ -5773,6 +5773,128 @@ def hang_watchdog_seconds(session_budget_s: float | None) -> float:
     return 3600.0
 
 
+# Wesker's own codes for why its execution lock could not be taken. Listed rather than inferred
+# so a code this build has never reasoned about is VISIBLE as unknown instead of falling into
+# whichever branch happens to catch it.
+LOCK_DISPOSITIONS = (
+    "orphaned",
+    "held_by_live_thread",
+    "free_but_unacquired",
+)
+
+
+def lock_refusal_route(disposition: str, supports_isolated: bool, already_isolated: bool) -> str:
+    """What to tell an operator whose run could not take Wesker's execution lock (#19, pure — pinned).
+
+    FOUR actions, and `supports_isolated` is why there are four rather than the two this was
+    first written with:
+
+      retry_fresh_process     — the lock is ORPHANED: its owner no longer exists, so it is lost
+                                for the life of THIS process and no flag can recover it. A new
+                                process starts with a fresh lock. MEASURED 2026-09-10, and this
+                                entry exists because the first version prescribed `--isolated`
+                                here and that advice was then TESTED: with the lock orphaned,
+                                `--isolated` still hangs, because it farms out mutant EVALUATION
+                                while the baseline trace that precedes it stays in-process and
+                                needs the same lock. Prescribing it would have been a step that
+                                cannot move the state — the spiral, shipped inside the refusal
+                                built to prevent one.
+      retry_isolated          — CONTENTION, not an orphan: a live thread holds it. Each mutation
+                                then gets its own process and therefore its own lock, so the
+                                competition goes away. Only offered for a verb that has the flag.
+      refuse_no_isolated_mode — the verb has no isolated mode at all. `--isolated` is declared
+                                under `if name == "converge"` and NOWHERE else, so `diagnose`,
+                                `audit`, `decompose`, `receipt` and `verify-rewrite` reach this
+                                same seam without it. Naming it anyway would prescribe a step the
+                                operator cannot take, and an instruction that cannot move the
+                                state is the spiral, not a remedy.
+      report_defect           — the run was ALREADY isolated. Isolation is what removes the shared
+                                lock, so a refusal there is an engine defect rather than anything
+                                the operator did; telling someone already using `--isolated` to
+                                use `--isolated` is the same spiral from the other side.
+      unknown_disposition     — Wesker named a state this build does not know. Report it verbatim
+                                and prescribe NOTHING: engine and reader version separately, so a
+                                newer engine can name a cause this reader has never reasoned
+                                about, and inventing a remedy for it breaks "no unclassified
+                                behaviour" exactly at the seam between the two.
+
+    Precedence matters. An unknown disposition outranks everything, because every remedy below it
+    is reasoned from a cause this build understands. `already_isolated` outranks
+    `supports_isolated` because a verb can support the flag AND have used it.
+    """
+    if disposition not in LOCK_DISPOSITIONS:
+        return "unknown_disposition"
+    if disposition == "orphaned":
+        return "retry_fresh_process"
+    if already_isolated:
+        return "report_defect"
+    if not supports_isolated:
+        return "refuse_no_isolated_mode"
+    return "retry_isolated"
+
+
+_LOCK_REFUSAL_LINES = {
+    "retry_fresh_process": (
+        "re-run the command. The lock is lost only in THIS process — a new one starts with a "
+        "fresh one. If it recurs on every run, that is a defect worth reporting."
+    ),
+    "retry_isolated": (
+        "re-run with `--isolated`: each mutation then gets its own process, and therefore "
+        "its own lock, so this contention cannot recur."
+    ),
+    "refuse_no_isolated_mode": (
+        "this command has no isolated mode, so there is no flag here that changes the "
+        "outcome. `converge --isolated` is the path that does not share the lock."
+    ),
+    "report_defect": (
+        "this run was ALREADY isolated, where each mutation holds its own lock — so this is "
+        "an engine defect rather than something to work around. Please report it."
+    ),
+    "unknown_disposition": (
+        "this build does not recognise that state, so it prescribes nothing rather than "
+        "guess a remedy for a cause it has not reasoned about."
+    ),
+}
+
+
+def _refuse_execution_lock(args: Any, exc: Any) -> int:
+    """Render Wesker's execution-lock refusal — exit 3, because nothing was measured.
+
+    3 rather than 2: the operator's world is not wrong and neither is their code. The engine
+    could not take its own lock, so no mutant was evaluated and every count would describe an
+    empty observation — which is what 3 means, and what converge already returns for a target
+    that would not import.
+
+    `supports_isolated` is read as the PRESENCE of the attribute, not as `args.command ==
+    "converge"`. The parser adds `--isolated` under `if name == "converge"`, so testing the
+    command name here would be a second copy of that condition, free to drift from it; asking
+    whether the parsed namespace carries the flag cannot.
+    """
+    disposition = str(getattr(exc, "disposition", "") or "")
+    route = lock_refusal_route(
+        disposition,
+        hasattr(args, "isolated"),
+        bool(getattr(args, "isolated", False)),
+    )
+    detail = _LOCK_REFUSAL_LINES[route]
+    if getattr(args, "json", False):
+        return _emit_json(
+            {
+                "verdict": "REFUSED",
+                "reason": "execution_lock_unavailable",
+                "disposition": disposition or "unnamed",
+                "route": route,
+                "detail": detail,
+            },
+            3,
+        )
+    sys.stderr.write(
+        f"  REFUSED: the engine could not take its execution lock ({disposition or 'unnamed'}), "
+        f"so nothing was measured —\n           {detail}\n"
+    )
+    return 3
+
+
 class _hang_watchdog:
     """Arm a PREEMPTIVE wall-clock backstop around a live-session run (#hang).
 
@@ -5906,6 +6028,22 @@ def _run_live(args) -> int:
     except ImportError:  # older Wesker without the live-session seam
         return _run(args)
 
+    try:
+        from Wesker.engine import ExecutionLockUnavailable
+    except ImportError:  # an engine whose execution lock is unbounded and cannot refuse
+
+        class ExecutionLockUnavailable(Exception):  # type: ignore[no-redef]
+            """Inert stand-in so the handler below is valid against an older engine.
+
+            Guarded like the seam above, and for the same reason: the pair versions separately,
+            and an unconditional import of a symbol a PUBLISHED Wesker does not have would not
+            degrade — it would stop Detective importing at all. An engine without the bounded
+            acquire never raises this, so the handler simply never fires there.
+            """
+
+            disposition = ""
+            owner_tid = 0
+
     # The file under analysis, so the suite-global baseline is traced once for it
     # rather than re-derived per profiled function.
     targets: list[str] | None = None
@@ -5957,17 +6095,25 @@ def _run_live(args) -> int:
     # between steps the stuck main thread never reaches). The wall-clock watchdog fires regardless and
     # dumps stacks, so a deadlock fails LOUD and bounded instead of hanging (see the converge-hang
     # investigation). Sized never to fire on a real run.
-    with _hang_watchdog(hang_watchdog_seconds(_trace_session_budget(args))):
-        code = run_with_live_suite(
-            root,
-            lambda: _run(args),
-            target_files=targets,
-            paths=paths,
-            trace_progress=_stream_trace_progress(label),
-            trace_budget_s=_trace_budget(args),
-            trace_session_budget_s=_trace_session_budget(args),
-            diagnostic=diagnostic,
-        )
+    # The watchdog above is the LAST resort — sized never to fire on a legitimate run, so it ends
+    # an undiagnosed hang after ~70 minutes. This handler is the diagnosed one: the engine now
+    # bounds its own execution lock and names WHY it could not take it, so that case refuses in
+    # seconds with a remedy instead of waiting out the backstop. The two are layered, not
+    # alternatives — the watchdog still covers every hang nobody has traced yet.
+    try:
+        with _hang_watchdog(hang_watchdog_seconds(_trace_session_budget(args))):
+            code = run_with_live_suite(
+                root,
+                lambda: _run(args),
+                target_files=targets,
+                paths=paths,
+                trace_progress=_stream_trace_progress(label),
+                trace_budget_s=_trace_budget(args),
+                trace_session_budget_s=_trace_session_budget(args),
+                diagnostic=diagnostic,
+            )
+    except ExecutionLockUnavailable as exc:
+        return _refuse_execution_lock(args, exc)
     if code is None:
         sys.stderr.write(_format_session_warning(diagnostic, project_root=root))
         reason = str(diagnostic.get("reason", "") or "")
