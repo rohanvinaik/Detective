@@ -61,6 +61,14 @@ class RewriteReceipt:
     # line/arc-only owner (invisible to the kill-matrix-derived `proof_digests`) is caught. Empty when
     # the run had no green verification to collect under; verify-rewrite then rests on `proof_digests`.
     node_basis: tuple[tuple[str, str], ...] = ()
+    # The argument-order BUDGET's standing when the baseline was measured (Wesker policy 7).
+    # ``None`` is load-bearing and must stay the default: a receipt taken before this field existed
+    # does not know whether questions were withheld, and defaulting it to "nothing withheld" would
+    # rebuild — at the serialization boundary — the very blur this pair of fields exists to remove.
+    # Absent here means UNKNOWN, exactly as an absent ``proof_digests`` means `unfrozen` and never
+    # "the basis is intact".
+    swap_budget: str | None = None
+    swap_withheld: int | None = None
     schema: str = _RECEIPT_SCHEMA
 
     def to_json(self) -> str:
@@ -183,13 +191,21 @@ def receipt_load_refusal(text: str, expected_schema: str) -> str:
 class RewriteVerification:
     """The typed outcome of verifying a rewrite against a receipt (#37)."""
 
-    verdict: str  # PRESERVED | CHANGED | UNREVIEWED | ABSTAIN | STALE_RECEIPT | BASIS_MOVED | INVALID_RECEIPT
+    # PRESERVED | CHANGED | UNREVIEWED | ABSTAIN
+    # | STALE_RECEIPT | BASIS_MOVED | POLICY_MOVED | INVALID_RECEIPT
+    verdict: str
     function: str
     proof_replayed: str  # the pytest status of replaying the old proof suite on the NEW source
     new_dimensions: tuple[str, ...]  # killable mutants the old proof does not kill on the new source
     differences: tuple[str, ...]  # inputs where OLD and NEW implementations produced different results
     abstentions: tuple[str, ...]  # inputs where old-vs-new could not be safely compared
     note: str = ""
+    # WHY a verdict was reached, as a machine-readable code, when the verdict alone under-determines
+    # it. ABSTAIN has several causes with different remedies ("baseline_order_withheld" cannot be
+    # fixed by re-running; "order_census_unavailable" needs a newer engine), and injectivity applies
+    # to the WHOLE reported assessment — so the cause travels as its own field rather than forcing
+    # each one into a separate top-level verdict, and a `--json` consumer can branch on it.
+    reason: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, default=str)
@@ -202,6 +218,7 @@ def rewrite_verdict(
     new_dimensions: int,
     differences: int,
     abstentions: int,
+    order_clear: bool = True,
 ) -> str:
     """The rewrite-preservation verdict (issue #37, pure — Detective-pinned).
 
@@ -218,7 +235,20 @@ def rewrite_verdict(
     * ABSTAIN again for any residual that could not be compared (unclassified / candidate-equivalent
       survivors fold into ``abstentions``).
     * PRESERVED only when ALL hold: valid baseline, classification ran, proof replays green, no new
-      dimension, no difference, no abstention.
+      dimension, no difference, no abstention, and the baseline's argument-order evidence is clear.
+
+    ``order_clear=False`` says the BASELINE had unasked argument-order questions, or could not
+    report whether it did (see :func:`order_evidence_standing`). It withholds PRESERVED and nothing
+    more — the "unverified but not failing" grade.
+
+    ITS POSITION IS THE POINT, and getting it wrong would be worse than the hole it closes. It sits
+    BELOW the ``CHANGED`` branch and is never folded into ``receipt_valid``: a difference there is a
+    DIRECT OBSERVATION — both implementations executed at a concrete input — not an inference from
+    baseline quality, so a weak baseline must not be able to suppress it. Folded in above, a rewrite
+    that provably broke something would report ABSTAIN, hiding the very difference the supplied
+    input was requested to expose. (The same argument arguably applies to the existing
+    ``receipt_valid`` causes above; that is pinned behaviour, left alone deliberately and recorded
+    as an open question in the intent tests rather than quietly changed here.)
     """
     if not receipt_valid or not classification_ran:
         return "ABSTAIN"
@@ -227,6 +257,8 @@ def rewrite_verdict(
     if new_dimensions > 0:
         return "UNREVIEWED"
     if abstentions > 0:
+        return "ABSTAIN"
+    if not order_clear:
         return "ABSTAIN"
     return "PRESERVED"
 
@@ -329,6 +361,65 @@ def basis_freshness(frozen: dict[str, str], current: dict[str, str]) -> str:
         if current.get(path) != digest:
             return "moved"
     return "fresh"
+
+
+# What each non-clear argument-order standing MEANS to a reader, and what to do about it. The
+# remedy is cause-specific on purpose: ABSTAIN's generic advice is "re-run", and for a withheld
+# baseline re-running is futile — the budget withholds identically every time. Printing "re-run"
+# there would be the same defect as a remedy that cannot be followed.
+_ORDER_STANDING_SAID = {
+    "baseline_order_withheld": (
+        "the baseline left argument-order questions unasked (a per-call-site budget) — preservation "
+        "cannot be established over questions nobody asked. Re-running will not change this: supply "
+        "a distinguishing --input and re-take the receipt, or narrow the call's interface"
+    ),
+    "order_census_unavailable": (
+        "the baseline's engine could not report whether argument-order questions were withheld — "
+        "that is unknown, not zero, so preservation cannot rest on it. Re-take the receipt under an "
+        "engine that reports the census"
+    ),
+    "unrecorded": (
+        "this receipt predates argument-order budget recording, so what it left unasked is unknown "
+        "— re-take the receipt to establish it"
+    ),
+}
+
+
+def order_evidence_standing(receipt_swap_budget: str | None) -> str:
+    """What the baseline's argument-order evidence permits a rewrite verdict to CLAIM
+    (pure — pinned).
+
+    A receipt records that the engine asked every pair of positional arguments it could — or that a
+    per-call-site budget declined some. Until now nothing carried that into the verdict, so a
+    baseline with KNOWN unasked questions could still ground ``PRESERVED``. Measured: a six-argument
+    wrapper whose suite is degenerate across the withheld pair returns ``PRESERVED`` for a rewrite
+    that computes 66 where the original computes 91. Worse, whether that rewrite is caught at all
+    depends on whether some unrelated test's input happens to separate those positions — so the
+    verdict was decided by luck, and said so nowhere.
+
+    Four codes. Only the first may support preservation; the rest are causes for ABSTAIN, and they
+    stay apart because a reader acts differently on each:
+
+    * ``clear`` — every pair was asked. Nothing is owed on this axis.
+    * ``baseline_order_withheld`` — the budget declined pairs the baseline therefore never pinned.
+      Remedy: supply a distinguishing input and re-take the receipt. RE-RUNNING CHANGES NOTHING —
+      the budget withholds identically every time — so a renderer must not print "re-run" here.
+    * ``order_census_unavailable`` — the engine could not report whether anything was withheld.
+      The absence of a measurement, not a measurement of zero. Remedy: a newer engine.
+    * ``unrecorded`` — the receipt predates the field. Remedy: re-take the receipt.
+
+    None of these is a failure, and none may be read as one: they are the honest "unverified" grade
+    for a question the policy declined to ask, which is a different fact from a rewrite that broke
+    something. Nothing here may outrank a DIRECTLY OBSERVED difference — that is the caller's
+    ordering obligation, not this decision's.
+    """
+    if receipt_swap_budget is None:
+        return "unrecorded"
+    if receipt_swap_budget == "unavailable":
+        return "order_census_unavailable"
+    if receipt_swap_budget in ("budgeted_partial", "budgeted_none"):
+        return "baseline_order_withheld"
+    return "clear"
 
 
 def policy_identity(receipt_policy_id: str | None, current_policy_id: str | None) -> str:
@@ -455,6 +546,12 @@ def make_receipt(
         ),
         functionally_complete=conv.functionally_complete,
         proof_digests=proof_digests,
+        # The argument-order budget's standing AT MEASUREMENT TIME. Recorded rather than re-derived
+        # at verification: the budget is a property of the run that produced this baseline, and a
+        # later engine could answer differently. `getattr` defaults to None (UNKNOWN), never to a
+        # state — an older converge that did not compute it must not be read as "nothing withheld".
+        swap_budget=getattr(conv, "swap_budget", None),
+        swap_withheld=getattr(conv, "swap_withheld", None),
         # The runner's node-ID basis, from the FINAL verification's real collection (#58) — the
         # complete proof suite under the consumer's regime. Empty when no verification ran (an
         # incomplete run, or an older Wesker without the plugin), where `proof_digests` stands alone.
@@ -686,8 +783,20 @@ def verify_rewrite(
         say("⚠ the receipt is not a complete, verified baseline — preservation cannot be established")
     if not classification_ran:
         say("⚠ survivor classification could not run on the rewritten source — abstaining")
+    # The baseline's argument-order standing. NOT folded into `receipt_valid` — see
+    # `rewrite_verdict`: a directly observed difference must still read CHANGED, never be hidden
+    # behind an abstention about what the baseline failed to ask.
+    order_standing = order_evidence_standing(receipt.swap_budget)
+    if order_standing != "clear":
+        say(f"⚠ {_ORDER_STANDING_SAID[order_standing]}")
     verdict_str = rewrite_verdict(
-        receipt_valid, classification_ran, proof_ok, len(new_dimensions), len(differences), len(abstentions)
+        receipt_valid,
+        classification_ran,
+        proof_ok,
+        len(new_dimensions),
+        len(differences),
+        len(abstentions),
+        order_standing == "clear",
     )
     return RewriteVerification(
         verdict=verdict_str,
@@ -698,4 +807,8 @@ def verify_rewrite(
         abstentions=tuple(dict.fromkeys(abstentions)),
         note=getattr(report, "note", None)
         or ("" if classification_ran else f"classification: {classification_status}"),
+        # The cause rides only when it actually DECIDED the verdict. On a CHANGED result the
+        # baseline's unasked questions are true but not why the answer came out that way, and
+        # stamping them there would invite a reader to treat a proven difference as an evidence gap.
+        reason=order_standing if (verdict_str == "ABSTAIN" and order_standing != "clear") else "",
     )

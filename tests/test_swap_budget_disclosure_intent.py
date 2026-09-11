@@ -80,30 +80,43 @@ class _Profile:
 
 def test_the_swap_row_is_read_off_the_census():
     prof = _Profile({_Cat("SWAP"): {"generated": 11, "withheld": 5, "disposition": "generated"}})
-    assert _swap_census_counts(prof) == (5, 11)
+    assert _swap_census_counts(prof) == (5, 11, True)
 
 
-def test_a_census_without_swap_withholds_nothing():
+def test_a_census_without_a_swap_row_cannot_report_availability():
     prof = _Profile({_Cat("VALUE"): {"generated": 9, "withheld": 0}})
-    assert _swap_census_counts(prof) == (0, 0)
+    assert _swap_census_counts(prof) == (0, 0, False)
 
 
-def test_an_engine_with_no_census_degrades_to_nothing_withheld():
-    """Detective resolves against a FLOOR Wesker. An engine predating the census must not raise,
-    and must not be read as having withheld something — that direction claims no narrowing, where
-    the opposite would announce one nobody measured."""
+def test_a_missing_census_is_UNAVAILABLE_not_a_measured_zero():
+    """THE REGRESSION. An external review caught this, and it had been pinned WRONG here: the
+    previous version of this test asserted that a missing census "degrades to nothing withheld",
+    defending a zero that no engine ever reported as "the safe direction". It is not safe, it is an
+    assumption — and it made "we asked and withheld nothing" and "nobody told us" the same signal.
 
-    class _Old:
+    The README is the standard: *measured and clean, measured and wrong, not measurable this run,
+    not measurable by anyone* are four different facts, and a tool that blurs them has opinions,
+    not knowledge. This test now asserts the distinction its predecessor erased."""
+
+    class _Old:  # a Wesker predating the census entirely
         pass
 
-    assert _swap_census_counts(_Old()) == (0, 0)
-    assert _swap_census_counts(_Profile(None)) == (0, 0)
+    for profile in (_Old(), _Profile(None), _Profile({})):
+        withheld, _generated, available = _swap_census_counts(profile)
+        assert available is False, "absence of a census must never report as an available reading"
+        # And the count must not be allowed to speak for itself downstream:
+        assert swap_budget_disclosure(withheld, _generated, available) == "unavailable"
+    # The distinction, stated directly: a measured zero and an absent measurement differ.
+    assert swap_budget_disclosure(0, 11, True) != swap_budget_disclosure(0, 11, False)
 
 
-def test_a_census_row_missing_the_withheld_key_is_not_a_crash():
-    """A policy-6 engine's census rows have no `withheld` for SWAP."""
+def test_a_census_row_missing_the_withheld_key_is_unavailable_not_zero():
+    """A policy-6 engine's SWAP row carries no budget count. That is a question it never answered,
+    so the answer is unknown — not zero."""
     prof = _Profile({_Cat("SWAP"): {"generated": 4}})
-    assert _swap_census_counts(prof) == (0, 4)
+    withheld, generated, available = _swap_census_counts(prof)
+    assert (withheld, generated, available) == (0, 4, False)
+    assert swap_budget_disclosure(withheld, generated, available) == "unavailable"
 
 
 # ── the decision travels to consumers ──────────────────────────────────────────

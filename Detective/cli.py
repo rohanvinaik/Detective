@@ -2032,6 +2032,36 @@ def universe_claim(fast: bool, approximate_universe: bool) -> str:
     return "comprehensive_exact"
 
 
+def _swap_budget_row(state: str, withheld: int) -> tuple[str, str] | None:
+    """(label, text) for the argument-order budget disclosure, or None to stay silent.
+
+    ONE derivation for BOTH converge renderers — the banner and the archived report must not be
+    able to describe the same measurement differently, since a reader who picks the other surface
+    would get the friendlier reading.
+
+    Each state gets its own sentence because each names a different fact, and the remedy differs:
+    `unavailable` is the ABSENCE of the measurement and must never be phrased as a count (reading
+    it as "0 withheld" is the exact blur this decision exists to prevent), while a real withholding
+    names what to do about it.
+    """
+    if state == "unavailable":
+        return (
+            "· order census",
+            "the engine reported no argument-order census — whether any question was withheld is "
+            "UNKNOWN, not zero. A Wesker older than the count, or a row without it; upgrade the "
+            "engine to learn which",
+        )
+    if state in ("budgeted_partial", "budgeted_none"):
+        asked = "none of them were asked" if state == "budgeted_none" else "the nearest were asked"
+        return (
+            "· order withheld",
+            f"{withheld} argument-order question(s) were not asked — a per-call-site budget bounds "
+            f"them and {asked}. Not a gap in the suite and not verified either: supply a "
+            "distinguishing --input, or narrow the call's interface",
+        )
+    return None
+
+
 def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> str:
     """Validation report: what converge measured and what it left standing.
 
@@ -2197,14 +2227,12 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
             f"  · not consulted: {skipped} collected test(s) have no static path to this function — "
             "not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)"
         )
-    # The argument-order budget, stated in the archive too — same single decision the banner reads.
-    if (_budget := getattr(result, "swap_budget", "not_budgeted")) != "not_budgeted":
-        lines.append(
-            f"  · order withheld: {getattr(result, 'swap_withheld', 0)} argument-order question(s) "
-            f"were not asked ({'none asked' if _budget == 'budgeted_none' else 'nearest asked'}) — "
-            "the per-call-site budget bounds them. Never asked is not the same as asked-and-passed: "
-            "supply a distinguishing --input, or narrow the call's interface"
-        )
+    # The argument-order budget, stated in the archive too — the SAME derivation the banner reads,
+    # so the two surfaces cannot describe one measurement differently.
+    if _budget_row := _swap_budget_row(
+        getattr(result, "swap_budget", "not_budgeted"), getattr(result, "swap_withheld", 0)
+    ):
+        lines.append(f"  {_budget_row[0].lstrip('· ')}: {_budget_row[1]}")
     if result.minimal_test_count:
         lines.append(f"  minimal suite: {result.minimal_test_count} test(s) cover all kills + lines")
     if result.redundant_tests:
@@ -2458,18 +2486,11 @@ def _format_converge_terse(
             )
         )
     # The argument-order budget (Wesker policy 7). Reads the DECISION the result carries, never
-    # re-derived from the count — the withheld number is shown as its evidence. Silent when nothing
-    # was withheld, so the line means something on the runs where it appears.
-    if (_budget := getattr(result, "swap_budget", "not_budgeted")) != "not_budgeted":
-        _asked = "none of them were asked" if _budget == "budgeted_none" else "the nearest were asked"
-        lines.append(
-            _row(
-                "· order withheld",
-                f"{getattr(result, 'swap_withheld', 0)} argument-order question(s) were not asked — "
-                f"a per-call-site budget bounds them and {_asked}. Not a gap in the suite and not "
-                "verified either: supply a distinguishing --input, or narrow the call's interface",
-            )
-        )
+    # re-derived from the count — the withheld number is shown as its evidence.
+    if _label_and_text := _swap_budget_row(
+        getattr(result, "swap_budget", "not_budgeted"), getattr(result, "swap_withheld", 0)
+    ):
+        lines.append(_row(*_label_and_text))
     if report_path:
         lines.append(_row(_FULL_REPORT_ROW, report_path))
     lines.append("")
@@ -6500,6 +6521,25 @@ def _format_rewrite(r) -> str:
         "ABSTAIN": (
             "STOP.  old vs new could not be compared at every point — treat as unproven; review by hand."
         ),
+        # An ABSTAIN whose cause is the baseline's unasked argument-order questions gets its OWN
+        # advice, because the generic line above ends in "review by hand" and the `exit 3` contract
+        # says "re-run" — and re-running is futile here: the budget withholds identically every
+        # time. A remedy that cannot work is the defect this verdict exists to report, one layer up.
+        "ABSTAIN:baseline_order_withheld": (
+            "STOP.  UNVERIFIED — the baseline never asked some argument-order questions (a\n"
+            "       per-call-site budget), so preservation cannot be established over them. This is\n"
+            "       not a failure and re-running will not change it: supply a distinguishing\n"
+            "       --input and re-take the receipt, or narrow the call's interface."
+        ),
+        "ABSTAIN:order_census_unavailable": (
+            "STOP.  UNVERIFIED — the baseline's engine could not report whether argument-order\n"
+            "       questions were withheld. That is unknown, not zero, so preservation cannot rest\n"
+            "       on it. Re-take the receipt under an engine that reports the census."
+        ),
+        "ABSTAIN:unrecorded": (
+            "STOP.  UNVERIFIED — this receipt predates argument-order budget recording, so what it\n"
+            "       left unasked is unknown. Re-take the receipt to establish it."
+        ),
         "STALE_RECEIPT": (
             "DONE:  nothing was rewritten — the current source is identical to the receipt's original."
         ),
@@ -6513,7 +6553,13 @@ def _format_rewrite(r) -> str:
             "       against the current policy, then verify the rewrite again."
         ),
     }
-    lines.append(verdict_msg.get(r.verdict, ""))
+    # A cause-keyed message wins when the verdict carries one, so an ABSTAIN names the remedy that
+    # actually applies rather than the generic "review by hand".
+    _reason = getattr(r, "reason", "")
+    lines.append(
+        verdict_msg.get(f"{r.verdict}:{_reason}" if _reason else r.verdict, "")
+        or verdict_msg.get(r.verdict, "")
+    )
     # The note stays in the data (--json carries it), but suppress the rendered line when the verdict
     # message already states it — STALE_RECEIPT set both, printing the same fact twice (#C).
     if r.note and verify_rewrite_note_shown(r.verdict) == "show":

@@ -97,7 +97,7 @@ class ConvergeIteration:
     written: int
 
 
-def swap_budget_disclosure(withheld: int, generated: int) -> str:
+def swap_budget_disclosure(withheld: int, generated: int, census_available: bool = True) -> str:
     """Whether the argument-order BUDGET narrowed this run, and how (pure — pinned).
 
     Wesker policy 7 asks about every PAIR of positional arguments at a call site, selected greedily
@@ -106,21 +106,33 @@ def swap_budget_disclosure(withheld: int, generated: int) -> str:
     is the exact shape this project refuses, absence of evidence wearing the costume of evidence of
     absence. The census carries the number; this decides what it OBLIGES the report to say.
 
-    Three states, because they ask the reader for different things:
+    FOUR states, because they ask the reader for different things — and the fourth is the one this
+    decision originally got WRONG. It returned ``not_budgeted`` when the engine published no census
+    at all, which made "the engine measured, and withheld nothing" and "no engine told us anything"
+    share a signifier, and an intent test pinned that blur as though it were the design. The README
+    is unambiguous: *measured and clean, measured and wrong, not measurable this run, not measurable
+    by anyone* are four different facts, and a tool that blurs them has opinions, not knowledge.
+    Defaulting an absent measurement to zero is assuming what was not established.
 
-    * ``not_budgeted`` — nothing was withheld. The report must stay SILENT: a withholding line on a
-      run that withheld nothing would teach readers to ignore the line on the runs that matter.
-    * ``budgeted_partial`` — some pairs were asked and some were not. The certificate still stands
-      for what it measured; the count rides alongside it, and the reader is owed a way to close the
-      rest (a distinguishing ``--input``, or a narrower interface).
-    * ``budgeted_none`` — candidate pairs exist and NOT ONE was asked. Distinct from the partial
-      case because no argument-order evidence was gathered at all, so there is nothing to be
-      partially confident about.
+    * ``unavailable`` — the engine reported no argument-order census (an older Wesker, or a row
+      without the count). Checked FIRST, because it is not a fact about the call site at all: it is
+      the absence of the measurement, and nothing about withholding can be concluded either way.
+    * ``not_budgeted`` — the engine measured and withheld nothing. The report stays SILENT: a
+      withholding line on a run that withheld nothing teaches readers to ignore it on the runs
+      that matter.
+    * ``budgeted_partial`` — some pairs asked, some not. The certificate stands for what it
+      measured; the count rides alongside as its evidence, and the reader is owed a way to close
+      the rest (a distinguishing ``--input``, or a narrower interface).
+    * ``budgeted_none`` — candidate pairs exist and NOT ONE was asked. Distinct from partial
+      because no argument-order evidence was gathered, so there is nothing to be partially
+      confident about.
 
     Note what this never returns: a failure. A withheld question is not a gap the suite left open —
     it is a question the POLICY declined to ask, and the two have different remedies. Spending the
     budget changes the recorded evidence state; it never changes what "verified" means.
     """
+    if not census_available:
+        return "unavailable"
     if withheld <= 0:
         return "not_budgeted"
     if generated > 0:
@@ -128,20 +140,26 @@ def swap_budget_disclosure(withheld: int, generated: int) -> str:
     return "budgeted_none"
 
 
-def _swap_census_counts(profile) -> tuple[int, int]:
-    """(withheld, generated) argument-order questions, read off the engine's operator census.
+def _swap_census_counts(profile) -> tuple[int, int, bool]:
+    """(withheld, generated, AVAILABLE) argument-order questions, off the engine's operator census.
 
     The census is keyed by Wesker's ``MutationCategory`` enum in-process, so match on the member's
-    ``value`` rather than importing the enum — Detective resolves against a FLOOR Wesker, and an
-    engine predating the census (or predating policy 7's withheld count) must degrade to "nothing
-    withheld" rather than raise. That default is the safe direction: it claims no narrowing, where
-    the opposite would announce a narrowing nobody measured.
+    ``value`` rather than importing the enum — Detective resolves against a FLOOR Wesker.
+
+    The third element is the whole point, and its absence was a defect. This used to return
+    ``(0, 0)`` when no census existed, which an older engine and a genuinely unwithheld call site
+    reported IDENTICALLY. "We asked and nothing was withheld" is a measurement; "no engine told us"
+    is the absence of one, and a zero standing in for the second is an assumption, not a reading.
+    Every way of failing to learn the count reports ``available=False``: no census attribute at
+    all, an empty one, no SWAP row, or a row that does not carry the key.
     """
     census = getattr(profile, "operator_census", None) or {}
     for cat, row in census.items():
         if getattr(cat, "value", cat) == "SWAP":
-            return int(row.get("withheld", 0) or 0), int(row.get("generated", 0) or 0)
-    return 0, 0
+            if not isinstance(row, dict) or "withheld" not in row:
+                return 0, int((row or {}).get("generated", 0) or 0) if isinstance(row, dict) else 0, False
+            return int(row.get("withheld", 0) or 0), int(row.get("generated", 0) or 0), True
+    return 0, 0, False
 
 
 def certificate_standing(
@@ -1790,6 +1808,10 @@ def _converge_impl(
     # because that file is rewritten wholesale on the sibling's next converge. Read the foreign names
     # once (a tree walk) and strip them from every obligation set below — baseline AND final.
     _foreign_names = foreign_generated_test_names(root, func_key)
+    # A supplied `--input` is evidence the REPORT ASKED THE USER FOR, so it is owed a synthesis pass
+    # even when the mutants selected this run are already dead. Tracked so that pass happens exactly
+    # once — see the zero-survivor branch below for why it exists at all.
+    _inputs_honoured = False
 
     for _pass in range(max_iterations):
         # Stop STARTING new work once the wall is gone (issue #31): a fresh pass would only
@@ -1834,11 +1856,19 @@ def _converge_impl(
         if initial is None:
             initial = survivors
 
-        if survivors == 0:
+        # Zero survivors normally ENDS the run — but not while a user-supplied `--input` is still
+        # unspent. Measured: a six-argument wrapper whose suite already killed every selected mutant
+        # printed "supply a distinguishing --input", and supplying one wrote NO test and reprinted
+        # the same line. The remedy was inert exactly where it was offered, because this branch
+        # returns before golden capture ever sees the input. An instruction that cannot be followed
+        # is worse than none: it spends the reader's trust and their time. Fall through ONCE.
+        if survivors == 0 and not (supplied_inputs and not _inputs_honoured):
             iterations.append(ConvergeIteration(0, 0))
             hit_max = False
             say(f"pass {_pass}: ✓ every mutant killed")
             break
+        if survivors == 0:
+            say(f"pass {_pass}: ✓ every mutant killed — pinning the supplied input(s)…")
 
         if previous is not None and not _progressed(previous, survivors):
             iterations.append(ConvergeIteration(survivors, 0))  # no progress -> floor
@@ -1874,6 +1904,9 @@ def _converge_impl(
                 coupled=_runtime_coupled,
             )
             props += golden_props
+            # The supplied inputs have now had their synthesis pass, so the zero-survivor branch
+            # above may end the run on the next lap rather than looping on the same evidence.
+            _inputs_honoured = True
             for note in refused:
                 if note not in environment_coupled:
                     environment_coupled.append(note)
@@ -2512,7 +2545,7 @@ def _converge_impl(
     # against a false `flag` on a survivor that may be killable-with-harder-input, never a gate.
     structural_difficulty = structural_input_difficulty(**structural_shape(node))
     # The argument-order budget's disclosure, read off the FINAL profile's census (policy 7).
-    _swap_withheld, _swap_generated = _swap_census_counts(final_result)
+    _swap_withheld, _swap_generated, _swap_seen = _swap_census_counts(final_result)
     # Rebuild the FunctionBasis with the REAL classified count (review — converge governs its own
     # basis, not profile()'s equivalent=0 advisory object). U_t = every VALUE-undischargeable survivor
     # (candidate-equivalent + crash-only + manual-equivalent, the `.equivalent` union + manual), so the
@@ -2584,7 +2617,7 @@ def _converge_impl(
         # Consumed from the engine's census, never re-derived — and DECIDED once here, so every
         # renderer reads the same conclusion instead of rebuilding a narrower one from the count.
         swap_withheld=_swap_withheld,
-        swap_budget=swap_budget_disclosure(_swap_withheld, _swap_generated),
+        swap_budget=swap_budget_disclosure(_swap_withheld, _swap_generated, _swap_seen),
         stale_target=stale,
         # Consumed from the profile, never re-derived (#60). `getattr` with a True default is the
         # release-skew guard the issue names: an older Wesker without the field must not be read
