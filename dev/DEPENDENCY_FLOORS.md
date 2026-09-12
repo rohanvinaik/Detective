@@ -222,3 +222,33 @@ before the CLI parses an argument — the same module-load death class as the 0.
 floor. The `uv.lock` git-pin hides this in dev and CI (it resolves the co-developed Wesker `main`);
 the published metadata floor is what a `pip install detective-spec` consumer actually sees, so it must
 name 0.13.0. Detective and Wesker ship 0.13.0 together for exactly this reason.
+
+---
+
+## Wesker >= 1.1.0
+
+A MUTATION-POLICY floor, the second of its kind here (after 0.10.0), and the first that is also a
+SILENT-DEGRADE floor.
+
+Wesker 1.1.0 is mutation policy 7: SWAP asks about every PAIR of positional arguments rather than
+only adjacent ones, selected under a hard per-call-site budget, and what the budget declines is
+reported as `withheld` in the operator census. Detective 1.1.0 consumes exactly that count —
+`converge` reads it (`_swap_census_counts`), decides on it (`swap_budget_disclosure`), renders it,
+records it on the receipt, and `verify-rewrite` carries it into the preservation verdict, where an
+unasked argument-order question withholds PRESERVED.
+
+Below this floor nothing crashes, which is what makes it worth writing down. A policy-6 engine's
+SWAP census row simply has no `withheld` key. The accessor is deliberately tolerant of that — it
+returns `available=False`, the disclosure reads `unavailable`, and the receipt records `None` — so a
+`pip install detective-spec` against Wesker 1.0.0 gets an HONEST "this engine did not report whether
+anything was withheld" rather than a fabricated zero. That is the correct degrade, and it is exactly
+why the floor has to be declared: without it the feature is silently unavailable to every consumer
+who resolves an older engine, and the only symptom is a line that never appears.
+
+The two also disagree about the universe below the floor. Policy 6 never asks whether
+non-adjacent argument positions are distinguished, so a 1.0.0 engine paired with a 1.1.0 Detective
+produces receipts whose `policy_id` will not match a later run's — which `policy_identity` now
+refuses with POLICY_MOVED rather than replaying across the gap. Declaring the floor is what keeps
+that refusal rare and legible instead of routine.
+
+Detective and Wesker ship 1.1.0 together for exactly this reason.

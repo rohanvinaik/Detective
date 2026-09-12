@@ -2,6 +2,58 @@
 
 Notable changes, newest first. Dates are the commit dates.
 
+## 1.1.0 — 2026-09-11
+
+Requires **`Wesker>=1.1.0`** — a silent-degrade floor, so it is worth reading `dev/DEPENDENCY_FLOORS.md`
+before relaxing it. Three defects closed, each the same shape: a measurement that existed and a
+decision that never consumed it.
+
+### A receipt is bound to the QUESTIONS it was measured under
+
+`RewriteReceipt` has always recorded `policy_id`, and nothing read it back — verified with the
+language server, which found the writer and three test constructors and no production consumer. So a
+receipt taken under one mutation policy could be verified after a policy bump, with the
+new-dimension scan asking a different set of questions than the verdict spoke for.
+
+**New verdict `POLICY_MOVED`** (exit 2, the precondition class) refuses before anything is measured.
+`policy_identity` keeps four states apart, because the ways to be unable to compare do not share a
+remedy: `match`, `moved`, `unrecorded` (the receipt names no policy), and `unversioned` (the engine
+cannot name its own).
+
+### The argument-order budget is disclosed — and reaches the verdict
+
+Wesker 1.1.0 counts the argument-order questions its budget declines. Detective now reads that
+count (it referenced the operator census in **zero** places before), decides on it once, and renders
+it on both the banner and the archived report plus `--json`.
+
+It also reaches the preservation verdict, which is the half that matters: a baseline with unasked
+argument-order questions **cannot** yield PRESERVED. Measured before the fix — a six-argument
+wrapper whose suite is degenerate across the withheld pair returned `PRESERVED`, exit 0, for a
+rewrite computing 66 where the original computes 91. It now returns `ABSTAIN`, exit 3, carrying a
+structured `reason` so the advice names the remedy that applies: re-running will not change a
+withheld baseline, and saying "re-run" there would be an instruction that cannot work.
+
+**The gate sits BELOW the CHANGED branch, deliberately.** A difference is a direct observation —
+both implementations executed at a concrete input — not an inference from baseline quality, so a
+weak baseline must never suppress it. Folded in above, a rewrite that provably broke something would
+report ABSTAIN and hide the very difference a supplied input was requested to expose.
+
+### Absence stops reading as zero
+
+A missing operator census reported `(0, 0)` — so "the engine measured and withheld nothing" and "no
+engine told us" reached the reader identically. That was pinned as intended behaviour by a test
+this release deletes. The census read now carries availability, the disclosure has a fourth
+`unavailable` state checked first, and it is never phrased as a count. At the serialization
+boundary `RewriteReceipt.swap_budget` defaults to `None`, not to a state, so a receipt predating the
+field stays UNKNOWN rather than silently asserting that nothing was withheld.
+
+### Quality
+
+Local SonarQube new-code gate to OK / 0 bugs / 0 vulnerabilities / 0 hotspots — 60 findings cleared,
+including all 17 cognitive-complexity refactors (`_flow_stmt` came down from 68 to a handler table
+over statement families, every rule body unchanged). Behaviour is unchanged throughout; the suite
+went from 3237 to 3268 passing.
+
 ## 1.0.0 — 2026-09-09
 
 First stable release. 113 commits since 0.13.0 (2026-08-27). Requires `Wesker>=1.0.0`.
