@@ -142,19 +142,31 @@ def _heavy_imports(tree: ast.Module) -> tuple[tuple[str, ...], frozenset[str]]:
     roots: list[str] = []
     bound: set[str] = set()
     for node in tree.body:  # top level only
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                root = alias.name.split(".")[0]
-                if root in _HEAVY_IMPORT_ROOTS:
-                    roots.append(root)
-                    bound.add(alias.asname or root)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            root = node.module.split(".")[0]
-            if root in _HEAVY_IMPORT_ROOTS:
-                roots.append(root)
-                for alias in node.names:
-                    bound.add(alias.asname or alias.name)
+        node_roots, names = _heavy_import_binding(node)
+        roots.extend(node_roots)
+        bound.update(names)
     return tuple(dict.fromkeys(roots)), frozenset(bound)
+
+
+def _heavy_import_binding(node: ast.stmt) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """One statement's heavy roots and the names it binds — ((), ()) when it is not a heavy import.
+
+    Split out so the caller is a flat accumulation. The two import FORMS bind names differently
+    (`import x.y as z` binds one name per alias, and ONE statement may carry several heavy roots;
+    `from x import a, b` has one root and binds every alias), and interleaving that with the
+    accumulation put four levels of nesting in a single loop.
+    """
+    if isinstance(node, ast.Import):
+        heavy = [a for a in node.names if a.name.split(".")[0] in _HEAVY_IMPORT_ROOTS]
+        return (
+            tuple(a.name.split(".")[0] for a in heavy),
+            tuple(a.asname or a.name.split(".")[0] for a in heavy),
+        )
+    if isinstance(node, ast.ImportFrom) and node.module:
+        root = node.module.split(".")[0]
+        if root in _HEAVY_IMPORT_ROOTS:
+            return (root,), tuple(alias.asname or alias.name for alias in node.names)
+    return (), ()
 
 
 def _references_names(func: ast.FunctionDef | ast.AsyncFunctionDef, names: frozenset[str]) -> bool:
@@ -231,29 +243,39 @@ def survey_source(source: str) -> list[SurveyFinding]:
     module_heavy = bool(heavy)
     findings: list[SurveyFinding] = []
 
+    def _finding(child: ast.FunctionDef | ast.AsyncFunctionDef, qual: str) -> SurveyFinding | None:
+        """This function's finding, or None when its pure decision is already reachable.
+
+        Split out so `_walk` is only a traversal. Inline, the DECISION (four inputs, then a detail
+        string that varies by disposition) sat three levels deep inside the walk, and the two jobs
+        had to be read together to see that the `continue` above is about descent, not verdict.
+        """
+        # A function that REFERENCES a heavy binding genuinely uses the stack — it belongs in this
+        # module, not a trapped pure decision. Only one that uses NONE of them is trapped by an
+        # import it does not need.
+        if module_heavy and _references_names(child, bound):
+            return None
+        effects = world_effects(child)
+        disp = survey_disposition(
+            _param_inexpressible(child), bool(effects), module_heavy, _param_unresolved(child)
+        )
+        if disp == "reachable":
+            return None
+        detail = _EXTRACTION[disp]
+        if disp == "trapped_by_imports":
+            detail = f"{detail} (module imports {', '.join(heavy)})"
+        elif disp == "impure_body":
+            detail = f"{detail} (body: {', '.join(effects)})"
+        return SurveyFinding(qual, child.lineno, disp, detail)
+
     def _walk(node: ast.AST, prefix: str) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 qual = f"{prefix}{child.name}"
-                # A function that REFERENCES a heavy binding genuinely uses the stack — it belongs in
-                # this module, not a trapped pure decision. Only a function that uses NONE of them is
-                # trapped by an import it does not need. (Still descend: an inner may differ.)
-                if module_heavy and _references_names(child, bound):
-                    _walk(child, f"{qual}.")
-                    continue
-                any_inexpressible = _param_inexpressible(child)
-                effects = world_effects(child)
-                disp = survey_disposition(
-                    any_inexpressible, bool(effects), module_heavy, _param_unresolved(child)
-                )
-                if disp != "reachable":
-                    detail = _EXTRACTION[disp]
-                    if disp == "trapped_by_imports":
-                        detail = f"{detail} (module imports {', '.join(heavy)})"
-                    elif disp == "impure_body":
-                        detail = f"{detail} (body: {', '.join(effects)})"
-                    findings.append(SurveyFinding(qual, child.lineno, disp, detail))
-                _walk(child, f"{qual}.")
+                found = _finding(child, qual)
+                if found is not None:
+                    findings.append(found)
+                _walk(child, f"{qual}.")  # descend regardless: an inner function may differ
             elif isinstance(child, ast.ClassDef):
                 _walk(child, f"{prefix}{child.name}.")
 

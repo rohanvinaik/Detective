@@ -138,16 +138,19 @@ def _extraction_target(
     """Select an exact qualified target, or a uniquely named bare target."""
     found: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
 
+    def matches(qualified: str, bare: str) -> bool:
+        """Exact qualified name, or a bare name when the request carried no dots."""
+        return qualified == requested or ("." not in requested and bare == requested)
+
     def visit(node: ast.AST, prefix: str) -> None:
         for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                name = f"{prefix}{child.name}"
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if name == requested or ("." not in requested and child.name == requested):
-                        found.append((name, child))
-                visit(child, f"{name}.")
-            else:
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 visit(child, prefix)
+                continue
+            name = f"{prefix}{child.name}"
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and matches(name, child.name):
+                found.append((name, child))
+            visit(child, f"{name}.")
 
     visit(tree, "")
     status = extraction_target_status(len(found))

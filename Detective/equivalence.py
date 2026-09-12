@@ -34,12 +34,17 @@ from typing import Any
 
 from Wesker.interrupt import bounded_join as _bounded_join
 
-try:  # feature detection, not a hard import: the checker resolves against the FLOOR Wesker
+# What the tracers below may swallow. `Abandoned` derives from BaseException in Wesker BY DESIGN,
+# so a test's own `except Exception` cannot swallow the stop — which is why tracing has to reach
+# below Exception to catch it, and why this is a TUPLE rather than a bare `except BaseException`:
+# a genuine KeyboardInterrupt/SystemExit must still end the run. Feature-detected, not a hard
+# import, because the checker resolves against the FLOOR Wesker, which may predate the signal.
+try:
     from Wesker.interrupt import Abandoned as _Abandoned
-except ImportError:  # pragma: no cover - an engine without the thread-abandon signal
 
-    class _Abandoned(BaseException):  # type: ignore[no-redef]
-        """Stand-in so the handlers below stay well-formed; such an engine never raises it."""
+    _TRACE_SWALLOWS: tuple[type[BaseException], ...] = (Exception, _Abandoned)
+except ImportError:  # pragma: no cover - an engine without the thread-abandon signal
+    _TRACE_SWALLOWS = (Exception,)
 
 
 def _type_of(ann) -> str | None:
@@ -1225,7 +1230,7 @@ def _reached_lines(
         # `except Exception` cannot swallow the stop) — a traced call may be abandoned mid-flight
         # and its reached lines still count. Naming the pair rather than BaseException lets a real
         # KeyboardInterrupt/SystemExit end the run instead of being absorbed here (S5754).
-        except (Exception, _Abandoned):  # noqa: BLE001
+        except _TRACE_SWALLOWS:  # noqa: BLE001
             pass
         finally:
             sys.settrace(None)

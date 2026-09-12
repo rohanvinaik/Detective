@@ -869,7 +869,7 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
             _row("", "unpinned because NOTHING could run, not because tests are absent."),
             _row("· Not converge", "it cannot write a test that runs either; on this target it"),
             _row("", "refuses with the same reason."),
-            _row(_FIX_ROW, "run under an interpreter/venv that has the missing dependency"),
+            _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
             _row("", f"(detective regime names the one in use), then: detective diagnose '{fn}'"),
         ]
     if kind == "decompose_first":
@@ -2997,7 +2997,7 @@ def _converge_action(
                 _row(_WHY_FIRST_ROW, "the module would not import, so NOTHING ran — a 0-kill here is"),
                 _row("", _BLINDNESS_NOT_RESULT),
                 _row("", "neither regime --migrate nor a larger budget can fix an import."),
-                _row(_FIX_ROW, "run under an interpreter/venv that has the missing dependency"),
+                _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
                 _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
                 *_also_live_rows(reasons, route),
             ]
@@ -3078,7 +3078,7 @@ def _converge_action(
             _row(_WHY_FIRST_ROW, "The module would not import, so nothing ran — a 0-kill here is"),
             _row("", _BLINDNESS_NOT_RESULT),
             _row("", "`regime --migrate` cannot fix a missing import."),
-            _row(_FIX_ROW, "run under an interpreter/venv that has the missing dependency"),
+            _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
             _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
         ]
     if kind == "provide_sample":
@@ -3213,6 +3213,8 @@ _STATE_DIR = ".detective"
 _MODULE_NOT_IMPORTED = "the target module could not be imported"
 _RUN_UNDER_INTERPRETER = "run under an interpreter/venv that has the missing dependency"
 _BLINDNESS_NOT_RESULT = "blindness, not a result. No --input runs without the module, and"
+# argparse help shared by the verbs that take a path rather than a target.
+_PROJECT_ROOT_PATH_HELP = "project root the path is relative to"
 # What a candidate-equivalent survivor actually warrants saying. Both converge and audit render
 # this row; one spelling, same reason as the labels above.
 #
@@ -4339,7 +4341,7 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row(_WHY_FIRST_ROW, "the module would not import, so nothing ran — a 0-kill here is"),
             _row("", _BLINDNESS_NOT_RESULT),
             _row("", "`regime --migrate` cannot fix a missing import."),
-            _row(_FIX_ROW, "run under an interpreter/venv that has the missing dependency"),
+            _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
             _row("", f"(detective regime names the one in use), then: detective audit '{a.function}'"),
         ]
     if kind == "provide_sample":
@@ -5106,7 +5108,7 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parsimony_p.add_argument("path", help="a .py file or a directory to scan")
-    parsimony_p.add_argument("--project-root", default=".", help="project root the path is relative to")
+    parsimony_p.add_argument("--project-root", default=".", help=_PROJECT_ROOT_PATH_HELP)
     parsimony_p.add_argument("--top", type=int, default=10, help="worst offenders to show (default 10)")
     parsimony_p.add_argument(
         "--plan",
@@ -5180,7 +5182,7 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     survey_p.add_argument("path", help="a .py file or a directory to scan")
-    survey_p.add_argument("--project-root", default=".", help="project root the path is relative to")
+    survey_p.add_argument("--project-root", default=".", help=_PROJECT_ROOT_PATH_HELP)
     survey_p.add_argument("--json", action="store_true", help="emit JSON")
 
     doctor_p = sub.add_parser(
@@ -5258,7 +5260,7 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     censor_p.add_argument("path", help="a .py file or a directory to scan for near-misses")
-    censor_p.add_argument("--project-root", default=".", help="project root the path is relative to")
+    censor_p.add_argument("--project-root", default=".", help=_PROJECT_ROOT_PATH_HELP)
     censor_p.add_argument("--top", type=int, default=20, help="ranked censors to show (default 20)")
     censor_p.add_argument(
         "--promote",

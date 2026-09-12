@@ -135,21 +135,36 @@ def call_counts(roots: tuple[str, ...], names: frozenset[str]) -> dict[str, int]
     dispatch forms this cannot see.
     """
     counts = dict.fromkeys(names, 0)
+    for path in _python_files(roots):
+        for name in _called_names(path):
+            if name in counts:
+                counts[name] += 1
+    return counts
+
+
+def _python_files(roots: tuple[str, ...]) -> list[pathlib.Path]:
+    """Every readable .py under these roots, vendored Lean packages excluded.
+
+    Split from the counting so each level is one job: WHICH files, then WHAT each one calls. Nested,
+    the two were four levels deep with a `continue` at every level, and a reader had to hold the
+    file-selection rules in mind while reading the call-counting rules."""
+    out: list[pathlib.Path] = []
     for area in roots:
         base = pathlib.Path(area)
-        if not base.exists():
-            continue
-        for path in sorted(base.rglob("*.py")):
-            if ".lake" in path.parts:
-                continue
-            try:
-                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            except (SyntaxError, UnicodeDecodeError, OSError):
-                continue
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
-                if name in counts:
-                    counts[name] += 1
-    return counts
+        if base.exists():
+            out.extend(p for p in sorted(base.rglob("*.py")) if ".lake" not in p.parts)
+    return out
+
+
+def _called_names(path: pathlib.Path) -> list[str]:
+    """Every name CALLED in one file — `f(...)` and `obj.f(...)` alike. A file that will not parse
+    contributes nothing rather than failing the sweep."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return []
+    return [
+        node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+    ]

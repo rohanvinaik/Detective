@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import os
+from collections.abc import Callable
 
 _SKIP_DIRS = {
     ".git",
@@ -236,6 +237,33 @@ def usage_evidence_class(usages: tuple[str, ...]) -> str:
     return "none"
 
 
+def _usage_tags(node: ast.AST, is_param: Callable[[ast.AST], bool]) -> tuple[str, ...]:
+    """The usage tags ONE node contributes for the parameter `is_param` recognises.
+
+    One node, one decision — split from the walk so the dispatch is flat. Folded into the loop it
+    was an if/elif chain with a nested branch inside the first arm, which is the shape that makes a
+    reader check each arm against every other to see which ones can co-fire (none can: they are
+    mutually exclusive node types).
+    """
+    if isinstance(node, ast.Subscript) and is_param(node.value):
+        if isinstance(node.slice, ast.Tuple):
+            return ("subscript", "subscript_tuple")
+        if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int):
+            return ("subscript", "subscript_int")
+        return ("subscript",)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and is_param(node.func.value):
+        return (f"call:{node.func.attr}",)
+    if isinstance(node, ast.Attribute) and is_param(node.value):
+        return (f"attr:{node.attr}",)
+    if isinstance(node, ast.BinOp) and (is_param(node.left) or is_param(node.right)):
+        return ("arith",)
+    if isinstance(node, ast.Compare) and (is_param(node.left) or any(is_param(c) for c in node.comparators)):
+        return ("compare",)
+    if isinstance(node, ast.For) and is_param(node.iter):
+        return ("iter",)
+    return ()
+
+
 def _param_usages(func: ast.FunctionDef | ast.AsyncFunctionDef, param_name: str) -> tuple[str, ...]:
     """The USAGE tags for `param_name` across `func`'s body — the AST-walk evidence the pure
     `usage_inferred_type` decides over. `p[i, j]` -> subscript + subscript_tuple; `p[0]` -> subscript +
@@ -249,26 +277,7 @@ def _param_usages(func: ast.FunctionDef | ast.AsyncFunctionDef, param_name: str)
         return isinstance(node, ast.Name) and node.id == param_name
 
     for node in ast.walk(func):
-        if isinstance(node, ast.Subscript) and _is_param(node.value):
-            tags.add("subscript")
-            if isinstance(node.slice, ast.Tuple):
-                tags.add("subscript_tuple")
-            elif isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int):
-                tags.add("subscript_int")
-        elif (
-            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and _is_param(node.func.value)
-        ):
-            tags.add(f"call:{node.func.attr}")
-        elif isinstance(node, ast.Attribute) and _is_param(node.value):
-            tags.add(f"attr:{node.attr}")
-        elif isinstance(node, ast.BinOp) and (_is_param(node.left) or _is_param(node.right)):
-            tags.add("arith")
-        elif isinstance(node, ast.Compare) and (
-            _is_param(node.left) or any(_is_param(c) for c in node.comparators)
-        ):
-            tags.add("compare")
-        elif isinstance(node, ast.For) and _is_param(node.iter):
-            tags.add("iter")
+        tags.update(_usage_tags(node, _is_param))
     # a method call (call:lower) is the precise signal — drop the redundant bare attr:lower it implies
     tags = {t for t in tags if not (t.startswith("attr:") and ("call:" + t[len("attr:") :]) in tags)}
     return tuple(sorted(tags))

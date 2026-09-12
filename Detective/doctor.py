@@ -437,26 +437,30 @@ def candidate_interpreters(root: str) -> tuple[str, ...]:
     Excludes the RUNNING interpreter: it is the one missing the package, so asking it again is the
     tautology the operator is already stuck inside.
     """
-    found: list[str] = []
-    here = os.path.realpath(sys.executable)
-    for parent in (root, os.path.dirname(os.path.abspath(root))):
-        for vd in _VENV_DIRS:
-            for exe in (("bin", "python3"), ("bin", "python"), ("Scripts", "python.exe")):
-                cand = os.path.join(parent, vd, *exe)
-                if os.path.isfile(cand) and os.access(cand, os.X_OK):
-                    found.append(cand)
-    for name in _PATH_PYTHONS:
-        which = shutil.which(name)
-        if which:
-            found.append(which)
+    found = _venv_interpreters(root) + [w for w in map(shutil.which, _PATH_PYTHONS) if w]
     out: list[str] = []
-    seen = {here}
+    seen = {os.path.realpath(sys.executable)}  # never the running interpreter
     for cand in found:
         real = os.path.realpath(cand)
         if real not in seen:
             seen.add(real)
             out.append(cand)
     return tuple(out)
+
+
+def _venv_interpreters(root: str) -> list[str]:
+    """Executable interpreters inside the venv layouts we look for, under `root` and its parent.
+
+    A triple-nested search (parent x venv dir x executable name) that says one thing — "these
+    paths, if they exist and run" — so it reads better as its own comprehension than as three
+    levels inside the de-duplication that follows it."""
+    return [
+        cand
+        for parent in (root, os.path.dirname(os.path.abspath(root)))
+        for vd in _VENV_DIRS
+        for exe in (("bin", "python3"), ("bin", "python"), ("Scripts", "python.exe"))
+        if os.path.isfile(cand := os.path.join(parent, vd, *exe)) and os.access(cand, os.X_OK)
+    ]
 
 
 def found_elsewhere(names: tuple[str, ...], interpreters: tuple[str, ...]) -> dict[str, str]:
@@ -609,15 +613,9 @@ def red_facts(root: str, herb_of: dict | None = None) -> dict:
     prior = [r for r in subjects[:-1] if r.get("verb") == verb and r.get("target") == target]
     same_args = bool(prior) and prior[-1].get("args") == latest.get("args")
     same_state = bool(prior) and same_recorded_state(prior[-1].get("state"), latest.get("state"))
-    identical = 0
-    for row in reversed(prior):
-        if row.get("args") == latest.get("args") and same_recorded_state(
-            row.get("state"), latest.get("state")
-        ):
-            identical += 1
-        else:
-            break
-    out["spiral"] = _L.spiral_disposition(bool(prior), same_args, same_state, identical)
+    out["spiral"] = _L.spiral_disposition(
+        bool(prior), same_args, same_state, _identical_run_streak(prior, latest)
+    )
 
     prev_env = (prior[-1].get("env") or {}) if prior else {}
     env = latest.get("env") or {}
@@ -630,17 +628,35 @@ def red_facts(root: str, herb_of: dict | None = None) -> dict:
 
     herb = (herb_of or COMMAND_HERB).get(verb, "")
     func_key = str(target) if target and "::" in str(target) else ""
-    ever_pinned = _target_ever_pinned(root, func_key)
     measured = any(r.get("target") == target and r.get("verb") in ("converge", "audit") for r in subjects)
-    out["order"] = _L.order_disposition(herb, ever_pinned, measured)
+    out["order"] = _L.order_disposition(herb, _target_ever_pinned(root, func_key), measured)
 
-    obs = latest.get("outcome") or []
-    mine = [o for o in obs if len(o) >= 2 and o[1] == verb]
-    others = [o for o in obs if len(o) >= 2 and o[1] != verb]
-    codes = {o[2] for o in mine if len(o) >= 3}
-    out["outcome"] = _L.outcome_disposition(len(mine), len(others), len(codes) <= 1)
+    mine, others, codes = _outcome_split(latest.get("outcome") or [], verb)
+    out["outcome"] = _L.outcome_disposition(mine, others, len(codes) <= 1)
     out["outcome_code"] = next(iter(codes), "") if len(codes) == 1 else ""
     return out
+
+
+def _identical_run_streak(prior: list[dict], latest: dict) -> int:
+    """How many CONSECUTIVE prior runs, newest first, matched `latest` in both args and state.
+
+    The streak stops at the first difference on purpose — it measures "you have been doing the same
+    thing repeatedly", so an older identical run with a different one in between does not count."""
+    streak = 0
+    for row in reversed(prior):
+        if row.get("args") != latest.get("args") or not same_recorded_state(
+            row.get("state"), latest.get("state")
+        ):
+            break
+        streak += 1
+    return streak
+
+
+def _outcome_split(observations: list, verb: str) -> tuple[int, int, set]:
+    """(this verb's observations, other verbs', the distinct codes this verb reported)."""
+    mine = [o for o in observations if len(o) >= 2 and o[1] == verb]
+    others = [o for o in observations if len(o) >= 2 and o[1] != verb]
+    return len(mine), len(others), {o[2] for o in mine if len(o) >= 3}
 
 
 def _target_ever_pinned(root: str, func_key: str) -> bool:
