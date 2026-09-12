@@ -175,11 +175,20 @@ dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.14.10", "numpy>=1.24"]
 
 # CI / uv-dev ONLY — resolve Wesker from the GitHub main branch, not PyPI. Detective and Wesker are
 # a co-developed pair whose changes land together; the PUBLISHED PyPI Wesker lags main, so a `uv sync`
-# against `Wesker>=0.11.2` installs a Wesker that predates the features Detective's integration tests
-# exercise, and CI goes red on green code. A `tool.uv.sources` entry is uv-only dev metadata: it does
-# NOT enter the built wheel (the published `dependencies` above stays `Wesker>=0.11.2`), so a
-# `pip install detective-spec` consumer is unaffected. Local dev is also unaffected — it resolves the
-# pair through PYTHONPATH, which precedes any installed package on sys.path.
+# against the declared floor installs a Wesker that predates the features Detective's integration
+# tests exercise, and CI goes red on green code. A `tool.uv.sources` entry is uv-only dev metadata:
+# it does NOT enter the built wheel — the published `dependencies` above are what a
+# `pip install detective-spec` consumer resolves, so that consumer is unaffected. Local dev is also
+# unaffected: it resolves the pair through PYTHONPATH, which precedes any installed package.
+#
+# This comment used to RESTATE the floor ("stays `Wesker>=0.11.2`"), and by the time anyone read it
+# the pin above had moved twice — to 1.0.0, then to 1.1.0 — while the comment went on asserting a
+# version no longer written anywhere else in the file. Same one-fact-two-homes drift the dynamic
+# `version` field exists to prevent; the floor has ONE home, which is the `dependencies` list above.
+#
+# The "does not enter the wheel" claim is checked, not assumed: the built METADATA declares
+# `wesker>=1.1.0` as a plain spec with no direct reference. A leaked git URL is the one thing PyPI
+# rejects outright, so it is worth re-checking whenever this block changes.
 [tool.uv.sources]
 Wesker = { git = "https://github.com/rohanvinaik/Wesker.git", branch = "main" }
 
