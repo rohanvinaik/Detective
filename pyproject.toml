@@ -13,7 +13,7 @@ name = "detective-spec"
 # it prints came from two places that could disagree, and did. Same defect this release exists to
 # remove from the cache layer: one fact, two homes, silent drift.
 dynamic = ["version"]
-description = "Behavioral-scope diagnosis and warrant-classed test synthesis for a single Python function, on the Wesker mutation engine."
+description = "Writes the behavioral contract for a Python function — every behavior pinned by a test, every question it cannot answer named. On the Wesker mutation engine."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
