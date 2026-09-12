@@ -46,6 +46,19 @@ from .synthesis.writer import foreign_generated_test_names
 _LEGACY_PREFIX = "legacy:"
 
 
+def _target_node(file: str, function: str, root_abs: str) -> ast.AST | None:
+    """The target's AST node, or None when the file cannot be read or parsed.
+
+    A file that will not open or parse yields None rather than raising: the line-flag oracle below
+    is ADVISORY, and losing it must not take the whole audit with it."""
+    full_path = file if os.path.isabs(file) else os.path.join(root_abs, file)
+    try:
+        with open(full_path, encoding="utf-8") as fh:
+            return next((n for qn, n in walk_functions(ast.parse(fh.read())) if qn == function), None)
+    except (OSError, SyntaxError):
+        return None
+
+
 def _origin_census(root_abs: str, test_names: list[str]) -> dict[str, int]:
     """ℋ ⊎ 𝒢 origin census (§2.3, D5): how many obligation-discharging tests came from each half.
 
@@ -360,12 +373,7 @@ def audit_suite(
     node: ast.AST | None = None  # bound for the FunctionBasis below even when the flag oracle skips
     if missing or load_line_flags(os.path.abspath(project_root)):
         root_abs = os.path.abspath(project_root)
-        full_path = file if os.path.isabs(file) else os.path.join(root_abs, file)
-        try:
-            with open(full_path, encoding="utf-8") as fh:
-                node = next((n for qn, n in walk_functions(ast.parse(fh.read())) if qn == function), None)
-        except (OSError, SyntaxError):
-            node = None
+        node = _target_node(file, function, root_abs)
         if node is not None:
             # The admissible view, for the SAME reason as the gap above: a flag "contradicted by
             # observed execution" must be contradicted by execution that COUNTS, or a

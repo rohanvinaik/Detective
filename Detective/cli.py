@@ -4384,6 +4384,17 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row("· Why", f"{why} — real gaps, not equivalents."),
             _row("· Writes", "the missing tests, and wires them into pytest."),
         ]
+    return _audit_closing_action(a, kind)
+
+
+def _audit_closing_action(a, kind: str) -> list[str]:
+    """The endings that follow a clean measurement — removal, the equivalents, and done.
+
+    Split from `_audit_action`'s earlier arms because these are the CLOSING half of the priority
+    order: everything above them is a gap to fix, everything here is what remains when there is
+    none. `flag` is deliberately last: it is the one claim a human makes against the engine, and it
+    must never be offered while a real gap is still open.
+    """
     if kind == "removing_now":
         return [
             _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
