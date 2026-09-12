@@ -237,31 +237,63 @@ def usage_evidence_class(usages: tuple[str, ...]) -> str:
     return "none"
 
 
-def _usage_tags(node: ast.AST, is_param: Callable[[ast.AST], bool]) -> tuple[str, ...]:
+_IsParam = Callable[[ast.AST], bool]
+
+
+def _subscript_tags(node: ast.AST, is_param: _IsParam) -> set[str]:
+    """`p[i, j]` -> subscript + subscript_tuple; `p[0]` -> subscript + subscript_int."""
+    if not (isinstance(node, ast.Subscript) and is_param(node.value)):
+        return set()
+    if isinstance(node.slice, ast.Tuple):
+        return {"subscript", "subscript_tuple"}
+    if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int):
+        return {"subscript", "subscript_int"}
+    return {"subscript"}
+
+
+def _method_tags(node: ast.AST, is_param: _IsParam) -> set[str]:
+    """`p.lower()` -> call:lower."""
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and is_param(node.func.value):
+        return {f"call:{node.func.attr}"}
+    return set()
+
+
+def _attribute_tags(node: ast.AST, is_param: _IsParam) -> set[str]:
+    """`p.shape` -> attr:shape."""
+    return {f"attr:{node.attr}"} if isinstance(node, ast.Attribute) and is_param(node.value) else set()
+
+
+def _operator_tags(node: ast.AST, is_param: _IsParam) -> set[str]:
+    """`p + x` -> arith; `p == x` -> compare."""
+    if isinstance(node, ast.BinOp) and (is_param(node.left) or is_param(node.right)):
+        return {"arith"}
+    if isinstance(node, ast.Compare) and (is_param(node.left) or any(is_param(c) for c in node.comparators)):
+        return {"compare"}
+    return set()
+
+
+def _iteration_tags(node: ast.AST, is_param: _IsParam) -> set[str]:
+    """`for _ in p` -> iter."""
+    return {"iter"} if isinstance(node, ast.For) and is_param(node.iter) else set()
+
+
+# Tried in order, first match wins — the `elif` semantics of the original chain, made explicit.
+# The arms are mutually exclusive node types, so the order is documentation rather than precedence.
+_USAGE_PROBES = (_subscript_tags, _method_tags, _attribute_tags, _operator_tags, _iteration_tags)
+
+
+def _usage_tags(node: ast.AST, is_param: _IsParam) -> set[str]:
     """The usage tags ONE node contributes for the parameter `is_param` recognises.
 
-    One node, one decision — split from the walk so the dispatch is flat. Folded into the loop it
-    was an if/elif chain with a nested branch inside the first arm, which is the shape that makes a
-    reader check each arm against every other to see which ones can co-fire (none can: they are
-    mutually exclusive node types).
+    One probe per node FAMILY rather than one long chain: an earlier attempt merely moved the whole
+    if/elif out of the walk, which relocated the complexity without reducing it. Each probe now
+    answers about the family it owns and nothing else.
     """
-    if isinstance(node, ast.Subscript) and is_param(node.value):
-        if isinstance(node.slice, ast.Tuple):
-            return ("subscript", "subscript_tuple")
-        if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int):
-            return ("subscript", "subscript_int")
-        return ("subscript",)
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and is_param(node.func.value):
-        return (f"call:{node.func.attr}",)
-    if isinstance(node, ast.Attribute) and is_param(node.value):
-        return (f"attr:{node.attr}",)
-    if isinstance(node, ast.BinOp) and (is_param(node.left) or is_param(node.right)):
-        return ("arith",)
-    if isinstance(node, ast.Compare) and (is_param(node.left) or any(is_param(c) for c in node.comparators)):
-        return ("compare",)
-    if isinstance(node, ast.For) and is_param(node.iter):
-        return ("iter",)
-    return ()
+    for probe in _USAGE_PROBES:
+        tags = probe(node, is_param)
+        if tags:
+            return tags
+    return set()
 
 
 def _param_usages(func: ast.FunctionDef | ast.AsyncFunctionDef, param_name: str) -> tuple[str, ...]:

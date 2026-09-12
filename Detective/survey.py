@@ -235,51 +235,64 @@ def _param_unresolved(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return False
 
 
+def _survey_finding(
+    child: ast.FunctionDef | ast.AsyncFunctionDef,
+    qual: str,
+    heavy: tuple[str, ...],
+    bound: frozenset[str],
+) -> SurveyFinding | None:
+    """This function's finding, or None when its pure decision is already reachable.
+
+    MODULE level, not nested inside the walk: a nested function's complexity counts toward its
+    enclosing one, so defining it inside `survey_source` moved the decision without relieving the
+    caller of it. The traversal and the verdict are genuinely separate jobs and now read that way.
+    """
+    module_heavy = bool(heavy)
+    # A function that REFERENCES a heavy binding genuinely uses the stack — it belongs in this
+    # module and is not a trapped pure decision. Only one that uses NONE of them is trapped by an
+    # import it does not need.
+    if module_heavy and _references_names(child, bound):
+        return None
+    effects = world_effects(child)
+    disp = survey_disposition(
+        _param_inexpressible(child), bool(effects), module_heavy, _param_unresolved(child)
+    )
+    if disp == "reachable":
+        return None
+    detail = _EXTRACTION[disp]
+    if disp == "trapped_by_imports":
+        detail = f"{detail} (module imports {', '.join(heavy)})"
+    elif disp == "impure_body":
+        detail = f"{detail} (body: {', '.join(effects)})"
+    return SurveyFinding(qual, child.lineno, disp, detail)
+
+
+def _survey_walk(
+    node: ast.AST,
+    prefix: str,
+    heavy: tuple[str, ...],
+    bound: frozenset[str],
+    findings: list[SurveyFinding],
+) -> None:
+    """Descend every function and class, collecting findings. Traversal only."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            qual = f"{prefix}{child.name}"
+            found = _survey_finding(child, qual, heavy, bound)
+            if found is not None:
+                findings.append(found)
+            _survey_walk(child, f"{qual}.", heavy, bound, findings)  # an inner function may differ
+        elif isinstance(child, ast.ClassDef):
+            _survey_walk(child, f"{prefix}{child.name}.", heavy, bound, findings)
+
+
 def survey_source(source: str) -> list[SurveyFinding]:
     """Walk a module's source and return one finding per function that hides a reachable pure
     decision behind an impure boundary. Pure over the source text (parses, never executes)."""
     tree = ast.parse(source)
     heavy, bound = _heavy_imports(tree)
-    module_heavy = bool(heavy)
     findings: list[SurveyFinding] = []
-
-    def _finding(child: ast.FunctionDef | ast.AsyncFunctionDef, qual: str) -> SurveyFinding | None:
-        """This function's finding, or None when its pure decision is already reachable.
-
-        Split out so `_walk` is only a traversal. Inline, the DECISION (four inputs, then a detail
-        string that varies by disposition) sat three levels deep inside the walk, and the two jobs
-        had to be read together to see that the `continue` above is about descent, not verdict.
-        """
-        # A function that REFERENCES a heavy binding genuinely uses the stack — it belongs in this
-        # module, not a trapped pure decision. Only one that uses NONE of them is trapped by an
-        # import it does not need.
-        if module_heavy and _references_names(child, bound):
-            return None
-        effects = world_effects(child)
-        disp = survey_disposition(
-            _param_inexpressible(child), bool(effects), module_heavy, _param_unresolved(child)
-        )
-        if disp == "reachable":
-            return None
-        detail = _EXTRACTION[disp]
-        if disp == "trapped_by_imports":
-            detail = f"{detail} (module imports {', '.join(heavy)})"
-        elif disp == "impure_body":
-            detail = f"{detail} (body: {', '.join(effects)})"
-        return SurveyFinding(qual, child.lineno, disp, detail)
-
-    def _walk(node: ast.AST, prefix: str) -> None:
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                qual = f"{prefix}{child.name}"
-                found = _finding(child, qual)
-                if found is not None:
-                    findings.append(found)
-                _walk(child, f"{qual}.")  # descend regardless: an inner function may differ
-            elif isinstance(child, ast.ClassDef):
-                _walk(child, f"{prefix}{child.name}.")
-
-    _walk(tree, "")
+    _survey_walk(tree, "", heavy, bound, findings)
     return findings
 
 

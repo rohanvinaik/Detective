@@ -23,7 +23,7 @@ because that is the signal that it is doing more than one thing.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from .cognitive_complexity import compute_cognitive_complexity
@@ -502,150 +502,224 @@ def _scope_free_uses(scope: _Scope) -> set[str]:
 
 
 # C901: a total dispatch over stmt kinds
-def _flow_stmt(stmt: ast.stmt) -> _Flow:  # noqa: C901
+# ── per-statement flow rules ──────────────────────────────────────────────────
+#
+# One handler per statement FAMILY, each returning raw (uses, must, may) sets that `_flow_stmt`
+# seals into a `_Flow`. This was a single 15-arm dispatch whose arms each carried their own loops
+# and branches; the rules are genuinely independent, and reading any one of them should not require
+# scrolling past the other fourteen. Every body below is unchanged from that version — only the
+# return shape moved, from the `flow(...)` closure to the tuple its caller now seals.
+
+_Parts = tuple[set[str], set[str], set[str]]
+
+
+def _flow_function_def(stmt: ast.FunctionDef | ast.AsyncFunctionDef) -> _Parts:
+    uses: set[str] = set()
+    for dec in stmt.decorator_list:
+        uses |= _expr_uses(dec)
+    for default in stmt.args.defaults:
+        uses |= _expr_uses(default)
+    for default in stmt.args.kw_defaults:
+        if default is not None:
+            uses |= _expr_uses(default)
+    # Review finding 2: the body's FREE variables are live-ins of any block that
+    # carries the definition — the closure reads them from the enclosing scope.
+    uses |= _scope_free_uses(stmt)
+    return uses, {stmt.name}, set()
+
+
+def _flow_class_def(stmt: ast.ClassDef) -> _Parts:
+    uses: set[str] = set()
+    for node in [*stmt.decorator_list, *stmt.bases, *(k.value for k in stmt.keywords)]:
+        uses |= _expr_uses(node)
+    # A class body executes AT DEFINITION TIME: its free reads happen right here.
+    uses |= _scope_free_uses(stmt)
+    return uses, {stmt.name}, set()
+
+
+def _flow_assign(stmt: ast.Assign) -> _Parts:
+    uses = _expr_uses(stmt.value)
+    defs: set[str] = set()
+    for target in stmt.targets:
+        uses |= _target_uses(target)
+        defs |= _target_names(target)
+    return uses, defs, set()
+
+
+def _flow_ann_assign(stmt: ast.AnnAssign) -> _Parts:
+    # A function-local annotation is never evaluated; a bare ``x: int`` binds nothing.
+    if stmt.value is None:
+        return set(), set(), set()
+    uses = _expr_uses(stmt.value) | _target_uses(stmt.target)
+    return uses, _target_names(stmt.target), set()
+
+
+def _flow_aug_assign(stmt: ast.AugAssign) -> _Parts:
+    # ``x += 1`` loads x, then stores it: the pre-statement value is consumed.
+    uses = _expr_uses(stmt.value)
+    if isinstance(stmt.target, ast.Name):
+        uses.add(stmt.target.id)
+        return uses, {stmt.target.id}, set()
+    uses |= _expr_uses(stmt.target)
+    return uses, set(), set()
+
+
+def _flow_if(stmt: ast.If) -> _Parts:
+    body = _flow_stmts(stmt.body)
+    orelse = _flow_stmts(stmt.orelse)
+    uses = _expr_uses(stmt.test) | set(body.uses) | set(orelse.uses)
+    # a missing else is an empty branch: its must-defs are {}, so the intersection is {}
+    return uses, set(body.must & orelse.must), set(body.may | orelse.may)
+
+
+def _flow_for(stmt: ast.For | ast.AsyncFor) -> _Parts:
+    targets = _target_names(stmt.target)
+    body = _flow_stmts(stmt.body)
+    orelse = _flow_stmts(stmt.orelse)
+    uses = _expr_uses(stmt.iter) | (set(body.uses) - targets) | set(orelse.uses)
+    # zero iterations bind nothing: everything here is a may-def, never a must-def
+    return uses, set(), targets | set(body.may) | set(orelse.may)
+
+
+def _flow_while(stmt: ast.While) -> _Parts:
+    body = _flow_stmts(stmt.body)
+    orelse = _flow_stmts(stmt.orelse)
+    uses = _expr_uses(stmt.test) | set(body.uses) | set(orelse.uses)
+    return uses, set(), set(body.may | orelse.may)
+
+
+def _flow_with(stmt: ast.With | ast.AsyncWith) -> _Parts:
+    uses: set[str] = set()
+    bound: set[str] = set()
+    for item in stmt.items:
+        uses |= _expr_uses(item.context_expr, frozenset(bound))
+        if item.optional_vars is not None:
+            bound |= _target_names(item.optional_vars)
+    body = _flow_stmts(stmt.body)
+    uses |= set(body.uses) - bound
+    return uses, bound | set(body.must), set(body.may)
+
+
+def _flow_handler(handler: ast.ExceptHandler) -> tuple[set[str], set[str], frozenset[str]]:
+    """One `except` clause: its uses, its may-defs, and the must-defs it contributes.
+
+    The exception name is bound before the handler body and DELETED after it, so it is neither a
+    use nor a definition that survives — stripped from all three."""
+    uses = _expr_uses(handler.type) if handler.type is not None else set()
+    hflow = _flow_stmts(handler.body)
+    huses = set(hflow.uses)
+    hmay = set(hflow.may)
+    if handler.name:
+        huses -= {handler.name}
+        hmay -= {handler.name}
+    return uses | huses, hmay, hflow.must - ({handler.name} if handler.name else set())
+
+
+def _flow_try(stmt: ast.Try) -> _Parts:
+    body = _flow_stmts(stmt.body)
+    orelse = _flow_stmts(stmt.orelse)
+    final = _flow_stmts(stmt.finalbody)
+    uses = set(body.uses)
+    may = set(body.may)
+    handler_musts: list[frozenset[str]] = []
+    for handler in stmt.handlers:
+        # the body may have raised at any point, so none of its defs are definite here
+        huses, hmay, hmust = _flow_handler(handler)
+        uses |= huses
+        may |= hmay
+        handler_musts.append(hmust)
+    uses |= set(orelse.uses) - set(body.must)
+    may |= set(orelse.may)
+    # finally runs whether or not the body completed: nothing before it is definite
+    uses |= set(final.uses)
+    may |= set(final.may)
+    if stmt.handlers:
+        # reached either via success (body ∪ else) or via some handler
+        success = set(body.must) | set(orelse.must)
+        via_handler: set[str] = set.intersection(*map(set, handler_musts)) if handler_musts else set()
+        must = set(final.must) | (success & via_handler)
+    else:
+        # no handlers: an exception propagates, so reaching here means the body completed
+        must = set(final.must) | set(body.must) | set(orelse.must)
+    return uses, must, may
+
+
+def _flow_match(stmt: ast.Match) -> _Parts:
+    uses = _expr_uses(stmt.subject)
+    may: set[str] = set()
+    for case in stmt.cases:
+        captures = _pattern_names(case.pattern)
+        uses |= _pattern_uses(case.pattern)
+        cuses = _expr_uses(case.guard) if case.guard is not None else set()
+        cflow = _flow_stmts(case.body)
+        uses |= (cuses | set(cflow.uses)) - captures
+        may |= captures | set(cflow.may)
+    # no case is guaranteed to match: may-defs only
+    return uses, set(), may
+
+
+def _flow_import(stmt: ast.Import | ast.ImportFrom) -> _Parts:
+    return set(), {alias.asname or alias.name.split(".")[0] for alias in stmt.names}, set()
+
+
+def _flow_delete(stmt: ast.Delete) -> _Parts:
+    uses: set[str] = set()
+    for target in stmt.targets:
+        if isinstance(target, ast.Name):
+            uses.add(target.id)  # ``del x`` needs x bound; the unbinding is ignored
+        else:
+            uses |= _expr_uses(target)
+    return uses, set(), set()
+
+
+def _flow_inert(_stmt: ast.stmt) -> _Parts:
+    """Global/Nonlocal/Pass/Break/Continue: no reads, no bindings."""
+    return set(), set(), set()
+
+
+def _flow_expression(stmt: ast.stmt) -> _Parts:
+    """Expr/Return/Raise/Assert: reads only."""
+    return _expr_uses(stmt), set(), set()
+
+
+# `TryStar` only exists on 3.11+, so the Try entry's type tuple is built rather than written out.
+_TRY_TYPES: tuple[type, ...] = (ast.Try, ast.TryStar) if hasattr(ast, "TryStar") else (ast.Try,)
+
+# Ordered exactly as the original if/elif chain: first match wins.
+_FLOW_RULES: tuple[tuple[tuple[type, ...], Callable[..., _Parts]], ...] = (
+    ((ast.FunctionDef, ast.AsyncFunctionDef), _flow_function_def),
+    ((ast.ClassDef,), _flow_class_def),
+    ((ast.Assign,), _flow_assign),
+    ((ast.AnnAssign,), _flow_ann_assign),
+    ((ast.AugAssign,), _flow_aug_assign),
+    ((ast.If,), _flow_if),
+    ((ast.For, ast.AsyncFor), _flow_for),
+    ((ast.While,), _flow_while),
+    ((ast.With, ast.AsyncWith), _flow_with),
+    (_TRY_TYPES, _flow_try),
+    ((ast.Match,), _flow_match),
+    ((ast.Import, ast.ImportFrom), _flow_import),
+    ((ast.Delete,), _flow_delete),
+    ((ast.Global, ast.Nonlocal, ast.Pass, ast.Break, ast.Continue), _flow_inert),
+    ((ast.Expr, ast.Return, ast.Raise, ast.Assert), _flow_expression),
+)
+
+
+def _flow_stmt(stmt: ast.stmt) -> _Flow:
     """One statement's ordered def-use flow. Composition rules (issue #6):
     RHS before targets; AugAssign target is load-then-store; branch must-defs
     intersect; loop bodies contribute only may-defs (zero iterations); nested
     function/class scopes are never descended."""
+    for types, rule in _FLOW_RULES:
+        if isinstance(stmt, types):
+            uses, must, may = rule(stmt)
+            break
+    else:
+        # unhandled statement kind: fall back to the flat walk — over-approximates uses
+        # (safe: an extra input) and claims no must-defs (safe: more upward exposure upstream)
+        uses, must, may = set(_collect_reads(stmt)), set(), set(_collect_writes(stmt))
     walrus = frozenset(_walrus_defs(stmt))
-
-    def flow(uses: set[str], must: set[str], may: set[str]) -> _Flow:
-        return _Flow(frozenset(uses), frozenset(must), frozenset(may | must | walrus))
-
-    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        uses: set[str] = set()
-        for dec in stmt.decorator_list:
-            uses |= _expr_uses(dec)
-        for default in stmt.args.defaults:
-            uses |= _expr_uses(default)
-        for default in stmt.args.kw_defaults:
-            if default is not None:
-                uses |= _expr_uses(default)
-        # Review finding 2: the body's FREE variables are live-ins of any block that
-        # carries the definition — the closure reads them from the enclosing scope.
-        uses |= _scope_free_uses(stmt)
-        return flow(uses, {stmt.name}, set())
-    if isinstance(stmt, ast.ClassDef):
-        uses = set()
-        for node in [*stmt.decorator_list, *stmt.bases, *(k.value for k in stmt.keywords)]:
-            uses |= _expr_uses(node)
-        # A class body executes AT DEFINITION TIME: its free reads happen right here.
-        uses |= _scope_free_uses(stmt)
-        return flow(uses, {stmt.name}, set())
-    if isinstance(stmt, ast.Assign):
-        uses = _expr_uses(stmt.value)
-        defs: set[str] = set()
-        for target in stmt.targets:
-            uses |= _target_uses(target)
-            defs |= _target_names(target)
-        return flow(uses, defs, set())
-    if isinstance(stmt, ast.AnnAssign):
-        # A function-local annotation is never evaluated; a bare ``x: int`` binds nothing.
-        if stmt.value is None:
-            return flow(set(), set(), set())
-        uses = _expr_uses(stmt.value) | _target_uses(stmt.target)
-        return flow(uses, _target_names(stmt.target), set())
-    if isinstance(stmt, ast.AugAssign):
-        # ``x += 1`` loads x, then stores it: the pre-statement value is consumed.
-        uses = _expr_uses(stmt.value)
-        if isinstance(stmt.target, ast.Name):
-            uses.add(stmt.target.id)
-            return flow(uses, {stmt.target.id}, set())
-        uses |= _expr_uses(stmt.target)
-        return flow(uses, set(), set())
-    if isinstance(stmt, ast.If):
-        body = _flow_stmts(stmt.body)
-        orelse = _flow_stmts(stmt.orelse)
-        uses = _expr_uses(stmt.test) | set(body.uses) | set(orelse.uses)
-        # a missing else is an empty branch: its must-defs are {}, so the intersection is {}
-        return flow(uses, set(body.must & orelse.must), set(body.may | orelse.may))
-    if isinstance(stmt, (ast.For, ast.AsyncFor)):
-        targets = _target_names(stmt.target)
-        body = _flow_stmts(stmt.body)
-        orelse = _flow_stmts(stmt.orelse)
-        uses = _expr_uses(stmt.iter) | (set(body.uses) - targets) | set(orelse.uses)
-        # zero iterations bind nothing: everything here is a may-def, never a must-def
-        return flow(uses, set(), targets | set(body.may) | set(orelse.may))
-    if isinstance(stmt, ast.While):
-        body = _flow_stmts(stmt.body)
-        orelse = _flow_stmts(stmt.orelse)
-        uses = _expr_uses(stmt.test) | set(body.uses) | set(orelse.uses)
-        return flow(uses, set(), set(body.may | orelse.may))
-    if isinstance(stmt, (ast.With, ast.AsyncWith)):
-        uses = set()
-        bound: set[str] = set()
-        for item in stmt.items:
-            uses |= _expr_uses(item.context_expr, frozenset(bound))
-            if item.optional_vars is not None:
-                bound |= _target_names(item.optional_vars)
-        body = _flow_stmts(stmt.body)
-        uses |= set(body.uses) - bound
-        return flow(uses, bound | set(body.must), set(body.may))
-    if isinstance(stmt, ast.Try) or (hasattr(ast, "TryStar") and isinstance(stmt, ast.TryStar)):
-        body = _flow_stmts(stmt.body)
-        orelse = _flow_stmts(stmt.orelse)
-        final = _flow_stmts(stmt.finalbody)
-        uses = set(body.uses)
-        may = set(body.may)
-        handler_musts: list[frozenset[str]] = []
-        for handler in stmt.handlers:
-            if handler.type is not None:
-                uses |= _expr_uses(handler.type)
-            hflow = _flow_stmts(handler.body)
-            huses = set(hflow.uses)
-            hmay = set(hflow.may)
-            if handler.name:
-                # the exception name is bound before the handler body and DELETED after it
-                huses -= {handler.name}
-                hmay -= {handler.name}
-            # the body may have raised at any point, so none of its defs are definite here
-            uses |= huses
-            may |= hmay
-            handler_musts.append(hflow.must - ({handler.name} if handler.name else set()))
-        uses |= set(orelse.uses) - set(body.must)
-        may |= set(orelse.may)
-        # finally runs whether or not the body completed: nothing before it is definite
-        uses |= set(final.uses)
-        may |= set(final.may)
-        if stmt.handlers:
-            # reached either via success (body ∪ else) or via some handler
-            success = set(body.must) | set(orelse.must)
-            via_handler: set[str] = set.intersection(*map(set, handler_musts)) if handler_musts else set()
-            must = set(final.must) | (success & via_handler)
-        else:
-            # no handlers: an exception propagates, so reaching here means the body completed
-            must = set(final.must) | set(body.must) | set(orelse.must)
-        return flow(uses, must, may)
-    if isinstance(stmt, ast.Match):
-        uses = _expr_uses(stmt.subject)
-        may = set()
-        for case in stmt.cases:
-            captures = _pattern_names(case.pattern)
-            uses |= _pattern_uses(case.pattern)
-            cuses = _expr_uses(case.guard) if case.guard is not None else set()
-            cflow = _flow_stmts(case.body)
-            uses |= (cuses | set(cflow.uses)) - captures
-            may |= captures | set(cflow.may)
-        # no case is guaranteed to match: may-defs only
-        return flow(uses, set(), may)
-    if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-        names = {alias.asname or alias.name.split(".")[0] for alias in stmt.names}
-        return flow(set(), names, set())
-    if isinstance(stmt, ast.Delete):
-        uses = set()
-        for target in stmt.targets:
-            if isinstance(target, ast.Name):
-                uses.add(target.id)  # ``del x`` needs x bound; the unbinding is ignored
-            else:
-                uses |= _expr_uses(target)
-        return flow(uses, set(), set())
-    if isinstance(stmt, (ast.Global, ast.Nonlocal, ast.Pass, ast.Break, ast.Continue)):
-        return flow(set(), set(), set())
-    if isinstance(stmt, (ast.Expr, ast.Return, ast.Raise, ast.Assert)):
-        return flow(_expr_uses(stmt), set(), set())
-    # unhandled statement kind: fall back to the flat walk — over-approximates uses
-    # (safe: an extra input) and claims no must-defs (safe: more upward exposure upstream)
-    return flow(set(_collect_reads(stmt)), set(), set(_collect_writes(stmt)))
+    return _Flow(frozenset(uses), frozenset(must), frozenset(may | must | walrus))
 
 
 def _has_exit_statement(node: ast.AST) -> bool:
