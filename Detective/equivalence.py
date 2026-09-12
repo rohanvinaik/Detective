@@ -34,6 +34,13 @@ from typing import Any
 
 from Wesker.interrupt import bounded_join as _bounded_join
 
+try:  # feature detection, not a hard import: the checker resolves against the FLOOR Wesker
+    from Wesker.interrupt import Abandoned as _Abandoned
+except ImportError:  # pragma: no cover - an engine without the thread-abandon signal
+
+    class _Abandoned(BaseException):  # type: ignore[no-redef]
+        """Stand-in so the handlers below stay well-formed; such an engine never raises it."""
+
 
 def _type_of(ann) -> str | None:
     """Base type name of an annotation node: ``int``, ``str``, ``list`` (from
@@ -1213,8 +1220,12 @@ def _reached_lines(
             sys.settrace(_global)
             with block_fs_writes():
                 call(*(unwrap(a) for a in args))
-        # BLE001: a raise still traced the lines it reached; reachability is additive
-        except BaseException:  # noqa: BLE001
+        # BLE001: a raise still traced the lines it reached; reachability is additive. `Abandoned`
+        # is named because Wesker derives it from BaseException on purpose (so a test's own
+        # `except Exception` cannot swallow the stop) — a traced call may be abandoned mid-flight
+        # and its reached lines still count. Naming the pair rather than BaseException lets a real
+        # KeyboardInterrupt/SystemExit end the run instead of being absorbed here (S5754).
+        except (Exception, _Abandoned):  # noqa: BLE001
             pass
         finally:
             sys.settrace(None)

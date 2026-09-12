@@ -124,7 +124,8 @@ def test_eviction_is_recorded_in_band_so_a_pruned_head_is_not_mistaken_for_the_s
     assert os.path.getsize(path) <= LEDGER_CAP_BYTES
     with open(path, encoding="utf-8") as fh:
         first = json.loads(fh.readline())
-    assert "evicted" in first and first["evicted"] > 0
+    assert "evicted" in first
+    assert first["evicted"] > 0
 
 
 def test_the_eviction_marker_is_never_returned_as_an_invocation(tmp_path) -> None:
@@ -136,7 +137,8 @@ def test_the_eviction_marker_is_never_returned_as_an_invocation(tmp_path) -> Non
         fh.write('{"v":1,"evicted":12}\n')
         fh.write('{"v":1,"verb":"converge"}\n')
     rows = read_recent(str(tmp_path))
-    assert len(rows) == 1 and rows[0]["verb"] == "converge"
+    assert len(rows) == 1
+    assert rows[0]["verb"] == "converge"
 
 
 def test_purge_leaves_the_ledger_alone(tmp_path) -> None:

@@ -175,7 +175,8 @@ def test_the_spiral_render_names_the_command_and_the_code(repo, capsys) -> None:
 def test_an_unreadable_history_says_UNAVAILABLE_in_the_report(repo, capsys) -> None:
     main(["doctor", "--project-root", str(repo), "--red"])
     out = capsys.readouterr().out
-    assert "not read" in out and "UNAVAILABLE" in out
+    assert "not read" in out
+    assert "UNAVAILABLE" in out
     assert "NOT the same as absent" in out
 
 
@@ -209,4 +210,6 @@ def test_reading_red_does_not_disturb_the_history_it_reads(repo, capsys) -> None
     main(["doctor", "--project-root", str(repo), "--red"])
     first = capsys.readouterr().out
     main(["doctor", "--project-root", str(repo), "--red"])
-    assert "spiral" in capsys.readouterr().out and "spiral" in first
+    second = capsys.readouterr().out
+    assert "spiral" in second
+    assert "spiral" in first

@@ -112,7 +112,8 @@ def test_the_stamp_says_platform_before_regression() -> None:
     platform' rather than 'regression'". Written to be read by someone who did not generate the
     file, at the moment it fails."""
     note = observation_stamp("darwin-arm64", "numpy 2.4.6")
-    assert "darwin-arm64" in note and "numpy 2.4.6" in note
+    assert "darwin-arm64" in note
+    assert "numpy 2.4.6" in note
     assert "DIFFERENT PLATFORM before it is a" in note
     assert "regression" in note
 

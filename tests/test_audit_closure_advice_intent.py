@@ -42,8 +42,10 @@ def test_both_surfaces_keep_inexpressible_line_gaps_out_of_input_commands():
     cli = "\n".join(_derived_input(None, proof, None, "m.py::f"))
     mcp = "\n".join(_ask_for_input("converge", "m.py", "f", ("grid",), "gap", proof=proof))
     for output in (cli, mcp):
-        assert "WRITE TEST" in output and "line 8" in output
-        assert "--input" not in output and "inputs=[" not in output
+        assert "WRITE TEST" in output
+        assert "line 8" in output
+        assert "--input" not in output
+        assert "inputs=[" not in output
 
 
 @pytest.mark.parametrize(
@@ -68,7 +70,7 @@ def test_import_diagnostic_reports_the_dependency_after_a_postponed_dataclass(tm
         "@dataclass\nclass Box:\n    x: int\nimport closure_nonexistent_dependency\n"
     )
     prior = sys.modules.get("_detective_probe")
-    reason = _load_failure_reason(str(target), "f")
+    reason = _load_failure_reason(str(target))
     assert reason == "ModuleNotFoundError: No module named 'closure_nonexistent_dependency'"
     assert sys.modules.get("_detective_probe") is prior
 
@@ -129,11 +131,13 @@ def test_survey_resolves_requested_root_and_reports_parse_failures(tmp_path, cap
     (tmp_path / "module.py").write_text("def f(x: Alien):\n    return x\n")
     assert main(["survey", "module.py", "--project-root", str(tmp_path), "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["scan_status"] == "observed" and report["files"]
+    assert report["scan_status"] == "observed"
+    assert report["files"]
     (tmp_path / "module.py").write_text("def broken(")
     assert main(["survey", "module.py", "--project-root", str(tmp_path), "--json"]) == 2
     report = json.loads(capsys.readouterr().out)
-    assert report["scan_status"] == "incomplete" and report["unexamined"]
+    assert report["scan_status"] == "incomplete"
+    assert report["unexamined"]
 
 
 def test_missing_extraction_target_is_a_precondition_error(tmp_path, capsys):

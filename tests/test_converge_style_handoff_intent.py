@@ -74,4 +74,5 @@ def test_the_handoff_names_the_whole_second_beat_including_efficiency():
     assert "detective plan" in out
     assert "detective decompose" in out
     assert "detective survey" in out
-    assert "verify-rewrite" in out and "--budget" in out
+    assert "verify-rewrite" in out
+    assert "--budget" in out

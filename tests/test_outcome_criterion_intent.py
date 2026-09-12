@@ -72,7 +72,8 @@ def test_decompose_endings_collide_on_the_exit_code_with_opposite_remedies() -> 
     unproven = decompose_outcome(
         apply_requested=True, applied=0, proof_complete=False, budget_exhausted=False, unsafe=0
     )
-    assert cut == "proof_cut" and unproven == "preservation_unproven"
+    assert cut == "proof_cut"
+    assert unproven == "preservation_unproven"
     assert decompose_exit(False, 0, True, True, 0) == decompose_exit(True, 0, False, False, 0) == 3
 
 

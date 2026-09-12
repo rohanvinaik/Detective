@@ -97,7 +97,8 @@ def test_the_run_that_pruned_becomes_the_first_entry(repo, capsys) -> None:
     main(["purge", "--prune", "--yes", "--project-root", str(repo)])
     assert "this run is now its first entry" in capsys.readouterr().out
     rows = read_recent(str(repo))
-    assert len(rows) == 1 and rows[0]["verb"] == "purge"
+    assert len(rows) == 1
+    assert rows[0]["verb"] == "purge"
 
 
 def test_the_json_channel_carries_it_as_its_own_field(repo, capsys) -> None:
@@ -121,5 +122,6 @@ def test_prune_returns_what_it_removed_and_never_raises(tmp_path) -> None:
     assert prune(str(tmp_path)) == ("", 0), "nothing to remove is not an error"
     append(str(tmp_path), {"v": 1, "verb": "audit"})
     path, size = prune(str(tmp_path))
-    assert path == ledger_path(str(tmp_path)) and size > 0
+    assert path == ledger_path(str(tmp_path))
+    assert size > 0
     assert prune(str(tmp_path)) == ("", 0), "and it is gone"

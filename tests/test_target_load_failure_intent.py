@@ -141,7 +141,9 @@ def test_the_sentence_rules_out_the_three_remedies_that_spiralled():
     close those doors explicitly, or the next reader tries them again."""
     s = cut_reason_sentence("target_load_failed")
     assert "could not be imported" in s
-    assert "--input" in s and "--deadline" in s and "regime" in s
+    assert "--input" in s
+    assert "--deadline" in s
+    assert "regime" in s
     assert "dependencies" in s
 
 

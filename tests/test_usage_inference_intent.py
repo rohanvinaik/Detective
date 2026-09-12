@@ -63,7 +63,8 @@ def _fn(src: str) -> ast.FunctionDef:
 def test_extracts_tuple_subscript_for_the_gofl_shape():
     fn = _fn("def update_cell(step, xy):\n    return step[xy[0], xy[1]]\n")
     tags = set(_param_usages(fn, "step"))
-    assert "subscript" in tags and "subscript_tuple" in tags
+    assert "subscript" in tags
+    assert "subscript_tuple" in tags
 
 
 def test_the_index_param_is_not_mistaken_for_an_array():

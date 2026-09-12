@@ -154,12 +154,13 @@ def _swap_census_counts(profile) -> tuple[int, int, bool]:
     all, an empty one, no SWAP row, or a row that does not carry the key.
     """
     census = getattr(profile, "operator_census", None) or {}
-    for cat, row in census.items():
-        if getattr(cat, "value", cat) == "SWAP":
-            if not isinstance(row, dict) or "withheld" not in row:
-                return 0, int((row or {}).get("generated", 0) or 0) if isinstance(row, dict) else 0, False
-            return int(row.get("withheld", 0) or 0), int(row.get("generated", 0) or 0), True
-    return 0, 0, False
+    row = next((r for cat, r in census.items() if getattr(cat, "value", cat) == "SWAP"), None)
+    if not isinstance(row, dict):
+        return 0, 0, False  # no census, or no SWAP row: nothing was reported
+    generated = int(row.get("generated", 0) or 0)
+    if "withheld" not in row:
+        return 0, generated, False  # a policy-6 row: it never answered this question
+    return int(row.get("withheld", 0) or 0), generated, True
 
 
 def certificate_standing(
@@ -234,7 +235,6 @@ def certificate_standing(
 def should_verify_reproducibility(
     execution_mode: str,
     functionally_complete: bool,
-    has_candidate_equivalent: bool,
 ) -> bool:
     """Require isolated verification before shared-state evidence certifies (#B, pure — pinned).
 
@@ -242,7 +242,11 @@ def should_verify_reproducibility(
     certificate measured outside isolation therefore needs the check. An incomplete
     result already refuses; an isolated result already used the required execution
     mode, although isolation alone does not establish universal determinism.
-    ``has_candidate_equivalent`` is retained for compatibility, not as a gate.
+
+    A third parameter, ``has_candidate_equivalent``, was once passed here and never read — kept
+    "for compatibility" with nothing, since both callers are in this repo. A parameter a decision
+    does not consult is a claim that it might, which is exactly the kind of thing a reader has to
+    disprove by reading the body; it is gone rather than documented.
     """
     return execution_mode != "isolated" and functionally_complete
 
@@ -2392,9 +2396,8 @@ def _converge_impl(
     # A certificate-facing check observes the SAME function/test basis in isolated
     # mutation workers. A replay, missing identity, invalid pass or disagreement refuses.
     # Classification above consumes final_result itself, never a separately measured set.
-    _has_candidate_equiv = survivor_report is not None and bool(survivor_report.equivalent)
     if _validity.admits_certificate and should_verify_reproducibility(
-        _validity.execution_mode, functionally_complete, _has_candidate_equiv
+        _validity.execution_mode, functionally_complete
     ):
         say("verifying reproducibility — fresh isolated observation of the function's proof basis…")
         try:

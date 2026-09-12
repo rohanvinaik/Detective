@@ -860,16 +860,16 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
         # two dialects, or "you got fix_load twice" stops being one story for the reader and for the
         # ledger. Only the trailing re-run command differs, because that is the one thing that is
         # genuinely per-verb.
-        reason = getattr(scope, "load_failure", "") or "the target module could not be imported"
+        reason = getattr(scope, "load_failure", "") or _MODULE_NOT_IMPORTED
         return [
             f"STOP:  the live original could not be loaded: {reason}",
             "",
-            _row("· Why first", "the module would not import, so nothing ran — the counts above"),
+            _row(_WHY_FIRST_ROW, "the module would not import, so nothing ran — the counts above"),
             _row("", "are blindness, not a result, and the unpinned behaviours are"),
             _row("", "unpinned because NOTHING could run, not because tests are absent."),
             _row("· Not converge", "it cannot write a test that runs either; on this target it"),
             _row("", "refuses with the same reason."),
-            _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
+            _row(_FIX_ROW, "run under an interpreter/venv that has the missing dependency"),
             _row("", f"(detective regime names the one in use), then: detective diagnose '{fn}'"),
         ]
     if kind == "decompose_first":
@@ -1559,7 +1559,7 @@ def _notify_stderr(msg: str) -> None:
 
 
 def _telemetry_cache_path() -> str:
-    return os.path.join(os.path.expanduser("~"), ".detective", "telemetry.json")
+    return os.path.join(os.path.expanduser("~"), _STATE_DIR, "telemetry.json")
 
 
 def _read_per_mutant_ms() -> float | None:
@@ -2268,7 +2268,7 @@ def _write_converge_report(root: str, qualname: str, text: str, prefix: str = "c
     so the refusal could only be re-diagnosed by re-running it."""
 
     safe = qualname.replace("::", "__").replace("/", "_").replace(".", "_")
-    d = os.path.join(root, ".detective", "reports")
+    d = os.path.join(root, _STATE_DIR, "reports")
     try:
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"{prefix}_{safe}.txt")
@@ -2821,7 +2821,7 @@ def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> li
         return [
             "DO THIS:  install pytest in the interpreter that runs the suite, then re-run.",
             "",
-            _row("· Why not --input", "no input can help: nothing can execute a test here."),
+            _row(_WHY_NOT_INPUT_ROW, "no input can help: nothing can execute a test here."),
         ]
     where = f" --project-root '{root}'" if root and root != "." else ""
     named = {
@@ -2844,7 +2844,7 @@ def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> li
         return [
             f"STOP:  regime migrated (marker declared) but pytest still collects no tests for '{fn}'.",
             "",
-            _row("· Why not --input", named),
+            _row(_WHY_NOT_INPUT_ROW, named),
             _row("", "Migrate already ran — re-running it is a no-op. The suite is empty for"),
             _row("", "another reason: check testpaths / discovery patterns / that a test"),
             _row("", "actually imports and reaches this target."),
@@ -2853,10 +2853,10 @@ def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> li
     return [
         f"DO THIS:  detective regime --migrate '{fn}'{where}",
         "",
-        _row("· Why not --input", named),
+        _row(_WHY_NOT_INPUT_ROW, named),
         _row("", "An --input closes a GAP; it cannot supply a suite. Following the"),
         _row("", "input ask here re-runs to the identical result."),
-        _row("· Then", f"detective converge '{fn}'{where}   # the gap ask lands once tests collect"),
+        _row(_THEN_ROW, f"detective converge '{fn}'{where}   # the gap ask lands once tests collect"),
     ]
 
 
@@ -2959,10 +2959,10 @@ def _converge_action(
             return [
                 f"STOP:  {cut_reason_sentence('collection_incomplete')}",
                 "",
-                _row("· Why first", "a test that could not be collected is silently absent from the"),
+                _row(_WHY_FIRST_ROW, "a test that could not be collected is silently absent from the"),
                 _row("", "routed suite, so the counts rest on fewer tests than the layout implies —"),
                 _row("", "and no --trace-budget or --deadline fixes an import error."),
-                _row("· Fix", "resolve the collection error (run under the venv that has the missing"),
+                _row(_FIX_ROW, "resolve the collection error (run under the venv that has the missing"),
                 _row(
                     "", f"dependency; detective regime names the one in use), then: detective converge '{fn}'"
                 ),
@@ -2970,7 +2970,7 @@ def _converge_action(
             ]
         if route in ("reprofile", "isolate"):
             return [
-                "STOP:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
                 _row("· Re-measure", f"detective converge '{fn}' {flags} --isolated".replace("  ", " ")),
                 _row("", "retain the original input, receiver, clock/environment and policy options."),
@@ -2978,7 +2978,7 @@ def _converge_action(
             ]
         if route == "enumerate":
             return [
-                "STOP:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
                 _row("· Re-measure", f"detective converge '{fn}' {flags}".rstrip()),
                 _row("", "enumerate the complete mutation policy; remove sampling/--fast options."),
@@ -2994,10 +2994,10 @@ def _converge_action(
                 f"STOP:  {cut_reason_sentence('target_load_failed')}",
                 "",
                 *([_row("· The error", note)] if note else []),
-                _row("· Why first", "the module would not import, so NOTHING ran — a 0-kill here is"),
-                _row("", "blindness, not a result. No --input runs without the module, and"),
+                _row(_WHY_FIRST_ROW, "the module would not import, so NOTHING ran — a 0-kill here is"),
+                _row("", _BLINDNESS_NOT_RESULT),
                 _row("", "neither regime --migrate nor a larger budget can fix an import."),
-                _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
+                _row(_FIX_ROW, "run under an interpreter/venv that has the missing dependency"),
                 _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
                 *_also_live_rows(reasons, route),
             ]
@@ -3009,16 +3009,16 @@ def _converge_action(
             # thing. What differs from `inspect_refusal` is the FACT, not the render — there the
             # engine refused and named nothing we recognise; here it named the phase exactly.
             return [
-                "STOP:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
-                _row("· Why first", "a mutant that was never built, never bound, or never called is"),
+                _row(_WHY_FIRST_ROW, "a mutant that was never built, never bound, or never called is"),
                 _row("", "not evidence about your suite — and not evidence about coverage depth,"),
                 _row("", "so no --trace-budget, --deadline or --isolated re-run addresses it."),
                 _row("· Resolve", "the reason above names the repair; re-run once it is resolved."),
             ]
         if route == "inspect_refusal":
             return [
-                "STOP:  "
+                _STOP_PREFIX
                 + (
                     "; ".join(cut_reason_sentence(r) for r in reasons)
                     or cut_reason_sentence("engine_refused_unspecified")
@@ -3046,7 +3046,7 @@ def _converge_action(
         return [
             f"DO THIS:  {command}",
             "",
-            _row("· Why first", why),
+            _row(_WHY_FIRST_ROW, why),
             _row("", "An invalid measurement cannot justify an input/test action."),
             *_also_live_rows(reasons, route),
         ]
@@ -3054,7 +3054,7 @@ def _converge_action(
         return [
             "STOP:  the target changed while converge measured it — this is NOT a verdict.",
             "",
-            _row("· Why first", "The kill-count and line numbers below describe a source that no"),
+            _row(_WHY_FIRST_ROW, "The kill-count and line numbers below describe a source that no"),
             _row("", "longer exists — meaningless, not small. Re-run on the settled file:"),
             _row("· Re-run", f"detective converge '{fn}'"),
         ]
@@ -3063,7 +3063,7 @@ def _converge_action(
         return [
             f"STOP:  the written suite did not verify under real pytest ({_status}) — NOT a certificate.",
             "",
-            _row("· Why first", "A perfect mutation score over a suite that does not run green is"),
+            _row(_WHY_FIRST_ROW, "A perfect mutation score over a suite that does not run green is"),
             _row("", "not a certificate. Fix the proof basis, then re-run:"),
             _row("· Re-run", f"detective converge '{fn}'"),
         ]
@@ -3071,14 +3071,14 @@ def _converge_action(
         # The module would not IMPORT — name WHY (the survivor report carries the exception), so the
         # reader runs under the venv that has the dep instead of being sent to migrate, which cannot
         # fix an import. A 0-kill here is blindness, not a result.
-        reason = getattr(rep, "note", None) or "the target module could not be imported"
+        reason = getattr(rep, "note", None) or _MODULE_NOT_IMPORTED
         return [
             f"STOP:  {reason}",
             "",
-            _row("· Why first", "The module would not import, so nothing ran — a 0-kill here is"),
-            _row("", "blindness, not a result. No --input runs without the module, and"),
+            _row(_WHY_FIRST_ROW, "The module would not import, so nothing ran — a 0-kill here is"),
+            _row("", _BLINDNESS_NOT_RESULT),
             _row("", "`regime --migrate` cannot fix a missing import."),
-            _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
+            _row(_FIX_ROW, "run under an interpreter/venv that has the missing dependency"),
             _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
         ]
     if kind == "provide_sample":
@@ -3092,7 +3092,7 @@ def _converge_action(
             _row("· Why not migrate", "the module loaded and the search RAN in-process — the suite is"),
             _row("", "empty only because no input reached the function, which"),
             _row("", "`regime --migrate` cannot change. A real sample can."),
-            _row("· Then", f"detective converge '{fn}'"),
+            _row(_THEN_ROW, f"detective converge '{fn}'"),
         ]
     if kind in ("install_pytest", "fix_collection"):
         return _dead_suite_action(kind, fn, root, session_reason)
@@ -3193,6 +3193,26 @@ _RULE = "─" * 78
 # The two row labels every report shares — one spelling each, so the renderers cannot drift.
 _FULL_REPORT_ROW = "· full report"
 _RECORDED_ROW = "✓ recorded"
+# The rest of the shared vocabulary, for the same reason: a reader learns these labels once and
+# then recognises them everywhere, so a renderer spelling one slightly differently would read as
+# a different kind of section. One definition each.
+_WHY_FIRST_ROW = "· Why first"
+_FIX_ROW = "· Fix"
+_DO_THIS_ROW = "· Do this"
+_THE_FINDING_ROW = "· The finding"
+_SIGNATURE_ROW = "· Signature"
+_THEN_ROW = "· Then"
+_WHY_IT_MATTERS_ROW = "· Why it matters"
+_WHY_NOT_INPUT_ROW = "· Why not --input"
+_STOP_PREFIX = "STOP:  "
+# The state directory's name, which several messages quote back to the reader.
+_STATE_DIR = ".detective"
+# Load-failure prose. Several renderers say these and must say them IDENTICALLY: the advice works
+# because a reader recognises the same diagnosis wherever it surfaces, so drift reads as a
+# different problem.
+_MODULE_NOT_IMPORTED = "the target module could not be imported"
+_RUN_UNDER_INTERPRETER = "run under an interpreter/venv that has the missing dependency"
+_BLINDNESS_NOT_RESULT = "blindness, not a result. No --input runs without the module, and"
 # What a candidate-equivalent survivor actually warrants saying. Both converge and audit render
 # this row; one spelling, same reason as the labels above.
 #
@@ -3730,7 +3750,7 @@ def _derived_input(
         return [
             "WRITE TEST:  build the required domain objects in a fixture and call the target",
             "",
-            _row("· Signature", sig),
+            _row(_SIGNATURE_ROW, sig),
             _row("· Why", "The target has inputs outside the literal input grammar."),
             *(_row("· Uncovered" if i == 0 else "", gap) for i, gap in enumerate(items)),
             _row("· Alternative", f"Inspect a primitive decision seam: detective extract '{target}'"),
@@ -3744,7 +3764,7 @@ def _derived_input(
         # command that was 90% the same string. How many to author is a sentence; it is not argv.
         out = ["AUTHOR INPUTS:  write the calls that reach the uncovered lines below"]
         out.append("")
-        out.append(_row("· Signature", sig))
+        out.append(_row(_SIGNATURE_ROW, sig))
         if tmpl:
             out.append(_row("· Template", f"{tmpl}  (replace every <...> slot before running)"))
         out.append("")
@@ -3774,7 +3794,7 @@ def _derived_input(
         # One slot — see the `lines` branch above; the count is in the Task line.
         out = ["AUTHOR INPUTS:  write the boundary calls described below"]
         out.append("")
-        out.append(_row("· Signature", sig))
+        out.append(_row(_SIGNATURE_ROW, sig))
         if tmpl:
             out.append(_row("· Template", f"{tmpl}  (replace every <...> slot before running)"))
         out.append("")
@@ -3794,7 +3814,7 @@ def _derived_input(
     if kind == "internal":
         out = ["AUTHOR INPUTS:  write a call that drives the internal condition below"]
         out.append("")
-        out.append(_row("· Signature", sig))
+        out.append(_row(_SIGNATURE_ROW, sig))
         if tmpl:
             out.append(_row("· Template", f"{tmpl}  (replace every <...> slot before running)"))
         out.append("")
@@ -3816,7 +3836,7 @@ def _derived_input(
     return [
         "AUTHOR INPUTS:  write one real call for the target below",
         "",
-        _row("· Signature", sig),
+        _row(_SIGNATURE_ROW, sig),
         _row("· Template", f"{tmpl}  (replace every <...> slot before running)" if tmpl else "(none)"),
         "",
         _row("· Task", "Author one real call and pass it as --input."),
@@ -4312,14 +4332,14 @@ def _audit_action(a, removing: bool = False) -> list[str]:
     # branch and no exit code.
     observe("outcome", "audit", kind)
     if kind == "fix_load":
-        reason = getattr(a, "note", "") or "the target module could not be imported"
+        reason = getattr(a, "note", "") or _MODULE_NOT_IMPORTED
         return [
             f"STOP:  {reason}",
             "",
-            _row("· Why first", "the module would not import, so nothing ran — a 0-kill here is"),
-            _row("", "blindness, not a result. No --input runs without the module, and"),
+            _row(_WHY_FIRST_ROW, "the module would not import, so nothing ran — a 0-kill here is"),
+            _row("", _BLINDNESS_NOT_RESULT),
             _row("", "`regime --migrate` cannot fix a missing import."),
-            _row("· Fix", "run under an interpreter/venv that has the missing dependency"),
+            _row(_FIX_ROW, "run under an interpreter/venv that has the missing dependency"),
             _row("", f"(detective regime names the one in use), then: detective audit '{a.function}'"),
         ]
     if kind == "provide_sample":
@@ -4330,7 +4350,7 @@ def _audit_action(a, removing: bool = False) -> list[str]:
             _row("· Why not migrate", "the module loaded and the search RAN in-process — the suite is"),
             _row("", "empty only because no input reached the function, which"),
             _row("", "`regime --migrate` cannot change. A real sample can."),
-            _row("· Then", f"detective converge '{a.function}'"),
+            _row(_THEN_ROW, f"detective converge '{a.function}'"),
         ]
     if kind == "fix_failing_test":
         # The one branch with no single command, and legitimately so: the next move is a
@@ -5664,8 +5684,8 @@ def _record_invocation(args, exit_code, refusal: str, started: float) -> None:
         state = {
             "target_src": _L.file_digest(target_file) if target_file else "",
             "suite": _L.suite_digest(write_dir),
-            "inputs": _L.file_digest(os.path.join(root, ".detective", "inputs.json")),
-            "equivalents": _L.file_digest(os.path.join(root, ".detective", "equivalents.json")),
+            "inputs": _L.file_digest(os.path.join(root, _STATE_DIR, "inputs.json")),
+            "equivalents": _L.file_digest(os.path.join(root, _STATE_DIR, "equivalents.json")),
         }
         _escalate_suite_digest(root, write_dir, verb, target, ledger_args, state)
         record = {
@@ -7867,15 +7887,15 @@ def _render_doctor_green(code: str, facts: dict) -> list[str]:
         return out
     if code == "regime_conflict":
         out += [
-            _row("· The finding", f"the regime reports {facts['regime_conflict']}"),
-            _row("· Why first", "every verdict from this repo is untrustworthy — not worse, WRONG"),
-            _row("· Fix", "detective regime   # it names the conflict and the migration"),
+            _row(_THE_FINDING_ROW, f"the regime reports {facts['regime_conflict']}"),
+            _row(_WHY_FIRST_ROW, "every verdict from this repo is untrustworthy — not worse, WRONG"),
+            _row(_FIX_ROW, "detective regime   # it names the conflict and the migration"),
         ]
     elif code == "no_pytest":
         out += [
-            _row("· The finding", f"this interpreter cannot import pytest: {sys.executable}"),
-            _row("· Why first", "Detective opens a LIVE pytest session; without it nothing can run"),
-            _row("· Fix", "run detective from a venv that has pytest AND the project's deps"),
+            _row(_THE_FINDING_ROW, f"this interpreter cannot import pytest: {sys.executable}"),
+            _row(_WHY_FIRST_ROW, "Detective opens a LIVE pytest session; without it nothing can run"),
+            _row(_FIX_ROW, "run detective from a venv that has pytest AND the project's deps"),
         ]
     elif code in ("deps_elsewhere", "deps_missing"):
         elsewhere = facts["elsewhere"]
@@ -7892,12 +7912,12 @@ def _render_doctor_green(code: str, facts: dict) -> list[str]:
                 _row("", "invisible to this run, so installing it again moves you AWAY"),
                 _row("", "from the fix. The tool's 'No module named ...' is true, and the"),
                 _row("", "premise it invites — you do not have it — is false."),
-                _row("· Fix", "install into THIS interpreter, or run detective under the one"),
+                _row(_FIX_ROW, "install into THIS interpreter, or run detective under the one"),
                 _row("", "that already has it (detective regime names the one in use)."),
             ]
         else:
             out += [
-                _row("· Fix", "install the missing package(s) into this interpreter, then re-run."),
+                _row(_FIX_ROW, "install the missing package(s) into this interpreter, then re-run."),
                 _row("", "Not found under any interpreter this probe is allowed to ask."),
             ]
     elif code in ("stale_load_failure", "stale_collection_failure"):
@@ -7961,7 +7981,7 @@ def _render_doctor_yellow(code: str, findings: list, target_file: str) -> list[s
         out.append(_row("", f"… (+{len(findings) - 6} more)"))
     rel = os.path.basename(target_file)
     out += [
-        _row("· Why it matters", "none of this is broken. It caps how much of Detective this code"),
+        _row(_WHY_IT_MATTERS_ROW, "none of this is broken. It caps how much of Detective this code"),
         _row("", "lets you reach — the pure decision is there, converge cannot get to it."),
         _row("· Raise it", f"detective survey '{rel}'          # the full map"),
         _row("", f"detective extract '{rel}::<fn>'   # the concrete extraction"),
@@ -8003,29 +8023,29 @@ def _render_doctor_red(code: str, facts: dict) -> list[str]:
         return out
     if code == "ground_moved":
         out += [
-            _row("· The finding", f"{facts['drift']} between your last two runs of {verb}"),
-            _row("· Why first", "every other process finding is a comparison BETWEEN runs, and"),
+            _row(_THE_FINDING_ROW, f"{facts['drift']} between your last two runs of {verb}"),
+            _row(_WHY_FIRST_ROW, "every other process finding is a comparison BETWEEN runs, and"),
             _row("", "a comparison across changed ground compares different things."),
-            _row("· Do this", "settle the environment, re-run once, then read again."),
+            _row(_DO_THIS_ROW, "settle the environment, re-run once, then read again."),
         ]
     elif code == "spiral":
         code_note = facts.get("outcome_code") or ""
         named = f" and got `{code_note}` each time" if code_note else ""
         out += [
-            _row("· The finding", f"you ran `{what}` again with nothing changed{named}"),
-            _row("· Why it matters", "a re-run is the normal shape of work; a re-run that cannot"),
+            _row(_THE_FINDING_ROW, f"you ran `{what}` again with nothing changed{named}"),
+            _row(_WHY_IT_MATTERS_ROW, "a re-run is the normal shape of work; a re-run that cannot"),
             _row("", "change its own outcome is a spiral. The instruction you are"),
             _row("", "following cannot move this state — a different one has to."),
-            _row("· Do this", "read the GREEN section above first; if it is clean, the"),
+            _row(_DO_THIS_ROW, "read the GREEN section above first; if it is clean, the"),
             _row("", "remedy is upstream of this command, not another attempt."),
         ]
     elif code == "order":
         out += [
-            _row("· The finding", f"{facts['order']} — {what}"),
-            _row("· Why it matters", "the style pass is CONDITIONAL on behaviour being pinned. A"),
+            _row(_THE_FINDING_ROW, f"{facts['order']} — {what}"),
+            _row(_WHY_IT_MATTERS_ROW, "the style pass is CONDITIONAL on behaviour being pinned. A"),
             _row("", "seam proposed over an unpinned function cannot be proven"),
             _row("", "behaviour-preserving, so the read means less than it looks."),
-            _row("· Do this", f"detective converge '{target}'   # then re-read"),
+            _row(_DO_THIS_ROW, f"detective converge '{target}'   # then re-read"),
         ]
     elif code == "repeat_no_change":
         out += [
@@ -8051,7 +8071,7 @@ def _render_doctor_mix(green_live: bool, red_live: bool, yellow_live: bool) -> l
             _row("", "the instruction you were following could never have worked while"),
             _row("", "the environment is in this state, so repeating it is not the"),
             _row("", "mistake — following it at all is."),
-            _row("· Do this", "fix GREEN. Then re-run the command once and read again."),
+            _row(_DO_THIS_ROW, "fix GREEN. Then re-run the command once and read again."),
             "",
         ]
     if product == "unreliability":
@@ -8067,13 +8087,13 @@ def _render_doctor_mix(green_live: bool, red_live: bool, yellow_live: bool) -> l
             _row("RED + YELLOW", "ordering — the mix, not the sum"),
             _row("· The verdict", "you are about to do the taste half before the correctness half"),
             _row("", "it presupposes. The seam is unprovable until behaviour is pinned."),
-            _row("· Do this", "converge the target first, then take the taste read again."),
+            _row(_DO_THIS_ROW, "converge the target first, then take the taste read again."),
             "",
         ]
     return [
         _row("GREEN + RED + YELLOW", "ordered remediation — the mix, not the sum"),
         _row("· First", "fix GREEN. Everything below was measured through it."),
-        _row("· Then", "re-run the command once — the process finding above may simply"),
+        _row(_THEN_ROW, "re-run the command once — the process finding above may simply"),
         _row("", "dissolve, because it was a symptom of the setup fault."),
         _row("· Last", "re-derive the taste read. Do not act on this one."),
         _row("· Why ordered", "these are not three lists. Fixing them in any other order"),
@@ -8257,7 +8277,7 @@ def _signpost_rows(verb: str, root: str, target_file: str = "") -> list[str]:
             _row("", "would be a measurement of your ENVIRONMENT rather than of your"),
             _row("", "code. Printing it under a warning still leaves you free to act"),
             _row("", "on it, which is the unreliability this exists to name."),
-            _row("· Do this", "fix the setup, then run this command again."),
+            _row(_DO_THIS_ROW, "fix the setup, then run this command again."),
             _row("· The full read", f"detective doctor{scope}"),
         ]
     except Exception:  # noqa: BLE001

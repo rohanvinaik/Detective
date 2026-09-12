@@ -40,6 +40,11 @@ from .minimize import (
 )
 from .synthesis.writer import foreign_generated_test_names
 
+# The marker a candidate id carries when it names a pre-existing (non-generated) test. One
+# spelling, because the code both TESTS for it and STRIPS it — two literals that must agree, and
+# a drifted one would strip the wrong number of characters rather than fail loudly.
+_LEGACY_PREFIX = "legacy:"
+
 
 class AuditAccountingError(Exception):
     """The audit's value partition did not reconcile with its classification (#55/#65).
@@ -513,8 +518,8 @@ def _candidate_test_files(candidates) -> set[str]:
     files: set[str] = set()
     for cid in candidates:
         head = cid.split("::", 1)[0]
-        if head.startswith("legacy:"):
-            head = head[len("legacy:") :]
+        if head.startswith(_LEGACY_PREFIX):
+            head = head[len(_LEGACY_PREFIX) :]
         if head:
             files.add(head)
     return files
@@ -536,7 +541,7 @@ def _removal_needs(result, candidates: set[str], root: str) -> set[str]:
         return set(candidates)
 
     def identity(test_id: str) -> str:
-        path, separator, case = test_id.removeprefix("legacy:").partition("::")
+        path, separator, case = test_id.removeprefix(_LEGACY_PREFIX).partition("::")
         return os.path.realpath(os.path.join(root, path)) + separator + case
 
     needed = set(_obligations_by_test(result.kill_matrix, result.line_coverage)) - redundant_2axis(

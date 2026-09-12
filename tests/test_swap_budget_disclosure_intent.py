@@ -60,7 +60,9 @@ def test_no_state_is_a_failure():
     """A withheld question is a question the POLICY declined to ask, not a defect in the suite.
     Nothing here may spell like one, because the CLI branches on these names."""
     for state in ("not_budgeted", "budgeted_partial", "budgeted_none"):
-        assert "fail" not in state and "gap" not in state and "incomplete" not in state
+        assert "fail" not in state
+        assert "gap" not in state
+        assert "incomplete" not in state
 
 
 # ── reading the engine's census ────────────────────────────────────────────────

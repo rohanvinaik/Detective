@@ -68,7 +68,8 @@ def test_the_version_string_names_where_each_engine_was_imported_from():
     """A version number is a property of the RELEASE. Two checkouts of 0.13.0 are both 0.13.0, so
     the number cannot answer which one ran — the path can."""
     out = _resolved_engines()
-    assert "Detective" in out and "Wesker" in out
+    assert "Detective" in out
+    assert "Wesker" in out
     assert ".py" in out, "a path, not just a name"
 
 

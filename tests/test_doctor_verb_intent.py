@@ -124,7 +124,8 @@ def test_an_unbuilt_axis_says_so_rather_than_rendering_an_empty_section(repo, ca
     swallowing at WRITE time is right, swallowing at READ time is what this exists to prevent. An
     empty process section reads as "nothing wrong", which is the one thing it must not say."""
     _, out = _run(capsys, "--project-root", str(repo))
-    assert "RED — process" in out and "not read" in out
+    assert "RED — process" in out
+    assert "not read" in out
     assert "UNAVAILABLE" in out
     assert "YELLOW — taste" in out
 
@@ -261,7 +262,9 @@ def test_the_help_names_the_three_axes_by_their_herb(capsys) -> None:
     out = capsys.readouterr().out
     for flag in ("--green", "--red", "--yellow"):
         assert flag in out
-    assert "SETUP" in out and "PROCESS" in out and "TASTE" in out
+    assert "SETUP" in out
+    assert "PROCESS" in out
+    assert "TASTE" in out
 
 
 def test_the_target_may_be_a_bare_path_or_a_function(repo, capsys) -> None:
@@ -269,5 +272,6 @@ def test_the_target_may_be_a_bare_path_or_a_function(repo, capsys) -> None:
     a required `file::func` verb would."""
     a, _ = _run(capsys, "m.py", "--project-root", str(repo))
     b, _ = _run(capsys, "m.py::add", "--project-root", str(repo))
-    assert a == 0 and b == 0
+    assert a == 0
+    assert b == 0
     assert not os.path.exists(os.path.join(str(repo), "tests", "detective"))

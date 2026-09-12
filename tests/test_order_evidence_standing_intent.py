@@ -92,7 +92,8 @@ def test_an_old_receipt_round_trips_as_unknown_never_as_clear():
     to 0 here is what the reviewer caught: it would reproduce the census blur at the load boundary,
     where a pre-policy-7 receipt would silently assert that nothing was withheld."""
     rec = _receipt()
-    assert rec.swap_budget is None and rec.swap_withheld is None
+    assert rec.swap_budget is None
+    assert rec.swap_withheld is None
     back = RewriteReceipt.from_json(rec.to_json())
     assert back.swap_budget is None
     assert order_evidence_standing(back.swap_budget) == "unrecorded"

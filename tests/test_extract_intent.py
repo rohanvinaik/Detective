@@ -90,7 +90,8 @@ def test_a_reachable_function_has_nothing_to_extract():
 
 def test_render_nothing_trapped_is_a_stated_clean_bill():
     out = "\n".join(render_extract("m.py", None))
-    assert "nothing trapped" in out and "reachability is not established" in out
+    assert "nothing trapped" in out
+    assert "reachability is not established" in out
 
 
 def test_render_propose_names_the_signature_and_the_converge_command():

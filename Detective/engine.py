@@ -469,7 +469,7 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
     return _attr_path(mod, qualname)
 
 
-def _load_failure_reason(full_path: str, qualname: str) -> str | None:
+def _load_failure_reason(full_path: str) -> str | None:
     """Best-effort reason WHY ``_load_original`` returned None — the module IMPORT exception, so a
     load failure can NAME its cause (a missing dependency, a broken sibling, a syntax error in the
     import chain) instead of a bare "could not be loaded" that misroutes the reader to
@@ -1375,7 +1375,7 @@ def diagnose(
     # `classify_survivors` itself uses (`if unclassified_descs`), for the same reason.
     if not result.value_killed:
         _full = file if os.path.isabs(file) else os.path.join(project_root, file)
-        scope = replace(scope, load_failure=_load_failure_reason(_full, function) or "")
+        scope = replace(scope, load_failure=_load_failure_reason(_full) or "")
 
     # Attach the structural seam count FIRST, then the parsimony read — its seam / regime lenses
     # read the finished map (§ the advisory is a superset of the seam+regime "is this >1 thing").
@@ -2751,7 +2751,7 @@ def classify_survivors(
         # invites — migrate cannot fix an import. `reason is None` means the module DID import and
         # only the ATTRIBUTE was absent (a renamed/stale symbol): not a load-failure, so `load_failed`
         # stays False and it does not route to the dependency remedy.
-        reason = _load_failure_reason(full, qualname or function) if unclassified_descs else None
+        reason = _load_failure_reason(full) if unclassified_descs else None
         if not unclassified_descs:
             note = None
         elif reason:

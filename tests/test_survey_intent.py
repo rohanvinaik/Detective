@@ -139,7 +139,8 @@ def test_the_recall_bound_narrows_but_does_not_vanish():
 
 def test_render_says_nothing_trapped_on_a_clean_file():
     out = "\n".join(render_survey("m.py", []))
-    assert "0 trapped" in out and "No trap detected" in out
+    assert "0 trapped" in out
+    assert "No trap detected" in out
     assert "not proved --input-reachable" in out
 
 

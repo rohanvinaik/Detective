@@ -26,11 +26,13 @@ from Detective.validity import CUT_REASONS, MeasurementValidity, cut_reason_sent
 
 
 def test_every_shared_state_certificate_needs_verification():
-    assert should_verify_reproducibility("in_process", True, True) is True
-    assert should_verify_reproducibility("in_process", True, False) is True
-    assert should_verify_reproducibility("isolated", True, True) is False
-    assert should_verify_reproducibility("in_process", False, True) is False
-    assert should_verify_reproducibility("unknown", True, False) is True
+    """Shared state is the trigger, not the survivor mix. A third parameter
+    (`has_candidate_equivalent`) was once passed and never read; the pairs below used to vary it to
+    show it changed nothing, which is why it is gone rather than documented."""
+    assert should_verify_reproducibility("in_process", True) is True
+    assert should_verify_reproducibility("isolated", True) is False
+    assert should_verify_reproducibility("in_process", False) is False
+    assert should_verify_reproducibility("unknown", True) is True
 
 
 def test_the_verdict_is_set_equality_over_the_survivor_ids():
@@ -46,7 +48,8 @@ def test_the_verdict_is_set_equality_over_the_survivor_ids():
 def test_the_reason_is_a_declared_cut_reason_with_an_actionable_sentence():
     assert "nonreproducible_in_process" in CUT_REASONS
     s = cut_reason_sentence("nonreproducible_in_process")
-    assert s and "nonreproducible_in_process" not in s  # a sentence, not the raw code
+    assert s
+    assert "nonreproducible_in_process" not in s  # a sentence, not the raw code
     assert "isolated" in s  # a semantic flag cannot repair invalid measurement
 
 
@@ -99,7 +102,8 @@ def _reprofile_result():
 def test_the_render_routes_invalid_measurement_to_isolation():
     out = "\n".join(_converge_action(_reprofile_result(), None))
     assert "STOP:" in out
-    assert "detective converge" in out and "--isolated" in out
+    assert "detective converge" in out
+    assert "--isolated" in out
     assert "detective flag" not in out
     assert "--trace-budget" not in out
     assert "--deadline 0" not in out
