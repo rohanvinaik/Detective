@@ -159,19 +159,29 @@ def _extraction_target(
     return found[0]
 
 
-def _extraction_inputs(
-    tree: ast.Module, func: ast.FunctionDef | ast.AsyncFunctionDef, trapped: tuple[str, ...]
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Describe a bounded prefix-to-decision seam; unresolved dependencies prevent a signature."""
-    import builtins
+def _module_bindings(tree: ast.Module) -> set[str]:
+    """Every name the MODULE binds — assignments, parameters, defs/classes, import aliases.
 
-    shadowed = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
-    shadowed.update(n.arg for n in ast.walk(tree) if isinstance(n, ast.arg))
-    shadowed.update(
+    The set a builtin would have to be checked against before it can be called a builtin: if the
+    module binds `list` or `id`, the name is not the builtin any more."""
+    bound = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    bound.update(n.arg for n in ast.walk(tree) if isinstance(n, ast.arg))
+    bound.update(
         n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     )
-    shadowed.update(n.asname or n.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.alias))
-    projections = set(_primitive_locals(func, frozenset(trapped), frozenset(shadowed)))
+    bound.update(n.asname or n.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.alias))
+    return bound
+
+
+def _prefix_split(
+    func: ast.FunctionDef | ast.AsyncFunctionDef, trapped: tuple[str, ...]
+) -> tuple[int, set[str]]:
+    """(how many leading statements form the trapped PREFIX, the names it binds).
+
+    The prefix is the docstring plus the run of simple name-assignments whose right-hand side still
+    depends on a trapped name — directly, or through an earlier prefix binding. The first statement
+    that does not is the seam. Both halves are returned because the caller needs the split to slice
+    the tail AND the bound names to decide what the tail's reads are already supplied by."""
     prefix_names: set[str] = set()
     split = 0
     for stmt in func.body:
@@ -190,6 +200,18 @@ def _extraction_inputs(
             break
         prefix_names.update(t.id for t in stmt.targets)
         split += 1
+    return split, prefix_names
+
+
+def _extraction_inputs(
+    tree: ast.Module, func: ast.FunctionDef | ast.AsyncFunctionDef, trapped: tuple[str, ...]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Describe a bounded prefix-to-decision seam; unresolved dependencies prevent a signature."""
+    import builtins
+
+    shadowed = _module_bindings(tree)
+    projections = set(_primitive_locals(func, frozenset(trapped), frozenset(shadowed)))
+    split, prefix_names = _prefix_split(func, trapped)
     tail = func.body[split:]
     reads = {
         n.id

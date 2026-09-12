@@ -247,6 +247,27 @@ def _unscored_by(result: object, disposition: str) -> bool:
     )
 
 
+# The engine fields this adapter reads, IN THE ORDER `capability_flags` reports them absent. One
+# list, so the read and the "which did the engine not supply?" answer cannot fall out of step —
+# they were a chain of six reads and a parallel chain of six ifs, which is two places to edit.
+_ADAPTED_FIELDS: tuple[str, ...] = (
+    "is_gateable",
+    "coverage_depth",
+    "collection_conflicts",
+    "all_contained",
+    "collection_errors",
+    "execution_mode",
+)
+
+
+def _containment_status(contained_raw: object) -> str:
+    """`unreported` when the engine did not say — never folded into `uncontained`, since "it did
+    not contain the run" and "it did not tell us" are different facts about the measurement."""
+    if contained_raw is _ABSENT:
+        return "unreported"
+    return "contained" if contained_raw else "uncontained"
+
+
 def normalize_validity(
     result: object, engine_version: str = "", load_failed: bool = False
 ) -> MeasurementValidity:
@@ -270,21 +291,21 @@ def normalize_validity(
     Every field the engine could not supply is named in ``capability_flags``, so a certificate
     can state which parts of its validity were OBSERVED and which were merely not contradicted.
     """
-    gateable_raw = getattr(result, "is_gateable", _ABSENT)
-    reports_gateable = gateable_raw is not _ABSENT
-    gateable = bool(gateable_raw) if reports_gateable else True
+    # Read every adapted field ONCE, keeping the absent-sentinel intact, so the "did the engine
+    # report this?" question is asked in one place instead of six near-identical branches — and the
+    # capability list below is derived from the same dict rather than a parallel chain of ifs that
+    # could fall out of step with it.
+    raw = {name: getattr(result, name, _ABSENT) for name in _ADAPTED_FIELDS}
 
-    depth_raw = getattr(result, "coverage_depth", _ABSENT)
-    depth = str(depth_raw) if depth_raw is not _ABSENT else "unreported"
+    reports_gateable = raw["is_gateable"] is not _ABSENT
+    gateable = bool(raw["is_gateable"]) if reports_gateable else True
 
-    conflicts_raw = getattr(result, "collection_conflicts", _ABSENT)
+    depth = str(raw["coverage_depth"]) if raw["coverage_depth"] is not _ABSENT else "unreported"
+
+    conflicts_raw = raw["collection_conflicts"]
     identity_ambiguous = bool(conflicts_raw) if conflicts_raw is not _ABSENT else False
 
-    contained_raw = getattr(result, "all_contained", _ABSENT)
-    if contained_raw is _ABSENT:
-        containment = "unreported"
-    else:
-        containment = "contained" if contained_raw else "uncontained"
+    containment = _containment_status(raw["all_contained"])
 
     # Collection completeness (the test FLOOR). Tests that failed to COLLECT (an import error — a
     # torch dep, a broken conftest) are SILENTLY absent from the routed suite, so a mutant only that
@@ -292,37 +313,24 @@ def normalize_validity(
     # engine reports the erroring test node-ids; a non-empty list cuts the run. Same absent-sentinel
     # as the others: an older engine that does not report it is flagged absent, never a fabricated
     # "collection was complete".
-    collection_errors_raw = getattr(result, "collection_errors", _ABSENT)
+    collection_errors_raw = raw["collection_errors"]
     collection_incomplete = bool(collection_errors_raw) if collection_errors_raw is not _ABSENT else False
 
     # The engine's own execution mode (in_process / isolated). The field defaults to "in_process",
     # so an UNREAD isolated run is silently mislabeled as in-process — a false description of how the
     # measurement ran. Read with the same absent-sentinel as the others: an older engine that does
     # not report it keeps the default AND is flagged absent, never a fabricated "in_process".
-    execution_mode_raw = getattr(result, "execution_mode", _ABSENT)
+    execution_mode_raw = raw["execution_mode"]
     execution_mode = str(execution_mode_raw) if execution_mode_raw is not _ABSENT else "in_process"
 
-    missing: list[str] = []
-    if not reports_gateable:
-        missing.append("is_gateable")
-    if depth_raw is _ABSENT:
-        missing.append("coverage_depth")
-    if conflicts_raw is _ABSENT:
-        missing.append("collection_conflicts")
-    if contained_raw is _ABSENT:
-        missing.append("all_contained")
-    if collection_errors_raw is _ABSENT:
-        missing.append("collection_errors")
-    if execution_mode_raw is _ABSENT:
-        missing.append("execution_mode")
+    # Declaration order is `_ADAPTED_FIELDS`' order, which is what `capability_flags` serialises.
+    missing = [name for name in _ADAPTED_FIELDS if raw[name] is _ABSENT]
 
     # Shared interpreter state can change scored obligations as well as counts. The
     # approximate label is advisory; converge's independent isolated observation is
     # the certificate gate. Isolation contains execution but does not decide arbitrary
     # determinism or equivalence, and recycled workers need not be fresh per mutant.
-    approximate: list[str] = []
-    if execution_mode == "in_process":
-        approximate.append("approximate:mutant_universe")
+    approximate = ["approximate:mutant_universe"] if execution_mode == "in_process" else []
 
     reasons = measurement_cut_reasons(
         reported_gateable=reports_gateable,

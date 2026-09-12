@@ -862,20 +862,33 @@ def behavior_status(
     if suite_owned and suite_edited:
         return pins.PINNED_STALE
     if cert_standing in _RECORDED_STANDINGS:
-        if not cert_current:
-            return pins.PINNED_STALE
-        # A separate line from the one above on purpose: "the record is for an older definition"
-        # and "the run spanned a change to this one" are different facts that share a remedy, and
-        # collapsing them into one condition is how the second stops being visible.
-        if cert_standing == "stale":
-            return pins.PINNED_STALE
-        if cert_standing == "ungateable":
-            return pins.MEASUREMENT_INVALID
-        if cert_standing == "complete":
-            return pins.PINNED
-        if cert_standing == "incomplete" and cert_refused:
-            return pins.REFUSED
-        return pins.PINNED_INCOMPLETE
+        return _certified_status(cert_standing, cert_current, cert_refused)
+    return _uncertified_status(suite_owned, suite_has_digest, suite_digest_matches)
+
+
+def _certified_status(cert_standing: str, cert_current: bool, cert_refused: bool) -> str:
+    """The status when a certificate EXISTS for this func_key — see `behavior_status` for what each
+    code means. Split out so the two halves of that decision (a record exists / no record exists)
+    do not have to be read as one nested chain."""
+    if not cert_current:
+        return pins.PINNED_STALE
+    # A separate line from the one above on purpose: "the record is for an older definition"
+    # and "the run spanned a change to this one" are different facts that share a remedy, and
+    # collapsing them into one condition is how the second stops being visible.
+    if cert_standing == "stale":
+        return pins.PINNED_STALE
+    if cert_standing == "ungateable":
+        return pins.MEASUREMENT_INVALID
+    if cert_standing == "complete":
+        return pins.PINNED
+    if cert_standing == "incomplete" and cert_refused:
+        return pins.REFUSED
+    return pins.PINNED_INCOMPLETE
+
+
+def _uncertified_status(suite_owned: bool, suite_has_digest: bool, suite_digest_matches: bool) -> str:
+    """The status when NO certificate exists — a suite is evidence that tests were written, never
+    evidence of what they pin, so the best this can reach is `pinned_unverified`."""
     if not suite_owned:
         return pins.UNPINNED
     if suite_has_digest and not suite_digest_matches:

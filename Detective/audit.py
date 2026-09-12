@@ -46,6 +46,23 @@ from .synthesis.writer import foreign_generated_test_names
 _LEGACY_PREFIX = "legacy:"
 
 
+def _origin_census(root_abs: str, test_names: list[str]) -> dict[str, int]:
+    """ℋ ⊎ 𝒢 origin census (§2.3, D5): how many obligation-discharging tests came from each half.
+
+    Attributed from the RECORDED authorship fact each test's file carries, never a path glob.
+    `witness_origin_of_nodeid` owns the nodeid→file resolution (a live `file.py::name` or a
+    `legacy:/abs/...::name`), so this census and the FunctionBasis witnesses agree file-for-file.
+    A test whose file cannot be read is `unattributed` — "we did not measure this", kept apart from
+    both halves rather than folded into either.
+    """
+    from .certify import witness_origin_of_nodeid
+
+    origins = {"intent": 0, "characterization": 0, "unattributed": 0}
+    for tid in test_names:
+        origins[witness_origin_of_nodeid(root_abs, tid)] += 1
+    return origins
+
+
 class AuditAccountingError(Exception):
     """The audit's value partition did not reconcile with its classification (#55/#65).
 
@@ -305,14 +322,7 @@ def audit_suite(
     # RECORDED authorship fact its file carries, never a path glob. The nodeid's path segment resolves
     # the file; `witness_origin_of` reads its Detective header. A test whose file cannot be read is
     # unattributed — "we did not measure this", kept apart from both halves.
-    from .certify import witness_origin_of_nodeid
-
-    _root_abs = os.path.abspath(project_root)
-    _origins = {"intent": 0, "characterization": 0, "unattributed": 0}
-    for _tid in test_names:
-        # `witness_origin_of_nodeid` owns the nodeid→file resolution (live `file.py::name` or a
-        # `legacy:/abs/...::name`), so this census and the FunctionBasis witnesses agree file-for-file.
-        _origins[witness_origin_of_nodeid(_root_abs, _tid)] += 1
+    _origins = _origin_census(os.path.abspath(project_root), test_names)
     # Issue #7: deletion proposals and the minimal cover count only DURABLE evidence —
     # user tests plus this target's own generated file. A sibling target's generated
     # tests may kill this function's mutants today, but that file is rewritten wholesale

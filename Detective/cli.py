@@ -16,6 +16,7 @@ import shlex
 import sys
 import textwrap
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -4285,6 +4286,20 @@ def audit_next_action(
     return "done_complete"
 
 
+def _audit_measurement_block(a) -> str:
+    """Whether the measurement could RUN over the target at all, as `measurement_block_route`'s code.
+
+    A measurement that could not run (the module would not import, or no input reached the
+    function) blocks every count below it — so this names the real escape, through the SAME routing
+    converge renders, never the generic "converge writes the missing tests" that once sent an
+    unloadable module to a converge that also could not run (Finding E).
+    """
+    load_failed = bool(getattr(a, "load_failed", False))
+    expressible = getattr(a, "inputs_expressible", None)
+    needs_sample = expressible is None and not load_failed and bool(getattr(a, "note", ""))
+    return measurement_block_route(load_failed, expressible, needs_sample)
+
+
 def _audit_action(a, removing: bool = False) -> list[str]:
     """Audit's ONE next action, in the report's row style. Priority order — the order IS the
     judgement.
@@ -4303,22 +4318,8 @@ def _audit_action(a, removing: bool = False) -> list[str]:
     because `flag` is the one claim a human makes against the engine and it must never be
     suggested while a real gap is open.
     """
-    # A measurement that could not RUN (the module would not import, or no input reached the
-    # function) blocks every count below — name the real escape, the SAME routing converge renders,
-    # never the generic "converge writes the missing tests" that sent an unloadable module to a
-    # converge that also cannot run (Finding E).
-    _needs_sample = (
-        getattr(a, "inputs_expressible", None) is None
-        and not getattr(a, "load_failed", False)
-        and bool(getattr(a, "note", ""))
-    )
-    _block = measurement_block_route(
-        bool(getattr(a, "load_failed", False)),
-        getattr(a, "inputs_expressible", None),
-        _needs_sample,
-    )
     kind = audit_next_action(
-        _block,
+        _audit_measurement_block(a),
         bool(a.failing_tests),
         len(a.killable_gaps),
         len(a.missing_lines),
@@ -7795,6 +7796,63 @@ def _confirm_prune(root: str) -> bool:
     return reply.strip().lower() in ("y", "yes")
 
 
+def _doctor_yellow_section(target_file: str, function: str) -> tuple[str, list[str]]:
+    """(code, rendered lines) for the taste axis.
+
+    §7.4: yellow costs a static pass, so it runs for a TARGET and degrades at directory scope —
+    with the reason NAMED, the way `plan` reports `regime — unread`. A silent skip here would be
+    the same defect as an empty process section."""
+    if target_file:
+        yellow_code, findings = _doctor_yellow(target_file, function)
+        return yellow_code, _render_doctor_yellow(yellow_code, findings, target_file)
+    return "clear", [
+        _row("YELLOW — taste", "not read"),
+        _row("· Why", "no target given. Taste costs a static pass per function, so it is"),
+        _row("", "read for a TARGET rather than swept over a repository — name one:"),
+        _row("", "detective doctor <file.py>   or   detective survey <path>"),
+    ]
+
+
+def _doctor_target(raw: str, root: str) -> tuple[str, str, str]:
+    """(func_key, target_file, function) from doctor's optional target — ("", "", "") when absent.
+
+    `_split_target` returns the file ALREADY relative to the project root, which is exactly the
+    certificate ledger's key form. Re-relativising it here produced a `../../..` path that matched
+    nothing, so the recorded-failure branch was unreachable and a ledger recording
+    `target_load_failed` rendered `clean`. Caught by driving the real command at the branch rather
+    than trusting the unit tests, which never went near it — "validate end-to-end through the real
+    command", verbatim.
+    """
+    if not raw:
+        return "", "", ""
+    if "::" in raw:
+        rel_file, function = _split_target(raw, root)
+        target_file = rel_file if os.path.isabs(rel_file) else os.path.join(root, rel_file)
+        return f"{rel_file}::{function}", target_file, function
+    return "", (raw if os.path.isabs(raw) else os.path.join(root, raw)), ""
+
+
+def _prune_history(args) -> tuple[str, int] | None:
+    """Prune the invocation history, or explain why it was left alone. Returns (path, bytes) only
+    when something was actually removed.
+
+    Its own function because it is the ONE destructive thing in this tool and the only one that
+    asks: everything `purge` removes is regeneratable by re-running, and history is not — a re-run
+    appends a new entry and cannot reproduce the one that recorded what you did an hour ago.
+    Founder ruling 2026-09-09: the escape exists and it asks.
+    """
+    from . import ledger as _L
+
+    if not _L.ledger_available(args.project_root):
+        print("no invocation history to prune.")
+        return None
+    if not (getattr(args, "yes", False) or args.json or _confirm_prune(args.project_root)):
+        print("left the invocation history alone.")
+        return None
+    path, size = _L.prune(args.project_root)
+    return (path, size) if path else None
+
+
 def _run_purge(args) -> int:
     from Wesker.memory_guard import purge_caches
 
@@ -7813,18 +7871,7 @@ def _run_purge(args) -> int:
     # you did an hour ago. Founder ruling 2026-09-09 — the escape exists and it asks, because "it
     # should only be removed if there's no possible way for a mistake in operation, which is
     # obviously far away".
-    pruned: tuple[str, int] | None = None
-    if getattr(args, "prune", False):
-        from . import ledger as _L
-
-        if not _L.ledger_available(args.project_root):
-            print("no invocation history to prune.")
-        elif not (getattr(args, "yes", False) or args.json or _confirm_prune(args.project_root)):
-            print("left the invocation history alone.")
-        else:
-            path, size = _L.prune(args.project_root)
-            if path:
-                pruned = (path, size)
+    pruned = _prune_history(args) if getattr(args, "prune", False) else None
     if args.json:
         payload = {"removed": list(removed), "reclaimed_bytes": reclaimed}
         if pruned:
@@ -8116,20 +8163,7 @@ def _run_doctor(args) -> int:
     """
     root = os.path.abspath(getattr(args, "project_root", ".") or ".")
     raw = getattr(args, "target", None) or ""
-    func_key, target_file, function = "", "", ""
-    if raw:
-        if "::" in raw:
-            # `_split_target` returns the file ALREADY relative to the project root, which is
-            # exactly the certificate ledger's key form. Re-relativising it here produced a
-            # `../../..` path that matched nothing, so the recorded-failure branch was unreachable
-            # and a ledger recording `target_load_failed` rendered `clean`. Caught by driving the
-            # real command at the branch rather than trusting the unit tests, which never went near
-            # it — "validate end-to-end through the real command", verbatim.
-            rel_file, function = _split_target(raw, root)
-            func_key = f"{rel_file}::{function}"
-            target_file = rel_file if os.path.isabs(rel_file) else os.path.join(root, rel_file)
-        else:
-            target_file = raw if os.path.isabs(raw) else os.path.join(root, raw)
+    func_key, target_file, function = _doctor_target(raw, root)
     asked = tuple(h for h in ("green", "red", "yellow") if getattr(args, h, False)) or (
         "green",
         "red",
@@ -8157,20 +8191,8 @@ def _run_doctor(args) -> int:
         lines.append("")
     yellow_code = "clear"
     if "yellow" in asked:
-        if target_file:
-            yellow_code, findings = _doctor_yellow(target_file, function)
-            lines += _render_doctor_yellow(yellow_code, findings, target_file)
-        else:
-            # §7.4: yellow costs a static pass, so it runs for a TARGET and degrades at directory
-            # scope — with the reason named, the way `plan` reports `regime — unread`. A silent
-            # skip here would be the same defect as an empty process section.
-            yellow_code = "clear"
-            lines += [
-                _row("YELLOW — taste", "not read"),
-                _row("· Why", "no target given. Taste costs a static pass per function, so it is"),
-                _row("", "read for a TARGET rather than swept over a repository — name one:"),
-                _row("", "detective doctor <file.py>   or   detective survey <path>"),
-            ]
+        yellow_code, yellow_lines = _doctor_yellow_section(target_file, function)
+        lines += yellow_lines
         lines.append("")
     # THE SUPERADDITIVE PRODUCTS (§3) — the part of the herb scheme that is a mechanism rather than
     # a metaphor. Each combination yields a verdict neither component produces alone, and the mix is
@@ -8311,65 +8333,51 @@ def _run(args) -> int:
             # rather than from a verb silently returning a different shape.
             return 2
 
-    if args.command == "doctor":
-        # Above `_split_target`: the target is OPTIONAL and may be a bare path, so it must not fall
-        # into the separator menu the way a required `file::func` verb would.
-        return _run_doctor(args)
-
-    if args.command == "regime":
-        return _run_regime(args)
-
-    if args.command == "purge":
-        return _run_purge(args)
-
-    if args.command == "parsimony":
-        return _run_parsimony(args)
-
-    if args.command == "censor":
-        return _run_censor(args)
-
-    if args.command == "plan":
-        # Before `_split_target`: the path form has no `::` and must not fall into the separator menu.
-        return _run_plan(args)
-
-    if args.command == "survey":
-        # Path form (no `::`), like plan — dispatch before `_split_target`.
-        return _run_survey(args)
+    # Dispatched BEFORE `_split_target`: each of these takes an optional target, a bare path, or no
+    # target at all, so none may fall into the `file::func` separator menu a required target gets.
+    pathless = _PATHLESS_COMMANDS.get(args.command)
+    if pathless is not None:
+        return pathless(args)
 
     file, function = _split_target(args.target, getattr(args, "project_root", None))
 
-    if args.command == "extract":
-        # Static (in _STATIC_COMMANDS, so no live session) but target-taking, so dispatched here after
-        # the split rather than above it with the path-form static commands (Finding D).
-        return _run_extract(args, file, function)
-
-    if args.command == "receipt":
-        return _run_receipt(args, file, function)
-
-    if args.command == "verify-rewrite":
-        return _run_verify_rewrite(args, file, function)
-
-    if args.command == "flag":
-        return _run_flag(args, file, function)
-
-    if args.command == "flag-line":
-        return _run_flag_line(args, file, function)
-
-    if args.command == "diagnose":
-        return _run_diagnose(args, file, function)
-
-    if args.command == "converge":
-        return _run_converge(args, file, function)
-
-    if args.command == "audit":
-        return _run_audit(args, file, function)
-
-    if args.command == "decompose":
-        return _run_decompose(args, file, function)
+    # `extract` is static (in _STATIC_COMMANDS, so no live session) but target-TAKING, which is why
+    # it dispatches here after the split rather than above it with the path-form statics (Finding D).
+    targeted = _TARGETED_COMMANDS.get(args.command)
+    if targeted is not None:
+        return targeted(args, file, function)
 
     # Unreachable: argparse (required subparsers) guarantees args.command is one of the
     # registered commands, each handled above. Kept as a defensive guard.
     raise SystemExit(f"detective: unknown command {args.command!r}")
+
+
+# The dispatch, as data. It was a run of eighteen `if args.command == ...: return ...` arms, which
+# is one decision written eighteen times — and the ORDER carried the only real content: everything
+# in the first table must be dispatched BEFORE `_split_target`, because each takes an optional
+# target, a bare path, or none, and would otherwise fall into the `file::func` separator menu.
+# Two tables make that boundary a fact of the structure rather than a comment about the sequence.
+_PATHLESS_COMMANDS: dict[str, Callable[..., int]] = {
+    "doctor": _run_doctor,
+    "regime": _run_regime,
+    "purge": _run_purge,
+    "parsimony": _run_parsimony,
+    "censor": _run_censor,
+    "plan": _run_plan,
+    "survey": _run_survey,
+}
+
+_TARGETED_COMMANDS: dict[str, Callable[..., int]] = {
+    "extract": _run_extract,
+    "receipt": _run_receipt,
+    "verify-rewrite": _run_verify_rewrite,
+    "flag": _run_flag,
+    "flag-line": _run_flag_line,
+    "diagnose": _run_diagnose,
+    "converge": _run_converge,
+    "audit": _run_audit,
+    "decompose": _run_decompose,
+}
 
 
 if __name__ == "__main__":
