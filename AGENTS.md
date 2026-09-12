@@ -3,10 +3,61 @@
 Extends the global AGENTS.md — Serena-first/grep-last and Detective-pinning-first are
 assumed there and not repeated. What follows is what is specific to **this pair**.
 
-Read `~/.Codex/projects/-Users-rohanvinaik-tools-Detective/memory/feedback_sandwich_thesis.md`
+Read `~/.claude/projects/-Users-rohanvinaik-tools-Detective/memory/feedback_sandwich_thesis.md`
 BEFORE reasoning about architecture, performance, caching, or scoping. The unit is ONE
 function's operators and ONE function's tests. Anything that scales with the suite or the
 repo is a category error, not a slow path.
+
+## Driving Detective/Wesker — you are the HANDS, not the head. READ THIS BEFORE THE FIRST COMMAND.
+
+**The thesis of these tools is that using them correctly requires NO intelligence.** Every
+command prints, statically, what happened, what it means, and the exact next command to run.
+Reading that block and doing what it says IS the protocol; there is nothing else to do. A
+few-million-parameter model that reads the block and runs the next line drives this correctly.
+Every recorded failure came from a large model deciding it understood the situation better than
+the printout — which is self-refuting, because the tool is the thing that knows. **Exercising
+judgement here is not a supplement to the protocol. It is the violation of it.**
+
+The frame that PRODUCES the failure: *Detective is an instrument, I am the scientist.* Under it,
+a refusal is data about the instrument and forming a hypothesis is the obviously correct move —
+which is why this failure feels like rigor from the inside, and why banning one spelling of it
+(a pipe, a grep) never helps: the stance re-finds a new route every time. The frame that WORKS:
+*Detective is the scientist, I am the hands.* The run is a state machine; the printed block is
+the program counter.
+
+> **The entire loop: run the command → read the ENTIRE output → do exactly what the final block
+> says → repeat until it prints `DONE` or names no next action.**
+
+- **Never run a command the output did not name; never skip one it did.** On an unfamiliar repo
+  the first command is `detective --help`, and its first block is binding (`NEW REPO? START
+  HERE: detective regime`). Having read the README, ARCHITECTURE and the theory papers does
+  **not** license starting further down — that is prior knowledge substituting for the
+  instruction, and it has not once been right.
+- **A refusal is a VERDICT, not a bug report.** `STOP` · `UNGATEABLE` · `ABSTAIN` · `UNPROVEN` ·
+  exit `2` · exit `3` are the product, and the block names the repair. Apply that repair
+  **verbatim**, change nothing else, re-run. Do not diagnose the tool, do not A/B it, and never
+  edit the target to make a refusal go away — "editing around" destroys the guarantee the tool
+  exists to provide and invalidates the run.
+- **If you are forming a theory about WHY it said something, STOP and hand it to the user.** The
+  theory IS the failure mode. Report what it printed and what it prescribed; let them decide.
+- **Read the whole output. No reduction of any kind, in any spelling, ever.** Not `| tail`,
+  `| head`, `| grep`, `sed`, `awk`, `wc -l`, `-q`, "just the FINAL line", not `--json` field
+  extraction, not "I'll read the exit code." You cannot know which line carries the verdict
+  before you run it — if you could, running it would be pointless. Short run: run it bare, read
+  the result. Long run: `> run.log 2>&1`, then `Read run.log` **in full**; the complete static
+  report is always also at `.detective/reports/<verb>_<fn>.txt`. Capturing to a file and reading
+  it whole is not filtering — it is the correct way to handle a long run.
+- **One walk per FRESH directory.** Generated tests, `.detective/` caches, `pins.json`, recalled
+  `--input`s and receipts are all state. The moment you deviate from the printed path, every
+  observation after it is invalid — not "mostly fine." Do not tidy up and continue; start a new
+  directory.
+- **Never author work the tool did not ask for.** Do not hand-write a rewrite to see what the
+  gate says: you then know the answer in advance and are grading the gate against your own
+  prior, which is exactly the self-certification the project exists to refuse. A rewrite comes
+  from the tool's own path (`decompose --apply`) or from a genuine task — never constructed to
+  produce a verdict.
+- **Report what it printed, not what you concluded.** Quote the blocks. Any inference on top of
+  them is yours, not the tool's, and is labelled as such.
 
 ## Standing invocation
 
@@ -91,7 +142,8 @@ needs-fixture and get ordinary unit tests.
 Bare first, to find the gap:
 
 ```bash
-PYTHONPATH=$PP detective converge 'Detective/converge.py::line_proof_basis' 2>&1 | tail -8
+PYTHONPATH=$PP detective converge 'Detective/converge.py::line_proof_basis' > run.log 2>&1
+# then Read run.log IN FULL — never tail it
 ```
 
 Then follow the `DO THIS` block **literally** — one `--input` per uncovered line, read
@@ -100,7 +152,8 @@ straight off the `Uncovered` conditions — and re-run until `✓ COMPLETE`:
 ```bash
 PYTHONPATH=$PP detective converge 'Detective/certify.py::write_disposition' \
   --input "(True, 'other.py::f', 'mine.py::f')" \
-  --input "(True, '', 'mine.py::f')" 2>&1 | tail -8
+  --input "(True, '', 'mine.py::f')" > run.log 2>&1
+# then Read run.log IN FULL — never tail it
 ```
 
 - Compute real digests/paths rather than inventing them (`D=$(python3 -c "import hashlib;...")`).
@@ -109,8 +162,11 @@ PYTHONPATH=$PP detective converge 'Detective/certify.py::write_disposition' \
   and get resolved by `detective flag`, never by grinding.
 - A stale generated golden is **regenerated, not hand-patched**: `rm` the `*_synth.py` and
   re-run converge.
-- `rm -rf .detective/pins .detective/samples` between runs so a cached verdict can't mask a
-  change.
+- Clear the caches between runs so a cached verdict OR a recalled `--input` can't mask a change:
+  `rm -f .detective/inputs.json .detective/pins.json .detective/verdict_cache.json`. These are
+  **FILES, not directories** — the old `.detective/pins` / `.detective/samples` PATHS DO NOT
+  EXIST, so `rm -rf`-ing them is a silent no-op that leaves supplied inputs recalled (measured:
+  converge kept re-applying stale `--input`s across runs, masking the true no-input behaviour).
 - Every command resolves the testing **regime** first and REFUSES on a shadowed target or
   conflicting conftest. A refusal is the tool working; `detective regime` is where the reason
   is. Never work around it.
@@ -128,21 +184,33 @@ Ruff is **pinned to 0.14.10 via uvx**, never bare `ruff` — the local newer one
 spurious errors and is not the CI gate.
 
 ```bash
-PYTHONPATH=$PP python3 -m pytest 2>&1 | tail -1 \
-  && uvx ruff@0.14.10 format Detective tests 2>&1 | tail -1 \
-  && uvx ruff@0.14.10 check Detective tests 2>&1 | tail -3 \
-  && uvx ruff@0.14.10 format --check Detective tests 2>&1 | tail -1
+PYTHONPATH=$PP python3 -m pytest; echo "SUITE=$?"
+uvx ruff@0.14.10 format Detective tests
+uvx ruff@0.14.10 check Detective tests; echo "CHECK=$?"
+uvx ruff@0.14.10 format --check .; echo "FORMAT=$?"
 ```
+
+**The format check is WHOLE-TREE (`.`), not `Detective tests`** — because CI's is
+(`.github/workflows/ci.yml`: `uv run ruff format --check .`), and its comment records why:
+*"#34: docs/theory/*.py drifted unformatted for a release because the gate did not reach
+docs/."* Scoped to the two package dirs this gate is NARROWER than the one that decides the
+build, so a file elsewhere passes locally and reddens CI. `check` stays scoped — it is the code
+gate; `format --check` matches CI.
+
+**Read each exit code; never `| tail` a gate before `&& git commit`** — the pipe makes the shell
+report the filter's status, so you commit over a failure that printed and was discarded.
 
 **After any Wesker change, also run Detective's suite against the local Wesker.** Wesker's own
 suite has been fully green through a regression that only the cross-repo run caught:
 
 ```bash
-PYTHONPATH=$PP python3 -m pytest 2>&1 | tail -3
+PYTHONPATH=$PP python3 -m pytest
 ```
 
-Run pytest twice — once with `-q` to see failures, once bare with `| tail -1` to capture the
-exact count that goes into the commit body.
+**Run pytest BARE. Do not add `-q`.** `[tool.pytest.ini_options] addopts` already carries
+`-q --strict-markers --strict-config`, so a second `-q` becomes `-qq`, which suppresses the
+summary line entirely — there is then no count to read for the commit body. CI hit exactly this
+and its own workflow comment records it.
 
 ## Commits
 
