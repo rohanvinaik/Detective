@@ -16,6 +16,8 @@ never silently honoured, never silently dropped — and the region is the driver
 
 USER DATA. Like `equivalents.json`, `inputs.json` and `line_flags.json`, this is a human's
 irreducible input, not regeneratable analysis: `purge` must never delete it.
+
+References: § = docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md
 """
 
 from __future__ import annotations

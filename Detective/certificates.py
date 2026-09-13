@@ -30,6 +30,10 @@ that morning. A synth and its certificate are two halves of one artifact — the
 certificate says converge SAW it pin — and halves kept in different directories part at the first
 clone. So the ledger lives where the synths live, travels with them, and `purge` leaves it alone.
 The next converge rebuilds an entry, and a re-run that changes nothing changes no bytes.
+
+References:
+    §    docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md
+    S13  docs/CORRECTNESS_REPAIRS_2026-09-08.md
 """
 
 from __future__ import annotations

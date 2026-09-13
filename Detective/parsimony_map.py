@@ -11,6 +11,8 @@ detail, and any actual proof stay in ``diagnose`` / ``converge``, one function a
 
 Because it is advisory it must never crash a run: a file that will not parse, or a function a lens
 chokes on, is skipped, not fatal. What it cannot read it simply does not count.
+
+References: §, Wave N = docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md
 """
 
 from __future__ import annotations

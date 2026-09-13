@@ -8,6 +8,8 @@ warrant, and ``@pytest.mark.skip`` for properties that still need an oracle
 
 This is where the auto-generation hygiene invariant lives: what Detective writes
 is idiomatic, runnable-or-skipped pytest.
+
+References: § = docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md
 """
 
 from __future__ import annotations

@@ -11,6 +11,8 @@ The extraction itself is scope-based: a block's PARAMS are the names it reads th
 were defined before it, its RETURNS are the names it writes that are read after it,
 and a block that escapes its own control flow (return / yield / a free break) is not
 extractable at all.
+
+References: Q8 = docs/theory/NEGATIVE_SPECIFICATION.md §18
 """
 
 from __future__ import annotations

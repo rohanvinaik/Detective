@@ -15,6 +15,8 @@ overstated survivor — a tool reporting behavior as unspecified when a test doe
 is precisely the lie the project refuses everywhere else, so this module is conservative in
 one direction only: ANY doubt returns None (or includes the file), and None means the caller
 collects everything exactly as it does today. It never trades a verdict for speed.
+
+References: §, G-codes = docs/TEST_BASIS.md
 """
 
 from __future__ import annotations

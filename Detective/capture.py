@@ -10,6 +10,8 @@ positional arguments at every entry to the target's code object while the
 discovered test callables run, and those real tuples feed the witness search.
 Discovery proposes; the soundness gate in ``classify_survivors`` disposes (an
 input that doesn't fit just raises and is dropped).
+
+References: Fork 1 / Fork 2 = docs/theory/NEGATIVE_SPECIFICATION.md §11, Definition 11.10
 """
 
 from __future__ import annotations

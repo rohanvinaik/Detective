@@ -20,6 +20,8 @@ is invalid; it has said nothing. Refusing on that basis would break every user o
 engine, and assuming support is the unnamed-capability assumption #60 exists to forbid — so the
 compatibility decision is explicit, recorded in ``capability_flags``, and conservative in the
 direction that preserves prior behaviour.
+
+References: S-codes = docs/CORRECTNESS_REPAIRS_2026-09-08.md
 """
 
 from __future__ import annotations

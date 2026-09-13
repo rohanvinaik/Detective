@@ -6,6 +6,12 @@ broken test, never written) → write → re-profile. Stops at the ceiling (0
 survivors) or when a pass makes no further progress — the oracle-light-addressable
 floor. The needs-oracle survivors that remain are, by definition, the ones that
 require an expected value a human or an LLM proposer must supply.
+
+References:
+    §        docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md
+    Q8       docs/theory/NEGATIVE_SPECIFICATION.md §18
+    S-codes  docs/CORRECTNESS_REPAIRS_2026-09-08.md
+    W-codes  docs/OPEN_ITEMS.md
 """
 
 from __future__ import annotations
