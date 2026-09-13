@@ -134,7 +134,7 @@ def capture_call_inputs(
 
 
 def capture_return_types(
-    original: Callable[..., Any],
+    original: Callable[..., Any] | None,
     tests: list[Callable[..., Any]],
     *,
     max_samples: int = 24,
@@ -148,7 +148,8 @@ def capture_return_types(
     ``"bool"``, not ``"int"``, so a numeric perturbation (``-x``) is never emitted for it (the
     silent-coercion hole Fork 1 could not close, closed here by observation).
 
-    Empty when the tests never reach the function or it only ever returns ``None`` — the honest
+    Empty when no live target was loaded (``original`` is None, or has no code object), when the
+    tests never reach the function, or when it only ever returns ``None`` — the honest
     'codomain unobserved', in which case only the always-applicable Fork-1 perturbations apply and
     the type-conditional dimensions are simply not generated.
     """

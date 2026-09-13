@@ -198,7 +198,7 @@ def _prefix_split(
             isinstance(n, ast.Name) and n.id in set(trapped) | prefix_names for n in ast.walk(stmt.value)
         ):
             break
-        prefix_names.update(t.id for t in stmt.targets)
+        prefix_names.update(t.id for t in stmt.targets if isinstance(t, ast.Name))
         split += 1
     return split, prefix_names
 

@@ -507,7 +507,9 @@ def _load_failure_reason(full_path: str) -> str | None:
             spec.loader.exec_module(module)
         finally:
             if present:
-                sys.modules[name] = previous
+                # A present entry can be None (an import blocker), and restoring it exactly is the
+                # point; typeshed types sys.modules values as ModuleType only.
+                sys.modules[name] = previous  # ty: ignore[invalid-assignment]
             else:
                 sys.modules.pop(name, None)
         return None

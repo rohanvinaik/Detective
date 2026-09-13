@@ -256,10 +256,11 @@ def _from_json(d: dict) -> ProfilingResult:
         # this session, so its rows may ORDER but never PROVE. Stamp `provenance='replayed'`
         # UNCONDITIONALLY, whatever the stored value was — a warm result that ships rows claiming they
         # were traced this session is the live replayed-positive violation the algebra forbids.
-        d["trace_evidence"] = tuple(
-            TraceEvidence(**{**_retyped_trace_row(cd), "provenance": "replayed"})
-            for cd in d["trace_evidence"]
-        )
+        replayed: list[TraceEvidence] = []
+        for cd in d["trace_evidence"]:
+            row: dict[str, Any] = {**_retyped_trace_row(cd), "provenance": "replayed"}
+            replayed.append(TraceEvidence(**row))
+        d["trace_evidence"] = tuple(replayed)
     # `json` also degraded these tuple-typed fields to lists; restore the declared type so a warm
     # value compares and hashes exactly like the cold one it replays (a verdict cache's whole point).
     if "collection_conflicts" in d:
