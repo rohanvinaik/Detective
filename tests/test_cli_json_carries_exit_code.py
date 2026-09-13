@@ -28,7 +28,8 @@ import sys
 import Detective
 from Detective.cli import exit_code_meaning
 
-_CLI = ast.parse(open(Detective.cli.__file__).read())  # type: ignore[attr-defined]  # noqa: SIM115
+with open(Detective.cli.__file__) as _fh:  # type: ignore[attr-defined]
+    _CLI = ast.parse(_fh.read())
 
 
 def _wraps_with_exit(call: ast.Call) -> bool:

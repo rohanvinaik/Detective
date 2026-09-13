@@ -82,6 +82,11 @@ class RevisionId:
 class TestRegime:
     """How a repository imports its code and runs its tests — as facts, not advice."""
 
+    # Not a test class. The name matches pytest's `Test*`, so every test module that imports it
+    # made pytest try to collect it and emit a PytestCollectionWarning — a collection ERROR under
+    # `filterwarnings = ["error"]`. A plain class attribute, so it is not a dataclass field.
+    __test__ = False
+
     root: str
     layout: str  # "src" | "flat" | "scripts"
     suite_path: tuple[str, ...]  # the sys.path entries the SUITE gets (pythonpath first, then root)

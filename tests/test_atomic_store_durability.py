@@ -67,4 +67,5 @@ def test_a_durable_oracle_survives_a_crashed_write(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "replace", _boom)
     with pytest.raises(OSError):
         equivalents.save_flags(root, {})
-    assert open(path, encoding="utf-8").read() == '{"m0::t": {"reason": "hand-declared equivalent"}}'
+    with open(path, encoding="utf-8") as fh:
+        assert fh.read() == '{"m0::t": {"reason": "hand-declared equivalent"}}'

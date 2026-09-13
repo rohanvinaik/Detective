@@ -74,7 +74,8 @@ def test_no_call_site_drops_the_project_root():
     function, its unit tests, or a passing suite — only from the call graph. Parsing for it is
     what makes the wiring itself the thing under test.
     """
-    source = open(cli_mod.__file__, encoding="utf-8").read()
+    with open(cli_mod.__file__, encoding="utf-8") as fh:
+        source = fh.read()
     bare: list[int] = []
     for node in ast.walk(ast.parse(source)):
         if (
