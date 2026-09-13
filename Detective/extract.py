@@ -17,6 +17,8 @@ sandwich thesis exactly as survey does — it widens WHERE to point Detective, n
 The safety model follows the founder's ruling on the in-process efficiency hack (Finding B): a
 transform that cannot be proven is PROPOSED for human review, never auto-applied on a green rerun
 (the same `apply_disposition` gate decompose uses). `extract` therefore has no ``--apply``.
+
+References: Finding B, Finding D = docs/dogfood/revalidation_2026-09-06.md
 """
 
 from __future__ import annotations

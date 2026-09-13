@@ -267,7 +267,7 @@ select = ["E", "F", "I", "UP", "B"]
 # these files — imports, assertions, real bugs — is still linted.
 "tests/test_*_synth.py" = ["E501"]
 # The synth home moved to tests/detective/ (issue #21) — same exemption, same
-# reasoning, and this line is the README snippet eaten as our own dogfood.
+# reasoning.
 "tests/detective/*" = ["E501", "N802"]
 "tests/test_scope_oracle.py" = ["E501"]
 

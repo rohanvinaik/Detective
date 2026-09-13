@@ -184,7 +184,8 @@ def _build_graph(
         if is_virtualenv_root(filenames):
             # A dir with pyvenv.cfg is a virtualenv: never our source or suite. Prune the whole
             # subtree WITHOUT parsing its files, so an installed dependency's sources are not
-            # opened at all (the pre-session cost Fix A only rejected AFTER parsing).
+            # opened at all (the pre-session cost that the declared-testpaths bound,
+            # `within_declared_testpaths`, only rejected AFTER parsing).
             dirnames[:] = []
             continue
         dirnames[:] = [d for d in dirnames if d not in skip]

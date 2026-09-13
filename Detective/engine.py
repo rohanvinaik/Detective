@@ -72,7 +72,7 @@ from .purity import is_pure as _is_pure
 from .purity import world_effects
 from .scope import ScopeMap, scope_from_profiling
 
-# Fix B target-first: does the installed Wesker support the per-function seed + lazy-widen path?
+# Target-first profiling: does the installed Wesker support the per-function seed + lazy-widen path?
 # Feature-detected ONCE so an older pinned engine degrades to the full-baseline run rather than
 # crashing on an unknown `widen_tests` kwarg. `LazySessionBaseline.fork` + `split_live_callables`
 # arrived with it, so the profiling signature alone is a sufficient probe.
@@ -1021,7 +1021,7 @@ def profile(
     # __globals__ (module helpers/constants/imports resolve inside the mutant).
     original = _load_original(full, qualname or function)
 
-    # Fix B — TARGET-FIRST. In a live session, fork a per-function baseline holder, SEED it with the
+    # TARGET-FIRST. In a live session, fork a per-function baseline holder, SEED it with the
     # tests that statically name THIS target, and hand the rest to Wesker for lazy widening on a
     # survivor (or an uncovered line). The fork means seeding this function cannot corrupt a sibling
     # profiled in the same session. A LEAF ORPHAN (nothing reaches the target) SYNTHESIZES from an
