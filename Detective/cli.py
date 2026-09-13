@@ -1,6 +1,6 @@
 """``detective`` command — a thin dispatcher over the library API.
 
-No compute here: parse args, call the library, format the result. Example:
+Parse args, call the library, format the result. Example:
 
     detective converge ./module.py::function [--json]
 """
@@ -4431,15 +4431,16 @@ def _audit_closing_action(a, kind: str) -> list[str]:
 
 
 _COMMAND_HELP = {
-    "diagnose": "START HERE for a FUNCTION — what does it actually do, and what to run next (read-only)",
+    "diagnose": "the first read for a FUNCTION, once `regime` is clean — what does it actually do, "
+    "and what to run next (read-only)",
     "converge": "write a complete, minimal pytest suite for a function (the flagship; writes files)",
     "decompose": "split a tangled function into helpers — applied only when PROVEN behavior-preserving",
     "audit": "assess an EXISTING suite: complete? minimal? which tests to prune",
     # The STYLE layer's entry verb (§14.3) — co-equal with `diagnose`, on the other layer. Not in the
     # `_build_parser` loop below (its arguments differ: a path OR a target, a budget); listed here so
     # its one-liner obeys the same headline rule as the behavior verbs.
-    "plan": "START HERE for STYLE — what a codebase's PINNED regions could safely become: priced, gated, "
-    "every exclusion named (advisory; writes nothing to your project)",
+    "plan": "the first read for STYLE, after behavior — what a codebase's PINNED regions "
+    "could safely become: priced, gated, every exclusion named (advisory; writes nothing to your project)",
 }
 
 

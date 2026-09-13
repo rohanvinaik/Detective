@@ -1017,7 +1017,7 @@ on `plan`, ever: the actuators are the behavior layer's gates, and only they wri
    `plan.plan_exit(regime_conflict, region_missing, nothing_read)`: 0 for a completed read
    whatever it found, 2 for a precondition — no such function (the file's regions are named),
    nothing to read (no Python functions: unmeasured, not clean) — never 1. Help: the one-liner in
-   `_COMMAND_HELP` ("START HERE for STYLE …"), `_PLAN_WORKFLOW` as the epilog (style AFTER
+   `_COMMAND_HELP` ("the first read for STYLE …"), `_PLAN_WORKFLOW` as the epilog (style AFTER
    behavior, strictly; funded ≠ applied; AMBIGUOUS is yours; UNEXAMINED ≠ approved; advisory),
    `_REGIME_STAGE` scoped to the `::` form; the root help's START HERE block gains the second
    entry verb beside `diagnose`; the exit-code epilog names plan's two preconditions. `parsimony`

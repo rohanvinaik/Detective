@@ -234,9 +234,7 @@ def render_module(
         f"{digest_line}"
         "\n"
         "Regenerated wholesale by `detective converge`; hand edits will be\n"
-        "overwritten. Witness lines carry full fidelity on purpose — for the\n"
-        'per-glob lint-ignore snippet see "Generated tests & lint" in\n'
-        f'Detective\'s README.{stamp}"""'
+        f'overwritten. Witness lines carry full fidelity on purpose.{stamp}"""'
     )
     parts = [header, ""]
     if imports:
@@ -463,7 +461,7 @@ def _render_test(fname: str, index: int, prop: ExecutableProperty) -> str:
 def _warrant(prop: ExecutableProperty) -> str:
     pre = "; ".join(prop.preconditions) if prop.preconditions else "no preconditions"
     mid = f" [{prop.mutant_id}]" if prop.mutant_id else ""
-    return f"{prop.category} survivor{mid} — {pre} (confidence {prop.confidence})."
+    return f"{prop.category} survivor{mid} — {pre}."
 
 
 def _one_line(text: str) -> str:

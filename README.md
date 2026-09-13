@@ -83,14 +83,14 @@ Seventeen behavioural questions in four lines of code, and all seventeen closed 
 ```python
 @pytest.mark.detective
 def test_shipping_fee_value_1():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
+    """VALUE survivor — distinguishing witness (equivalence search)."""
     result = shipping_fee(subtotal=0.0, discount=0.0, threshold=0.0)
     assert result == 5.99
 
 
 @pytest.mark.detective
 def test_shipping_fee_value_2():
-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
+    """VALUE survivor — distinguishing witness (equivalence search)."""
     result = shipping_fee(subtotal=-1.0, discount=-1.0, threshold=-1.0)
     assert result == 0.0
 ```
@@ -130,6 +130,7 @@ Pointed at its own repository, the planner flagged 66 functions, funded 5, defer
 - **It preserves behaviour, not intent.** If the function was built to do the wrong thing, the contract pins the wrong thing exactly. What code is *for* is not in the code, and the theory here proves that rather than assuming it.
 - **The questions are the ones the policy asks.** Every verdict is measured against a versioned operator universe whose identifier is written into the receipt and whose gaps are documented. `✓ COMPLETE (operator universe)` means precisely that and nothing wider.
 - **Pure code pins fully. Impure code is declined with the remedy named** — a clock to freeze, a fixture to supply — never guessed at.
+- **It runs your code.** To learn what a function does, Detective calls it — sometimes with inputs it invented. A function that visibly reaches outside the process gets no invented inputs: only a real call site, a captured input, or your own `--input` reaches it. The check reads that function's own body, not the helpers beneath it. It learned this by inventing a path and deleting a directory named `a`.
 - **A failed search proves nothing.** An undistinguished survivor stays `UNPROVEN`. A `flag` records your judgment, and a later distinguishing input overrides it.
 - **One function at a time.** There is no repository-scale mutation profile. Whole trees are [Uroboros](https://github.com/rohanvinaik/Uroboros)'s problem.
 
