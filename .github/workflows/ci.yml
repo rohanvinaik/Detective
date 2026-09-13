@@ -5,7 +5,22 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
+# Least privilege. Nothing in this workflow writes to the repository, so the token only reads.
+permissions:
+  contents: read
+
+# A newer push to the same ref makes an in-flight run's answer obsolete: cancel it rather than
+# spend a six-cell matrix on a commit nobody will look at.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions are pinned to full commit SHAs, with the release they came from in the trailing comment.
+# A tag can be moved to point at different code; a commit cannot. Bumping one is a deliberate edit,
+# not something a run picks up on its own — the same reason uv is pinned below instead of "latest".
+#
 # Wesker resolves via `uv` (no sibling checkout needed): `[tool.uv.sources]` in pyproject.toml
 # points it at the GitHub main branch, because Detective and Wesker are co-developed and land
 # together — the published PyPI Wesker lags main, so installing `Wesker>=0.11.2` from PyPI would
@@ -25,14 +40,16 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: Detective
           fetch-depth: 0
+          # Nothing in this job pushes, so the token is not left behind in .git/config.
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
         with:
-          version: "latest"
+          version: "0.12.13"
 
       - name: Install dependencies
         working-directory: Detective
@@ -72,13 +89,15 @@ jobs:
     # the pre-push gate too. A green job here is not a licence to skip the local one.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: Detective
+          # check_sdist.py asks git what it tracks, which needs no credentials.
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
         with:
-          version: "latest"
+          version: "0.12.13"
 
       - name: Build sdist and wheel
         working-directory: Detective
@@ -87,3 +106,24 @@ jobs:
       - name: Sdist carries only tracked files
         working-directory: Detective
         run: python3 scripts/check_sdist.py
+
+  workflows:
+    # Static security audit of this repository's own workflows: unpinned actions, token
+    # permissions, persisted credentials, template injection. The tool is pinned like everything
+    # else here, so a new zizmor release cannot fail a build that did not change.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+        with:
+          version: "0.12.13"
+
+      - name: Audit workflows with zizmor
+        env:
+          # Read-only token, so zizmor can also run its online audits (impostor commits,
+          # actions with known vulnerabilities).
+          GH_TOKEN: ${{ github.token }}
+        run: uvx zizmor@1.30.1 .
