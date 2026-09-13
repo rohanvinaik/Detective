@@ -149,7 +149,7 @@ def toolchain_pin() -> str | None:
     if cc is None:
         return None
     try:
-        out = subprocess.run([cc, "--version"], capture_output=True, text=True, timeout=30)
+        out = subprocess.run([cc, "--version"], capture_output=True, text=True, timeout=30, check=False)
         return out.stdout.splitlines()[0] if out.stdout else None
     except (OSError, subprocess.SubprocessError):
         return None
@@ -210,7 +210,9 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
     bin_path = os.path.join(workdir, "emission_gate")
     with open(c_path, "w", encoding="utf-8") as fh:
         fh.write(src)
-    build = subprocess.run([cc, "-O0", "-o", bin_path, c_path], capture_output=True, text=True, timeout=120)
+    build = subprocess.run(
+        [cc, "-O0", "-o", bin_path, c_path], capture_output=True, text=True, timeout=120, check=False
+    )
     if build.returncode != 0:
         return {
             "disposition": emission_disposition(False, False, 0, len(portable), skipped),
@@ -220,7 +222,7 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
             "skipped": skipped,
             "compile_error": build.stderr[-500:],
         }
-    run = subprocess.run([bin_path], capture_output=True, text=True, timeout=120)
+    run = subprocess.run([bin_path], capture_output=True, text=True, timeout=120, check=False)
     if run.returncode != 0:
         return {
             "disposition": emission_disposition(True, False, 0, len(portable), skipped),

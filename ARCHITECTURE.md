@@ -5,8 +5,9 @@ when something breaks.** Cold start: read §1 (mental model), skim §3 (data str
 and §5 (the full CLI), keep §9 (debug map) open — a symptom there points at the exact
 function and why it fails.
 
-Detective is a **clean-room** package on **Wesker + stdlib only** (no lintgate in the
-runtime import graph). Runtime dep: `Wesker` (git URL). Console script: `detective`
+Detective is a **clean-room** package (no lintgate in the runtime import graph). Runtime deps:
+`Wesker`, `pytest` and `ruff`, all from PyPI; CI and local dev resolve Wesker from its git main via
+`[tool.uv.sources]`, which never enters the published wheel. Console script: `detective`
 (CLI); the MCP surface is parked (§5a). Everything below is operational.
 
 ---

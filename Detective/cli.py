@@ -6094,9 +6094,8 @@ def _run_live(args) -> int:
                     )
                 sys.stdout.write(_format_conflicts(regime, target_arg))
                 return 2
-        except SystemExit:
-            raise
-        # BLE001: a guard must never be what breaks the run
+        # BLE001: a guard must never be what breaks the run. SystemExit is not an Exception, so a
+        # deliberate exit from inside the guard still propagates without its own re-raise clause.
         except Exception:  # noqa: BLE001
             pass
     try:

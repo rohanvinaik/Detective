@@ -318,6 +318,7 @@ def pytest_configfile_live(root: str) -> str | None:
             capture_output=True,
             text=True,
             timeout=90,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
