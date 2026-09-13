@@ -29,7 +29,6 @@ import dataclasses
 from types import SimpleNamespace
 
 from Detective.converge import ConvergeResult, certificate_standing
-from Detective.mcp_server import _render_converge
 
 
 def _result(**overrides) -> ConvergeResult:
@@ -113,32 +112,6 @@ def test_a_clean_run_is_complete():
 # --------------------------------------------------------------------------------------
 
 
-def _rendered(**overrides) -> str:
-    result = _result(**overrides)
-    return _render_converge(result, "m.py", "f", None)
-
-
-def test_the_mcp_surface_refuses_a_stale_measurement():
-    """It used to print "DONE: every killable mutant is killed" over a void measurement."""
-    text = _rendered(stale_target=True)
-    assert "STOP" in text
-    assert "CHANGED" in text
-    assert "DONE" not in text
-
-
-def test_the_mcp_surface_refuses_an_unverified_basis():
-    text = _rendered(verification=_verification(False, "collection_failed"))
-    assert "STOP" in text
-    assert "collection_failed" in text
-    assert "DONE" not in text
-
-
-def test_the_mcp_surface_still_reports_a_clean_run():
-    """A guard that refuses everything would pass both tests above and be useless."""
-    text = _rendered(verification=_verification(True))
-    assert "STOP" not in text
-
-
 def test_every_surface_reads_the_same_derivation():
     """THE anti-drift test.
 
@@ -157,6 +130,10 @@ def test_every_surface_reads_the_same_derivation():
 
     The derivation is now taken from `result.standing` — the property both surfaces are supposed to
     consume — so the test cannot pick its own arguments either, and `ungateable` is a case.
+
+    The MCP renderer's half of this check was parked with that surface on 2026-09-13
+    (`parked/mcp/tests/test_certificate_standing_mcp.py`); what remains compares the property with
+    the free function.
     """
     cases = [
         {"stale_target": True},
@@ -171,7 +148,6 @@ def test_every_surface_reads_the_same_derivation():
         {"measurement_gateable": True, "cut_reasons": ("mutant_not_entered",)},
         {"measurement_gateable": False, "cut_reasons": ("uncontained_worker",)},
     ]
-    refusing = ("stale", "unverified", "ungateable")
     seen = set()
     for overrides in cases:
         result = _result(**overrides)
@@ -188,29 +164,7 @@ def test_every_surface_reads_the_same_derivation():
             result.admits_certificate,
         ), overrides
         assert result.complete is (standing == "complete"), overrides
-        refused = "STOP" in _render_converge(result, "m.py", "f", None)
-        assert refused is (standing in refusing), overrides
     assert "ungateable" in seen, "the case that exposed the drift must stay reachable here"
-
-
-def test_the_mcp_surface_names_the_cut_reason_rather_than_guessing_at_it():
-    """The refusal branch hardcoded "the profile was cut, or a timed-out worker could not be
-    contained ... re-run with a larger budget" — two causes offered for eleven typed reasons, which
-    is S13's collapse in a second renderer. `cut_reason_sentence`'s docstring names this surface:
-    "ONE OWNER, because #60 requires CLI, --json, MCP and receipts to preserve IDENTICAL cut
-    reasons"."""
-    text = _rendered(measurement_gateable=True, cut_reasons=("mutant_not_entered",))
-    assert "STOP" in text
-    assert "DONE" not in text
-    assert "mutant_not_entered" in text, "the reason is named, not paraphrased"
-    assert "larger budget" not in text, "a remedy that cannot help this cause"
-
-
-def test_the_mcp_refusal_uses_the_same_sentence_the_other_surfaces_do() -> None:
-    from Detective.validity import cut_reason_sentence
-
-    text = _rendered(measurement_gateable=True, cut_reasons=("target_load_failed",))
-    assert cut_reason_sentence("target_load_failed") in text
 
 
 # --------------------------------------------------------------------------------------

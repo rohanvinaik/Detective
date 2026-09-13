@@ -319,10 +319,10 @@ def receipt_path(region: str) -> str:
     return os.path.join(".detective", "receipts", f"{safe}.json")
 
 
-# The move a region's plan reason calls for (§14.3 — named codes, consumed by BOTH surfaces). The
-# CLI spells each as a `detective …` line (`next_command`); the MCP surface spells each as a tool
-# call (`mcp_server._plan_call`). Neither re-derives the decision from the reason: a surface that
-# did could name a move the other does not, and the two would drift.
+# The move a region's plan reason calls for (§14.3 — named codes, consumed by every surface). The
+# CLI spells each as a `detective …` line (`next_command`); the parked MCP surface spelled each as a
+# tool call (`_plan_call`, in `parked/mcp/mcp_server.py`). Neither re-derives the decision from the
+# reason: a surface that did could name a move the other does not, and the two would drift.
 DECOMPOSE_APPLY = "decompose_apply"  # funded, gate `decompose …` — the split, applied under proof
 RECEIPT_BRACKET = "receipt_bracket"  # funded, gate `receipt …` — receipt, transform, verify-rewrite
 CONVERGE = "converge"  # a behaviour-status reason — the ordering law: style waits

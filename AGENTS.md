@@ -79,7 +79,8 @@ print('Wesker    ->', Wesker.__file__)
 "
 ```
 
-**Drive Detective through the CLI only.** The `mcp__Detective__*` tools are stale and unused.
+**Drive Detective through the CLI only.** The MCP surface is parked (`parked/mcp/`); any
+`mcp__Detective__*` tools come from an old install.
 
 ## The per-issue loop
 
@@ -180,14 +181,14 @@ issue number. Only tests written from intent can catch a wrong implementation pi
 
 ## Gates before every commit
 
-Ruff is **pinned to 0.14.10 via uvx**, never bare `ruff` — the local newer one showed 125
-spurious errors and is not the CI gate.
+Ruff is **pinned to 0.16.7 via uvx** — the same version as the dev-group pin CI installs — never
+bare `ruff`: an unpinned local ruff is not the CI gate.
 
 ```bash
 PYTHONPATH=$PP python3 -m pytest; echo "SUITE=$?"
-uvx ruff@0.14.10 format Detective tests
-uvx ruff@0.14.10 check Detective tests; echo "CHECK=$?"
-uvx ruff@0.14.10 format --check .; echo "FORMAT=$?"
+uvx ruff@0.16.7 format Detective tests
+uvx ruff@0.16.7 check Detective tests; echo "CHECK=$?"
+uvx ruff@0.16.7 format --check .; echo "FORMAT=$?"
 ```
 
 **The format check is WHOLE-TREE (`.`), not `Detective tests`** — because CI's is
@@ -217,7 +218,7 @@ and its own workflow comment records it.
 Heredoc essay, never `-m`. Subject `fix(#NN):` / `feat(#NN):` describing the behaviour change.
 Body: the defect verbatim → why the obvious fix is wrong → what each state of the pure
 decision means → **what was NOT closed** → the pin receipt (`✓ COMPLETE … N/M killed`) → suite
-count and `ruff … clean under pinned 0.14.10` → the `Co-Authored-By` trailer.
+count and `ruff … clean under pinned 0.16.7` → the `Co-Authored-By` trailer.
 
 Note `fix(#NN):` does **not** auto-close on GitHub. Close explicitly with evidence.
 

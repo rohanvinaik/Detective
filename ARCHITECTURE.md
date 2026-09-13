@@ -6,8 +6,8 @@ and §5 (the full CLI), keep §9 (debug map) open — a symptom there points at 
 function and why it fails.
 
 Detective is a **clean-room** package on **Wesker + stdlib only** (no lintgate in the
-runtime import graph). Runtime dep: `Wesker` (git URL). Console scripts: `detective`
-(CLI) and `detective-mcp` (optional MCP). Everything below is operational.
+runtime import graph). Runtime dep: `Wesker` (git URL). Console script: `detective`
+(CLI); the MCP surface is parked (§5a). Everything below is operational.
 
 ---
 
@@ -109,9 +109,9 @@ Wesker's fallback discovery collects with `--collect-only`, which tears the sess
 so every fixture-taking test is skipped. A mutant only such a test could kill then reports as a
 surviving behavioral gap — Detective claims a dimension is unspecified when the suite already pins
 it, and `converge` writes a test for behavior that was never unspecified. Measured on Prism: 0 of
-445 tests bound the old way, 445 the new way. `cli._run_live` and `mcp_server._in_session` are the
-only two entry points, and both degrade **loudly**; a silent fallback is the exact failure the seam
-exists to end.
+445 tests bound the old way, 445 the new way. `cli._run_live` is the only entry point (the parked
+MCP surface's `_in_session` was the second), and it degrades **loudly**; a silent fallback is the
+exact failure the seam exists to end.
 
 Three things ride on that same seam, and all three are Detective's job to pass:
 
@@ -265,7 +265,7 @@ All in `Detective/`. Frozen dataclasses unless noted.
 | `decompose_apply.py` | **extract-function**: converge (proof) → cluster → trial-apply → prove → apply | `apply_decomposition`, `extract_candidate` |
 | `equivalents.py` | persist/read manual equivalence flags | `add_flag`, `load_flags`, `flag_key` |
 | `cli.py` | arg parsing + formatting (`--version`, streaming narrative, minimal terse view + `--full`); wraps every command in the live session; **zero compute** | `main`, `_run_live`, `_run`, `_build_parser`, `_reachable_paths`, `_trace_budget`/`_trace_session_budget`, `_format_converge`/`_format_converge_terse`, `_final_banner`, `_plain_terms`, `_boundary_hint`, `_notify_stderr`, `_write_converge_report` |
-| `mcp_server.py` | optional MCP surface (`detective-mcp`, §5a): `diagnose`/`converge`/`decompose`/`audit`/`deep_context`, each inside a live session; **zero compute** | `build_server`, `_in_session`, `_rendered`, `_render_diagnose`/`_render_converge`/`_render_decompose`, `_ask_for_input`, `main` |
+| `mcp_server.py` — **parked** (`parked/mcp/`) | optional MCP surface (`detective-mcp`, §5a): `diagnose`/`converge`/`decompose`/`audit`/`deep_context`, each inside a live session; **zero compute** | `build_server`, `_in_session`, `_rendered`, `_render_diagnose`/`_render_converge`/`_render_decompose`, `_ask_for_input`, `main` |
 | (Wesker) `memory_guard.py` | telemetry footer + the `.wesker/` half of `purge` | `telemetry`, `purge_caches` |
 
 ---
@@ -387,7 +387,11 @@ session's refresh (§2a) is published from there.
 
 ---
 
-## 5a. The MCP surface — `detective-mcp` (`mcp_server.py`)
+## 5a. The MCP surface — parked (`parked/mcp/mcp_server.py`)
+
+**Parked 2026-09-13.** The server, its tests and the steps to restore it live in `parked/mcp/` (see
+its README); the `[mcp]` extra and the `detective-mcp` script are gone. What follows is the design
+record, kept for the rebuild.
 
 Five tools: `diagnose`, `converge`, `decompose`, `audit`, `deep_context`. Optional (`[mcp]`
 extra); `mcp` is imported lazily so the core stays Wesker + stdlib. Zero compute — each tool calls
@@ -538,7 +542,7 @@ purging can only ever cost time.
 
 **Cross-run RAM state: none.** The two ContextVars (`_LIVE_SUITE`, `_SESSION_BASELINE`) live in
 Wesker and exist only for the duration of one `run_with_live_suite` call; both are reset in its
-`finally`. The MCP server holds nothing between calls — each tool opens its own session (§5a).
+`finally`. The (parked) MCP server held nothing between calls — each tool opened its own session (§5a).
 
 ---
 
@@ -563,7 +567,7 @@ Wesker and exist only for the duration of one `run_with_live_suite` call; both a
 | `--trace-budget` / `--trace-session-budget` change nothing | `cli._run_live` must pass them to `run_with_live_suite`, not only to `profile()` | on the live path the suite is traced inside the seam; the per-function path a session never uses was the only thing hearing the flag |
 | A warm cache is still slow (full trace before an instant answer) | `Wesker.engine.LazySessionBaseline` — the baseline must stay demand-driven | built eagerly it is the whole cost of a run, paid *outside* the region the cache protects, then dropped unread (Regenesis: 486s → 3.6s once lazy) |
 | `diagnose` on a big repo traces the whole suite for one small function | `cli._reachable_paths` → `reachability.reachable_test_paths` → the session's `paths` | scoping must happen at pytest COLLECTION, before anything is imported — `scope_tests` selection is derived FROM the trace, so it cannot save the trace |
-| An MCP tool reports "complete / nothing to derive" over UNPROVEN survivors | `mcp_server` — direct attribute access, never `getattr(obj, name, default)` | a default silently absorbs a wrong field name; `SurvivorReport.equivalent` was asked for as `candidate_equivalent` and returned `()` forever. A rename must break loudly, not promote UNPROVEN to done |
+| (parked, §5a) An MCP tool reports "complete / nothing to derive" over UNPROVEN survivors | `mcp_server` — direct attribute access, never `getattr(obj, name, default)` | a default silently absorbs a wrong field name; `SurvivorReport.equivalent` was asked for as `candidate_equivalent` and returned `()` forever. A rename must break loudly, not promote UNPROVEN to done |
 | Generated test is **flaky** (set output) | `characterization.golden_assert_line` | set repr order is hash-seed-dependent → value-equality |
 | `verify_under_pytest` reports 0 passed for a passing suite | `certify.verify_under_pytest` | `-o addopts=` so the target's `-q` doesn't become `-qq` |
 | Survivor reads "uncertain — inputs don't exercise" | `engine._input_grids` / `representative_site` / `call_sites` / `capture.capture_call_inputs` (runtime harvest) | synthesis can't build a fitting value AND no covering test exercises it (domain-value / unannotated — §10) |

@@ -80,6 +80,13 @@ BY_DESIGN: dict[str, str] = {
         "EXP-DS-002 norms mining — the κ-weighted corpus zero. Consumed by "
         "dev/exp_ds_002_norms_knee.py. See norms.norm_disposition for the module-level split."
     ),
+    "plan.plan_closing": (
+        "Agent-facing by its own docstring ('Which closing an agent-facing plan render ends with'). "
+        "Its one production consumer is `_render_plan` in the MCP surface, parked 2026-09-13 in "
+        "parked/mcp/mcp_server.py; the CLI does not call it. Pinned meanwhile by "
+        "tests/test_plan_decisions_intent.py. Restoring the surface makes this entry stale, and "
+        "test_no_registry_entry_names_a_decision_that_is_now_consumed says so."
+    ),
 }
 
 # Real gaps. Carried here so they are VISIBLE rather than absent, and so the count is a NUMBER.

@@ -12,7 +12,6 @@ import pytest
 from Detective.cli import _derive_input_plan, _derived_input, main, residual_input_route
 from Detective.engine import _load_failure_reason
 from Detective.extract import extract_proposal, extraction_target_status, render_extract
-from Detective.mcp_server import _ask_for_input
 from Detective.rewrite import rewrite_classification_status
 from Detective.survey import survey_scan_status, survey_source
 
@@ -30,7 +29,7 @@ def test_residual_input_route_respects_the_literal_boundary(expressible, gaps, e
     assert residual_input_route(expressible, gaps) == expected
 
 
-def test_both_surfaces_keep_inexpressible_line_gaps_out_of_input_commands():
+def test_the_cli_keeps_inexpressible_line_gaps_out_of_input_commands():
     proof = SimpleNamespace(
         param_names=("grid",),
         signature="f(grid)",
@@ -40,12 +39,10 @@ def test_both_surfaces_keep_inexpressible_line_gaps_out_of_input_commands():
     )
     assert _derive_input_plan(proof, None).kind == "fixture"
     cli = "\n".join(_derived_input(None, proof, None, "m.py::f"))
-    mcp = "\n".join(_ask_for_input("converge", "m.py", "f", ("grid",), "gap", proof=proof))
-    for output in (cli, mcp):
-        assert "WRITE TEST" in output
-        assert "line 8" in output
-        assert "--input" not in output
-        assert "inputs=[" not in output
+    assert "WRITE TEST" in cli
+    assert "line 8" in cli
+    assert "--input" not in cli
+    assert "inputs=[" not in cli
 
 
 @pytest.mark.parametrize(

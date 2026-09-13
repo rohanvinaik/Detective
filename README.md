@@ -154,7 +154,7 @@ detective --help               # its first block names where to start
 | `flag file.py::fn ID [--fence]` | ledger | record an equivalence, or author a must-not |
 | `doctor [file.py::fn]` | nothing | why is there no verdict, and is the problem me? |
 
-Exit codes are epistemics rather than pass/fail: `0` clean · `1` a measured gap or a refusal · `2` your world is wrong, fix that and not the code · `3` the measurement cannot be trusted, re-run. Machine consumers get the same verdicts as JSON; agents get an MCP surface (`detective-spec[mcp]`). Operational reference lives in [ARCHITECTURE.md](./ARCHITECTURE.md), the theory in [`docs/theory/`](./docs/theory/), in full academic dress.
+Exit codes are epistemics rather than pass/fail: `0` clean · `1` a measured gap or a refusal · `2` your world is wrong, fix that and not the code · `3` the measurement cannot be trusted, re-run. Machine consumers get the same verdicts as JSON. Operational reference lives in [ARCHITECTURE.md](./ARCHITECTURE.md), the theory in [`docs/theory/`](./docs/theory/), in full academic dress.
 
 ## What the contract is for
 
