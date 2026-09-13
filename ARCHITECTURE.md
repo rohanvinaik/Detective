@@ -1,62 +1,130 @@
 # Detective — Architecture & Operational Map
 
-The single reference for **what Detective does, how it does it, and where to look
-when something breaks.** Cold start: read §1 (mental model), skim §3 (data structures)
-and §5 (the full CLI), keep §9 (debug map) open — a symptom there points at the exact
-function and why it fails.
+The reference for **what Detective does, how it does it, and where to look when something breaks.**
+Cold start: read §0 (the idea) and §0.1 (the vocabulary), then §1 (the mental model); skim §3 (data
+structures) and §5 (every command); keep §9 (debug map) open — a symptom there points at the function
+to touch and the rule it must keep.
 
-Detective is a **clean-room** package (no lintgate in the runtime import graph). Runtime deps:
-`Wesker`, `pytest` and `ruff`, all from PyPI; CI and local dev resolve Wesker from its git main via
-`[tool.uv.sources]`, which never enters the published wheel. Console script: `detective`
-(CLI); the MCP surface is parked (§5a). Everything below is operational.
+Detective is a **clean-room** package (no lintgate in the runtime import graph). Runtime deps: `Wesker`,
+`pytest` and `ruff`, all from PyPI; CI and local dev resolve Wesker from its git main via
+`[tool.uv.sources]`, which never enters the published wheel. Console script: `detective`. The MCP
+surface is parked (§5a). This file states rules; the incidents behind them are in
+[docs/HISTORY.md](docs/HISTORY.md), linked as *why: Hn*.
 
 ---
 
 ## 0. Thesis (the one idea)
 
-A function's **mutation profile is a complete map of the behavioral distinctions it
-makes.** Killed mutant = a distinction the tests pin. Survivor = a degree of freedom
-no test distinguishes. Read backwards, that map is a *specification*: it says exactly
-which behaviors are unpinned, so you can pin them with warranted tests — or recognize
-that nothing *can* pin them (equivalent mutants). Every command consumes that map.
+A function's **mutation profile is a complete map of the behavioral distinctions it makes.** Killed
+mutant = a distinction the tests pin. Survivor = a degree of freedom no test distinguishes. Read
+backwards, that map is a *specification*: it says exactly which behaviors are unpinned, so you can pin
+them with warranted tests — or recognize that nothing *can* pin them (equivalent mutants). Every
+command consumes that map.
 
-**Value-specification vs run-specification (the load-bearing distinction).** A kill is
-only a *value* specification if a test **assertion** distinguishes the mutant — it pins
-*what the function returns*. A kill by **crash** or **timeout** proves only that the code
-*runs*, not what it computes, so it is an **unspecified value-DOF** (a value-survivor).
-Detective's "specified/complete" always means *value*-specified:
+**Value-specification vs run-specification (the load-bearing distinction).** A kill is only a *value*
+specification if a test **assertion** distinguishes the mutant — it pins *what the function returns*. A
+kill by **crash** or **timeout** proves only that the code *runs*, not what it computes, so it is an
+**unspecified value-DOF** (a value-survivor). Detective's "specified/complete" always means
+*value*-specified:
 
 - `value_killed` = assertion kills only.
 - `value_survived` = true survivors **+** crash/timeout kills.
-- **Mutation-completeness** (`functionally_complete`) = every *killable* mutant is killed
-  by an assertion; the only survivors left have no distinguishing input (equivalents).
+- **Mutation-completeness** (`functionally_complete`) = every *killable* mutant is killed by an
+  assertion; the only survivors left have no distinguishing input (equivalents).
 
 **Two orthogonal axes** — do not conflate them:
-- **Mutation completeness** — the *proof* metric. It is what makes a decomposition
-  provably behavior-preserving and a suite a real specification.
-- **Line completeness** — the standard "every executable line is covered." Weaker and
-  *orthogonal*: a line whose mutants are all killed is specified whether or not coverage
-  counts it, and a covered line whose mutants survive proves nothing. Line-completeness
-  is reported, never used as a proof gate.
+- **Mutation completeness** — the *proof* metric. It is what makes a decomposition provably
+  behavior-preserving and a suite a real specification.
+- **Line completeness** — the standard "every executable line is covered." Weaker and *orthogonal*: a
+  line whose mutants are all killed is specified whether or not coverage counts it, and a covered line
+  whose mutants survive proves nothing. Line-completeness is reported, never used as a proof gate.
+
+---
+
+## 0.1 Vocabulary
+
+The words the output, the code and the docs use, each as it is meant here.
+
+**Measuring a function**
+
+| Term | Meaning |
+|---|---|
+| **pinned** | Every mutant is killed by a value assertion except those no input can distinguish. The mechanical form of "does what it was made to do, and nothing it does can change unnoticed". |
+| **survivor · DOF** | A mutant no test kills: a degree of freedom (DOF) the tests do not constrain. |
+| **value kill · crash-only** | A kill by an assertion on the returned value pins behaviour. A kill by crash or timeout pins only that the code ran differently; such a survivor is reported `crash-only-equiv` and never counts toward specification (§0). |
+| **real gap · killable · witness** | A survivor with a distinguishing input — a *witness*, where original and mutant return different values. It gets a test. |
+| **candidate-equivalent — UNPROVEN** | The search found no distinguishing input. Equivalence is undecidable, so this is never promoted to "equivalent"; it is left labelled, or settled by a person with `flag`. |
+| **unclassified** | The search could not evaluate the survivor. A measurement limit, not a code gap. |
+| **fence** | The opposite judgment to an equivalence flag: `flag --fence` records that a survival is a bug, an authored MUST-NOT the suite does not enforce yet. It fails `audit --check` and blocks ✓ COMPLETE. |
+| **operator universe · policy** | The versioned set of mutation operators every verdict is measured against. Its identifier is written into receipts; `✓ COMPLETE (operator universe)` means exactly that and nothing wider. |
+| **two-sign · μ⁻** | Opt-in (`--two-sign`): also perturb the function's *return value* (→None, →constant, →identity). A surviving perturbation is a *negative* DOF — an output invariant no test pins. |
+| **Monty Hall filter** | Wesker's elimination of mutants that cannot bear on the function as written (an addition has no boolean to flip), before any test runs. |
+| **cut · INVALID MEASUREMENT** | A run a budget or deadline stopped early. Never gateable; exit `3`, re-run. |
+
+**Which tests count**
+
+| Term | Meaning |
+|---|---|
+| **testing regime** | How the repository imports its code and runs its tests: the name that imports the target, the `sys.path` the suite gets, the conftests pytest loads. Every command resolves it first and refuses on a conflict. (Not to be confused with `ScopeMap.regime`, diagnose's A tractable / B entangled reading.) |
+| **live session** | One in-process pytest session wrapping a command, so fixture-taking tests run as they do under pytest (§2a). |
+| **basis · `FunctionBasis`** | The per-function record of which test items are admissible evidence about the target, and what that evidence supports: `complete`, `gap` or `unresolved`. |
+| **warrant** | Why one test item is or is not evidence: `proof` (fresh, admissible, covers — may discharge an obligation), `routing` (covers but replayed or inadmissible — orders, never proves), `barred` (its baseline outcome bars it), `disjoint` (a fresh observed non-reach — the only observation that may exclude), `pending` (not yet observed). |
+| **fresh · replayed** | Observed in this session, or served from a cache. A replayed observation may order work but never prove. |
+| **intent (ℋ) · characterization (𝒢)** | Hand-written tests, and generated tests a person has since edited, are *intent* evidence. Unedited generated tests are *characterization*: they pin what the code does, which may already be wrong. Origin is a recorded fact (a content digest in the generated file's first line), never a path glob. |
+| **census** | A tally by named code. `audit`'s origin census counts intent / characterized / unattributed tests; `diagnose`'s routing census counts candidate / unknown / impossible / observed tests, plus deferred and not-consulted ones. |
+| **shaped · deferred** | A shape-hazardous test (subprocess, thread, signal, custom collector) is deferred from the speculative widen by default and counted; `--include-shaped` brings it back. |
+| **floor · ceiling · sandwich** | The minimum evidence σ is a range: the *floor* is the intent minimum (a happy-path suite), the *ceiling* the exact specification (a suite separating every non-equivalent mutant). The *sandwich thesis*: the unit is ONE function's operators and ONE function's tests (§11). The *synthesis floor*: a target nothing reaches is pinned by synthesizing tests, never by tracing the whole suite. |
+
+**What Detective records and hands back**
+
+| Term | Meaning |
+|---|---|
+| **certificate** | The recorded terminal converge verdict for one (target, definition), in `<write-dir>/certificates.json`. The style layer reads it to know whether a region is pinned. |
+| **receipt** | A snapshot of a function taken *before* an arbitrary rewrite — source, proof suite, policy, operator universe — which `verify-rewrite` checks the rewrite against. |
+| **pure decision · "pure — pinned"** | A function over literal-expressible inputs (`str`, `bool`, `int`, `list`, `dict`) returning a named string code, extracted from an impure shell so `converge` can pin it. Docstrings tag it `(pure — pinned)`. |
+| **`--input` · Zones 1/2/3** | Zone 1: provable, emitted automatically. Zone 2: partial — the CLI asks for one exact literal `--input`. Zone 3: cannot be exercised — a typed hand-off. `--input` parses a literal allowlist, which is what makes "no arbitrary code execution" checkable (§6). |
+| **proof · advisory** | The proof layer (`converge`, `audit`, `decompose`, `verify-rewrite`) certifies. The advisory layer (`plan`, `parsimony`, `survey`, `extract`, `censor`, `doctor`) reads and proposes, and never gates. |
+| **AMBIGUOUS** | A style finding one lens raises alone, or on which the two signs disagree: the driver's call, recorded with `flag --style`. |
+| **censor · κ** | A censor is a forbidden input/output region carved from observed near-misses across a population of call sites, never from one function; κ (marginal coverage over the call graph) ranks them. Unverified until promoted. |
+
+**Reference codes in the prose.** Comments and docstrings cite design documents by code. `#NN` is a
+GitHub issue. The rest, and where each is defined:
+
+| Code | Defined in |
+|---|---|
+| `§N` in the style-layer modules (`plan`, `controller`, `judgments`, `templates`, `budget`, `certificates`) · `Wave N` · `EXP-DS-NNN` | `docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md` |
+| `§N` in the basis and scoping modules (`engine`, `scope`, `reachability`, `regime`, `audit`) · `D1`–`D5`, `X1`–`X6`, `G1`–`G7` | `docs/TEST_BASIS.md` |
+| `§N` in the negative-specification modules (`censor`, `kappa`, `promotion_ledger`) · `Q1`–`Q8` (§18) · `Fork 1`/`Fork 2` (§11, Def. 11.10) | `docs/theory/NEGATIVE_SPECIFICATION.md` |
+| `§N` in `doctor` / `ledger` | `docs/DOCTOR.md` / `docs/INVOCATION_LEDGER.md` |
+| `S`-codes | `docs/CORRECTNESS_REPAIRS_2026-09-08.md` |
+| `W`-codes | `docs/OPEN_ITEMS.md` |
+| `Finding A`–`F` | `docs/dogfood/revalidation_2026-09-06.md` |
+
+`§` numbers are per document, and a module that cites several documents does not always name which. A
+module that cites one document names it in its docstring, in a `Design:` or `References:` line. Two collisions to know:
+`OPEN_ITEMS.md` reuses `D`-numbers for different items than `TEST_BASIS.md`, and both `TEST_BASIS.md`
+and `NEGATIVE_SPECIFICATION.md` use `B`-numbers.
 
 ---
 
 ## 0.5 The advisory read — SICP parsimony (Detective-native)
 
-Everything above is the **provable** half of clean code: behaviour pinned, seams proven. The
+Everything in §0 is the **provable** half of clean code: behaviour pinned, seams proven. The
 **stylistic / epistemic** half — cohesion, the right abstraction, the behaviourally-overloaded
-God-function — is **not provable**, so Detective carries it as an **advisory read**, never a gate.
-It is Detective-native by design: a stylistic call needs judgement, and Detective is the layer a
-human or large model drives. `diagnose` surfaces a per-function parsimony consensus (complexity,
-purity, cohesion, interface width, structural seam, and Wesker's behavioural overload — fused by
-lens *agreement*, never a weighted sum) that points *where* to look; the proof gate still decides
-*whether* a change is safe. The signal never writes source. Full design: `docs/PARSIMONY_ADVISORY.md`.
+God-function — is **not provable**, so Detective carries it as an **advisory read**, never a gate. It is
+Detective-native by design: a stylistic call needs judgement, and Detective is the layer a human or
+large model drives. `diagnose` surfaces a per-function parsimony consensus (complexity, purity,
+cohesion, interface width, structural seam, and Wesker's behavioural overload — fused by lens
+*agreement*, never a weighted sum) that points *where* to look; `plan` is the style layer's entry verb
+over a tree; the proof gate still decides *whether* a change is safe. The signal never writes source.
+Full design: `docs/PARSIMONY_ADVISORY.md`; the plan and its controller:
+`docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md` §14.
 
-This is the trilogy's division of labour, which is also its epistemology: **Wesker** drives
-(mutation); **Detective** is the operational layer a strong intelligence drives to change code, and
-the home of these advisory signals; **Uroboros** is the mindless whole-repo purifier that churns on
-the *provable* axis only — SICP decisions are out of its scope, because a dumb relentless process
-cannot adjudicate them.
+This is the trilogy's division of labour, which is also its epistemology: **Wesker** drives (mutation);
+**Detective** is the operational layer a strong intelligence drives to change code, and the home of
+these advisory signals; **Uroboros** is the mindless whole-repo purifier that churns on the *provable*
+axis only — SICP decisions are out of its scope, because a dumb relentless process cannot adjudicate
+them.
 
 ---
 
@@ -78,362 +146,486 @@ cannot adjudicate them.
         clean pytest files on disk + a full report on disk + a terse FINAL banner in the CLI
 ```
 
-Detective **owns one function at a time.** Every command takes `file.py::function`,
-asks Wesker to profile it, then reshapes/acts on the result. Detective holds no
-cross-run RAM state; persisted state is on disk (§8). Profiling is **content-cached** and
-**serial** — the cache is transparent and verdict-identical to an uncached run (§7).
+Detective **owns one function at a time.** Every proof command takes `file.py::function`, asks Wesker
+to profile it, then reshapes or acts on the result. Detective holds no cross-run RAM state; persisted
+state is on disk (§8). Profiling is **content-cached** and **serial** (§7).
+
+The sixteen commands sit on three layers:
+
+| Layer | Commands | What it may do |
+|---|---|---|
+| **Setup** | `regime`, `doctor`, `purge` | read the environment and the operator; `regime --migrate` fixes Detective's own setup; `purge` deletes caches |
+| **Behavior (proof)** | `diagnose`, `converge`, `audit`, `decompose`, `flag`, `flag-line`, `receipt`, `verify-rewrite` | measure one function against its mutants; write tests, certificates and ledgers |
+| **Style (advisory)** | `plan`, `parsimony`, `survey`, `extract`, `censor` | read static structure and propose; never gate, never write source |
+
+Style comes AFTER behavior, strictly: a region's style reading consults its behavior certificate first.
 
 ---
 
 ## 2. The two input surfaces
 
-### 2a. INPUT FROM WESKER (the engine seam) — `Detective/engine.py`, `Detective/scope.py`
+### 2a. INPUT FROM WESKER (the engine seam)
 
-Detective imports exactly these from Wesker (the *entire* dependency surface):
+Everything Detective imports from Wesker, grouped by Wesker module (the importing Detective modules in
+brackets):
 
-| Import | From | Used for |
+| Wesker module | Names | Used for |
 |---|---|---|
-| `run_function_profiling(node, func_key, categories, tests, original, *, budget_ms, mem_budget_mb, max_per_category, pass_index, progress, scope_tests, mutant_slice, precomputed_line_data, pregenerated)` | `Wesker.engine` | THE profile call — mutate + run **covering** tests + baseline line-coverage |
-| `generate_mutants(func_node, categories, *, max_per_category, pass_index)` → `list[Mutant]` | `Wesker.engine` | the deterministic mutant set (reused across probe/shards; witness search) |
-| `estimate_universe_size`, `greedy_coverage_guarantee` | `Wesker.engine` | DOF count + the a-priori greedy coverage floor (the converge "stats flex") |
-| `ProfilingResult`, `CategoryResult`, `MutationCategory` | `Wesker.engine` | the result type (see §3) |
-| `discover_test_callables(root, rel, func_names, extra_dirs)` → `list[Callable]` | `Wesker.ci` | find the real tests exercising a function (pytest-aware, binds parametrize). **Inside a live session it returns the session's callables and ignores every other argument** |
-| `run_with_live_suite(root, fn, target_files, paths, trace_progress, trace_budget_s, trace_session_budget_s)` | `Wesker.ci` | **THE session seam.** `cli._run_live` wraps the whole command in it once; everything underneath transparently upgrades. Returns `None` — and ONLY `None` — when no session could start |
-| `refresh_live_suite(root, path)` → `int` | `Wesker.ci` | tell the session a test file changed on disk. Called from `certify._write`, the one choke point every generated test passes through |
-| `walk_functions(tree)` → `[(qualname, node), …]` | `Wesker.ci` | enumerate functions in a module |
-| `filter_categories(node, pure)` → `set[MutationCategory]` | `Wesker.filter` | which mutation categories apply (drops STATE for pure fns) |
-| `DEFAULT_TRACE_BUDGET_S`, `DEFAULT_TRACE_SESSION_BUDGET_S` | `Wesker.engine` | the trace caps. **Imported, never restated** — a second copy would drift silently |
-| `telemetry`, `purge_caches` | `Wesker.memory_guard` | CLI footer + the `.wesker/` HALF of `purge` (§8) |
+| `Wesker.engine` | `run_function_profiling` [engine] | THE profile call — mutate + run covering tests + baseline line coverage |
+| | `generate_mutants` [engine, plan] | the deterministic mutant set |
+| | `estimate_universe_size`, `greedy_coverage_guarantee` [converge] | DOF count + the a-priori greedy coverage floor |
+| | `ProfilingResult`, `CategoryResult`, `MutationCategory` [engine, scope, verdict_cache] | the result type (below) |
+| | `DEFAULT_TRACE_BUDGET_S`, `DEFAULT_TRACE_SESSION_BUDGET_S` [cli, engine] | the trace caps — **imported, never restated** |
+| | `session_budgets`, `session_regime_digest` [engine] | what a verdict inside a session was actually measured under (the cache key reads these) |
+| | `_SESSION_BASELINE` [engine] | the session's baseline holder, forked per function for target-first seeding |
+| | `ExecutionLockUnavailable` [cli] | the execution lock could not be taken — raised with a named reason instead of blocking |
+| `Wesker.ci` | `run_with_live_suite` [cli] | **THE session seam.** `cli._run_live` wraps a command in it once; everything underneath transparently upgrades. Returns `None` — and ONLY `None` — when no session could start |
+| | `refresh_live_suite` [certify, converge] | tell the session a test file changed on disk |
+| | `discover_test_callables`, `load_test_callables` [audit, engine, suite_edit] | find the real tests exercising a function. **Inside a live session it returns the session's callables and ignores every other argument** |
+| | `partition_live_callables` [engine], `relevant_test_files` [converge], `callable_origin` [engine, suite_edit] | routing: split a session's tests into candidate / tagged-unknown / provably-impossible for one function; the test files plausibly exercising a source file; the file a test came from |
+| | `walk_functions` [audit, censor, cli, converge, engine, kappa, suite_edit] | enumerate functions in a module |
+| | `_PROJECT_ROOT` [engine] | the project root ContextVar, set around profiling |
+| `Wesker.filter` | `filter_categories` [converge, engine, plan] | which mutation categories apply (drops STATE for pure functions) |
+| `Wesker.isolation` | `callable_shape_hazards`, `scan_source_hazards`, `fast_mode_standing` [engine] | a test's shape hazards (subprocess, threads, …) and whether in-process fast mode may be trusted for it |
+| `Wesker.line_coverage` | `executable_lines`, `trace_line_coverage` [engine] | the target's statement lines and per-test coverage |
+| `Wesker.trace_cache` | `observed_function_reach` [engine], `test_fingerprint` [verdict_cache] | observed reach from the persistent trace cache; test identity for the cache key |
+| `Wesker.trace_evidence` | `TraceEvidence` [verdict_cache] | the per-test trace rows a result carries |
+| `Wesker.pytest_discovery` | `last_collection_errors` [engine] | tests that failed to collect during this profiling |
+| `Wesker.interrupt` | `Abandoned`, `bounded_join` [equivalence] | time-bounded calls that leave no runaway thread behind |
+| `Wesker.memory_guard` | `telemetry`, `purge_caches` [cli] | the CLI's telemetry footer + the `.wesker/` half of `purge` (§8) |
+| `Wesker` | `__version__`, `mutation_policy` [verdict_cache] | the engine's version and mutation policy, read by the verdict cache |
 
-**The live session is the load-bearing seam, and it is a correctness feature, not a speed one.**
-Wesker's fallback discovery collects with `--collect-only`, which tears the session down at once,
-so every fixture-taking test is skipped. A mutant only such a test could kill then reports as a
-surviving behavioral gap — Detective claims a dimension is unspecified when the suite already pins
-it, and `converge` writes a test for behavior that was never unspecified. Measured on Prism: 0 of
-445 tests bound the old way, 445 the new way. `cli._run_live` is the only entry point (the parked
-MCP surface's `_in_session` was the second), and it degrades **loudly**; a silent fallback is the
-exact failure the seam exists to end.
+Two of these names are private (`_SESSION_BASELINE`, `_PROJECT_ROOT`): Detective and Wesker are
+developed together, and a change to either needs Detective's suite run against the local Wesker.
 
-Three things ride on that same seam, and all three are Detective's job to pass:
+**Rules at the seam.**
 
-* **`paths`** — pytest's own collection argument, narrowed by `reachability.reachable_test_paths`
-  to the files that could execute the target's lines. The session baseline traces EVERYTHING it
-  collects before a single mutant runs, so an unscoped collection makes cost scale with the
-  **suite**, not the function (Regenesis: 2134 test functions traced for one 13-line function,
-  1928 of them in modules that cannot reach it even transitively). `None` = collect everything =
-  byte-identical to before.
+* **Every behavior command runs inside one live session** (`cli._run_live` → `run_with_live_suite`),
+  and a failure to start one degrades **loudly**. Without it, fixture-taking tests are skipped and
+  already-pinned behaviour reads as unpinned. *Why: [H1](docs/HISTORY.md#h1).*
+* **`paths`** — pytest's own collection argument — is narrowed by `reachability.reachable_test_paths` to
+  the files that could execute the target's lines; `None` = collect everything. Reachability is an
+  **over-approximation** (it may include too much, never exclude a real reacher), and it is bounded by the
+  project's declared `testpaths` (`within_declared_testpaths`). It is computed before the seam changes
+  directory, so relative paths resolve against the project root, never the cwd. *Why:
+  [H2](docs/HISTORY.md#h2).*
+* **The trace budgets go to `run_with_live_suite`**, where the suite is traced, not only to `profile()`;
+  and `profile` keys its cache on `Wesker.engine.session_budgets()`, what actually produced the answer.
+  *Why: [H3](docs/HISTORY.md#h3).*
+* **`certify._write` calls `refresh_live_suite` after every write and every delete.** It is the single
+  choke point through which generated tests reach disk, and the refresh both replaces that file's
+  callables **and** invalidates the `SessionBaseline`. *Why: [H5](docs/HISTORY.md#h5).*
+* **Target-first profiling.** In a live session `engine.profile` forks a per-function baseline, seeds it
+  with the tests that statically name the target, and widens lazily on a survivor or an uncovered line.
+  Only the caller-reaching unknowns are widened (the applicability bound); the rest are counted as
+  `not_consulted`, and a target nothing reaches is pinned by synthesis. Any failure degrades to the
+  ordinary full run.
 
-  **The scoping is computed BEFORE the seam chdirs, so it must not depend on the cwd — and it
-  did.** `module_name` resolved a relative target with `os.path.abspath`, i.e. against the
-  *process's* cwd rather than `project_root`. From a CLI run standing in the project the two
-  coincide and it scopes correctly; from a stdio server — whose cwd is wherever its client
-  launched it — the target resolved outside the tree, fell out of the graph, and the analysis
-  returned `None`. Because `_reachable_paths` deliberately degrades any failure to "collect
-  everything", a wrong answer and a declined optimisation are indistinguishable from outside: the
-  MCP surface silently traced ~9x the suite (2113 vs 240), which then guaranteed the session trace
-  budget cut and reported the cut coverage as unpinned behaviour. Resolve relative paths against
-  `root`, never the cwd — the rule `engine.profile` already follows for the file it opens.
-* **The trace budgets** — they bound the pass that traces the suite, and on the live path that
-  pass runs *inside this seam*, not in `profile()`. Sent only to `profile()` they reached the
-  per-function path a live session never uses, so raising the flag changed nothing.
+**What Detective gets back — `ProfilingResult`** (`Wesker.engine`), the single most important object:
 
-  **The mirror of that bug is the cache key, and it is why `profile()`'s budget arguments are not
-  what the key records.** Inside a live session `_build_test_scope` prefers the `SessionBaseline`
-  and never consults those arguments, so they describe nothing about the verdict; the seam's
-  budgets do. The CLI passed the same values to both and was correct by discipline, while every
-  other caller (`audit_suite`, `converge`, `certify`, `decompose_apply`, `classify_survivors`, the
-  MCP surface) sent them to one side only — writing a tightly-budgeted measurement under the
-  DEFAULTS' key, to be served later to a run that asked for the defaults. `profile` therefore keys
-  on `Wesker.engine.session_budgets()` — what actually produced the answer — and falls back to its
-  arguments only outside a session, where they do drive the trace. A verdict must be keyed on
-  everything that could have produced it; discipline is not a mechanism.
-* **`refresh_live_suite`** — see below.
+| Field | Meaning |
+|---|---|
+| `function_key` | `rel/path.py::qualname` — the identity everywhere |
+| `total_mutants / total_killed / total_survived` | raw headline counts |
+| `per_category` | list of `CategoryResult`: per-category total / killed / survived / killed by assertion / by crash / timed out |
+| `kill_matrix` | mutant → the tests that kill it (feeds `minimize`) |
+| `survivor_records` / `killed_records` | per-mutant records: `mutant_id`, `category`, `diff_summary`, `killed_by`, `elapsed_ms` |
+| `line_coverage` / `admissible_line_coverage` | test → target lines covered, observed / restricted to baseline-green tests |
+| `executable_lines` | the target's statement lines (the denominator) |
+| `failing_tests` | tests that fail on the UNMUTATED function — repo-wide; `audit_suite` scopes it to this function's suite before reporting (*why: [H6](docs/HISTORY.md#h6)*) |
+| `tests_discovered` | how many test callables were found (`0` = nothing to kill with, `-1` = unknown) |
+| `budget_exhausted` · `trace_truncated` · `is_gateable` | whether a budget stopped the run, whether the traced baseline was cut, and the engine's own verdict on whether the result may support a certificate |
+| `trace_evidence` · `proof_basis` | the per-test trace rows and the proof-basis rows a certificate draws on |
+| `universe_size` · `total_equivalent` · `dof_total` / `dof_covered` / `dof_pinned` | the operator universe and DOF accounting |
+| **derived properties** (never stored — cannot drift) | `value_killed`, `value_survived`, `value_survivor_records`, `admissible_union`, `observed_union` |
 
-**The session's collection is a SNAPSHOT, and Detective writes tests.** `discover_test_callables`
-short-circuits to the session's callables, which is right for a consumer that only READS a suite
-and silently wrong for one whose product is writing tests: `converge` writes, re-profiles, and is
-handed a list that predates its own work. `certify._write` therefore calls `refresh_live_suite`
-after every write **and every delete** — it is the single choke point through which generated tests
-reach disk, which is what makes "the suite changed" impossible to forget at a call site. That call
-does two things, and needs both: it replaces the callables from that file, **and** invalidates the
-`SessionBaseline`, whose trace decides which tests are run against which mutant. Refreshing the
-list alone changes what is *discovered* and nothing about what is *run* — the count stays exactly
-as wrong (measured: 18 mutants killed by tests on disk, reported as 2, with the user asked to
-supply inputs for the 14 already dead).
+Also carried: `categories_tested`, `survival_rate`, `coverage_depth`, `execution_mode`, `fast_mode`,
+`memory_standing`, `determinism`, `collection_conflicts`, `elapsed_ms`, `test_routing`,
+`operator_census`. Detective attaches a few attributes of its own after profiling (`measurement_basis`,
+`profile_extra_test_dirs`, `observed_return_types`, `collection_errors`); they are deliberately not
+fields, because the verdict cache stores fields and these describe one measurement.
 
-**What Detective gets back — `ProfilingResult`** (the single most important object):
-
-| Field | Type | Meaning |
-|---|---|---|
-| `function_key` | str | `rel/path.py::qualname` — the identity everywhere |
-| `total_mutants / total_killed / total_survived` | int | raw headline counts |
-| `per_category` | list[`CategoryResult`] | per-cat `total/killed/survived/killed_by_assertion/killed_by_crash/timed_out` |
-| `kill_matrix` | dict[mutant_desc → list[test]] | which tests kill which mutant → minimize |
-| `survivor_records` / `killed_records` | list[dict] | each carries `mutant_id`, `category`, `diff_summary`, `killed_by`, `elapsed_ms` |
-| `line_coverage` | dict[test → list[int]] | which target lines each test covers (baseline pass) |
-| `executable_lines` | list[int] | statement lines of the target (the denominator) |
-| `failing_tests` | list[str] | tests that `assert`-fail on the UNMUTATED function → audit ⚠ — REPO-WIDE (the baseline runs every discovered test, for every function); `audit_suite` scopes it to this function's own suite before reporting |
-| `tests_discovered` | int | how many test callables were found (`0` = "nothing to kill with", `-1` = unknown) |
-| `budget_exhausted` | bool | time/MEMORY budget stopped the run early |
-| **DERIVED properties** (never stored — cannot drift) | | |
-| `value_killed` | int (property) | Σ `killed_by_assertion` — value-specified |
-| `value_survived` | int (property) | true survivors + crash/timeout kills — value-*un*specified |
-| `value_survivor_records` | list[dict] (property) | survivor-shaped record for every value-survivor (incl. crash-kills, with their diff for witness search) |
-
-`line_coverage`/`executable_lines`/`failing_tests` come from Wesker's **baseline pass**
-(`Wesker/line_coverage.py`, via `sys.settrace`) run once against the original before the
-untraced mutation loop.
+`line_coverage` / `executable_lines` / `failing_tests` come from Wesker's **baseline pass** (`sys.settrace`
+in `Wesker/line_coverage.py`), run once against the original before the untraced mutation loop.
 
 ### 2b. INPUT FROM THE USER
 
 | Surface | Where | What |
 |---|---|---|
-| CLI target | `file.py::function` positional | the one function to act on |
-| Common flags | `--project-root`, `--json` | per-command behavior (§5) |
-| `--input "(…)"` | converge, decompose | a **Zone-2 residual** — a Python-literal positional-arg tuple the tool asked for (the semantic prior synthesis couldn't build) |
-| `.detective/equivalents.json` | project root | **manual equivalence flags** (user data — §8); read by `classify_survivors` |
-| `WESKER_MEM_BUDGET_MB` | env var | user-selectable memory ceiling (§7) |
-| existing test files | project `tests/` etc. | the suite `audit` assesses / `converge` augments (Wesker-discovered) |
-| covering tests' runtime inputs | project `tests/` | when synthesis provably can't build a param (a domain object), `capture_call_inputs` reuses the REAL args those tests already pass — never fabricated (the honest alternative to abstaining) |
+| target | `file.py::function` positional | the one function to act on |
+| `--project-root`, `--json` | most commands | project root; machine-readable output with the same verdict |
+| `--input "(…)"` | converge, decompose | a **Zone-2 residual** — a Python-literal positional-argument tuple the tool asked for. Remembered in `.detective/inputs.json` |
+| `--clock EPOCH` · `--env NAME=value` | converge | freeze `time.time()`, or declare an environment variable, while pinning; the emitted test re-applies and restores it |
+| `--receiver-factory MODULE:CALLABLE` | converge | a zero-argument factory for a method target whose class cannot be built with no arguments |
+| `--trace-budget` · `--trace-session-budget` · `--deadline` | proof commands | per-test and whole-pass trace caps; one aggregate wall for the command |
+| `--two-sign` · `--include-shaped` | proof commands | the negative-specification operator; include deferred shape-hazardous tests |
+| `.detective/equivalents.json` · `line_flags.json` · `judgments.json` | project root | **human judgments** — equivalence and fence flags, unreachable lines, style verdicts (§8) |
+| `WESKER_MEM_BUDGET_MB` | env var | memory ceiling for profiling |
+| existing test files | the project's suite | what `audit` assesses and `converge` augments |
+| covering tests' runtime inputs | the project's suite | when synthesis provably cannot build a parameter, `capture_call_inputs` reuses the REAL arguments those tests pass — never fabricated |
 
 ---
 
 ## 3. Core data structures (what flows between stages)
 
-All in `Detective/`. Frozen dataclasses unless noted.
+All in `Detective/`; frozen dataclasses unless noted.
 
-- **`ScopeMap`** (`scope.py`) — *diagnose output.* `regime` (A tractable / B entangled),
-  `specification` (variants/pinned/unspecified/inert — *value*-pinned), `kill_quality`
-  (`by_value_assertion` vs `by_crash` + warning), `behavioral_dof`, `tests_discovered`,
-  **`decompose_seams`** (structural extraction count —
-  the STRUCTURAL half of "is this >1 thing"; regime B is the behavioral half). Produced by
-  `scope_from_profiling` + `diagnose`; consumed by `_format_scope`.
-- **`Witness`** (`equivalence.py`) — a concrete input where original and mutant differ by a
-  **value**: `args`, `original`, `mutant`. A value-witness is PROOF of value-killability =
-  a concrete killing assertion. Produced by `find_witness` — which **skips "mutant newly
-  raises"** differences (a crash-kill does not pin value; see §9).
-- **`MutantVerdict` / `SurvivorReport`** (`equivalence.py`) — one survivor classified
-  (`killable`, `witness`, `diff_summary`) and the per-function roll-up (`.killable` /
-  `.equivalent` / `unclassified` / `manual_equivalent`). Disjoint buckets; completeness
-  reads them directly.
-- **`SourceExpr`** (`equivalence.py`) — a synthesized **non-literal** input (AST node /
-  built object): runs as its live `value`, renders as its constructor `expr` (via
-  `__repr__`), threads its `imports`. How AST/object inputs both *run* and *render*.
+**Measurement**
+- **`ScopeMap`** (`scope.py`) — *diagnose output.* `regime` (A tractable / B entangled), `specification`
+  (variants / pinned / unspecified / inert — *value*-pinned), `kill_quality` (`by_value_assertion` vs
+  `by_crash` + warning), `behavioral_dof`, `tests_discovered`, `test_routing`, `decompose_seams`
+  (structural extraction count — the STRUCTURAL half of "is this >1 thing"; regime B is the behavioral
+  half), `trace_truncated`. Produced by `scope_from_profiling` + `diagnose`.
+- **`FunctionBasis`** (`engine.py`) — the per-function reporting projection of a completed measurement:
+  obligations, the witnesses with their warrants (`basis_membership`), and `action` (complete | gap |
+  unresolved). `converge` and `audit` rebuild it with the real classified count. It is the honest
+  projection, not the loop's governor — that is `validity.normalize_validity`.
+- **`MeasurementValidity`** (`validity.py`) — the one authoritative answer to "may this measurement
+  support a certificate?", with the named reasons it may not (`measurement_cut_reasons`).
+- **`TestRegime`** (`regime.py`) — how the repository runs its tests: layout, suite `sys.path`,
+  `testpaths`, conftests and collisions, marker declaration, config file.
+
+**Survivors and synthesis**
+- **`Witness`** (`equivalence.py`) — a concrete input where original and mutant differ by a **value**. A
+  value-witness is PROOF of value-killability = a concrete killing assertion. `find_witness` skips
+  "mutant newly raises" differences (a crash does not pin value).
+- **`MutantVerdict` / `SurvivorReport`** (`equivalence.py`) — one survivor classified, and the
+  per-function roll-up: killable, equivalent (candidate), unclassified, manual equivalent, authored
+  fence, plus why the search could not run (`load_failed`, `inputs_expressible`). Disjoint buckets.
+- **`SourceExpr`** (`equivalence.py`) — a synthesized **non-literal** input: runs as its live `value`,
+  renders as its constructor `expr`, threads its `imports`.
 - **`ExecutableProperty`** (`synthesis/oracle_light.py`) — one test-to-be (`setup_code`,
   `assertion_code`, `needs_oracle`, `golden_case`). The unit the writer renders.
-- **`ConvergeResult`** (`converge.py`) — converge output: `functionally_complete`,
-  `line_complete`, `at_ceiling`, `survivor_report`, `missing_lines`, `redundant_tests`,
-  `minimal_test_count`, `universe_size`, `fast`, **`coverage_guarantee`** (the proven greedy
-  floor), `signature`/`param_names` (for the `--input` residual template), `written_path`,
+- **`GoldenCapture`** (`synthesis/characterization.py`) — a captured output with its provenance and the
+  effects observed while capturing (filesystem writes, environment reads, clock dependence).
+
+**Command results**
+- **`ConvergeResult`** (`converge.py`) — `functionally_complete`, `line_complete`, `at_ceiling`,
+  `survivor_report`, `missing_lines`, `redundant_tests`, `minimal_test_count`, `universe_size`,
+  `coverage_guarantee` (the proven greedy floor), the `--input` residual template, `written_path`,
   `wiring`. `.complete` = functionally ∧ line complete.
-- **`SuiteAudit`** (`audit.py`) — audit output: `mutant_complete`, `line_complete`,
-  `redundant_tests`, `failing_tests`, `killable_gaps`, `missing_lines`, `minimal_test_count`,
-  `candidate_equivalent`/`unclassified`/`manual_equivalent`, `.complete`,
-  `.complete_modulo_equivalent`, `.bloat`. EVERY emitted test list is scoped to THIS function's
-  suite (a test that kills one of its mutants or covers one of its lines) — the rule is stated
-  once in `audit_suite` as `suite` and every field derives from it. Wesker's baseline is
-  repo-wide, so an unscoped field silently reports other functions' tests as this one's:
-  `failing_tests` was that field, and it put 2126 unrelated names (56KB) into a one-function
-  report until it was bound by the same rule as its siblings.
-- **`Extraction` / `Decomposition` / `DecompositionApply`** (`decompose_apply.py`) — a
-  generated helper (`helper_name`, `params`, `returns`, `new_source`) and the outcome
-  (`applied`, `proposed`, `unsafe_blocks`, **`proof`** = the converge run, so the CLI can
+- **`SuiteAudit`** (`audit.py`) — `mutant_complete`, `line_complete`, `redundant_tests`, `failing_tests`,
+  `killable_gaps`, `missing_lines`, `minimal_test_count`, the candidate-equivalent / unclassified /
+  manual-equivalent counts, the origin census (`intent_tests`, `characterized_tests`,
+  `unattributed_tests`), and `function_basis`. EVERY emitted test list is scoped to THIS function's
+  suite — a test that kills one of its mutants or covers one of its lines.
+- **`Extraction` / `Decomposition` / `DecompositionApply`** (`decompose_apply.py`) — a generated helper and
+  the outcome (`applied`, `proposed`, `unsafe_blocks`, and **`proof`**, the converge run, so the CLI can
   surface the residual `--input` when it cannot prove).
-- **`EquivalenceFlag`** (`equivalents.py`) — a manual equivalence assertion keyed by
-  `func_key` + `sha256(diff)[:16]`; the diff embeds the code, so it is content-validated.
+- **`RewriteReceipt` / `RewriteVerification`** (`rewrite.py`) — the snapshot `receipt` takes and the
+  verdict `verify-rewrite` returns (PRESERVED / CHANGED / …, with differences and abstentions).
+
+**Human judgments and the style layer**
+- **`EquivalenceFlag`** (`equivalents.py`) — an equivalence or fence judgment keyed by `func_key` +
+  `sha256(diff)[:16]`; the diff embeds the code, so it is content-validated.
+- **`LineFlag`** (`line_flags.py`) — an uncovered line marked unreachable, keyed by statement identity so a
+  moved line is recognised and an orphaned one reported.
+- **`StyleJudgment`** (`judgments.py`) — the driver's LEAVE / PROCEED answer to an AMBIGUOUS region, tied
+  to the function digest and reopened when either moves.
+- **`RegionRead` / `Plan`** (`controller.py`), **`PlanAssembly`** (`plan.py`) — one region's style reading
+  and the priced, gated plan over a tree.
+- **`SurveyFinding`** (`survey.py), `ExtractionProposal` (`extract.py`), `Censor` /
+  `CensorLedgerEntry` (`censor.py`, `promotion_ledger.py`), `PairedBudgetRead` (`budget.py`)** — the
+  advisory commands' results.
 
 ---
 
 ## 4. Module map (responsibility · key functions)
 
+**Entry and dispatch**
+
 | Module | Responsibility | Key functions |
 |---|---|---|
-| `engine.py` | **THE Wesker adapter** + caching + witness classification + input synthesis | `profile`, `diagnose`, `classify_survivors`, `representative_site`, `_count_decompose_seams`, `_load_original` |
-| `verdict_cache.py` | **content-hashed profile cache** (§7) + purges Detective's own regeneratable state (§8) | `cache_key`, `params_suffix`, `get`, `put`, `purge`, `_to_json`/`_from_json`, `tests_fingerprint` |
-| `reachability.py` | **static test-impact scoping**: which test files could execute a target's lines, for the session's `paths` (§2a, §7). Conservative in ONE direction — any doubt returns `None` = collect everything | `reachable_test_paths`, `module_name` |
-| `scope.py` | reshape ProfilingResult → behavioral map | `scope_from_profiling` |
-| `equivalence.py` | classify survivor killable/equivalent BY EXECUTION; typing; SourceExpr | `find_witness`, `classify_survivor`, `_outcome`, `synth_ast_input`, `unwrap` |
-| `purity.py` | is-pure predicate (gates STATE + golden capture) | `is_pure`, `analyze_function` |
-| `call_sites.py` | recover inputs/types from how a fn is CALLED across the repo (static, literal args) | `discover_call_site_inputs`, `infer_param_types` |
-| `capture.py` | **runtime harvest** of REAL args from the covering tests when synthesis can't build a domain-object input (`sys.setprofile` on the target's code object) | `capture_call_inputs` |
-| `synthesis/{typed_synthesis,characterization,oracle_light,writer}.py` | make inputs, capture goldens, build properties, render pytest | `synthesize_value`, `capture_golden`, `golden_assert_line`, `generate_executable_property`, `render_module`, `individual_test_names` |
-| `converge.py` | **the closed loop**: diagnose→synth-sound→write→re-profile to the ceiling | `converge`, `property_holds`, `passes_to_complete`, `_golden_properties`, `_witness_property`, `_raises_witness_property` |
-| `certify.py` | one-shot synth (library API, no longer a CLI command) + pytest wiring | `certify`, `wire_pytest`, `verify_under_pytest`, `ensure_conftest` |
-| `minimize.py` | two-axis set cover (kill ∪ line) | `minimal_cover_2axis`, `redundant_2axis`, `missing_lines` |
-| `audit.py` | read-only assessment of an EXISTING suite | `audit_suite` |
+| `cli.py` | argument parsing, formatting and dispatch; wraps behavior commands in the live session; records every invocation. Also holds the pure decisions behind its own advice (which next action, which repair route) | `main`, `_build_parser`, `_run_live`, `_record_invocation`, `diagnose_next_action`, `converge_next_action`, `repair_measurement_route`, `measurement_block_route` |
+| `_contain.py` | command-level output containment and the aggregate-deadline arithmetic | `contained_stdout`, `remaining_budget_ms`, `budget_is_exhausted` |
+| `__init__.py`, `__main__.py`, `synthesis/__init__.py` | package metadata, `python -m Detective`, the synthesis package | — |
+
+**The engine seam and measurement**
+
+| Module | Responsibility | Key functions |
+|---|---|---|
+| `engine.py` | the Wesker adapter: profiling, target-first seeding, caching, witness classification, the function basis | `profile`, `diagnose`, `classify_survivors`, `function_basis`, `basis_membership`, `trace_tier` |
+| `verdict_cache.py` | content-hashed verdict cache for `profile()` (§7) + purges Detective's regeneratable state (§8) | `cache_key`, `get`, `put`, `proof_cache_admits`, `purge`, `engine_fingerprint` |
+| `validity.py` | one authoritative answer to "may this measurement support a certificate?" | `normalize_validity`, `measurement_cut_reasons`, `cut_reason_sentence` |
+| `regime.py` | testing-regime resolution — the ONE place that answers "how does this repo run its tests?"; the migration to a declarative setup | `resolve_regime`, `plan_migration`, `apply_migration` |
+| `reachability.py` | static test-impact scoping: which test files could execute a target's lines. Conservative in ONE direction — any doubt includes the file | `reachable_test_paths`, `within_declared_testpaths`, `module_name` |
+| `scope.py` | reshape a `ProfilingResult` into the behavioral map | `scope_from_profiling` |
+| `binding.py` | how a target is CALLED, and how a method's receiver is constructed | `classify_target`, `resolve_receiver_plan` |
+| `capabilities.py` | declared environment capabilities (`--clock`, `--env`) applied during capture and rendered into tests | `parse_env`, `apply_env`, `apply_clock`, `capability_identity` |
+| `purity.py` | does a function have observable side effects — and can it affect the world outside the process | `is_pure`, `analyze_function`, `world_effects`, `environment_reads` |
+| `capture.py` | runtime harvest of REAL argument tuples and return types from the covering tests | `capture_call_inputs`, `capture_return_types` |
+| `call_sites.py` | recover inputs and types from how a function is called across the repo | `discover_call_site_inputs`, `infer_param_types` |
+| `array_inputs.py` | bounded NumPy witnesses — candidates, never reachability proofs | `array_source`, `array_grid` |
+
+**The behavior layer (proof)**
+
+| Module | Responsibility | Key functions |
+|---|---|---|
+| `converge.py` | **the closed loop**: diagnose → synthesize sound properties → write → re-profile to the ceiling | `converge`, `property_holds`, `passes_to_complete`, `reproducibility_verdict`, `line_proof_basis` |
+| `audit.py` | read-only assessment of an EXISTING suite, and the CI gate | `audit_suite`, `audit_gate_exit`, `audit_check_failed` |
+| `decompose.py` | propose extraction candidates — **structure-gated**, not survivor-gated | `decompose`, `find_extraction_candidates`, `apply_disposition` |
+| `decompose_apply.py` | extract-function: converge (proof) → trial-apply → prove → apply | `extract_candidate`, `extract_block`, `decompose_outcome`, `decompose_exit` |
+| `certify.py` | the pytest wiring and the one write path for generated tests; generated-file ownership and edit detection | `wire_pytest`, `verify_under_pytest`, `ensure_marker_registered`, `generated_owner`, `witness_origin_of`, `certify` |
+| `certificates.py` | the converge verdict ledger — one recorded terminal verdict per (target, definition) | `record_certificate`, `load_certificate`, `certificate_refusal` |
+| `rewrite.py` | old-vs-new preservation gate for ARBITRARY rewrites | `make_receipt`, `verify_rewrite`, `rewrite_verdict`, `verify_rewrite_exit` |
+| `equivalence.py` | classify a survivor killable / equivalent-candidate BY EXECUTION; `--input` parsing; `SourceExpr` | `find_witness`, `classify_survivor`, `parse_input_expression`, `synth_ast_input` |
+| `equivalents.py` | persist and read equivalence and fence flags | `add_flag`, `load_flags`, `flag_key` |
+| `line_flags.py` | manual line-unreachability flags — the human oracle for the line ledger | `add_line_flag`, `flag_statuses`, `clean_orphaned_flags` |
+| `minimize.py` | minimal complete suites — two-axis set cover (kills ∪ lines) | `minimal_cover_2axis`, `redundant_2axis`, `missing_lines` |
 | `suite_edit.py` | apply confirmed test deletions | `apply_removals` |
-| `decompose.py` | propose extraction candidates — **STRUCTURE-gated** (not survivor-gated) | `decompose`, `find_extraction_candidates`, `compute_cognitive_complexity` |
-| `decompose_apply.py` | **extract-function**: converge (proof) → cluster → trial-apply → prove → apply | `apply_decomposition`, `extract_candidate` |
-| `equivalents.py` | persist/read manual equivalence flags | `add_flag`, `load_flags`, `flag_key` |
-| `cli.py` | arg parsing + formatting (`--version`, streaming narrative, minimal terse view + `--full`); wraps every command in the live session; **zero compute** | `main`, `_run_live`, `_run`, `_build_parser`, `_reachable_paths`, `_trace_budget`/`_trace_session_budget`, `_format_converge`/`_format_converge_terse`, `_final_banner`, `_plain_terms`, `_boundary_hint`, `_notify_stderr`, `_write_converge_report` |
-| `mcp_server.py` — **parked** (`parked/mcp/`) | optional MCP surface (`detective-mcp`, §5a): `diagnose`/`converge`/`decompose`/`audit`/`deep_context`, each inside a live session; **zero compute** | `build_server`, `_in_session`, `_rendered`, `_render_diagnose`/`_render_converge`/`_render_decompose`, `_ask_for_input`, `main` |
-| (Wesker) `memory_guard.py` | telemetry footer + the `.wesker/` half of `purge` | `telemetry`, `purge_caches` |
+| `pins.py` | generated properties remembered across runs, keyed by function digest | `function_digest`, `load`, `save` |
+| `samples.py` | remember the Zone-2 inputs a person supplied | `load`, `remember`, `merge` |
+| `adequacy.py` | adversarial adequacy benchmark for the decomposition transform | `run_adequacy`, `adequacy_bucket` |
+| `consumption.py` | is a pinned pure decision actually CONSUMED by production code | `consumption_disposition`, `declared_decisions` |
+| `synthesis/characterization.py` | characterization-backed golden captures, with effect blocking | `capture_golden`, `golden_assert_line`, `block_fs_writes` |
+| `synthesis/oracle_light.py` | oracle-light executable properties from survivors | `generate_executable_property`, `property_identity` |
+| `synthesis/typed_synthesis.py` | resolve a type annotation into a constructible test value | `synthesize_value` |
+| `synthesis/writer.py` | assemble properties into an idiomatic pytest module | `render_module`, `synthesize_test_module`, `individual_test_names` |
+
+**The style layer (advisory)**
+
+| Module | Responsibility | Key functions |
+|---|---|---|
+| `plan.py` | the plan — the controller's assembly over a tree; `plan`'s resolution and exit | `resolve_plan`, `assemble_plan`, `region_lenses`, `plan_exit` |
+| `controller.py` | orientation, interference, and the gated priced plan | `controller_verdict`, `admission_reason`, `plan_moves` |
+| `parsimony.py` | the SICP parsimony lenses — Detective-native, never a proof | `complexity_lens`, `cohesion_lens`, `seam_lens`, `overload_lens` |
+| `parsimony_map.py` | static repo / module / class parsimony map — the one repo-scale surface | `score_path`, `parsimony_plan`, `read_function` |
+| `templates.py` | the computation-shape template library — taste as recognition | `template_matches` |
+| `norms.py` | norms mining for the bank geometry | `norm_disposition`, `weighted_median` |
+| `budget.py` | deterministic cost reads (opcode counts) for `verify-rewrite --budget` | `paired_budget_read`, `growth_class`, `budget_verdict` |
+| `judgments.py` | the style judgment ledger | `record_style_judgment`, `judgment_standing` |
+| `survey.py` | static scan for pure decisions trapped behind an impure boundary | `survey_source`, `survey_disposition` |
+| `extract.py` | propose the pure decision to pull out of an impure shell | `extract_proposal`, `extract_readiness` |
+| `cognitive_complexity.py` | cognitive complexity (SonarSource model) | `compute_cognitive_complexity` |
+| `emission.py` | warranted cross-language emission — the `rewrite-in-<lang>` gate | `emission_disposition`, `run_c_gate` |
+
+**The negative layer, the operator, utilities**
+
+| Module | Responsibility | Key functions |
+|---|---|---|
+| `censor.py` | population-derived censors above per-function μ⁻ | `harvest_corpus_censors`, `censor_admissible`, `score_censor` |
+| `kappa.py` | κ (marginal coverage) over the code call graph | `build_call_graph`, `marginal_coverage` |
+| `promotion_ledger.py` | the corpus self-teaching ledger for censors | `corpus_fixpoint`, `load_ledger`, `save_ledger` |
+| `doctor.py` | what is blocking correct USE of the tool — setup, process, taste | `setup_disposition`, `process_disposition`, `taste_disposition`, `mix_product` |
+| `ledger.py` | the invocation ledger — what the operator did, so the process axis is decidable | `append`, `read_recent`, `spiral_disposition`, `prune` |
+| `atomic_store.py` | one atomic writer for every durable JSON store | `atomic_write_text` |
+
+The parked MCP server is not in the package; see §5a.
 
 ---
 
-## 5. The CLI — every command, fully explained
+## 5. The CLI — every command
 
-Shape: `detective <command> file.py::function [flags]`. `cli._run` splits the target,
-calls the library, prints a formatter; `cli.main` emits a `memory_guard.telemetry()` footer
-to **stderr**. `detective --version` reports the package version. Live mutation progress and
-the converge phase narrative also stream to **stderr**, so stdout stays clean for the result
-/ `--json` (and the terse `FINAL` banner stays the last stdout line). Common to most
-commands: `--project-root` (default `.`), `--json`. Commands: `converge`, `audit`,
-`decompose`, `diagnose`, `flag`, `purge` (`certify` is a library API, not a CLI command).
+Shape: `detective <command> [target] [flags]`. `cli.main` parses, dispatches from two tables —
+`_PATHLESS_COMMANDS` (taking an optional target or a path, dispatched before the `file::function` split)
+and `_TARGETED_COMMANDS` — prints a formatter, and appends the invocation to `.detective/ledger.jsonl`
+from a `finally` (`_record_invocation`, which never raises). Live progress and the phase narrative
+stream to **stderr**, so stdout stays clean for the result / `--json`, and the terse `FINAL` banner stays
+the last stdout line.
 
-**There is no parallelism, and there is no flag for it.** Every command runs serial. The
-fan-out was removed in 0.8.0 because it could not run: `main` wraps every command in the live
-session (`_run_live`), and a worker cannot re-bind the session's callables across a process
-spawn — so `profile` refused to fan out inside one, which is *always*. `--parallel` and
-`--serial` were measured to cost the same (5.04s vs 5.13s) and a forced `--parallel` on a
-37-mutant function spawned zero workers: two documented flags that could not reach the thing
-they named. The session baseline is paid once per session, so per-function cost is small; a
-worker would re-pay it in full.
+**Live or static.** `purge`, `regime`, `doctor`, `plan`, `parsimony`, `survey`, `extract` and `censor` are
+static (`_STATIC_COMMANDS`): no pytest session, no mutant. Every other command runs inside `_run_live`
+(§2a), and `flag --style` is static too. `_run_live`, `flag --style` and `plan`'s `file::function` form
+resolve the testing regime first and REFUSE on a conflict (a shadowed target, colliding conftests),
+printing the fix.
 
-### `diagnose file::fn`  — read-only
+**Serial, and there is no flag for parallelism.** *Why: [H7](docs/HISTORY.md#h7).*
+
+**Exit codes** — a verdict is also the exit status:
+
+| Code | Meaning |
+|---|---|
+| `0` | clean / success |
+| `1` | a real gap or typed REFUSAL — `audit --check` spec gap; `verify-rewrite` not PRESERVED; a collision / accounting refusal; `flag`: no such surviving mutant |
+| `2` | a conflict / precondition — regime conflict, wrong interpreter, a bad `--env`, or `audit --check-strict` measurement-incomplete; `plan`: no such function / nothing to read; `doctor`: a live setup fault |
+| `3` | INVALID MEASUREMENT, re-run — `converge` / `decompose` cut or stale target; a weak receipt baseline |
+
+### Setup
+
+#### `regime [file.py::function] [--migrate]` — static, read-only unless `--migrate`
+**Purpose:** show the testing regime every other command resolves: the layout, the `sys.path` the suite
+gets, the conftests pytest loads, whether the `detective` marker is declared, and — with a target — the
+dotted name the rest of the repo imports it by and whether that name means THIS file.
+**`--migrate`** applies the clean setup: declares the `detective` marker (and `pythonpath`, if a conftest
+Detective wrote was supplying it) in `pyproject.toml`, then removes that conftest. It only ever replaces
+Detective's own artifacts with their declarative equivalent; without the flag the plan is printed and
+nothing changes. *Why the marker lives in pyproject: [H12](docs/HISTORY.md#h12).*
+
+#### `doctor [target] [--green|--red|--yellow]` — static, advisory
+**Purpose:** diagnose the OPERATOR and the ENVIRONMENT, never the code — "why can I not proceed / what am
+I doing wrong". Three axes, mixed by default: **green** setup (the project or environment is malformed),
+**red** process (read from the invocation ledger: repeats, spirals, wrong order), **yellow** taste
+(nothing is broken, but something caps how much of the tool you reach). It interrogates the premise a
+true message rests on — `No module named 'funcy'` can be true while funcy is installed under another
+interpreter on the same machine.
+**Writes** nothing; runs no suite and never imports the target. **Exit** `2` when a setup fault is live,
+else `0`. Design: `docs/DOCTOR.md`.
+
+#### `purge [--prune [--yes]]` — static
+Deletes the regeneratable caches of **both** packages: Detective's `.detective/verdict_cache.json` and
+`.detective/reports/` (`verdict_cache.purge`) and Wesker's `.wesker/` reports and trace cache
+(`memory_guard.purge_caches`). Prints every path it removed. **Never** deletes generated tests,
+certificates, or anything a person authored (§8). `--prune` also deletes the invocation history
+(`.detective/ledger.jsonl`) and asks first; `--yes` skips the question for scripts. *Why both halves:
+[H9](docs/HISTORY.md#h9).*
+
+### Behavior (proof)
+
+Common flags: `--project-root` (default `.`), `--json`; on `diagnose` / `converge` / `decompose` /
+`audit` also `--verbose`, `--trace-budget SECONDS`, `--trace-session-budget SECONDS` and `--two-sign`;
+on `diagnose` / `converge` also `--include-shaped`.
+
+#### `diagnose file::fn` — live, read-only
 **Purpose:** show a function's behavioral scope and point at the right next command.
-**Operation:** `engine.diagnose` → `profile` → `scope_from_profiling`, plus a structural
-read (`_count_decompose_seams` = `find_extraction_candidates`). No writes.
-**You see:** regime (A/B); variants / value-pinned / unspecified / inert; kill quality
-(value-assertion vs crash, with a ⚠ if crash-dominated); a plain-language "what to run
-next"; and the **decompose guidance from two independent signals**:
-- regime B **and** a structural seam → **`★ LOOK HERE FIRST`** (both methods agree it's
-  really >1 thing — the high-value decompose target);
+**Operation:** `engine.diagnose` → `profile` → `scope_from_profiling`, plus a structural read
+(`_count_decompose_seams` = `find_extraction_candidates`). **You see:** regime (A/B); variants /
+value-pinned / unspecified / inert; kill quality (value-assertion vs crash, with a ⚠ if crash-dominated);
+the routing census; the parsimony consensus; the next command; and the **decompose guidance from two
+independent signals**:
+- regime B **and** a structural seam → **`★ LOOK HERE FIRST`** (both methods agree it is really more than
+  one thing);
 - regime B, no seam → "entangled but structurally one piece — `converge`, not decompose";
 - a seam but cohesive behavior → "clean seam exists — `decompose` is safe if you want it".
 
-### `converge file::fn [--write-dir tests] [--max-iterations N] [--fast] [--full] [--input "(…)"]`  — the flagship, writes tests
+#### `converge file::fn` — live, the flagship, writes tests
+Flags: `--write-dir DIR` (default `tests/detective`), `--max-iterations N` (default 3), `--fast`, `--full`,
+`--input TUPLE` (repeatable), `--clock EPOCH`, `--env NAME=value` (repeatable; `NAME-` declares it absent),
+`--receiver-factory MODULE:CALLABLE`, `--isolated`, `--deadline SECONDS` (default 300).
 **Purpose:** generate a **mutation-complete, line-complete, minimal** pytest suite.
 **Operation:**
-1. **Loop** (≤ N passes): `profile` → value-survivors → synthesize `ExecutableProperty`s
-   (oracle-light per survivor + golden captures for pure fns via `representative_site`);
-   keep only those that **hold on the unmutated fn** (`property_holds`); render the UNION
-   across passes (`render_module`) and write. Stop at 0 value-survivors / no progress.
-2. **Witness pass** (`classify_survivors`): for each *value*-witness, auto-write the
-   killing test — a golden for a value-returning original, a `pytest.raises` for a raising
-   one (`_raises_witness_property`). Auto-apply because a witness is deterministic proof.
-   When synthesis can't build an input, `classify_survivors` first **harvests a real one**
-   from the covering tests (`capture_call_inputs`) rather than abstain.
-3. **Final authoritative profile** → `functionally_complete`, line/minimal/redundant via
-   `minimize`, pytest wiring (`wire_pytest`).
-4. **Minimize before shipping:** drop any test WE generated that is redundant for BOTH
-   kills and lines (`redundant_2axis` + `individual_test_names` maps the finding back to its
-   property), re-render, re-profile — so the written suite IS minimal by construction, not
-   merely accompanied by removal proposals. A non-generation, not a deletion (never auto).
-**Modes:** default **comprehensive** (every mutant, first pass); `--fast` greedy-samples a
-`(1−1/e)`-optimal subset per category per pass. `--max-iterations` caps passes.
-**Output:** live phase narrative streams to stderr (`_notify_stderr`); the default stdout is
-a **minimal terse block** — a plain-language verdict, the one quick action, a report pointer,
-ending in a greppable `FINAL …` banner that is ALWAYS the last line. The full report is
-written to `.detective/reports/converge_<fn>.txt`; `--full` prints it to the terminal too.
-**You see (in the report / `--full`):** a COMPLETE/INCOMPLETE verdict (tiered: complete /
-complete-modulo-equivalent / incomplete, naming the concrete cause — killable residual or
-line gap); score + the **DOF stats flex** (universe · mode · measured % · proven greedy
-floor); per-pass survivors; the **spec-completeness ETA in passes** (or "structure exhausted
-— supply `--input`"); the written test file + wired `conftest.py`; and for any residual, the
-exact `--input "(<slots>)"` to supply — plus, for a BOUNDARY residual, the **distinguishing
-input named** (`_boundary_hint`: the equality edge, e.g. `supply an input where units == 100`).
-`--input` supplies that residual and re-runs to close the loop.
+1. **Loop** (≤ N passes): `profile` → value-survivors → synthesize `ExecutableProperty`s (oracle-light per
+   survivor + golden captures for pure functions); keep only those that **hold on the unmutated
+   function** (`property_holds`); render the union across passes and write. Stop at 0 value-survivors or
+   no progress.
+2. **Witness pass** (`classify_survivors`): for each value-witness, write the killing test — a golden for a
+   value-returning original, a `pytest.raises` for a raising one. When synthesis cannot build an input,
+   first **harvest a real one** from the covering tests (`capture_call_inputs`).
+3. **Final authoritative profile** → completeness, line / minimal / redundant via `minimize`, pytest
+   wiring (`wire_pytest`), and the reproducibility check.
+4. **Minimize before shipping:** drop any generated test redundant for BOTH kills and lines, re-render,
+   re-profile — the written suite IS minimal by construction. A non-generation, never a deletion of
+   yours.
 
-### `audit file::fn [--remove]`  — read-only (unless `--remove`)
+**Modes:** default **comprehensive**; `--fast` greedy-samples a `(1−1/e)`-optimal subset per category per
+pass. `--isolated` evaluates mutants in isolated workers, for use after a reproducibility refusal.
+**Writes:** the suite under `--write-dir` (each file's first line records a content digest, so a later
+human edit is detectable); the certificate in `<write-dir>/certificates.json`; pins in
+`.detective/pins.json`; supplied inputs in `.detective/inputs.json`; the full report in
+`.detective/reports/`. **You see:** a minimal terse block — a plain-language verdict, the one next action,
+a report pointer, ending in a greppable `FINAL …` banner; `--full` prints the report too. For any
+residual, the exact `--input "(<slots>)"` to supply — for a BOUNDARY residual, the distinguishing input
+named (`_boundary_hint`, e.g. `supply an input where units == 100`). **Exit** `3` on a cut or stale run.
+
+#### `audit file::fn` — live, read-only unless `--remove`
+Flags: `--remove`, `--check`, `--check-strict`, `--plan`.
 **Purpose:** assess an **existing** suite on both axes without changing it.
-**Operation:** one `profile` of the current suite → `redundant_2axis` (pointless tests) +
-`missing_lines` + `minimal_cover_2axis` + `classify_survivors` (killable gaps vs
-equivalents). **You see:** N existing tests; kills %; mutant-complete / line-complete
-(tiered, incl. "complete modulo N candidate-equivalent — flag to confirm"); the minimal
-cover + bloat; pointless tests to prune; killable gaps with the input that kills them;
-failing-test warnings; and `[audit reads only — writes nothing]`. `--remove` **confirms**
-deletion of the proposed pointless tests (`apply_removals`), then re-audits. Deletion is
-never automatic.
+**Operation:** one `profile` of the current suite → `redundant_2axis` + `missing_lines` +
+`minimal_cover_2axis` + `classify_survivors`. **You see:** the test count; kills; mutant-complete /
+line-complete (tiered, including "complete modulo N candidate-equivalent — flag to confirm"); the minimal
+cover and bloat; pointless tests to prune; killable gaps with the input that kills them; failing tests;
+the origin census. `--remove` **confirms** deletion of the proposed pointless tests (`apply_removals`),
+then re-audits; deletion is never automatic.
+**`--check`** is the CI gate: exit `1` on a real specification gap (a killable mutant not killed, a
+reachable uncovered line, a failing test). Unclassified, candidate-equivalent and crash-only survivors do
+not fail it. **`--check-strict`** also exits `2` when the measurement was incomplete and that is the only
+problem. **`--plan`** estimates the mutation cost without mutating.
 
-### `decompose file::fn [--apply] [--input "(…)"]`  — proves, then writes (with `--apply`)
-**Purpose:** extract a compound block into a helper, **provably behavior-preserving** and
-SICP-cleaner. **Operation** (`apply_decomposition`): (1) **converge** the target to a
-mutation-complete suite = the behavioral spec/proof; (2) **cluster** the body into clean
-extraction candidates (`find_extraction_candidates`: single-exit, small interface,
-cognitive-complexity ≥3) — this is **structure-gated**, independent of test coverage;
-(3) trial-apply each, re-run the suite, keep only what stays green (proof of preservation).
-The proof gate is **mutation-completeness** (not line-completeness) — and **Detective need
-not be the suite's author**: when converge writes nothing *because the pre-existing
-hand-written suite already kills every killable mutant* (the best case), the proof is those
-files. `_covering_test_files` resolves them from the `kill_matrix`, so only tests that
-provably killed a mutant OF THIS TARGET can stand as proof — never the whole discovered
-suite, which would let an unrelated passing test stand in. **You see:** `✓ APPLIED
-(specified behavior preserved, auto)` with the extracted helper + thinned caller — but only
-when the suite proved it. If converge could not reach mutation-completeness (a killable
-mutant synthesis couldn't reach — the genuine "semantic prior" case), it says so and
-surfaces the exact `decompose … --apply --input "(<slots>)"` to supply and close the loop.
-`--apply` writes the file; without it, proposals are shown, never written.
+#### `decompose file::fn [--apply]` — live, proves then writes
+Flags: `--apply`, `--input TUPLE` (repeatable), `--deadline SECONDS` (default 300).
+**Purpose:** extract a compound block into a helper, **provably behavior-preserving**. **Operation**
+(`apply_decomposition`): (1) **converge** the target to a mutation-complete suite — the proof; (2)
+**cluster** the body into extraction candidates (`find_extraction_candidates`: single-exit, small
+interface, cognitive complexity ≥3) — **structure-gated**, independent of test coverage; (3) trial-apply
+each, re-run the suite, keep only what stays green. The proof gate is **mutation-completeness**, and
+Detective need not be the suite's author: when the hand-written suite already kills every killable
+mutant, the proof is those files (`_covering_test_files`, resolved from the `kill_matrix`, so only tests
+that killed a mutant OF THIS TARGET can stand as proof). **You see:** `✓ APPLIED (specified behavior
+preserved, auto)` with the helper and the thinned caller — only when the suite proved it; otherwise the
+exact `decompose … --apply --input "(<slots>)"` that would close the loop. A cut proof is never applied.
+Without `--apply`, proposals are shown and nothing is written.
 
-### `flag file::fn MUTANT_ID [--note "why"]`  — manual oracle
-**Purpose:** assert a surviving mutant is truly equivalent (nothing can kill it).
-**Operation:** `profile` to find the survivor's `diff_summary` → `add_flag` →
-`.detective/equivalents.json`. Future `classify_survivors` treats it as
-`manual_equivalent`. **You see:** the survivor no longer counts as a gap. A later real
-witness overrides it (proof beats opinion). Content-keyed: a code change to that line
-invalidates the flag by design.
+#### `flag file::fn [MUTANT_ID]` — live (static with `--style`)
+Flags: `--note`, `--fence`, `--style` with `--leave` / `--proceed`.
+**Default:** assert a surviving mutant is truly equivalent → `.detective/equivalents.json`;
+`classify_survivors` then treats it as `manual_equivalent`. A later real witness overrides it (proof beats
+opinion), and a code change to that line invalidates the flag by design (content-keyed).
+**`--fence`:** the opposite — this survival is a bug, an authored MUST-NOT. Reported as an unenforced gap
+that fails `audit --check` and blocks ✓ COMPLETE.
+**`--style`:** record a STYLE judgment for a whole region — the driver's `--leave` / `--proceed` answer to
+an AMBIGUOUS `plan` row — in `.detective/judgments.json`. A separate ledger the behavior layer never
+reads; reopened when the function or its reading changes. Takes no mutant id.
+**Exit** `1` when there is no such surviving mutant.
 
-### `purge [--project-root .]`
-Delete regeneratable analysis cruft from **both** packages: `.wesker/*_report.json` (via
-`memory_guard.purge_caches`) **and** `.detective/verdict_cache.json` + `.detective/reports/`
-(via `verdict_cache.purge`). Never touches generated tests, `conftest.py`, or the two user-data
-files — `inputs.json` and `equivalents.json` (§8). Prints every path it removed; a purge that
-claims cleanliness it did not achieve is worse than none.
+#### `flag-line file::fn [LINE]` — live
+Flags: `--note`, `--list`, `--remove`, `--clean`.
+Mark an uncovered line as unreachable → `.detective/line_flags.json` (the line ledger only; it never
+touches the mutant verdict). `--list` shows the function's flags with current / orphaned status;
+`--remove` deletes one exact record; `--clean` deletes only confirmed-orphaned ones.
 
-`certify()` is no longer a CLI command (superseded by `converge`'s loop). It remains a
-library API (`from Detective import certify`) and its module still backs the pytest wiring
-(`wire_pytest`, `verify_under_pytest`) that `decompose` depends on — **and** `certify._write`, the
-one choke point every generated test passes through on its way to disk, which is why the live
-session's refresh (§2a) is published from there.
+#### `receipt file::fn [-o receipt.json]` — live
+Snapshot a function's specification BEFORE an arbitrary rewrite: its source (so the old implementation can
+run), its mutation-complete proof suite, its policy and operator universe. Converges the target first, so
+the recorded proof basis is real. Writes the receipt JSON to `-o` or stdout (`plan` suggests
+`.detective/receipts/<region>.json`). **Exit** `3` on a weak baseline.
+
+#### `verify-rewrite receipt.json file::fn` — live
+Flags: `--budget`, `--learn`.
+Check a rewritten function against the receipt: replay the original proof suite on the new source,
+profile the new source for behaviours the old proof never covered, and evaluate OLD and NEW at each
+distinguishing input — reporting equal / different / abstained rather than silently learning the new
+behaviour. **PRESERVED** only when all three hold; otherwise exit `1`. **`--budget`** also reads the
+rewrite's payoff in opcodes along a size ladder (refund · parity · regression · unmeasurable); the
+preservation verdict owns validity, and a PRESERVED rewrite whose budget could not be measured exits `3`.
+**`--learn`** sources censors from a rejected rewrite into `.detective/censors.json`.
+
+### Style (advisory)
+
+#### `plan TARGET` — static
+Flags: `--budget` (DOF-proxy units, default 500), `--top` (default 5), `--write-dir` (read for each region's
+behavior status, never written), `--full`, `--json`.
+**Purpose:** the style layer's entry verb — what a codebase's PINNED regions could safely become: priced,
+gated, every exclusion named. Over a directory or file it reads every region; over `file.py::function`
+it reads one (and resolves the testing regime for that form). Admissible moves are funded
+strongest-agreement-first, cheapest-first, until the budget is spent. Every count is a named code's
+tally, never a score. **Writes** only its report under `.detective/reports/`. **Exit** `0` for a completed
+read whatever it found, `2` for a precondition, never `1`.
+
+#### `parsimony PATH` — static
+Flags: `--top` (default 10), `--plan`, `--json`.
+Roll the AST-only parsimony lenses (complexity, cohesion, interface width, structural seam) over a file or
+directory: a clean-percent per module and class, and the worst offenders. `--plan` emits an ordered work
+queue (flagged functions grouped by module, worst first) instead of the map. Writes nothing.
+
+#### `survey PATH` — static
+Find functions that hide a pinnable PURE decision behind an impure boundary — an inexpressible parameter
+(ndarray / object / Any), a body entangled with I/O, or a pure function trapped in a module whose imports
+are a heavy stack — and name the extraction that would let `converge` reach it. Proposes; writes nothing.
+
+#### `extract file::fn` — static
+For a function `survey` flags, name the concrete extraction: a pure function over the primitive values the
+decision reads (the expressible parameters, plus scalars projected out of the inexpressible one).
+Propose-only: no `--apply`; apply it by hand, then `converge` the extracted function in isolation.
+
+#### `censor PATH` — static
+Flags: `--top` (default 20), `--promote`, `--list`, `--json`.
+Harvest population-derived censors across a corpus and rank them by κ. Read-only by default; `--promote`
+runs the corpus fixpoint and persists promoted censors to `.detective/censors.json`; `--list` shows that
+ledger. On clean data the result is conservatively empty by construction.
 
 ---
 
-## 5a. The MCP surface — parked (`parked/mcp/mcp_server.py`)
+## 5a. The MCP surface — parked
 
-**Parked 2026-09-13.** The server, its tests and the steps to restore it live in `parked/mcp/` (see
-its README); the `[mcp]` extra and the `detective-mcp` script are gone. What follows is the design
-record, kept for the rebuild.
-
-Five tools: `diagnose`, `converge`, `decompose`, `audit`, `deep_context`. Optional (`[mcp]`
-extra); `mcp` is imported lazily so the core stays Wesker + stdlib. Zero compute — each tool calls
-the same library the CLI does, inside the same live session (`_in_session` → `run_with_live_suite`,
-scoping included). It went without that wrap once, calling the library directly, and every verdict
-it returned on a fixture-driven repo was wrong in the tool's least honest direction: MORE
-unspecified behavior than exists.
-
-**It is not the CLI's text.** That was tried. `cli.py` renders every result correctly and
-completely *for a human*, and relaying it verbatim to an LLM failed — the same bytes, in full,
-went to stdout and were piped to `tail -3` unread. The CLI's rendering is a **theorem**: every
-clause as true as the engine can make it. This surface's output is a **prompt**: correctness is
-whether it is *effective*, not whether it is *true*, and it deliberately says things the CLI would
-not. Both objects are right; they answer to different criteria.
-
-| Choice | Why |
-|---|---|
-| **No score in the default view** | a ratio is the most reliable way to make an LLM caller reach outside the tool and grind. The numbers are real and correct — behind `full=True` / `deep_context`, where reading them is deliberate |
-| **The mutant kinds ARE shown** | the failure is symmetrical: too terse and the task reads as scut work to shortcut. The behavioral distinctions are the interesting *and* honest part |
-| **One next action, an imperative, never a menu** | not because the world is unambiguous — the equivalents fork is undecidable — but because the *caller's legal move set* is singular even when the epistemics are not |
-| **Flat prohibitions** ("more passes will not help") | strictly these overclaim. They are the load-bearing sentences |
-| **No `flag` tool, no `purge` tool** | `flag` is a human oracle on an undecidable question — the renderer routes it to the user instead. `purge` is a delete-state button, and handing one to a grinding caller invites "the number didn't move, purge and retry" |
-| **A header on every CLI-rendered report** | `full=True`/`deep_context` return the CLI's text, which says `--input "(…)"`, `--apply`, `detective flag …` — terminal syntax the caller cannot invoke. The header says: read the detail, ignore the imperatives |
-
-**The engine's epistemics are untouched — and that is checked, not assumed.** Nothing here
-re-decides a verdict, softens an UNPROVEN, or spends a crash kill to flatter a number. The
-renderers use **direct attribute access, never `getattr(obj, name, default)`**: a default silently
-absorbs a wrong field name, and this file did exactly that — it asked `SurvivorReport` for
-`candidate_equivalent` (the field is `equivalent`), got `()` forever, and reported *"the suite is
-complete, nothing to derive"* over nine UNPROVEN survivors. The engine had classified them
-honestly; the renderer promoted UNPROVEN to done. `trace_truncated` is surfaced first for the same
-reason: a completeness verdict resting quietly on a truncated measurement is the one failure this
-tool cannot afford, and a surface that drops the warning commits it while looking tidier.
+Parked 2026-09-13. The server, its tests, the steps to restore it, and its design record — why it
+rendered prompts for a model caller rather than the CLI's text — live in
+[`parked/mcp/README.md`](parked/mcp/README.md).
 
 ---
 
 ## 6. The synthesis stack (how inputs are made AND rendered)
 
-Witness search and golden capture both need inputs that (a) run the function and (b)
-render into a runnable test. Literals cover scalars/containers; `SourceExpr` bridges
-non-literals.
+Witness search and golden capture both need inputs that (a) run the function and (b) render into a
+runnable test. Literals cover scalars and containers; `SourceExpr` bridges non-literals.
 
 ```
 annotation ──_type_of──▶ type name
@@ -446,104 +638,96 @@ annotation ──_type_of──▶ type name
                                        tests pass (runtime harvest) → the honest last resort
 ```
 
-- **Harvest, don't fabricate.** When every synthesized candidate raises (a domain object no
-  grid builds), `capture_call_inputs` installs a `sys.setprofile` hook keyed to the target's
-  code object, runs the discovered covering tests, and records the actual bound arguments —
-  reusing a real input instead of guessing one. Fires lazily (only when the soundness gate
-  would otherwise abstain); the abstention stays the honest Zone-3 fallback when even the
-  tests don't exercise the DOF.
-- **Minimal by construction.** After the final profile, converge drops any test it generated
-  that is redundant for both kills and lines (`individual_test_names` maps a `redundant_2axis`
-  finding back to the property) and re-profiles — the written suite is the minimal cover, not
-  the full set plus removal proposals.
-
-- **Call sites** `unwrap(arg)` so a `SourceExpr` runs as its live value; **render sites**
-  use `repr(arg)` so `SourceExpr.__repr__` emits round-trippable constructor code, with
-  imports threaded into the test header.
-- **Assertion rendering** uses value-equality for set-containing outputs (repr order is
-  hash-seed-dependent → flaky) else exact repr-equality.
-- **Zone contract:** Zone-1 provable → auto-emit; **Zone-2** partial → the CLI emits the
-  exact `--input` residual, the human supplies *that value*, the AST builds the test;
-  Zone-3 can't-exercise → typed hand-off. The human never authors a test.
-
----
-
-## 7. Performance & memory (the layers that keep it fast and bounded)
-
-**Coverage-scoped test selection** (`run_function_profiling`, `scope_tests=True`): each
-mutant runs only against the tests that **execute its mutated line** (each mutant carries
-its `mutated_line` from the mutator fire site). Verdict-preserving — a test that never runs
-the mutated line cannot observe the mutation — and the dominant speedup (4–7× locally, more
-on large suites). Failing-baseline tests are folded into every scoped set so it stays
-exactly identical to a full run.
-
-**Content-hashed verdict cache** (`verdict_cache.py`, `.detective/verdict_cache.json`):
-`profile()` serves an unchanged function's result from disk. Key = `func_key : AST-dump-hash
-: tests-source-hash : max_per_category : pass_index : trace_budgets`. The AST hash is
-position-independent (editing *other* functions never invalidates this one); any edit to the
-function or its tests misses. A cache hit is byte-for-byte identical to a fresh run; only
-complete (non-budget-exhausted) runs cache.
-
-The **trace budgets are in the key** because they change the answer: a budget cuts the traced
-baseline, and what it cut lands in the result as `truncated` and as absent `line_coverage`. A key
-blind to them serves the tighter run's coverage to the looser one — which made the CLI's own
-remedy ("raise `--trace-budget` to measure them fully") unfollowable: you raised it and the cached
-under-count came back unchanged. Scoping is deliberately **not** in the key: scoped and full runs
-are proven verdict-identical, so `paths` cannot change what a result says.
-
-**The key is a positional contract with two readers** — `cache_key` builds it, `put` re-parses it
-for single-valid-copy (drop this function's entries for the same *question* whose content hash no
-longer matches, so the file stays bounded at one row per function/params). They must agree, so the
-field count lives in `_PARAM_FIELDS` beside the builder and `put` calls `params_suffix()` rather
-than slicing inline. Appending a field without that is not theoretical: it silently redefined the
-slice, and a `--fast` run evicted the comprehensive entry it should have sat beside.
-
-**No parallelism (removed in 0.8.0), and the deletion is the lesson.** `parallel.py` held a
-model-A fan-out, an adaptive probe, a shard merge, and a portable memory guarantee sizing the
-fleet by construction — ~200 lines, plus a private `Wesker.memory_guard._DEFAULT_WORKER_PEAK`
-import. None of it ran. `main` wraps every command in the live session, the session's callables
-cannot cross a process spawn, and `profile` therefore refused to fan out inside one — which is
-every CLI and MCP run. Proven, not inferred: `--parallel` (5.04s) and `--serial` (5.13s) cost
-the same, the 448-test suite made **0** calls to `parallel_profile`, and a *forced* `--parallel`
-on a 37-mutant function spawned **0** workers while returning the identical verdict.
-
-The apparatus was load-bearing only for itself. It existed because the baseline was
-suite-shaped and per-function cost looked large; once the baseline became a per-session
-constant, the cost it was built to amortise was already gone. The memory guarantee guarded a
-fleet that never existed. **Serial is not a regression here — it is what was always running.**
+- **Harvest, don't fabricate.** When every synthesized candidate raises (a domain object no grid builds),
+  `capture_call_inputs` installs a `sys.setprofile` hook keyed to the target's code object, runs the
+  covering tests, and records the actual bound arguments. It fires lazily, only when the soundness gate
+  would otherwise abstain.
+- **Never invent inputs for a function that escapes the process.** The search calls the target, and a str
+  grid contains `"a"`. For a function that visibly reaches outside the process (`purity.world_effects` —
+  file writes and modules such as `shutil`, `subprocess`, `socket`, `requests`, read from that function's
+  own body, not its helpers), only evidence reaches it: a real call site, a captured input, or your `--input`.
+- **Declared capabilities.** `--clock` and `--env` are applied while capturing and rendered into the
+  emitted test, which re-applies and restores them; an undeclared environment read stays refused.
+- **Receivers.** A method target is called through `binding.py`: a class that builds with no arguments is
+  constructed directly; otherwise `--receiver-factory` names a factory that builds a fresh receiver for
+  every capture and witness call, or the target is a named `needs-receiver` refusal.
+- **Minimal by construction.** After the final profile, converge drops any test it generated that is
+  redundant for both kills and lines and re-profiles.
+- **Call sites** `unwrap(arg)` so a `SourceExpr` runs as its live value; **render sites** use `repr(arg)`,
+  so `SourceExpr.__repr__` emits round-trippable constructor code, with imports threaded into the header.
+- **Assertion rendering** uses value-equality for set-containing outputs (repr order is hash-seed
+  dependent) and exact repr-equality otherwise.
+- **Zone contract:** Zone 1 provable → emitted automatically; **Zone 2** partial → the CLI emits the exact
+  `--input` residual, a person supplies *that value*, the AST builds the test; Zone 3 cannot be exercised →
+  a typed hand-off. The person never authors the generated test.
 
 ---
 
-## 8. Persisted state (what's on disk, who owns it)
+## 7. Caching and performance
 
-| Path | Owner | Regeneratable? | Purged by `purge`? |
+**Coverage-scoped test selection** (`run_function_profiling`, `scope_tests=True`): each mutant runs only
+against the tests that execute its mutated line. Verdict-preserving — a test that never runs the line
+cannot observe the mutation — and failing-baseline tests are folded into every scoped set so it stays
+identical to a full run.
+
+**Content-hashed verdict cache** (`verdict_cache.py`, `.detective/verdict_cache.json`). `profile()` serves
+an unchanged function's result from disk. The key (`cache_key`) is: function key · engine fingerprint
+(Detective's and Wesker's versions) · a hash of the function's AST dump · the tests' fingerprint ·
+`max_per_category` · pass index · the trace budgets that produced the answer · `:defer_shaped` when shaped
+tests were deferred · `:two_sign` for the two-sign contract · the testing-regime digest. The AST hash is
+position-independent: editing *other* functions never invalidates this one.
+- **Anything that can change the answer belongs in the key.** Budgets, deferral and the two-sign universe
+  each change what is measured. *Why: [H4](docs/HISTORY.md#h4).* Scoping is deliberately not in the key:
+  scoped and full runs are proven verdict-identical.
+- **Only a result that may support a certificate is stored** (`proof_cache_admits`, on the one normalized
+  validity), and the cache is bypassed entirely for isolated runs and when a live session's regime cannot
+  be observed.
+- **A cache hit is replayed, never fresh:** its trace rows are stamped `provenance="replayed"` on read, so
+  they may order work but never prove.
+- **The key has two readers** — `cache_key` builds it and `put` re-parses it for single-valid-copy — so the
+  field count lives in `_PARAM_FIELDS` and `put` calls `params_suffix()`. *Why:
+  [H8](docs/HISTORY.md#h8).*
+
+**The session baseline is paid once per session and built lazily** (`Wesker.engine.LazySessionBaseline`),
+and persisted across runs by Wesker's trace cache (`.wesker/trace_cache.json`). Per-function cost is then
+small, which is why there is no parallelism. *Why: [H7](docs/HISTORY.md#h7).*
+
+---
+
+## 8. Persisted state (what is on disk, who owns it)
+
+| Path | Written by | Kind | Removed by `purge`? |
 |---|---|---|---|
-| `tests/test_<fn>_synth.py` | Detective (product output) | yes | **never** — it is the product |
-| `conftest.py` (root) | Detective (pytest wiring) | yes | never |
-| `.detective/reports/converge_<fn>.txt` | Detective (full converge report; terminal stays terse) | yes | **yes** |
-| `.detective/verdict_cache.json` | Detective (profile cache) | yes | **yes** |
-| `.detective/equivalents.json` | **user** (manual flags) | **no** | **never** |
-| `.detective/inputs.json` | **user** (supplied `--input` samples — `samples.py`) | **no** | **never** |
-| `~/.detective/telemetry.json` | Detective (per-machine per-mutant EMA) | yes | no (machine-global, not project state) |
-| `.wesker/mutation_report.json`, `.wesker/mcdc_report.json` | Wesker | yes | yes (via `Wesker.memory_guard.purge_caches`) |
+| `tests/detective/test_*_synth.py` (`--write-dir`) | `converge`, through `certify._write` | the product; first line records a content digest | **never** |
+| `tests/detective/certificates.json` | `converge` | the product: one verdict per (target, definition), versioned with the suites | **never** |
+| `detective` marker in `pyproject.toml` | `regime --migrate` (`certify.ensure_marker_registered`) | configuration | never |
+| `.detective/reports/*.txt` | `converge`, `plan` and other reporting commands | regeneratable | **yes** |
+| `.detective/verdict_cache.json` | `engine.profile` | regeneratable | **yes** |
+| `.detective/pins.json` | `converge` | properties remembered per function digest, re-verified before reuse | no |
+| `.detective/equivalents.json` | `flag`, `flag --fence` | **human judgment** | **never** |
+| `.detective/inputs.json` | `converge --input` (`samples.merge`) | **human input** | **never** |
+| `.detective/line_flags.json` | `flag-line` | **human judgment** | **never** |
+| `.detective/judgments.json` | `flag --style` | **human judgment** | **never** |
+| `.detective/ledger.jsonl` | every invocation (`_record_invocation`) | evidence — a re-run cannot reproduce an earlier entry | only `purge --prune`, which asks first |
+| `.detective/censors.json` | `censor --promote`, `verify-rewrite --learn` | the promoted censor ledger | no |
+| `.detective/receipts/<region>.json` | `receipt -o`, at the path `plan` suggests | a deliberate pre-rewrite snapshot | never |
+| `~/.detective/telemetry.json` | `cli` | per-machine timing, not project state | no |
+| `.wesker/mutation_report.json`, `mcdc_report.json`, `trace_cache.json` | Wesker | regeneratable | **yes** (`Wesker.memory_guard.purge_caches`) |
 
-**`purge` spans BOTH packages, because neither can purge the other's.** `cli` calls
-`memory_guard.purge_caches` for `.wesker/` **and** `verdict_cache.purge` for `.detective/`. It
-used to delegate only to Wesker — written back when Wesker owned all the state — so it purged a
-file that (outside Wesker's own tests) is never written, missed the multi-MB one that is, and
-reported *"a clean state"* over it. A command that purges one of two caches while announcing
-cleanliness is worse than one that purges neither: the user acts on the claim.
+Commands that change your source: `decompose --apply` (the extracted helper), `audit --remove` (deletes the
+confirmed pointless tests), `regime --migrate` (`pyproject.toml`, and a conftest Detective wrote).
 
-**The user/regeneratable split is the invariant, not a nicety.** `inputs.json` and
-`equivalents.json` are the two things in the pipeline Detective **cannot derive** — the semantic
-prior synthesis provably could not build, and a human's equivalence judgement on an undecidable
-question. Purging them asks the person to redo the only irreducible work, which is the opposite of
-this command's purpose. Everything else here is rebuilt from current code on the next run, so
-purging can only ever cost time.
+**`purge` spans both packages**, because neither can purge the other's state. *Why:
+[H9](docs/HISTORY.md#h9).*
 
-**Cross-run RAM state: none.** The two ContextVars (`_LIVE_SUITE`, `_SESSION_BASELINE`) live in
-Wesker and exist only for the duration of one `run_with_live_suite` call; both are reset in its
-`finally`. The (parked) MCP server held nothing between calls — each tool opened its own session (§5a).
+**The human/regeneratable split is the invariant, not a nicety.** The four human files are the things in
+the pipeline Detective **cannot derive** — a semantic prior synthesis provably could not build, and a
+person's judgment on an undecidable question. Purging them asks the person to redo the only irreducible
+work. Everything purge removes is rebuilt from current code on the next run, so purging can only ever
+cost time.
+
+**Cross-run RAM state: none.** The two ContextVars (`_LIVE_SUITE`, `_SESSION_BASELINE`) live in Wesker,
+exist only for the duration of one `run_with_live_suite` call, and are reset in its `finally`.
 
 ---
 
@@ -551,98 +735,89 @@ Wesker and exist only for the duration of one `run_with_live_suite` call; both a
 
 | Symptom | Touch | Why |
 |---|---|---|
-| Kills all show as **crash**, "0 pinned" on a real fn | this is the crash-vs-value split — check the synthesized input actually RETURNS (not crashes) | `value_killed` counts assertion kills only; a crash-killed mutant is a value-survivor |
-| A mutant a value-assertion *should* kill stays a survivor | `Wesker.engine.evaluate_mutant` (value-precedence: assertion kill beats a crash kill; keep scanning past crash kills) | else a crash-killer that runs first stamps `killed_by=crash` and hides the value-kill |
-| `find_witness` suggests a crash input as "killable" | `equivalence.find_witness` (skips "mutant newly raises") | a crash-kill doesn't pin value; keep searching for a value-witness |
-| `decompose` says "no separable blocks" on a big fn | `decompose.find_extraction_candidates` gates (single-exit, ≤4in/≤2out, CC≥3) | flat/wide fns (dict-builders) have no small-interface block — correct, not a bug |
-| `decompose` won't prove a clearly-decomposable fn | `decompose_apply.apply_decomposition` proof gate = `functionally_complete` (NOT `line_complete`) | mutation-completeness is the proof; line-completeness is orthogonal |
-| `decompose` refuses a fn whose EXISTING suite already specifies it | `decompose_apply._covering_test_files` — the proof falls back to the hand-written covering files when converge writes nothing (`written_path` None ∧ `functionally_complete`) | the proof is mutation-completeness, not authorship; gating on "Detective wrote it" rejected the best case |
-| `decompose` says "not mutation-complete" but converge reports COMPLETE | `cli._format_decompose` — a complete suite that rejects the rewrite reads `REJECTED … PROVES this extraction changes behavior` | the three causes (no suite / incomplete suite / disproved) are distinct verdicts and must not share one message |
-| `decompose` can't prove & gives no way forward | `_format_decompose` residual block (reads `result.proof`) | surface the `--input` the internal converge computed |
-| `diagnose` says "decompose" but decompose finds nothing | `_format_scope` convergent signal (`regime B` **and** `decompose_seams`) | only flag decompose when a structural seam exists |
-| extracted helper carries the PARENT's docstring (and the parent loses its own) | `decompose.find_extraction_candidates` skips a leading docstring (`ast.get_docstring`) | a docstring belongs to the function, never to an extracted block |
-| converge writes a test its own audit then calls redundant | converge step 4 minimize (`redundant_2axis` + `writer.individual_test_names`) | ship the minimal cover, not the full set + removal proposals |
-| Cache serves a stale result | `verdict_cache.cache_key` | must hash fn-AST + tests-source + params + **trace budgets**; content, never path. Anything that can change the answer belongs in the key |
-| **The command prints NOTHING and exits 0** (in CI: an empty artifact, a green check) | `Wesker.engine._run_test_with_timeout` — `_abandon` + the unwind join must happen INSIDE the redirect | the baseline runs the target's own suite; a test over its cap is abandoned, and the abandoned frame unwinds through any `redirect_stdout` IT entered, reinstalling that buffer AFTER the engine restored the real one. `sys.stdout` is then a dead buffer for the rest of the PROCESS. Belt-and-braces: `ci._body` re-enters the streams around the baseline. **Not a crash — the analysis is correct and posted to a discarded buffer** |
-| `converge` reports a tiny kill count, calls itself Incomplete, and asks for inputs it does not need | `certify._write` → `Wesker.ci.refresh_live_suite` | the live session's collection is a SNAPSHOT; converge writes tests, re-profiles, and is handed a list predating its own work (measured: 18 killed on disk, 2 reported). The refresh must ALSO invalidate the `SessionBaseline` — refreshing the list alone changes what is *discovered*, not what is *run*, and the count stays exactly as wrong |
-| `--trace-budget` / `--trace-session-budget` change nothing | `cli._run_live` must pass them to `run_with_live_suite`, not only to `profile()` | on the live path the suite is traced inside the seam; the per-function path a session never uses was the only thing hearing the flag |
-| A warm cache is still slow (full trace before an instant answer) | `Wesker.engine.LazySessionBaseline` — the baseline must stay demand-driven | built eagerly it is the whole cost of a run, paid *outside* the region the cache protects, then dropped unread (Regenesis: 486s → 3.6s once lazy) |
-| `diagnose` on a big repo traces the whole suite for one small function | `cli._reachable_paths` → `reachability.reachable_test_paths` → the session's `paths` | scoping must happen at pytest COLLECTION, before anything is imported — `scope_tests` selection is derived FROM the trace, so it cannot save the trace |
-| (parked, §5a) An MCP tool reports "complete / nothing to derive" over UNPROVEN survivors | `mcp_server` — direct attribute access, never `getattr(obj, name, default)` | a default silently absorbs a wrong field name; `SurvivorReport.equivalent` was asked for as `candidate_equivalent` and returned `()` forever. A rename must break loudly, not promote UNPROVEN to done |
-| Generated test is **flaky** (set output) | `characterization.golden_assert_line` | set repr order is hash-seed-dependent → value-equality |
-| `verify_under_pytest` reports 0 passed for a passing suite | `certify.verify_under_pytest` | `-o addopts=` so the target's `-q` doesn't become `-qq` |
-| Survivor reads "uncertain — inputs don't exercise" | `engine._input_grids` / `representative_site` / `call_sites` / `capture.capture_call_inputs` (runtime harvest) | synthesis can't build a fitting value AND no covering test exercises it (domain-value / unannotated — §10) |
-| a BOUNDARY residual says "supply an input" but not WHICH | `cli._boundary_hint` names the equality edge (`left == right`) | a `>`↔`>=` shift differs exactly when operands are equal — the valid relation, not a generic template |
-| memory grows on a huge run | `run_function_profiling` mutant loop + `memory_guard.over_budget` | guard bounds accumulation |
+| Kills all show as **crash**, "0 pinned" on a real function | the crash-vs-value split — check the synthesized input actually RETURNS | `value_killed` counts assertion kills only; a crash-killed mutant is a value-survivor |
+| A mutant a value-assertion *should* kill stays a survivor | `Wesker.engine.evaluate_mutant` (value precedence: an assertion kill beats a crash kill; keep scanning past crash kills) | a crash-killer that runs first would stamp `killed_by=crash` and hide the value kill |
+| `find_witness` suggests a crash input as "killable" | `equivalence.find_witness` (skips "mutant newly raises") | a crash does not pin value |
+| `decompose` says "no separable blocks" on a big function | `decompose.find_extraction_candidates` gates (single-exit, ≤4 in / ≤2 out, CC ≥3) | flat, wide functions have no small-interface block — correct, not a bug |
+| `decompose` won't prove a clearly decomposable function | `decompose_apply.apply_decomposition` proof gate = `functionally_complete`, not `line_complete` | mutation-completeness is the proof |
+| `decompose` refuses a function whose EXISTING suite already specifies it | `decompose_apply._covering_test_files` | the proof is mutation-completeness, not authorship |
+| `decompose` says "not mutation-complete" but converge reports COMPLETE | `cli._format_decompose` — a complete suite that rejects the rewrite reads `REJECTED … PROVES this extraction changes behavior` | no suite / incomplete suite / disproved are distinct verdicts |
+| `decompose` cannot prove and gives no way forward | `_format_decompose` residual block (reads `result.proof`) | surface the `--input` the internal converge computed |
+| `diagnose` says "decompose" but decompose finds nothing | `_format_scope` convergent signal (regime B **and** `decompose_seams`) | only point at decompose when a structural seam exists |
+| An extracted helper carries the PARENT's docstring | `decompose.find_extraction_candidates` skips a leading docstring | a docstring belongs to the function, never to an extracted block |
+| converge writes a test its own audit then calls redundant | converge step 4 (`redundant_2axis` + `writer.individual_test_names`) | ship the minimal cover, not the full set + removal proposals |
+| The cache serves a stale result | `verdict_cache.cache_key` | anything that can change the answer belongs in the key (§7) |
+| **The command prints NOTHING and exits 0** | `Wesker.engine._run_test_with_timeout` — the abandon + unwind join must happen INSIDE the redirect; `ci._body` re-enters the streams | an abandoned test's frame can reinstall a dead stdout buffer. *Why: [H11](docs/HISTORY.md#h11)* |
+| `converge` reports a tiny kill count and asks for inputs it does not need | `certify._write` → `Wesker.ci.refresh_live_suite` | the session's collection is a snapshot; the refresh must also invalidate the `SessionBaseline`. *Why: [H5](docs/HISTORY.md#h5)* |
+| `--trace-budget` / `--trace-session-budget` change nothing | `cli._run_live` must pass them to `run_with_live_suite` | on the live path the suite is traced inside the seam. *Why: [H3](docs/HISTORY.md#h3)* |
+| A warm cache is still slow (a full trace before an instant answer) | `Wesker.engine.LazySessionBaseline` — keep the baseline demand-driven | built eagerly it is the whole cost of a run, paid outside the region the cache protects |
+| `diagnose` on a big repo traces the whole suite for one small function | `cli._reachable_paths` → `reachability.reachable_test_paths` → the session's `paths` | scoping must happen at pytest COLLECTION; `scope_tests` selection is derived from the trace and cannot save it |
+| Tests from an installed dependency are traced | `reachability.within_declared_testpaths`, `is_virtualenv_root` | pytest's declared `testpaths` is the authoritative boundary; no name list enumerates every virtualenv |
+| A generated test is **flaky** (set output) | `characterization.golden_assert_line` | set repr order is hash-seed dependent → value-equality |
+| `verify_under_pytest` reports 0 passed for a passing suite | `certify.verify_under_pytest` | `-o addopts=` so the target's `-q` does not become `-qq` |
+| A survivor reads "uncertain — inputs don't exercise" | `engine._input_grids` / `call_sites` / `capture.capture_call_inputs` | synthesis cannot build a fitting value AND no covering test exercises it (§10) |
+| A BOUNDARY residual says "supply an input" but not WHICH | `cli._boundary_hint` | a `>`↔`>=` shift differs exactly when the operands are equal |
+| Memory grows on a huge run | `run_function_profiling` mutant loop + `memory_guard.over_budget` | the guard bounds accumulation |
+| A generated file is reported as intent evidence | `certify.content_edited` / `witness_origin_of` | its body no longer matches the digest Detective recorded: a person edited it, so it is now intent (ℋ) |
 
 ---
 
-## 10. Known boundaries & open gaps (honest)
+## 10. Known boundaries and open gaps (honest)
 
-**Synthesis boundaries (the real limits behind most "uncertain"/"equivalent" verdicts).**
-Unannotated params fall back to `int` (after a call-site inference attempt); **domain-value
-inputs** (lookup keys, specific source strings, valid domain dicts) aren't synthesizable →
-they surface as a Zone-2 `--input` residual (the correct hand-back, not a defect); self-only
-methods have no receiver synthesis; integration fns (subprocess/file-IO) and engine-core
-(the profiler itself) can't self-profile. The fix is always richer input synthesis or a
-supplied `--input` / manual `flag` — **never a hand-written test**.
+**Synthesis boundaries (the real limits behind most "uncertain" / "equivalent" verdicts).** Unannotated
+parameters fall back to `int` (after a call-site inference attempt); **domain-value inputs** (lookup keys,
+specific source strings, valid domain dicts) are not synthesizable → they surface as a Zone-2 `--input`
+residual (the correct hand-back, not a defect); a method whose class cannot be built needs
+`--receiver-factory`; integration functions (subprocess / file I/O) and engine-core (the profiler itself)
+cannot self-profile. The fix is richer input synthesis or a supplied `--input` / `flag` — or, for a
+function that genuinely cannot be pinned, an ordinary unit test (§11).
 
-**Open / deferred (not blocking).** σ-based spec-completeness ETA (upgrade the "≈N passes"
-estimate to a paper-grounded model); occasional `converge` multi-pass progress cosmetics.
+**The decompose↔spec coupling (design, not bug).** A function converge can fully specify (pure, simple
+inputs) decomposes cleanly cold; one it cannot (dicts, methods) needs a supplied `--input` first — the tool
+surfaces exactly that input, and the loop closes **whenever the residual is expressible as a Python
+literal**.
 
-**The decompose↔spec coupling (design, not bug).** A function converge can fully specify
-(pure, simple inputs) decomposes cleanly cold; one it can't (dicts/methods) needs a supplied
-`--input` first — the tool surfaces exactly that input, and the loop closes **whenever the
-residual is expressible as a Python literal**.
-
-**Where the `--input` loop does NOT close (the scope of the hand-back).** `--input` is
-`ast.literal_eval` only — deliberately: no code execution (§6). So it can carry a scalar,
-container, dict or string, but *not an instance* — a `ProfilingResult`, a `SourceExpr`, any
-domain object. The residual is still printed for those (`--input "(<result>,)"`); it simply
-cannot be filled. The complement is `capture_call_inputs` (§6, "harvest, don't fabricate"),
-which reuses a REAL argument from the covering tests — so an object-parameter function is
-specifiable *iff some test already passes it one*. A cold function whose parameter is a
-domain object is reachable by neither, and that is the honest Zone-3 abstention, not a
-defect. Detective's own core is largely in this class (it passes `ProfilingResult` around),
-which is why `scope.py::scope_from_profiling` is its own top decompose candidate and still
-needs a covering test to harvest from.
+**Where the `--input` loop does NOT close.** `--input` parses literals only — deliberately: no code
+execution (§6). So it can carry a scalar, container, dict or string, but *not an instance* — a
+`ProfilingResult`, a `SourceExpr`, any domain object. The residual is still printed for those; it simply
+cannot be filled. The complement is `capture_call_inputs` (§6), which reuses a REAL argument from the
+covering tests — so an object-parameter function is specifiable *iff some test already passes it one*. A
+cold function whose parameter is a domain object is reachable by neither, and that is the honest Zone-3
+abstention, not a defect. Detective's own core is largely in this class (it passes `ProfilingResult`
+around), which is why its pure decisions are extracted into literal-typed functions and pinned separately.
 
 ---
 
 ## 11. Working on this codebase (the discipline)
 
-**Dogfood before AND after every function change** — profile with the literal `detective`
-(this *is* the product's intended workflow, not a checkbox):
+**Run the local pair.** Detective and Wesker are developed together and resolve through `PYTHONPATH`, the
+local checkouts, never the installed packages:
 
 ```
-PYTHONPATH=/Users/rohanvinaik/tools/Detective \
-  /Users/rohanvinaik/tools/Wesker/.venv/bin/python -m Detective.cli \
-  converge "PATH::FUNC" --project-root ROOT   # generates its tests AND tests the pipeline
+PYTHONPATH=/path/to/Detective:/path/to/Wesker \
+  python -m Detective.cli converge "PATH::FUNC" --project-root ROOT
 ```
 
-- **Serena for navigation** (symbol graph, references) — not grep/name-matching; it is a
-  dev-time oracle, never a runtime dependency.
-- **Never hand-write** a test for a Detective/Wesker function — run `converge`; if it can't,
-  fix the *input generation* (§6) or supply the `--input` residual, don't hand-write.
-- **Bidirectional**: if dogfooding shows the bug is in Wesker, the fix goes in Wesker.
-- **Auto-apply principle**: deterministically-correct → auto; only-mostly-correct → propose
-  (show code); **deletion is never auto** (propose + confirm).
-- **Determinism is the product** (the audience is Sussman-lineage): any cache is
-  content-addressed, any run repeatable. Verify, don't assume — and verify a path RUNS before
-  optimising it (§7: a fan-out was tuned for releases without ever spawning a worker).
-- **The unit is ONE function's operators and ONE function's tests.** Both are static and free:
-  the mutant space is a property of THIS function's AST (`+` has a `-`, derived de novo, exactly),
-  and a green suite is a set of grounded facts you are GIVEN. Anything that aggregates across
-  functions is not a slow path, it is a different question. `diagnose --learn` was the standing
-  violation and was removed in 0.8.0: it accumulated per-category value-survival into a
-  project-wide `.wesker/mutation_report.json` and reported "which categories THIS project leaves
-  weak" — a statistical smear over unrelated functions, standing where an exact per-function
-  derivation already was. It changed no verdict; nothing branched on it, no test named it, and it
-  only ever ordered categories for a sampler this tool does not use by default. There is no such
-  object as "the mutant profile of a codebase" worth computing.
-- Engine-core / integration fns that can't self-profile are guarded by the unit suite — the
-  *only* exemption from the converge rule.
+- **Converge first, and write the intent test too.** A generated suite is a *characterization*: it pins
+  what the code does, so anything wrong today is pinned wrong. Every behaviour change therefore gets a
+  hand-written test stating the intended behaviour, alongside what `converge` generates. A function that
+  cannot be pinned (engine-core, integration, AST-object parameters — §10) is guarded by ordinary unit
+  tests, and says so in its test module.
+- **Extract the pure decision, then pin it.** A branch behind a parameter `--input` cannot express is
+  unreachable by synthesis; the response is never more inputs but a literal-typed function returning a
+  named string code, placed beside the impure function it serves.
+- **Serena for navigation** (symbol graph, references) — not grep or name-matching; a dev-time oracle,
+  never a runtime dependency.
+- **Bidirectional:** if dogfooding shows the bug is in Wesker, the fix goes in Wesker — and Detective's
+  suite is run against the local Wesker after any Wesker change.
+- **Auto-apply principle:** deterministically correct → automatic; only mostly correct → proposed (show the
+  code); **deletion is never automatic** (propose + confirm).
+- **Determinism is the product** (the audience is Sussman-lineage): any cache is content-addressed, any
+  run repeatable. Verify, don't assume — and verify a path RUNS before optimising it.
+- **The unit is ONE function's operators and ONE function's tests.** Both are static and free: the mutant
+  space is a property of THIS function's AST, and a green suite is a set of grounded facts you are GIVEN.
+  Anything that aggregates across functions is not a slow path, it is a different question. There is no
+  such object as "the mutant profile of a codebase" worth computing. *Why:
+  [H10](docs/HISTORY.md#h10).*
 
-Suites: Detective `python -m pytest` (3188 green, 2026-09-09) + Wesker (703 green), run with
-`PYTHONPATH` covering both repos. Counts drift; the discipline does not — if this line is stale
-again, it is the same defect the rest of this file is about. Push / PyPI publish are **user-only**.
+Run both suites with `PYTHONPATH` covering both repositories. Push and PyPI publishing are the maintainer's.
