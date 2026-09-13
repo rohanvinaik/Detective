@@ -1013,8 +1013,8 @@ def profile(
         if hit is not None:
             # A cached verdict is a real ProfilingResult; attach the basis fresh (the cache serializes
             # known fields, not this Detective-side object) so a warm run reads it too (#X4).
-            hit.measurement_basis = ck
-            hit.profile_extra_test_dirs = extra_test_dirs
+            hit.measurement_basis = ck  # ty: ignore[unresolved-attribute]
+            hit.profile_extra_test_dirs = extra_test_dirs  # ty: ignore[unresolved-attribute]
             return _attach_function_basis(hit, root, node)
 
     # Pass the live target so Wesker seeds the mutant namespace from its
@@ -1170,7 +1170,7 @@ def profile(
         # convention as test_routing / function_basis — so classify_survivors can regenerate the
         # SAME content-addressed OUTPUT mutants (its by_id) that it must witness-search. Absent on a
         # cache hit (which returns before the capture above); classify re-captures as the fallback.
-        result.observed_return_types = _prof_kwargs.get("observed_return_types")  # type: ignore[attr-defined]
+        result.observed_return_types = _prof_kwargs.get("observed_return_types")  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     # Collection completeness (the "degrade loudly" enforcement for the test FLOOR). Tests that failed
     # to COLLECT (an import error — a torch dep, a broken conftest) are silently absent from the routed
     # suite, so a mutant only their tests would kill reads as candidate-equivalent and the COMPLETE
@@ -1181,7 +1181,7 @@ def profile(
     # absent, correctly, because it re-collected nothing.
     from Wesker.pytest_discovery import last_collection_errors as _last_collection_errors
 
-    result.collection_errors = _last_collection_errors()  # type: ignore[attr-defined]
+    result.collection_errors = _last_collection_errors()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     # Only cache COMPLETE runs — a budget/memory-exhausted partial must not be served
     # later as if it were the whole profile.
     # Admit on the engine's OWN validity verdict, not a correlate of it (#60). `not
@@ -1197,8 +1197,10 @@ def profile(
     # answers drift. `admits_certificate` is absorbing and strictly stronger than the old
     # conjunction: a result the engine calls gateable but whose coverage depth is `cut` is now
     # refused here too, which is the "truncated depth cannot satisfy completeness" requirement.
-    result.measurement_basis = ck
-    result.profile_extra_test_dirs = extra_test_dirs
+    # Detective-side attributes, deliberately not ProfilingResult fields: the verdict cache stores the
+    # declared fields (`asdict`), and these describe THIS measurement, not the verdict it caches.
+    result.measurement_basis = ck  # ty: ignore[unresolved-attribute]
+    result.profile_extra_test_dirs = extra_test_dirs  # ty: ignore[unresolved-attribute]
     _validity = normalize_validity(result)
     if _cache_allowed and verdict_cache.proof_cache_admits(
         gateable=_validity.admits_certificate,
