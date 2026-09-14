@@ -10,6 +10,11 @@ all-crash kill pins that the code RUNS, not WHAT it returns.
 Clean-room port of LintGate's reshaper, consuming Wesker's real ``ProfilingResult``
 (and ``SamplingResult``) rather than an ad-hoc dict, and reading the engine's own
 per-category ``killed_by_assertion``/``killed_by_crash`` aggregates directly.
+
+References:
+    §9, D3, G7, X1, X4  docs/TEST_BASIS.md
+    D2                  docs/OPEN_ITEMS.md
+    R3                  docs/CORRECTNESS_REPAIRS_2026-09-08.md
 """
 
 from __future__ import annotations

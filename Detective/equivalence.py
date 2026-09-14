@@ -18,6 +18,10 @@ honest:
 This module is input-agnostic: the caller supplies the candidate inputs (which
 should include boundary values from the mutation diff, since that is exactly where
 a killable-but-surviving mutant hides).
+
+References:
+    §6, B0, Q8  docs/theory/NEGATIVE_SPECIFICATION.md
+    F2          docs/F2_RESIDUAL_TYPING.md
 """
 
 from __future__ import annotations

@@ -12,6 +12,9 @@ ignored and the contradiction surfaced).
 The store is USER DATA — manual judgments, not regeneratable analysis — so ``purge``
 must never delete it. It is keyed by ``func_key`` plus a hash of the mutation diff,
 so a flag applies exactly as long as that mutation still exists on the code.
+
+References:
+    §18, Q8  docs/theory/NEGATIVE_SPECIFICATION.md
 """
 
 from __future__ import annotations

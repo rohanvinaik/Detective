@@ -3,6 +3,18 @@
 Parse args, call the library, format the result. Example:
 
     detective converge ./module.py::function [--json]
+
+References:
+    §1.4, §2.3, §14, §15.4 · B2, C1, D5, G6, X1      docs/TEST_BASIS.md
+    §7, §14.2, §14.3, §14.5, §14.6, §14.7            docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md
+    §2, §3, §4, §7.2, §7.4                           docs/DOCTOR.md
+    §7.1                                             docs/INVOCATION_LEDGER.md
+    §6 (doors, the expressibility boundary), §9, Q8  docs/theory/NEGATIVE_SPECIFICATION.md
+    §0                                               ARCHITECTURE.md
+    F2                                               docs/F2_RESIDUAL_TYPING.md
+    R- and S-codes                                   docs/CORRECTNESS_REPAIRS_2026-09-08.md
+    W1                                               docs/OPEN_ITEMS.md
+    Finding A, D, E, F                               docs/dogfood/revalidation_2026-09-06.md
 """
 
 from __future__ import annotations

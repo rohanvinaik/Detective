@@ -35,6 +35,10 @@ the point — do not "clarify" these into `--setup/--process/--taste`):
     `--process` invites a model to fire it by pattern-match, whereas calling `--red` without the
     actual purposive context for why reads as an utterly ridiculous choice. The token that carries
     no meaning cannot lend false meaning to a guess.
+
+References:
+    § (unless another document is named)  docs/DOCTOR.md
+    R4, S13                               docs/CORRECTNESS_REPAIRS_2026-09-08.md
 """
 
 from __future__ import annotations

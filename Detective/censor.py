@@ -15,6 +15,9 @@ This module's PURE decisions (below) are the §14 well-definedness core — the 
 κ-gated propose rule — pinned in isolation. The κ SCORING transports from :mod:`Detective.kappa`
 (marginal coverage over the call graph). The impure SOURCING (harvesting near-misses) and the promotion
 LEDGER are separate, deferred layers; these decisions are what any of them must consult, computed not held.
+
+References:
+    §9, §14, §18, Q1  docs/theory/NEGATIVE_SPECIFICATION.md
 """
 
 from __future__ import annotations

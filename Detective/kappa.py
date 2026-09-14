@@ -11,6 +11,9 @@ cannot silently drift (the manifest-pinning discipline, one owner per quantity).
 :func:`build_call_graph` (the adapter) is code-specific here; the admissibility GUARD conjuncts
 (spine-sourced + retained-plurality, §14) and the full censor-promotion loop are deferred — this module
 is the graph + the κ engine + the fragmentation measurement (the C7 prediction), no promotion.
+
+References:
+    §14, §14.6 (Def. 14.6), §18, Q1, C7 (Appendix C)  docs/theory/NEGATIVE_SPECIFICATION.md
 """
 
 from __future__ import annotations

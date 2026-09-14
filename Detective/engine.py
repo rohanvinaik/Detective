@@ -1,12 +1,20 @@
-"""Wesker adapter — the only module that imports the engine.
+"""Wesker adapter — where Detective profiles a function through the engine.
 
 Resolves a target function, discovers its tests through Wesker's pytest-aware
 collection (which binds ``@parametrize`` cases into runnable callables), profiles
-it, and hands the ``ProfilingResult`` to :mod:`Detective.scope`. Everything the
-rest of the package sees is a Detective type; Wesker stays behind this seam.
+it, and hands the ``ProfilingResult`` to :mod:`Detective.scope`. The profile call,
+target-first seeding and the verdict cache go through here; other modules import only
+the narrower Wesker helpers they need (the live-session seam, test discovery, mutant
+generation — ARCHITECTURE.md §2a).
 
 Mirrors Wesker's own single-function wiring (``ci.profile_function``) but calls
 ``run_function_profiling`` directly so scope receives a typed result object.
+
+References:
+    §1.2, §1.3, §2.1, §2.3, §4.6, §6 (identity), §9, §14  docs/TEST_BASIS.md
+    D1–D3, D5, E1, F0, G3, G4, X3, X4                     docs/TEST_BASIS.md
+    §6 (bands, doors), Def. 1.4, B0–B3, Fork 2, Q8        docs/theory/NEGATIVE_SPECIFICATION.md
+    §10                                                   ARCHITECTURE.md
 """
 
 from __future__ import annotations

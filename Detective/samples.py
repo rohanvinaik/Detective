@@ -13,6 +13,9 @@ freshly supplied on the CLI, so supplying more only ever adds knowledge.
 
 Literal-only, matching `--input` itself: what is written here round-trips through
 ``ast.literal_eval``, so the file can never smuggle code into a later run.
+
+References:
+    §8, §10  ARCHITECTURE.md
 """
 
 from __future__ import annotations

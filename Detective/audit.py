@@ -17,6 +17,11 @@ matrix (which test covers which line). From those it reports, read-only:
 
 Writing (augmenting the suite with generated tests, applying confirmed deletions)
 is a separate, explicit step — audit only observes.
+
+References:
+    §2.3, §9, §15.4, D5, G6, X4  docs/TEST_BASIS.md
+    Q8                           docs/theory/NEGATIVE_SPECIFICATION.md §18
+    Finding E                    docs/dogfood/revalidation_2026-09-06.md
 """
 
 from __future__ import annotations

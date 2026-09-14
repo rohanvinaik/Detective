@@ -6,6 +6,11 @@ warrant-classed pytest test. Optionally write the synthesized module to disk.
 
 Driving to the ceiling is the caller's loop: certify -> write -> re-run tests ->
 certify again, until ``at_ceiling``.
+
+References:
+    §2.3, D5, G5, X5  docs/TEST_BASIS.md
+    §14.1             docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md
+    §8                ARCHITECTURE.md
 """
 
 from __future__ import annotations

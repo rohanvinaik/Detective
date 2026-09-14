@@ -14,6 +14,9 @@ promotion needs a corpus whose near-misses bridge otherwise-disjoint call cluste
 
 The PURE decisions below (the fixpoint gate, the halt, L_ind) are pinned in isolation. The persistence and
 the corpus loop are the impure shell around them — hand-tested for durability, never converge-pinned.
+
+References:
+    §14, §14.3 (Def. 14.3), §18, Q1, Q5, Q9, C7 (Appendix C)  docs/theory/NEGATIVE_SPECIFICATION.md
 """
 
 from __future__ import annotations

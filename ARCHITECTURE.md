@@ -93,15 +93,19 @@ GitHub issue. The rest, and where each is defined:
 | Code | Defined in |
 |---|---|
 | `§N` in the style-layer modules (`plan`, `controller`, `judgments`, `templates`, `budget`, `certificates`) · `Wave N` · `EXP-DS-NNN` | `docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md` |
-| `§N` in the basis and scoping modules (`engine`, `scope`, `reachability`, `regime`, `audit`) · `D1`–`D5`, `X1`–`X6`, `G1`–`G7` | `docs/TEST_BASIS.md` |
-| `§N` in the negative-specification modules (`censor`, `kappa`, `promotion_ledger`) · `Q1`–`Q8` (§18) · `Fork 1`/`Fork 2` (§11, Def. 11.10) | `docs/theory/NEGATIVE_SPECIFICATION.md` |
+| `§N` in the basis and scoping modules (`engine`, `scope`, `reachability`, `regime`, `audit`) · `D1`–`D5`, `E1`, `F0`, `X1`–`X6`, `G1`–`G7` | `docs/TEST_BASIS.md` |
+| `§N` in the negative-specification modules (`censor`, `kappa`, `promotion_ledger`) · `Q1`–`Q9` (§18) · `Fork 1`/`Fork 2` (§11, Def. 11.10) · `B0`–`B3` (the synthesis ladder) · `C7` (Appendix C) · `§14.3`/`§14.6` (Definitions 14.3/14.6) | `docs/theory/NEGATIVE_SPECIFICATION.md` |
 | `§N` in `doctor` / `ledger` | `docs/DOCTOR.md` / `docs/INVOCATION_LEDGER.md` |
-| `S`-codes | `docs/CORRECTNESS_REPAIRS_2026-09-08.md` |
+| `S`- and `R`-codes | `docs/CORRECTNESS_REPAIRS_2026-09-08.md` |
+| `F2` | `docs/F2_RESIDUAL_TYPING.md` |
 | `W`-codes | `docs/OPEN_ITEMS.md` |
 | `Finding A`–`F` | `docs/dogfood/revalidation_2026-09-06.md` |
 
-`§` numbers are per document, and a module that cites several documents does not always name which. A
-module that cites one document names it in its docstring, in a `Design:` or `References:` line. Two collisions to know:
+`§` numbers are per document, so every module that cites them names its documents in its docstring,
+in a `Design:` or `References:` line; where one module uses a number for two documents (`engine.py`'s
+`§6`), its legend says which is which. A few references resolve to no document in this repository:
+`kappa.py`'s `§13`, `§16.5` in `cli.py` and `promotion_ledger.py`, `audit.py`'s `§16`, and `A2` in
+`cli.py`. Two collisions to know:
 `OPEN_ITEMS.md` reuses `D`-numbers for different items than `TEST_BASIS.md`, and both `TEST_BASIS.md`
 and `NEGATIVE_SPECIFICATION.md` use `B`-numbers.
 

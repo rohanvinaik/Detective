@@ -12,6 +12,11 @@ Content-addressed, never path-addressed: an out-of-band edit changes the hash an
 invalidates the entry. Single-valid-copy: writing a new hash for a function purges its
 prior entries, so ``.detective/verdict_cache.json`` stays bounded (one row per
 function/params, not one per edit).
+
+References:
+    §2.1, D4  docs/TEST_BASIS.md
+    §14.1     docs/theory/deterministic_sicp/DETERMINISTIC_SICP.md
+    §8        ARCHITECTURE.md
 """
 
 from __future__ import annotations
