@@ -29,6 +29,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/capabilities.py::clock_covers": {
+    "cut_reasons": [],
+    "function_digest": "12801440d9fb6e27",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/capture.py::harvest_disposition": {
     "function_digest": "95d8889af8cf0ee5",
     "refusal": "",
