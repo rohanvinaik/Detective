@@ -490,7 +490,7 @@ def _skip(category: str, setup: str, message: str, confidence: float) -> Executa
 
 def _extract_boundary_info(diff: str) -> dict[str, Any] | None:
     for orig, _ in _parse_diff_changes(diff):
-        m = re.search(r"(\w+)\s*([<>]=?)\s*(\d+(?:\.\d+)?)", orig)
+        m = re.search(r"\b(\w++)\s*+([<>]=?)\s*+(\d++(?:\.\d++)?)", orig)
         if m:
             val = m.group(3)
             return {
@@ -531,7 +531,7 @@ def _extract_self_attr(diff: str) -> str | None:
 def _extract_assign_rhs(diff: str, params: list[str]) -> tuple[str, str] | None:
     """Extract a ``self.attr = rhs`` RHS when it's a param or a literal."""
     for orig, _ in _parse_diff_changes(diff):
-        m = re.match(r"self\.\w+\s*=\s*(.+)$", orig.strip())
+        m = re.match(r"self\.\w++\s*+=\s*+(.+)$", orig.strip())
         if not m:
             continue
         rhs = m.group(1).strip()

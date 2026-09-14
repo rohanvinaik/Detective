@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convert KNOWABILITY.md -> a two-column IEEEtran submission .tex (tectonic-buildable)."""
 
-import re, sys
+import re
 
 SRC = "/Users/rohanvinaik/tools/Detective/docs/theory/operator_completeness/KNOWABILITY.md"
 OUT = "/Users/rohanvinaik/tools/Detective/docs/theory/operator_completeness/submission/knowability_ieee.tex"
@@ -108,7 +108,7 @@ def process_inline(line):
 
     def _mask(m):
         math.append(m.group(0))
-        return "\x00%d\x00" % (len(math) - 1)
+        return f"\x00{len(math) - 1}\x00"
 
     masked = re.sub(r"\$\$.+?\$\$|\$[^$]*\$", _mask, line)
     masked = inline_text(masked)
@@ -135,12 +135,12 @@ title = subtitle = ""
 abstract = []
 i = 0
 while i < len(raw):
-    l = raw[i]
-    if l.startswith("# "):
-        title = l[2:].strip()
-    elif l.startswith("## ") and not re.match(r"## \d", l) and not title == "" and subtitle == "":
-        subtitle = l[3:].strip()
-    elif l.strip() == "### Abstract":
+    ln = raw[i]
+    if ln.startswith("# "):
+        title = ln[2:].strip()
+    elif ln.startswith("## ") and not re.match(r"## \d", ln) and not title == "" and subtitle == "":
+        subtitle = ln[3:].strip()
+    elif ln.strip() == "### Abstract":
         i += 1
         while i < len(raw) and not raw[i].startswith("## "):
             if raw[i].strip() and raw[i].strip() != "---":
@@ -151,7 +151,7 @@ while i < len(raw):
 abstract_tex = process_inline(" ".join(a.strip() for a in abstract))
 
 # ---- body: from first "## 1." onward ----
-start = next(i for i, l in enumerate(raw) if re.match(r"## 1\.", l))
+start = next(i for i, ln in enumerate(raw) if re.match(r"## 1\.", ln))
 body = raw[start:]
 
 out = []
@@ -168,20 +168,20 @@ def flush_para(buf):
 
 para = []
 while i < n:
-    l = body[i]
-    s = l.rstrip()
+    ln = body[i]
+    s = ln.rstrip()
 
     # headings
-    m = re.match(r"^##\s+(\d+)\.\s+(.*)$", s)
+    m = re.match(r"^##\s++(\d++)\.\s++(\S.*)$", s)
     if m:
         flush_para(para)
-        out.append(r"\section{%s}" % process_inline(m.group(2)))
+        out.append(r"\section{" + process_inline(m.group(2)) + "}")
         i += 1
         continue
-    m = re.match(r"^###\s+([0-9.]+)\s+(.*)$", s)
+    m = re.match(r"^###\s++([0-9.]++)\s++(\S.*)$", s)
     if m:
         flush_para(para)
-        out.append(r"\subsection{%s}" % process_inline(m.group(2)))
+        out.append(r"\subsection{" + process_inline(m.group(2)) + "}")
         i += 1
         continue
 
@@ -192,7 +192,7 @@ while i < n:
         flush_para(para)
         if m:
             kind, num, ttl, rest = m.group(1), m.group(2), m.group(3), m.group(4)
-            head = "%s (%s)" % (num, ttl)
+            head = f"{num} ({ttl})"
         else:
             kind, num, rest = mnt.group(1), mnt.group(2), mnt.group(3)
             head = num
@@ -204,9 +204,9 @@ while i < n:
             buf.append(body[i])
             i += 1
         content = process_inline(" ".join(x.strip() for x in buf))
-        out.append(r"\begin{%s}[%s]" % (env, uni_only(head)))
+        out.append(r"\begin{" + env + "}[" + uni_only(head) + "]")
         out.append(content)
-        out.append(r"\end{%s}" % env)
+        out.append(r"\end{" + env + "}")
         out.append("")
         continue
 
@@ -342,19 +342,27 @@ lncs = open(
     "/Users/rohanvinaik/tools/Detective/docs/theory/operator_completeness/submission/paper_lncs.tex"
 ).read()
 bib = lncs[lncs.index(r"\begin{thebibliography}") : lncs.index(r"\end{thebibliography}")]
-extra = r"""
-\bibitem{kaminski}
-Kaminski, G., Ammann, P., Offutt, J.: Improving logic-based testing. Journal of Systems and Software 86(8), 2002--2012 (2013)
-
-\bibitem{wah}
-Wah, K.S.H.T.: An analysis of the coupling effect I: single test data. Science of Computer Programming 48(2--3), 119--161 (2003)
-
-\bibitem{alshahwan}
-Alshahwan, N., Harman, M.: Coverage and fault detection of the output-uniqueness test selection criteria. In: ISSTA 2014, pp. 181--192 (2014)
-
-\bibitem{schuler}
-Schuler, D., Zeller, A.: Checked coverage: an indicator for test quality. Software Testing, Verification and Reliability 23(7), 531--551 (2013)
-"""
+extra = "\n".join(
+    [
+        "",
+        r"\bibitem{kaminski}",
+        r"Kaminski, G., Ammann, P., Offutt, J.: Improving logic-based testing. "
+        r"Journal of Systems and Software 86(8), 2002--2012 (2013)",
+        "",
+        r"\bibitem{wah}",
+        r"Wah, K.S.H.T.: An analysis of the coupling effect I: single test data. "
+        r"Science of Computer Programming 48(2--3), 119--161 (2003)",
+        "",
+        r"\bibitem{alshahwan}",
+        r"Alshahwan, N., Harman, M.: Coverage and fault detection of the output-uniqueness test "
+        r"selection criteria. In: ISSTA 2014, pp. 181--192 (2014)",
+        "",
+        r"\bibitem{schuler}",
+        r"Schuler, D., Zeller, A.: Checked coverage: an indicator for test quality. "
+        r"Software Testing, Verification and Reliability 23(7), 531--551 (2013)",
+        "",
+    ]
+)
 bib = bib + extra + "\n"
 
 PREAMBLE = r"""\documentclass[conference]{IEEEtran}
@@ -401,4 +409,5 @@ doc += body_tex
 doc += "\n\n" + r"\FloatBarrier" + "\n\n" + bib + r"\end{thebibliography}" + "\n\\end{document}\n"
 
 open(OUT, "w").write(doc)
-print("wrote", OUT, "(%d lines)" % doc.count("\n"))
+n_lines = doc.count("\n")
+print("wrote", OUT, f"({n_lines} lines)")

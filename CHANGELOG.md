@@ -36,11 +36,17 @@ Requires **`Wesker>=1.1.1`** (see `dev/DEPENDENCY_FLOORS.md`).
 - pytest runs with warnings as errors. The 29 warnings that would have tripped it were fixed at their
   source, and the one exemption (`PluggyTeardownRaisedWarning`) is removed now that Wesker 1.1.1 fixes it.
 - `subprocess.run` calls state `check=`; ty 0.0.80 clean; ruff 0.16.7.
+- Two diff-parsing regexes in `synthesis/oracle_light.py` no longer backtrack super-linearly (possessive
+  quantifiers). Their matches are unchanged, checked against the old patterns on 207,381 generated inputs.
+- ruff passes over the whole tree, not only the package and tests: the paper's build script (whose output
+  is byte-identical) and the parked MCP tests. deptry is configured for the `Wesker` import name.
 
 ### Security
 
 - Workflows pin actions to commit SHAs, run with read-only tokens, do not persist checkout credentials,
   and are audited by zizmor; CodeQL on push, pull request and weekly; GitHub releases are Sigstore-signed.
+- CI installs with `uv sync --locked` and runs every later step with `--no-sync`, so nothing is resolved
+  or built after the install step; zizmor installs with `--no-build`.
 - `SECURITY.md` (private reporting through the Security tab) and `CONTRIBUTING.md`.
 
 ## 1.1.0 — 2026-09-11

@@ -257,6 +257,11 @@ extend-exclude = ["*.md"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.isort]
+# parked/mcp/tests import `Detective.mcp_server`, which no longer exists under Detective/, so ruff
+# cannot find it on disk and sorts it as third-party beside the first-party imports it belongs with.
+known-first-party = ["Detective"]
+
 [tool.ruff.lint.per-file-ignores]
 # Generated test files are machine-produced, not hand-maintained, so line length is
 # exempt: the synth suites (`test_*_synth.py`) carry a long auto-generated docstring
@@ -276,6 +281,20 @@ source = ["Detective"]
 relative_files = true
 branch = true
 omit = ["Detective/cli.py", "Detective/__main__.py", "Detective/__init__.py"]
+
+# deptry: declared dependencies against what the code imports.
+[tool.deptry]
+# parked/ holds the MCP server, whose `mcp` dependency was removed when it was parked.
+extend_exclude = ["parked"]
+
+[tool.deptry.package_module_name_map]
+# The distribution is `Wesker` and so is the import. deptry lowercases a name it cannot resolve
+# from an installed package, and would otherwise report `Wesker` as both missing and unused.
+Wesker = "Wesker"
+
+[tool.deptry.per_rule_ignores]
+# ruff is a runtime dependency used as a program (synthesis/writer._ruff_format), never imported.
+DEP002 = ["ruff"]
 
 # Point the type checker at the venv Detective actually runs in. Without it Wesker resolves
 # nowhere, so every `from Wesker...` reads as a missing import and EVERY call across that
