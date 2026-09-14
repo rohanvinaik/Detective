@@ -55,18 +55,19 @@ jobs:
         working-directory: Detective
         # --python overrides the repo .python-version pin so each cell resolves its own interpreter.
         # --locked installs exactly uv.lock and fails if pyproject.toml and the lock disagree. Every
-        # later step runs with --no-sync, so nothing is resolved, built or installed after this one.
+        # later step runs with --no-sync --no-build: nothing is resolved or installed after this step, and
+        # nothing could be built if something tried.
         run: uv sync --locked --python ${{ matrix.python-version }}
 
       - name: Lint
         working-directory: Detective
-        run: uv run --no-sync ruff check Detective/ tests/
+        run: uv run --no-sync --no-build ruff check Detective/ tests/
 
       - name: Format check
         working-directory: Detective
         # Whole-tree, not just Detective/ tests/ (#34): docs/theory/*.py drifted unformatted for a
         # release because the gate did not reach docs/. The declared format contract is the repo.
-        run: uv run --no-sync ruff format --check .
+        run: uv run --no-sync --no-build ruff format --check .
 
       - name: Test with coverage
         working-directory: Detective
@@ -76,7 +77,7 @@ jobs:
         # The `-q` that used to be here was REDUNDANT: pyproject's addopts already sets it, so this
         # ran as `-qq`, which suppresses pytest's summary line entirely. CI was not printing its own
         # test count (S16).
-        run: uv run --no-sync pytest tests/ --cov=Detective --cov-report=xml:coverage.xml -ra
+        run: uv run --no-sync --no-build pytest tests/ --cov=Detective --cov-report=xml:coverage.xml -ra
 
   package:
     # The artifact gate. One cell: an sdist's CONTENTS do not vary by OS or interpreter, so a

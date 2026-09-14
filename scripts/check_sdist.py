@@ -18,13 +18,16 @@ Usage::
 
     python3 scripts/check_sdist.py [dist/<name>-<version>.tar.gz]
 
+An argument must name an sdist in this repository's ``dist/``; anything else exits ``2``.
+
 Exit codes follow the CLI's vocabulary rather than pass/fail: ``0`` reproducible from the
 commit, ``1`` a measured defect, ``2`` the question could not be asked (no sdist built, not a
-git checkout) -- a refusal is not a pass.
+git checkout, an argument outside ``dist/``) -- a refusal is not a pass.
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tarfile
@@ -33,6 +36,11 @@ from pathlib import Path
 # Members the build backend synthesises rather than copying out of the tree. Anything else in
 # the sdist that git does not track came from the builder's working directory.
 GENERATED = frozenset({"PKG-INFO"})
+
+# An sdist FILE NAME: ordinary characters, no separator, ending in .tar.gz. The archive that is
+# opened is rebuilt from this match under the repository's own dist/, so the path reaching tarfile
+# is one this script constructed rather than one it was handed (SonarCloud pythonsecurity:S8707).
+_SDIST_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.tar\.gz")
 
 
 def _stem(name: str) -> str:
@@ -83,7 +91,16 @@ def sdist_verdict(members: list[str], tracked: list[str], generated: list[str]) 
 
 def main(argv: list[str]) -> int:
     root = Path(__file__).resolve().parent.parent
-    archives = [Path(argv[0])] if argv else sorted((root / "dist").glob("*.tar.gz"))
+    dist = root / "dist"
+    if argv:
+        given = Path(argv[0])
+        match = _SDIST_NAME.fullmatch(given.name)
+        if match is None or given.resolve().parent != dist.resolve():
+            print(f"check_sdist: expected an sdist in {dist}, got {argv[0]}", file=sys.stderr)
+            return 2
+        archives = [dist / match.group(0)]
+    else:
+        archives = sorted(dist.glob("*.tar.gz"))
     if not archives:
         print("check_sdist: no sdist found -- build one first (`uv build`)", file=sys.stderr)
         return 2

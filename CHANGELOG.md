@@ -45,8 +45,10 @@ Requires **`Wesker>=1.1.1`** (see `dev/DEPENDENCY_FLOORS.md`).
 
 - Workflows pin actions to commit SHAs, run with read-only tokens, do not persist checkout credentials,
   and are audited by zizmor; CodeQL on push, pull request and weekly; GitHub releases are Sigstore-signed.
-- CI installs with `uv sync --locked` and runs every later step with `--no-sync`, so nothing is resolved
-  or built after the install step; zizmor installs with `--no-build`.
+- CI installs with `uv sync --locked` and runs every later step with `--no-sync --no-build`, so nothing
+  is resolved, installed or built after the install step; zizmor installs with `--no-build`.
+- `scripts/check_sdist.py` opens only an sdist in the repository's own `dist/`, rebuilt from a matched
+  file name. Any other argument exits 2 rather than being opened as given.
 - `SECURITY.md` (private reporting through the Security tab) and `CONTRIBUTING.md`.
 
 ## 1.1.0 — 2026-09-11

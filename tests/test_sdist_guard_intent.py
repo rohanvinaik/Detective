@@ -150,3 +150,26 @@ def test_the_shipped_artifact_itself_passes():
     if not built:
         pytest.skip("no built sdist in dist/ — run `uv build --out-dir dist` first")
     assert check_sdist.main([str(built[-1])]) == 0
+
+
+def test_an_argument_outside_dist_is_refused_not_opened(tmp_path, capsys):
+    """The checker judges THIS repository's artifact, so it opens only an sdist in its own ``dist/``.
+
+    The path it opens is rebuilt from a matched file name under ``dist/`` rather than taken as given
+    (SonarCloud pythonsecurity:S8707). A path elsewhere is exit 2, "could not ask", never a silent
+    check of some other file that happens to share the name.
+    """
+    elsewhere = tmp_path / "detective_spec-9.9.9.tar.gz"
+    elsewhere.write_bytes(b"")
+
+    assert check_sdist.main([str(elsewhere)]) == 2
+    assert "expected an sdist in" in capsys.readouterr().err
+
+
+def test_an_argument_that_is_not_an_sdist_name_is_refused(capsys):
+    """A name that is not ``<something>.tar.gz`` is refused before anything is opened."""
+    dist = _SCRIPT.parent.parent / "dist"
+
+    assert check_sdist.main([str(dist / "notes.txt")]) == 2
+    assert check_sdist.main([str(dist / ".." / "pyproject.toml")]) == 2
+    assert "expected an sdist in" in capsys.readouterr().err
