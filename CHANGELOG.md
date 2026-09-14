@@ -2,6 +2,47 @@
 
 Notable changes, newest first. Dates are the commit dates.
 
+## 1.1.1 — 2026-09-13
+
+Requires **`Wesker>=1.1.1`** (see `dev/DEPENDENCY_FLOORS.md`).
+
+### Removed
+
+- **The MCP surface is parked.** The `[mcp]` extra and the `detective-mcp` command are no longer in the
+  package; the server, its tests and the steps to restore it are in `parked/mcp/`. Nothing in the
+  `detective` CLI or the library API changes. Agents drive the CLI, whose every command names the next.
+  This removes an installable entry point in a patch release, which is why it leads this entry.
+
+### Generated tests
+
+- The header no longer points at a README section that no longer exists ("Generated tests & lint").
+- The warrant docstring no longer prints `(confidence N)`, a hand-set number per synthesis strategy that
+  nothing decided on. Suites already on disk keep both until `converge` regenerates them.
+
+### The CLI and its documentation
+
+- One "START HERE" (`detective regime`); `diagnose` and `plan` describe themselves as the first read for
+  a function and for style.
+- The README states that Detective runs the code it measures, and that a function which visibly reaches
+  outside the process gets no invented inputs.
+- `ARCHITECTURE.md` is a reference: every command, every module, a vocabulary, and where each reference
+  code in the source is defined. The incidents behind its rules moved to `docs/HISTORY.md`.
+
+### Correctness and hygiene
+
+- Wesker 1.1.1: the equivalence probe distinguishes argument positions, which changes `diagnose`'s inert
+  count (`total_equivalent`) on functions of three or more parameters; isolated workers no longer leak a
+  descriptor; the makereport wrapper no longer re-raises in its teardown.
+- pytest runs with warnings as errors. The 29 warnings that would have tripped it were fixed at their
+  source, and the one exemption (`PluggyTeardownRaisedWarning`) is removed now that Wesker 1.1.1 fixes it.
+- `subprocess.run` calls state `check=`; ty 0.0.80 clean; ruff 0.16.7.
+
+### Security
+
+- Workflows pin actions to commit SHAs, run with read-only tokens, do not persist checkout credentials,
+  and are audited by zizmor; CodeQL on push, pull request and weekly; GitHub releases are Sigstore-signed.
+- `SECURITY.md` (private reporting through the Security tab) and `CONTRIBUTING.md`.
+
 ## 1.1.0 — 2026-09-11
 
 Requires **`Wesker>=1.1.0`** — a silent-degrade floor, so it is worth reading `dev/DEPENDENCY_FLOORS.md`

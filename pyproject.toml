@@ -120,7 +120,7 @@ classifiers = [
 #   Wesker >= 0.6.0  stdout-buffer death: full report written to a dead buffer, exit 0
 #   pytest, ruff     RUNTIME deps: the product is a pytest file that must pass ruff format
 dependencies = [
-    "Wesker>=1.1.0",  # policy 7's argument-order `withheld` census count, which `converge` reads and `verify-rewrite` carries into the verdict — see dev/DEPENDENCY_FLOORS.md
+    "Wesker>=1.1.1",  # policy 7's `withheld` census (1.1.0), plus the equivalence-probe, descriptor and teardown fixes (1.1.1) — see dev/DEPENDENCY_FLOORS.md
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it
@@ -168,7 +168,7 @@ dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.16.7", "numpy>=1.24"]
 # `version` field exists to prevent; the floor has ONE home, which is the `dependencies` list above.
 #
 # The "does not enter the wheel" claim is checked, not assumed: the built METADATA declares
-# `wesker>=1.1.0` as a plain spec with no direct reference. A leaked git URL is the one thing PyPI
+# `wesker>=1.1.1` as a plain spec with no direct reference. A leaked git URL is the one thing PyPI
 # rejects outright, so it is worth re-checking whenever this block changes.
 [tool.uv.sources]
 Wesker = { git = "https://github.com/rohanvinaik/Wesker.git", branch = "main" }
@@ -238,12 +238,10 @@ python_functions = ["test_*"]
 addopts = "-q -ra --strict-markers --strict-config"
 xfail_strict = true
 log_level = "INFO"
-# Warnings fail the run, with ONE shown-not-fatal exception. PluggyTeardownRaisedWarning is what
-# pytest reports when Wesker's thread abandon (a deliberate BaseException injected into a runaway
-# test) unwinds through an old-style hookwrapper. It appears only when a time budget expires, so
-# making it fatal would turn a slow CI runner into a flaky one. The first sweep under `-W error`
-# (2026-09-13) found a real leaked pipe in Wesker's isolated worker — the reason for the rest.
-filterwarnings = ["error", "default::pluggy.PluggyTeardownRaisedWarning"]
+# Warnings fail the run. The first sweep under `-W error` (2026-09-13) found a real leaked pipe in
+# Wesker's isolated worker. The one exemption it needed, PluggyTeardownRaisedWarning (Wesker's
+# makereport wrapper re-raising an abandoned test's unwind in its teardown), went with Wesker 1.1.1.
+filterwarnings = ["error"]
 # Declared HERE, not in a generated conftest.py. Detective used to write a root conftest.py to
 # register this — which collided with tests/conftest.py (both import as module `conftest`), killed
 # Detective's own in-process live pytest session, and silently skipped every fixture-taking test.

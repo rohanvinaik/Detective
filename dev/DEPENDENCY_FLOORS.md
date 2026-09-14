@@ -252,3 +252,26 @@ refuses with POLICY_MOVED rather than replaying across the gap. Declaring the fl
 that refusal rare and legible instead of routine.
 
 Detective and Wesker ship 1.1.0 together for exactly this reason.
+
+---
+
+## Wesker >= 1.1.1
+
+A CORRECTNESS floor over three Wesker fixes, one of which changes a number Detective reports.
+
+- **The equivalence probe distinguishes argument positions.** Below 1.1.1, a function of three or more
+  parameters was probed only with rows that repeat one value in every position, so a SWAP mutant agreed
+  with the original everywhere and was counted equivalent. Detective reads that count directly —
+  `scope_from_profiling` sets `inert_freedom` from `ProfilingResult.total_equivalent` — so `diagnose`
+  over-reported inert freedom on exactly those functions. Nothing crashes below the floor; the number is
+  wrong.
+- **Isolated workers close their pipes on every path.** Below 1.1.1 a worker reaped or closed outside
+  `communicate()` leaked its descriptor, which surfaces as `ResourceWarning: unclosed file` inside the
+  live session, where a target repository that treats warnings as errors fails the run.
+- **The makereport wrapper no longer re-raises in its teardown.** Below 1.1.1 an abandoned test's
+  unwind produced `PluggyTeardownRaisedWarning`; Detective's own suite carried a filterwarnings
+  exemption for it, removed in the same release.
+
+Measured on this repository: against Wesker 1.0.0 (the stale lock pin this release replaces), three
+integration tests fail on the leaked descriptor; against 1.1.1 they pass. Detective and Wesker ship
+1.1.1 together for exactly this reason.

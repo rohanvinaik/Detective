@@ -5,8 +5,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform != 'win32'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version < '3.12' and sys_platform != 'win32'",
 ]
 
@@ -450,5 +450,5 @@ wheels = [
 
 [[package]]
 name = "wesker"
-version = "1.0.0"
-source = { git = "https://github.com/rohanvinaik/Wesker.git?branch=main#402a099d8154f4a58d975ae04f6a25a62fdb704b" }
+version = "1.1.1"
+source = { git = "https://github.com/rohanvinaik/Wesker.git?branch=main#108bb22efde2e5a38815acf79bbaa5e2e8d4ef1a" }
