@@ -2,7 +2,7 @@
 
 Notable changes, newest first. Dates are the commit dates.
 
-## 1.1.1 — 2026-09-13
+## 1.1.1 — 2026-09-14
 
 Requires **`Wesker>=1.1.1`** (see `dev/DEPENDENCY_FLOORS.md`).
 
