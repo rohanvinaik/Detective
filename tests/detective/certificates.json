@@ -174,6 +174,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/distinction.py::distinction_disposition": {
+    "cut_reasons": [],
+    "function_digest": "23a287f4c6c4b9c4",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/doctor.py::command_setup_fault": {
     "cut_reasons": [],
     "function_digest": "d7f8d8d33869b69c",

@@ -90,7 +90,7 @@ Status: `FIXED <sha>` in this pass · `FOUNDER` a design call, recommendation gi
 | **EP-C3** | L | `estimate_universe_size` 211 calls per converge (0.23 s); `_patch_module_qualified` scans all of `sys.modules` for every mutant (372 scans, 0.23 s) though the set of namespaces holding the target does not change between mutants. | OPEN |
 | **EP-C4** | H (dev) | **Harness fixed** (a session-scoped `PYTEST_DISABLE_PLUGIN_AUTOLOAD` in `tests/conftest.py`, restored at session end; the outer session's plugins unaffected): the standing invocation, miniconda 3.14 with every ambient plugin still installed, went from 25 failed / 3212 passed in 309.7 s to **3275 passed in 128.2 s** (with EP-B4). The environment recommendation below is still the founder's. Ambient pytest plugins in the dev interpreter. Outer-process instructions for one e2e test: `.venv` 3.11 1.05 G · miniconda no-plugins 1.45 G · all ambient plugins 4.77 G (codeflash-benchmark +2.09 G, logfire +1.52 G, jaxtyping +0.44 G, memray +0.26 G); wall 6.7 / 7.6 / 17.2 s. The same plugins make 25 tests red via process-global warnings state (pytest-asyncio 1.4.0's `pytest_configure` warns; the suite's `filterwarnings = ["error"]` turns that into an INTERNALERROR in the nested session). Remedy: Detective's own nested sessions under test must not depend on undeclared plugins; the interpreter that runs Detective should not carry toolkit plugins (the toolkit's own rule: declare tools in a project's dev extra). Product-side proposal: `detective regime` could disclose undeclared ambient plugins, since they change both speed and semantics. | OPEN / FOUNDER (env) |
 | **EP-C5** | — | Where native code would and would not help: measured cost is not in Python-level compute Detective owns. `compile` for 372 mutant evaluations: 0.03 s. Detective/Wesker AST work: < 1 MB allocation per call site. No Numba/Cython/Rust candidate exists until EP-C1–C3 are done and a re-measurement shows compute-bound hot loops. | — |
-| **EP-C6** | M (dev) | One test is 36% of the suite: `test_structural_search_b0_intent` 110.5 s on both interpreters (so intrinsic compute, not environment). The rest: ~3,230 tests ≈ 100 s. Profile it after EP-C1 (it converges internally, so C1 may already cut it). | OPEN |
+| **EP-C6** | M (dev) | One test is 36% of the suite: `test_structural_search_b0_intent` 110.5 s on both interpreters (so intrinsic compute, not environment). The rest: ~3,230 tests ≈ 100 s. Measured and fixed at the test level as **EP-H1** (it was the 5 s classifier timeout on non-terminating mutants, not C1's formatting). | see EP-H1 |
 
 ### D. Parallelism and hardware
 
@@ -123,12 +123,31 @@ theory calls decidable and missing, and it records claims for the founder to rul
 
 | Code | Sev | Finding | Status |
 |---|---|---|---|
-| **EP-G1** | M | Invariant 3 — "every consumer distinguishes all of a decision's codes" — is decidable over the reference graph and unbuilt (COMMUNICATING_DETERMINISM §3.2, §11). §MI and #60 were both instances found by hand. Build it as a standing guard beside `consumption.py`. | OPEN |
+| **EP-G1** | M | Invariant 3 — "every consumer distinguishes all of a decision's codes" — is decidable over the reference graph and unbuilt (COMMUNICATING_DETERMINISM §3.2, §11). §MI and #60 were both instances found by hand. **Built** as `Detective/distinction.py` (the gathering layer, AST only, and `distinction_disposition`, pinned) and the standing guard `tests/test_consumer_distinction_intent.py`, beside `consumption.py` and on its model: a registry entry takes a REASON, split BY_DESIGN / OPEN. Measured on the package: 98 of 171 declared decisions have a closed code set; they have 106 consumer sites: 36 distinguish every code, 45 forward the code on (read downstream, not followed), 25 merge two or more codes into one path, 0 compare against a code the decision cannot return. Of the 25, 17 are BY_DESIGN with the reason already written in the code (quoted) or the merged codes impossible at that call site (stated); **8 are OPEN** — see §2.G1 below. | FIXED (§5) · 8 OPEN for the founder |
 | **EP-G2** | M | The consumption guard covers functions, not FIELDS (§11): a computed field no reader reads (`capability_flags` for a wave) is invisible. Field-level consumption, with serialization-by-reflection (`asdict`, `to_json`) named as the known blind spot. | OPEN |
 | **EP-G3** | M | Invariant 7 — no `getattr(obj, name, default)` where a renamed field would be absorbed into a silent clean verdict — is unchecked. A string-literal attribute access is exactly what the reference graph cannot see; an AST query can. | OPEN |
 | **EP-G4** | M | Invariant 8 — "one derivation, N renderers" — is unchecked: detect a renderer that re-derives what a decision already computed. The SICP lineage question (compute once, hand to every consumer) applied to the surface. | OPEN |
 | **EP-G5** | L | `cli.py` is in `[tool.coverage.run] omit`, so its line coverage is unknown. A MEASUREMENT (never a gate): run coverage on it once and report which renderer branches no test reaches. | OPEN |
 | **EP-G6** | — | Claims for the founder, recorded, not changed: decompose's STOP block says "your source was NOT touched", and ARCHITECTURE §5 says a dry run "writes nothing"; during the run the trial IS written to the user's file and then restored (EP-A1). True of the end state, not of the run. | FOUNDER |
+
+**§2.G1 — the eight open sites** (each entry in `OPEN` carries the full reason; the question in each is the founder's):
+
+| Site | What the code documents | What the site does |
+|---|---|---|
+| `decompose_terminal` @ `cli._format_decompose` | "one code … never re-derived" | returns early for `applied`/`ready`/`no_suite` on the same facts BEFORE calling the decision (invariant 8) |
+| `parameter_scope` @ `cli._input_template` | truthiness is what hides the None/() conflation | reads `unknown` as `not param_names` after `none` returned (invariant 8) |
+| `regression_recovery` @ `converge._converge_impl` | three codes, one per recovery | asked once with `retried=False`; after the retry, ship vs restore re-reads `regressed` — the retried branch is pinned and never reached from production (invariant 8) |
+| `array_source_disposition` @ `array_inputs.array_source` | `nonfinite`, `unsupported_type` | passes `True, True`; finiteness re-derived inline after the decision; the gate that runs is unpinned (invariant 8) |
+| `learn_disposition` @ `cli._run_verify_rewrite` | the skips are distinct "so a reader sees WHY nothing was learned" | prints a line for `learn` only |
+| `rewrite_classification_status` @ `rewrite.verify_rewrite` | three reasons classification could not run | one bool, one sentence; the remedies differ (environment vs re-run) |
+| `signpost_disposition` @ `cli._signpost_rows` | `unknown_herb` is "NAMED, never admitted by fall-through" | falls through with `emit` into no signpost |
+| `value_portability` @ `emission.run_c_gate` | `numeric_model_risk` "COUNTED (the modulo qualifier)" vs `inexpressible` "named and deferred" | one `skipped` count |
+
+The first four are also EP-G4 instances (a second reading of facts a decision already computed), found by this guard's
+blind spot rather than by an EP-G4 check: a re-derivation reads as a collapse here. One more observation, recorded in the
+BY_DESIGN entry for `owned_obligation_disposition`: the decision's docstring says `unwitnessed` is "never invented into the
+receipt", while its one consumer's docstring keeps `unwitnessed` ("never dropped for missing attribution") — two of the
+founder's sentences that read as disagreeing.
 
 Census for orientation, not as a target: 169 top-level functions — 19 pinned decisions (689 lines), 33
 renderers (1,963), 18 verb handlers (1,377), the parser (668), 98 others (2,948). Size is not a defect
@@ -216,5 +235,6 @@ wall time is not comparable; the instruction counts in §2 are.
 | `6e7c2a4` | EP-B4 | `numeric_backend_name` (pure, pinned) split from the impure version read; the process-state golden removed | `numeric_backend_name` ✓ 29/32 modulo 7 + 9 crash-only |
 | `6959005` | EP-C4 | nested sessions and spawned CLIs load only declared plugins during the suite | standing invocation 3275 passed (was 25 failed); `.venv` 3265 passed |
 | `c8c3b82` | EP-A4, EP-A5 | the eight remaining writes of user-owned files go through `atomic_write_text`, which now fsyncs before the rename and reports errors against the caller's path | `tests/test_user_file_writes_atomic_intent.py` (4; the three behavioural ones FAIL on the previous code) · the unchanged `apply_migration` characterization |
-| (next) | EP-B2 | the capture harvests decline a profile hook they cannot hand back | `profile_hook_disposition` ✓ 3/3 · `tests/test_capture_foreign_profiler_intent.py` (3) · the real pyinstrument converge completes, verdict unchanged |
+| `2c40ebc` | EP-B2 | the capture harvests decline a profile hook they cannot hand back | `profile_hook_disposition` ✓ 3/3 · `tests/test_capture_foreign_profiler_intent.py` (3) · the real pyinstrument converge completes, verdict unchanged |
+| (next) | EP-G1 | `Detective/distinction.py` + `tests/test_consumer_distinction_intent.py`: invariant 3 as a standing guard; 17 BY_DESIGN with reasons, 8 OPEN | `distinction_disposition` ✓ 25/30 modulo 5 + 2 crash-only · the guard's gathering layer tested on 11 toy packages (the §3.2 `_TERMINAL_STANDINGS` shape among them) |
 | Wesker `49f7e91` | EP-C1 | the measurement session's items get a cheap `repr_failure` / `_repr_failure_py`; pytest's report construction otherwise untouched | SAME check through the real CLI: FINAL + generated suites + certificates byte-identical on two fixtures; instructions 27.85 G → 17.66 G (−37%) and 8.34 G → 7.47 G; B0 digests unchanged · Wesker `tests/test_cheap_failure_repr_intent.py` (4) · Wesker 894 passed · Detective 3267 passed in 95.3 s |

@@ -382,6 +382,7 @@ All in `Detective/`; frozen dataclasses unless noted.
 | `samples.py` | remember the Zone-2 inputs a person supplied | `load`, `remember`, `merge` |
 | `adequacy.py` | adversarial adequacy benchmark for the decomposition transform | `run_adequacy`, `adequacy_bucket` |
 | `consumption.py` | is a pinned pure decision actually CONSUMED by production code | `consumption_disposition`, `declared_decisions` |
+| `distinction.py` | does each consumer of a decision DISTINGUISH all of its codes (§9 invariant 3) | `distinction_disposition`, `consumer_reads` |
 | `synthesis/characterization.py` | characterization-backed golden captures, with effect blocking | `capture_golden`, `golden_assert_line`, `block_fs_writes` |
 | `synthesis/oracle_light.py` | oracle-light executable properties from survivors | `generate_executable_property`, `property_identity` |
 | `synthesis/typed_synthesis.py` | resolve a type annotation into a constructible test value | `synthesize_value` |
