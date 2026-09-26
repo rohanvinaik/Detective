@@ -312,6 +312,12 @@ venv = ".venv"
 [tool.pylint.format]
 max-line-length = 200
 
+[tool.pylint.classes]
+# pylint's default list (namedtuple's underscore-named public API) plus `_attributes`: `ast`'s node-class
+# metadata is public API with an underscore name in exactly the same way — `_fields` is already on the
+# default list, and `absorption.ast_node_fields` reads both.
+exclude-protected = ["_asdict", "_fields", "_replace", "_source", "_make", "os._exit", "_attributes"]
+
 [tool.pylint."messages control"]
 disable = [
     "C0114", "C0115", "C0116",  # missing docstrings — present where they matter
