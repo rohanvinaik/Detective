@@ -26,7 +26,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-from .atomic_store import atomic_write_text
+from .atomic_store import read_json_store, write_json_store
 
 JUDGMENTS_REL_PATH = os.path.join(".detective", "judgments.json")
 
@@ -109,29 +109,36 @@ def _path(root: str) -> str:
 def load_judgments(root: str) -> dict[str, StyleJudgment]:
     """Every persisted judgment, keyed by func_key. Empty (never an error) when the ledger is absent
     or unreadable; a malformed entry is skipped, never fatal — a missing oracle is no oracle."""
-    try:
-        with open(_path(root), encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(raw, dict):
-        return {}
+    raw, _found, _set_aside = read_json_store(_path(root))
     out: dict[str, StyleJudgment] = {}
     for key, value in raw.items():
-        try:
-            out[key] = StyleJudgment(**value)
-        except (TypeError, ValueError):
-            continue
+        judgment = _parsed_judgment(value)
+        if judgment is not None:
+            out[key] = judgment
     return out
+
+
+def _parsed_judgment(value: object) -> StyleJudgment | None:
+    """One stored entry as a judgment, or None when this version cannot read it (EP-A3b)."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        return StyleJudgment(**value)
+    except (TypeError, ValueError):
+        return None
 
 
 def save_judgments(root: str, judgments: dict[str, StyleJudgment]) -> None:
     """Persist the ledger atomically (#63): a judgment is irreducible human input; a mid-write crash
-    must not clobber the store into an empty file the next load silently accepts."""
-    path = _path(root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    must not clobber the store into an empty file the next load silently accepts. Guarded (EP-A3), and
+    an entry this version cannot parse is carried through rather than dropped (EP-A3b)."""
     payload = {key: asdict(j) for key, j in sorted(judgments.items())}
-    atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    write_json_store(
+        _path(root),
+        payload,
+        dumps=lambda p: json.dumps(p, indent=2, sort_keys=True) + "\n",
+        parses=lambda value: _parsed_judgment(value) is not None,
+    )
 
 
 def add_judgment(

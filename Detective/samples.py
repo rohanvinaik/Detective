@@ -45,13 +45,14 @@ def load(project_root: str, func_key: str) -> list[tuple]:
     gate is skipped, not executed: the store is a file on disk and is treated as
     untrusted input, exactly as a CLI argument is.
     """
-    try:
-        with open(_path(project_root), encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
+    from .atomic_store import read_json_store
+
+    data, _found, _set_aside = read_json_store(_path(project_root))
+    entries = data.get(func_key) or []
+    if not isinstance(entries, list):
         return []
     out: list[tuple] = []
-    for entry in data.get(func_key, []) or []:
+    for entry in entries:
         try:
             out.append(parse_input_expression(entry))
         except InputExpressionError:
@@ -61,19 +62,22 @@ def load(project_root: str, func_key: str) -> list[tuple]:
 
 def remember(project_root: str, func_key: str, inputs: list[tuple]) -> None:
     """Union ``inputs`` into the store for ``func_key``. Best-effort: failing to record a
-    sample must never fail the run that produced it."""
+    sample must never fail the run that produced it.
+
+    EP-A2: this store was written truncate-then-fill, and an unparseable file was read as ``{}`` and
+    written back holding ONLY this function's entry — one interruption plus one ``--input`` erased
+    every other function's supplied inputs, the one kind of state Detective says it cannot rebuild.
+    It now reads through the shared reader (a corrupt file is set aside, never overwritten) and
+    writes through the guarded atomic writer, like every other durable store (#63).
+    """
     if not inputs:
         return
-    path = _path(project_root)
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
+    from .atomic_store import read_json_store, write_json_store
 
-    existing = list(data.get(func_key, []) or [])
+    path = _path(project_root)
+    data, _found, _set_aside = read_json_store(path)
+    prior = data.get(func_key)
+    existing = list(prior) if isinstance(prior, list) else []
     seen = set(existing)
     for args in inputs:
         entry = repr(tuple(args))
@@ -82,9 +86,7 @@ def remember(project_root: str, func_key: str, inputs: list[tuple]) -> None:
             seen.add(entry)
     data[func_key] = existing
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2, sort_keys=True)
+        write_json_store(path, data, dumps=lambda p: json.dumps(p, indent=2, sort_keys=True))
     except OSError:
         return
 

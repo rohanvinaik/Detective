@@ -109,12 +109,11 @@ def _store_path(project_root: str) -> str:
 
 
 def _read(project_root: str) -> dict:
-    try:
-        with open(_store_path(project_root), encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    """The raw store map; a corrupt file is set aside rather than read as empty (EP-A3)."""
+    from .atomic_store import read_json_store
+
+    raw, _found, _set_aside = read_json_store(_store_path(project_root))
+    return raw
 
 
 def load(project_root: str, func_key: str, digest: str, verify=None) -> list[ExecutableProperty]:
@@ -168,10 +167,10 @@ def save(project_root: str, func_key: str, digest: str, props: list[ExecutablePr
         {f: (list(p.golden_case) if f == "golden_case" and p.golden_case else getattr(p, f)) for f in _FIELDS}
         for p in props
     ]
-    from .atomic_store import atomic_write_text
+    from .atomic_store import write_json_store
 
-    path = _store_path(project_root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     # Atomic replace (#63): a crash mid-write must not truncate a durable oracle into an empty file
     # the next load then overwrites. The pin store is human-adjacent proof state, not a cache.
-    atomic_write_text(path, json.dumps(raw, indent=2, sort_keys=True))
+    # Guarded (EP-A3): never written over bytes that could not be read. `raw` is the RAW map minus
+    # this function's stale digests, so every other entry is carried as stored already.
+    write_json_store(_store_path(project_root), raw, dumps=lambda p: json.dumps(p, indent=2, sort_keys=True))

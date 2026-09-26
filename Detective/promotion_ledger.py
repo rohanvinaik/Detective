@@ -114,38 +114,49 @@ def load_ledger(project_root: str) -> dict[str, CensorLedgerEntry]:
     """Every persisted ledger entry, keyed by :func:`ledger_key`. Empty (never an error) when the store is
     absent or unreadable — a missing ledger is simply no ledger, mirroring
     :func:`Detective.equivalents.load_flags`. A malformed entry is skipped, never fatal."""
-    try:
-        with open(_store_path(project_root), encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except (OSError, ValueError):
-        return {}
+    from .atomic_store import read_json_store
+
+    raw, _found, _set_aside = read_json_store(_store_path(project_root))
     out: dict[str, CensorLedgerEntry] = {}
     for key, value in raw.items():
-        try:
-            out[key] = CensorLedgerEntry(
-                censor=Censor(**value["censor"]),
-                kappa=value.get("kappa"),
-                state=value.get("state", "proposed"),
-                generation=value.get("generation", 0),
-            )
-        except (TypeError, ValueError, KeyError):
-            continue  # a malformed entry is skipped, never fatal
+        entry = _parsed_entry(value)
+        if entry is not None:
+            out[key] = entry  # a malformed entry is skipped here and carried by save_ledger (EP-A3b)
     return out
+
+
+def _parsed_entry(value: object) -> CensorLedgerEntry | None:
+    """One stored entry as a ledger entry, or None when this version cannot read it (EP-A3b)."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        return CensorLedgerEntry(
+            censor=Censor(**value["censor"]),
+            kappa=value.get("kappa"),
+            state=value.get("state", "proposed"),
+            generation=value.get("generation", 0),
+        )
+    except (TypeError, ValueError, KeyError):
+        return None
 
 
 def save_ledger(project_root: str, entries: dict[str, CensorLedgerEntry]) -> None:
     """Persist the censor ledger, creating ``.detective/`` if needed. Atomic replace (#63): a proposed
     censor is a corpus-derived artifact, and a mid-write crash must not clobber the store into an empty
     file the next load silently accepts."""
-    from .atomic_store import atomic_write_text
+    from .atomic_store import write_json_store
 
-    path = _store_path(project_root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     payload = {
         key: {"censor": asdict(e.censor), "kappa": e.kappa, "state": e.state, "generation": e.generation}
         for key, e in entries.items()
     }
-    atomic_write_text(path, json.dumps(payload, indent=2))
+    # Guarded (EP-A3), and an entry this version cannot parse is carried through (EP-A3b).
+    write_json_store(
+        _store_path(project_root),
+        payload,
+        dumps=lambda p: json.dumps(p, indent=2),
+        parses=lambda value: _parsed_entry(value) is not None,
+    )
 
 
 # ─── the corpus loop (impure — hand-tested, never converge-pinned) ───

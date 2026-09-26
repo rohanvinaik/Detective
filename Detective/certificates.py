@@ -41,7 +41,7 @@ from __future__ import annotations
 import json
 import os
 
-from .atomic_store import atomic_write_text
+from .atomic_store import read_json_store, write_json_store
 
 DEFAULT_WRITE_DIR = os.path.join("tests", "detective")  # converge's default suite location
 CERTIFICATES_FILENAME = "certificates.json"
@@ -109,12 +109,8 @@ def _path(root: str, write_dir: str) -> str:
 def _load_all(root: str, write_dir: str) -> dict:
     """Every entry, or ``{}`` — an unreadable or malformed ledger is no ledger, never an error that
     stops a converge or a plan."""
-    try:
-        with open(_path(root, write_dir), encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    data, _found, _set_aside = read_json_store(_path(root, write_dir))
+    return data
 
 
 def record_certificate(
@@ -152,11 +148,12 @@ def record_certificate(
     }
     path = _path(root, write_dir)
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        atomic_write_text(path, json.dumps(entries, indent=2, sort_keys=True) + "\n")
+        # Guarded (EP-A3): a ledger whose bytes could not be read is not replaced; that is a write
+        # that did not happen, and "" is this function's word for it.
+        code = write_json_store(path, entries, dumps=lambda p: json.dumps(p, indent=2, sort_keys=True) + "\n")
     except OSError:
         return ""
-    return path
+    return path if code == "write" else ""
 
 
 def load_certificate(root: str, func_key: str, write_dir: str = DEFAULT_WRITE_DIR) -> dict | None:

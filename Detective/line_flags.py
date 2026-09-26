@@ -127,29 +127,44 @@ def _store_path(project_root: str) -> str:
 
 def load_line_flags(project_root: str) -> dict[str, LineFlag]:
     """Every persisted line flag, keyed by :func:`stmt_identity`. Empty (never an
-    error) when the store is absent or unreadable — a missing oracle is no oracle."""
-    try:
-        with open(_store_path(project_root), encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except (OSError, ValueError):
-        return {}
+    error) when the store is absent or unreadable — a missing oracle is no oracle. A CORRUPT store is
+    set aside rather than read as empty (EP-A3); an entry this version cannot parse is skipped here
+    and carried by :func:`save_line_flags` (EP-A3b)."""
+    from .atomic_store import read_json_store
+
+    raw, _found, _set_aside = read_json_store(_store_path(project_root))
     flags: dict[str, LineFlag] = {}
     for key, value in raw.items():
-        try:
-            flags[key] = LineFlag(**value)
-        except (TypeError, ValueError):
-            continue  # a malformed entry is skipped, never fatal
+        flag = _parsed_line_flag(value)
+        if flag is not None:
+            flags[key] = flag
     return flags
 
 
-def save_line_flags(project_root: str, flags: dict[str, LineFlag]) -> None:
-    from .atomic_store import atomic_write_text
+def _parsed_line_flag(value: object) -> LineFlag | None:
+    """One stored entry as a line flag, or None when this version cannot read it (EP-A3b)."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        return LineFlag(**value)
+    except (TypeError, ValueError):
+        return None
 
-    path = _store_path(project_root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+def save_line_flags(project_root: str, flags: dict[str, LineFlag]) -> None:
+    from .atomic_store import write_json_store
+
     # Atomic replace (#63): a line-unreachability flag is an irreducible human judgement — a mid-write
     # crash must leave the prior store intact, never a half-written file the next load reads as empty.
-    atomic_write_text(path, json.dumps({key: asdict(flag) for key, flag in flags.items()}, indent=2))
+    # Guarded (EP-A3), and an entry this version cannot parse is carried through (EP-A3b). An entry
+    # a caller REMOVES is a parsed one (`--remove` / `--clean` act on what the loader returned), so
+    # carrying only the unparseable ones never resurrects a deliberate removal.
+    write_json_store(
+        _store_path(project_root),
+        {key: asdict(flag) for key, flag in flags.items()},
+        dumps=lambda p: json.dumps(p, indent=2),
+        parses=lambda value: _parsed_line_flag(value) is not None,
+    )
 
 
 def add_line_flag(

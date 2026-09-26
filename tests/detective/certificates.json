@@ -4,6 +4,18 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/atomic_store.py::store_read_disposition": {
+    "cut_reasons": [],
+    "function_digest": "dad11c45c66853a1",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/atomic_store.py::store_write_disposition": {
+    "cut_reasons": [],
+    "function_digest": "7dd509d7e64e8513",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/binding.py::classify_target": {
     "function_digest": "b23ec4f2f66218df",
     "refusal": "",

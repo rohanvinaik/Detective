@@ -52,31 +52,45 @@ def _store_path(project_root: str) -> str:
 
 def load_flags(project_root: str) -> dict[str, EquivalenceFlag]:
     """Every persisted flag, keyed by :func:`flag_key`. Empty (never an error) when
-    the store is absent or unreadable — a missing oracle is simply no oracle."""
-    try:
-        with open(_store_path(project_root), encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except (OSError, ValueError):
-        return {}
+    the store is absent or unreadable — a missing oracle is simply no oracle. A CORRUPT store is
+    set aside rather than read as empty (EP-A3), so the next flag cannot overwrite the judgments in
+    it; an entry this version cannot parse is skipped here and carried by :func:`save_flags`."""
+    from .atomic_store import read_json_store
+
+    raw, _found, _set_aside = read_json_store(_store_path(project_root))
     flags: dict[str, EquivalenceFlag] = {}
     for key, value in raw.items():
-        try:
-            flags[key] = EquivalenceFlag(**value)
-        except (TypeError, ValueError):
-            continue  # a malformed entry is skipped, never fatal
+        flag = _parsed_flag(value)
+        if flag is not None:
+            flags[key] = flag
     return flags
+
+
+def _parsed_flag(value: object) -> EquivalenceFlag | None:
+    """One stored entry as a flag, or None when this version cannot read it (EP-A3b)."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        return EquivalenceFlag(**value)
+    except (TypeError, ValueError):
+        return None
 
 
 def save_flags(project_root: str, flags: dict[str, EquivalenceFlag]) -> None:
     """Persist the flag store, creating ``.detective/`` if needed."""
-    from .atomic_store import atomic_write_text
+    from .atomic_store import write_json_store
 
-    path = _store_path(project_root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     payload = {key: asdict(flag) for key, flag in flags.items()}
     # Atomic replace (#63): an equivalence declaration is irreducible human input; a mid-write crash
     # must not clobber the store into an empty file the next load silently accepts and overwrites.
-    atomic_write_text(path, json.dumps(payload, indent=2))
+    # Guarded (EP-A3): never written over bytes that could not be read; and an entry this version
+    # cannot parse (malformed, or from a newer schema) is carried through, not dropped (EP-A3b).
+    write_json_store(
+        _store_path(project_root),
+        payload,
+        dumps=lambda p: json.dumps(p, indent=2),
+        parses=lambda value: _parsed_flag(value) is not None,
+    )
 
 
 def add_flag(
