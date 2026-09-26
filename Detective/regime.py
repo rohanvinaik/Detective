@@ -643,8 +643,9 @@ def apply_migration(
     if migration.create_config:
         path = os.path.join(migration.root, "pyproject.toml")
         if not os.path.exists(path):
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write("[tool.pytest.ini_options]\n")
+            from .atomic_store import atomic_write_text
+
+            atomic_write_text(path, "[tool.pytest.ini_options]\n")  # EP-A4: whole or not at all
             done.append("created pyproject.toml with [tool.pytest.ini_options]")
     # Resolve the ONE section pytest reads AFTER any create, and route EVERY declaration (marker AND
     # pythonpath) into it. pytest 9's native `[tool.pytest]` cannot coexist with `[tool.pytest.ini_options]`
@@ -688,8 +689,11 @@ def _declare_pythonpath(root: str, resolved: tuple[str, str, str] | None) -> boo
     else:
         updated = f'{source.rstrip()}\n\n{section}\npythonpath = ["."]\n'
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(updated)
+        from .atomic_store import atomic_write_text
+
+        # Atomic (EP-A4): this is the USER's pyproject.toml; an interrupted write must leave the
+        # original, never a truncated config.
+        atomic_write_text(path, updated)
     except OSError:
         return False
     return True

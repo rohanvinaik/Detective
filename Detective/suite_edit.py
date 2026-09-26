@@ -206,8 +206,11 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
                 removed.append(name)
                 touched = True
         if touched:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(source)
+            from .atomic_store import atomic_write_text
+
+            # Atomic (EP-A4): this is the USER's test file; an interrupted removal must leave the
+            # original file whole, never half a test module.
+            atomic_write_text(path, source)
             changed.append(path)
     # Keyed off REMOVED, not located: a name can locate to a file whose parse
     # then shows no such top-level def (a stale collection, a nested test). The

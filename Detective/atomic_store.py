@@ -60,7 +60,22 @@ def atomic_write_text(path: str | os.PathLike[str], text: str) -> None:
     p = Path(path)
     tmp = p.with_name(f"{p.name}.tmp-{os.getpid()}")
     try:
-        tmp.write_text(text, encoding="utf-8")
+        try:
+            fh = open(tmp, "w", encoding="utf-8")  # noqa: SIM115 — closed by the `with fh:` below
+        except OSError as exc:
+            # The staging file is an implementation detail with this process's pid in its name. An
+            # error about it must read as an error about the file the CALLER named: a message saying
+            # `pyproject.toml.tmp-60747` differs per process, so no caller, test or golden could rely
+            # on it — and it changed what the old truncate-then-fill write said (`pyproject.toml`).
+            # Caught by a generated characterization of `regime.apply_migration` (EP-A4).
+            raise type(exc)(exc.errno, exc.strerror, os.fspath(path)) from exc
+        with fh:
+            fh.write(text)
+            fh.flush()
+            # EP-A5: the bytes reach the device before the rename makes them the store — the
+            # guarantee Wesker's trace-cache writer already gives, so the pair's two atomic writers
+            # promise one thing rather than two.
+            os.fsync(fh.fileno())
         os.replace(tmp, p)
     finally:
         with contextlib.suppress(OSError):

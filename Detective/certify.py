@@ -110,8 +110,11 @@ def ensure_marker_registered(project_root: str, resolved: tuple[str, str, str] |
         updated = f"{source.rstrip()}\n\n{section}\n{block}\n"
         what = f"added {section} to {os.path.basename(path)} with the `{_MARKER_NAME}` marker"
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(updated)
+        from .atomic_store import atomic_write_text
+
+        # Atomic (EP-A4): this is the USER's pyproject.toml; an interrupted write must leave the
+        # original, never a truncated config.
+        atomic_write_text(path, updated)
     except OSError:
         return None
     return what
@@ -990,11 +993,13 @@ def _write(source: str, write_dir: str, func_key: str, project_root: str | None 
             os.remove(path)
             _publish_suite_change(project_root, path)  # a DELETION changes the suite too
         return ""
-    with open(path, "w", encoding="utf-8") as fh:
-        # Stamp a body-content digest (#X5/G5) so a later human edit of this generated file is
-        # observable — ``witness_origin_of`` re-hashes and flips its origin to ``intent``. The digest
-        # covers ``source`` (the file minus the stamped line), so the round-trip is self-consistent.
-        fh.write(_stamp_content_digest(source))
+    from .atomic_store import atomic_write_text
+
+    # Stamp a body-content digest (#X5/G5) so a later human edit of this generated file is
+    # observable — ``witness_origin_of`` re-hashes and flips its origin to ``intent``. The digest
+    # covers ``source`` (the file minus the stamped line), so the round-trip is self-consistent.
+    # Atomic (EP-A4): an interrupted write replaces the suite whole or leaves the previous one.
+    atomic_write_text(path, _stamp_content_digest(source))
     _publish_suite_change(project_root, path)
     return path
 

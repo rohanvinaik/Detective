@@ -1598,8 +1598,9 @@ def _update_per_mutant_ms(observed_ms: float) -> None:
     path = _telemetry_cache_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"per_mutant_ms": round(value, 3)}, fh)
+        from .atomic_store import atomic_write_text
+
+        atomic_write_text(path, json.dumps({"per_mutant_ms": round(value, 3)}))  # EP-A4
     except OSError:
         pass
 
@@ -7382,8 +7383,10 @@ def _run_receipt(args, file, function) -> int:
     rec = make_receipt(file, function, args.project_root, notify=_notify_stderr)
     text = rec.to_json()
     if getattr(args, "out", None):
-        with open(args.out, "w", encoding="utf-8") as fh:
-            fh.write(text + "\n")
+        from .atomic_store import atomic_write_text
+
+        # Atomic (EP-A4): a receipt is the pre-rewrite snapshot a later verify-rewrite depends on.
+        atomic_write_text(args.out, text + "\n")
         _notify_stderr(f"receipt written: {args.out}  (proof status: {rec.proof_status})")
     else:
         print(text)

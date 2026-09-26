@@ -2283,8 +2283,10 @@ def _converge_impl(
                 f"where it kills {baseline_killed}"
             )
         with contextlib.suppress(OSError):
-            with open(prior_suite_path, "w", encoding="utf-8") as fh:
-                fh.write(prior_suite_source)
+            from .atomic_store import atomic_write_text
+
+            # Atomic (EP-A4): restoring the prior suite must never leave neither suite on disk.
+            atomic_write_text(prior_suite_path, prior_suite_source)
             from Wesker.ci import refresh_live_suite
 
             refresh_live_suite(root, prior_suite_path)
