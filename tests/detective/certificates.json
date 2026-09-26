@@ -52,6 +52,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/capture.py::profile_hook_disposition": {
+    "cut_reasons": [],
+    "function_digest": "e245a4c5120ff9fc",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/certificates.py::certificate_cut_reasons": {
     "function_digest": "619a9ee8d2df868e",
     "refusal": "",

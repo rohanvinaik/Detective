@@ -50,6 +50,41 @@ def harvest_disposition(have_enough: bool, deadline_passed: bool) -> str:
     return HARVEST
 
 
+HOOK_INSTALL = "install"
+HOOK_INSTALL_AND_RESTORE = "install_and_restore"
+HOOK_FOREIGN_UNRESTORABLE = "foreign_unrestorable"
+
+
+def profile_hook_disposition(prev_is_none: bool, prev_is_callable: bool) -> str:
+    """May a harvest take the process profile hook, given what holds it now (EP-B2, pure — pinned)?
+
+      install              — nothing holds it: install the harvest's hook, put ``None`` back after.
+      install_and_restore  — a Python callable holds it (another tool's hook): install ours for the
+                             harvest and hand theirs back after, as the harvest always has.
+      foreign_unrestorable — something that is NOT a Python callable holds it: a C-level profiler's
+                             state object (pyinstrument's ``ProfilerState``). ``sys.setprofile`` cannot
+                             reinstall it, so taking the hook would crash the restore — measured, a
+                             ``TypeError`` that ended the whole converge — or, if avoided, silently
+                             switch the other tool off for the rest of the process. Decline instead.
+
+    ``sys.getprofile()`` is the only question the shell asks; the decision is over two literals.
+    """
+    if prev_is_none:
+        return HOOK_INSTALL
+    if prev_is_callable:
+        return HOOK_INSTALL_AND_RESTORE
+    return HOOK_FOREIGN_UNRESTORABLE
+
+
+def _decline_foreign_profiler(which: str) -> None:
+    """Say why a harvest captured nothing, so "a foreign profiler holds the hook" never reads like
+    "no test reaches this function" — two states with different remedies (EP-B2)."""
+    sys.stderr.write(
+        f"  ⚠ {which} was skipped: a C-level profiler holds the process profile hook, and Python "
+        "cannot hand it back afterwards. Run without the profiler for inputs captured from tests.\n"
+    )
+
+
 def _run_for_effects(test: Callable[..., Any]) -> None:
     """Run one discovered test for its SIDE EFFECTS on the active profile hook — the harvest wants
     the calls it makes, never its verdict. A failing, erroring or skipped test is swallowed
@@ -115,6 +150,9 @@ def capture_call_inputs(
         captured.append(args)
 
     prev = sys.getprofile()
+    if profile_hook_disposition(prev is None, callable(prev)) == HOOK_FOREIGN_UNRESTORABLE:
+        _decline_foreign_profiler("the input harvest")
+        return []
     # Isolate the discovered tests' own stdout/stderr the way Wesker's runner does,
     # so a consumer test's prints/banners never pollute Detective's report.
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -168,6 +206,9 @@ def capture_return_types(
         names.add(type(arg).__name__)
 
     prev = sys.getprofile()
+    if profile_hook_disposition(prev is None, callable(prev)) == HOOK_FOREIGN_UNRESTORABLE:
+        _decline_foreign_profiler("the return-type harvest")
+        return frozenset()
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         sys.setprofile(_hook)
         try:
