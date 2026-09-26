@@ -7055,6 +7055,42 @@ def _run_flag_style(args, file, function) -> int:
         )
     except StoreRefused as exc:
         return _store_refused(args, target, exc)
+    refused = _style_refusal(args, rec, target, file, function)
+    if refused is not None:
+        return refused
+    func_key, disposition = rec.region, rec.disposition
+    if args.json:
+        return _emit_json(
+            {
+                "verdict": "RECORDED",
+                "kind": "style_judgment",
+                "region": func_key,
+                "disposition": disposition,
+                "controller_verdict": rec.controller_verdict,
+                "function_digest": rec.function_digest,
+                "note": args.note,
+            },
+            0,
+        )
+    suffix = f" ({args.note})" if args.note else ""
+    print(f"{func_key} — flag --style")
+    print("")
+    print(_row(_RECORDED_ROW, f"style judgment — {disposition}{suffix}"))
+    print(_row("", f"keyed to this exact definition and its current reading ({rec.controller_verdict}) —"))
+    print(_row("", "an edit, or a changed verdict, REOPENS it; a fence outranks it."))
+    print("")
+    if disposition == LEAVE:
+        print("DONE:  `plan` excludes this region by your decision (judged_leave) until the code")
+        print("       or its reading moves. It never touches the behavior layer.")
+    else:
+        print("DONE:  `plan` treats this AMBIGUOUS region as a case for change: it continues down")
+        print("       the gate chain (pinned → recognized move → gate) and is funded like any other.")
+    print(f"       Next: detective plan '{func_key}'")
+    return 0
+
+
+def _style_refusal(args, rec, target: str, file: str, function: str) -> int | None:
+    """Render a refused `flag --style` on both channels and return its exit code; None when accepted."""
     if rec.refusal in ("mutant_id_with_style", "no_disposition", "both_dispositions"):
         detail = {
             "mutant_id_with_style": "--style judges a REGION, not a mutant — drop the mutant id",
@@ -7090,42 +7126,13 @@ def _run_flag_style(args, file, function) -> int:
             )
         sys.stderr.write(msg + "\n")
         return 2
-    func_key, disposition = rec.region, rec.disposition
-    if args.json:
-        return _emit_json(
-            {
-                "verdict": "RECORDED",
-                "kind": "style_judgment",
-                "region": func_key,
-                "disposition": disposition,
-                "controller_verdict": rec.controller_verdict,
-                "function_digest": rec.function_digest,
-                "note": args.note,
-            },
-            0,
-        )
-    suffix = f" ({args.note})" if args.note else ""
-    print(f"{func_key} — flag --style")
-    print("")
-    print(_row(_RECORDED_ROW, f"style judgment — {disposition}{suffix}"))
-    print(_row("", f"keyed to this exact definition and its current reading ({rec.controller_verdict}) —"))
-    print(_row("", "an edit, or a changed verdict, REOPENS it; a fence outranks it."))
-    print("")
-    if disposition == LEAVE:
-        print("DONE:  `plan` excludes this region by your decision (judged_leave) until the code")
-        print("       or its reading moves. It never touches the behavior layer.")
-    else:
-        print("DONE:  `plan` treats this AMBIGUOUS region as a case for change: it continues down")
-        print("       the gate chain (pinned → recognized move → gate) and is funded like any other.")
-    print(f"       Next: detective plan '{func_key}'")
-    return 0
+    return None
 
 
 def _run_flag_line(args, file, function) -> int:
     from Wesker.ci import walk_functions as _walk
 
     from .atomic_store import StoreRefused
-    from .line_flags import add_line_flag, clean_orphaned_flags, flag_statuses, remove_line_flag
 
     root_abs = os.path.abspath(args.project_root)
     full = file if os.path.isabs(file) else os.path.join(root_abs, file)
@@ -7143,73 +7150,92 @@ def _run_flag_line(args, file, function) -> int:
     # must all land on one record, not three.
     func_key = f"{os.path.relpath(full, root_abs)}::{function}"
 
-    if args.list or args.clean:
-        if args.list:
-            try:
-                statuses = flag_statuses(args.project_root, func_key, node)
-            except StoreRefused as exc:
-                return _store_refused(args, args.target, exc)
-            if args.json:
-                return _emit_json(
-                    {
-                        "action": "list",
-                        "function": func_key,
-                        "flags": [{**asdict(f), "status": s} for f, s in statuses],
-                    },
-                    0,
-                )
-            print(f"{func_key} — flag-line · {len(statuses)} record(s)")
-            for f, status in statuses:
-                note = f"  ({f.note})" if f.note else ""
-                print(f"  [{status}] line {f.line}: {f.source}{note}")
-            if not statuses:
-                print("  (none)")
-            return 0
-        try:
-            removed = clean_orphaned_flags(args.project_root, func_key, node)
-        except StoreRefused as exc:
-            return _store_refused(args, args.target, exc)
-        if args.json:
-            return _emit_json(
-                {"action": "clean", "function": func_key, "removed": [asdict(f) for f in removed]},
-                0,
-            )
-        print(f"{func_key} — flag-line --clean")
-        for f in removed:
-            print(f"  removed orphaned record: line {f.line}: {f.source}")
-        print(f"DONE:  {len(removed)} orphaned record(s) removed; current judgments untouched.")
-        return 0
+    # One refusal handler for the whole edit (EP-A3c): each of list / clean / remove / add reads or
+    # writes the store, and a store that could not be used safely ends the verb the same way from any.
+    try:
+        return _flag_line_edit(args, func_key, node, function)
+    except StoreRefused as exc:
+        return _store_refused(args, args.target, exc)
 
+
+def _flag_line_edit(args, func_key: str, node, function: str) -> int:
+    """`flag-line`'s four actions on one resolved function: list, clean, remove, add."""
+    if args.list:
+        return _flag_line_list(args, func_key, node)
+    if args.clean:
+        return _flag_line_clean(args, func_key, node)
     if args.line is None:
         print("detective: flag-line needs a LINE (or --list / --clean)")
         return 1
-
     if args.remove:
-        try:
-            removed_flag = remove_line_flag(args.project_root, func_key, node, args.line)
-        except StoreRefused as exc:
-            return _store_refused(args, args.target, exc)
-        if args.json:
-            return _emit_json(
-                {
-                    "action": "remove",
-                    "function": func_key,
-                    "removed": asdict(removed_flag) if removed_flag else None,
-                },
-                0 if removed_flag else 1,
-            )
-        if removed_flag is None:
-            print(f"detective: no flag recorded at line {args.line} for {func_key}")
-            return 1
-        print(f"{func_key} — flag-line --remove · line {args.line}")
-        print(_row("✓ removed", f"{removed_flag.source}"))
-        print("DONE:  the line counts as a residual again on the next audit/converge.")
-        return 0
+        return _flag_line_remove(args, func_key, node)
+    return _flag_line_add(args, func_key, node, function)
 
-    try:
-        flag = add_line_flag(args.project_root, func_key, node, args.line, note=args.note)
-    except StoreRefused as exc:
-        return _store_refused(args, args.target, exc)
+
+def _flag_line_list(args, func_key: str, node) -> int:
+    from .line_flags import flag_statuses
+
+    statuses = flag_statuses(args.project_root, func_key, node)
+    if args.json:
+        return _emit_json(
+            {
+                "action": "list",
+                "function": func_key,
+                "flags": [{**asdict(f), "status": s} for f, s in statuses],
+            },
+            0,
+        )
+    print(f"{func_key} — flag-line · {len(statuses)} record(s)")
+    for f, status in statuses:
+        note = f"  ({f.note})" if f.note else ""
+        print(f"  [{status}] line {f.line}: {f.source}{note}")
+    if not statuses:
+        print("  (none)")
+    return 0
+
+
+def _flag_line_clean(args, func_key: str, node) -> int:
+    from .line_flags import clean_orphaned_flags
+
+    removed = clean_orphaned_flags(args.project_root, func_key, node)
+    if args.json:
+        return _emit_json(
+            {"action": "clean", "function": func_key, "removed": [asdict(f) for f in removed]},
+            0,
+        )
+    print(f"{func_key} — flag-line --clean")
+    for f in removed:
+        print(f"  removed orphaned record: line {f.line}: {f.source}")
+    print(f"DONE:  {len(removed)} orphaned record(s) removed; current judgments untouched.")
+    return 0
+
+
+def _flag_line_remove(args, func_key: str, node) -> int:
+    from .line_flags import remove_line_flag
+
+    removed_flag = remove_line_flag(args.project_root, func_key, node, args.line)
+    if args.json:
+        return _emit_json(
+            {
+                "action": "remove",
+                "function": func_key,
+                "removed": asdict(removed_flag) if removed_flag else None,
+            },
+            0 if removed_flag else 1,
+        )
+    if removed_flag is None:
+        print(f"detective: no flag recorded at line {args.line} for {func_key}")
+        return 1
+    print(f"{func_key} — flag-line --remove · line {args.line}")
+    print(_row("✓ removed", f"{removed_flag.source}"))
+    print("DONE:  the line counts as a residual again on the next audit/converge.")
+    return 0
+
+
+def _flag_line_add(args, func_key: str, node, function: str) -> int:
+    from .line_flags import add_line_flag
+
+    flag = add_line_flag(args.project_root, func_key, node, args.line, note=args.note)
     if flag is None:
         span = f"{node.lineno}-{node.end_lineno}"
         if args.json:

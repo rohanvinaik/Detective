@@ -179,7 +179,9 @@ class SourceTrial:
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         tb: TracebackType | None,
-    ) -> bool:
+    ) -> None:
+        # Returns nothing, so an exception raised inside the trial always propagates after the restore
+        # (a context manager suppresses only when __exit__ returns a true value).
         if not self.kept:
             try:
                 atomic_write_text(self.path, self.original)
@@ -189,7 +191,6 @@ class SourceTrial:
                     f"⚠ could not restore {self.path} after a decompose trial; the original is in "
                     f"{self.journal} and the next detective command will restore it.\n"
                 )
-                return False
+                return
         with contextlib.suppress(OSError):
             os.remove(self.journal)
-        return False

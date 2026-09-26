@@ -382,23 +382,26 @@ def _sites(tree: ast.Module, stem: str, closed: dict[str, tuple[str, frozenset[s
     while stack:
         node, path = stack.pop()
         for child in ast.iter_child_nodes(node):
+            scope = path
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                scope = [*path, child.name]
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                qual = [*path, child.name]
-                calls: dict[str, list[ast.Call]] = {}
-                for inner in _walk_own(child):
-                    if not isinstance(inner, ast.Call):
-                        continue
-                    name = _callee(inner)
-                    if name in closed and name != child.name:
-                        calls.setdefault(name, []).append(inner)
+                calls = _direct_calls(child, closed)
                 if calls:
-                    found.append((".".join(qual), child, calls))
-                stack.append((child, qual))
-            elif isinstance(child, ast.ClassDef):
-                stack.append((child, [*path, child.name]))
-            else:
-                stack.append((child, path))
+                    found.append((".".join(scope), child, calls))
+            stack.append((child, scope))
     return found
+
+
+def _direct_calls(
+    fn: ast.FunctionDef | ast.AsyncFunctionDef, closed: dict[str, tuple[str, frozenset[str]]]
+) -> dict[str, list[ast.Call]]:
+    """{decision name: its calls} made in `fn`'s own body — not in a nested function, not recursive."""
+    calls: dict[str, list[ast.Call]] = {}
+    for inner in _walk_own(fn):
+        if isinstance(inner, ast.Call) and (name := _callee(inner)) in closed and name != fn.name:
+            calls.setdefault(name, []).append(inner)
+    return calls
 
 
 def _callee(node: ast.Call) -> str:
@@ -426,23 +429,27 @@ class _Site:
         assigned: dict[str, list[ast.expr]] = {}
         for node in ast.walk(self._fn):
             targets, value = _assignment_targets(node)
-            if value is None:
-                continue
-            for name in targets:
-                assigned.setdefault(name, []).append(value)
+            if value is not None:
+                for name in targets:
+                    assigned.setdefault(name, []).append(value)
         grew = True
         while grew:
             grew = False
             for name, values in assigned.items():
-                if name in self._direct:
-                    continue
-                if all(self.is_direct(v) for v in values):
-                    self._direct.add(name)
-                    self._alias.discard(name)
-                    grew = True
-                elif name not in self._alias and any(self.carries(v) for v in values):
-                    self._alias.add(name)
-                    grew = True
+                grew = self._settle(name, values) or grew
+
+    def _settle(self, name: str, values: list[ast.expr]) -> bool:
+        """One fixpoint step for one name; True when its classification moved."""
+        if name in self._direct:
+            return False
+        if all(self.is_direct(v) for v in values):
+            self._direct.add(name)
+            self._alias.discard(name)
+            return True
+        if name not in self._alias and any(self.carries(v) for v in values):
+            self._alias.add(name)
+            return True
+        return False
 
     def is_direct(self, node: ast.AST) -> bool:
         """The call itself, or a name that holds its result and nothing else."""
@@ -489,37 +496,51 @@ class _Site:
         count: a wider vocabulary is not drift."""
         seen: set[str] = set()
         for node in ast.walk(self._fn):
-            if isinstance(node, ast.Compare):
-                seen |= self._compared(node, codes, vocab)
-            elif isinstance(node, ast.Match) and self.carries(node.subject):
-                for case in node.cases:
-                    named = _pattern_literals(case.pattern, vocab)
-                    seen |= named if self.is_direct(node.subject) else named & codes
-            elif isinstance(node, ast.Subscript) and self.carries(node.slice):
-                seen |= (vocab.table(node.value) or frozenset()) & codes
-            elif isinstance(node, ast.Call) and node.args and self.carries(node.args[0]):
-                seen |= (_table_get_keys(node, vocab) or frozenset()) & codes
+            seen |= self._named_at(node, codes, vocab)
         return seen
 
-    def _compared(self, node: ast.Compare, codes: frozenset[str], vocab: _Vocabulary) -> set[str]:
-        seen: set[str] = set()
+    def _named_at(self, node: ast.AST, codes: frozenset[str], vocab: _Vocabulary) -> frozenset[str]:
+        """The literals one node compares the code against, by the node's kind."""
+        if isinstance(node, ast.Compare):
+            return self._compared(node, codes, vocab)
+        if isinstance(node, ast.Match) and self.carries(node.subject):
+            named = frozenset().union(*(_pattern_literals(case.pattern, vocab) for case in node.cases))
+            return named if self.is_direct(node.subject) else named & codes
+        if isinstance(node, ast.Subscript) and self.carries(node.slice):
+            return (vocab.table(node.value) or frozenset()) & codes
+        if isinstance(node, ast.Call) and node.args and self.carries(node.args[0]):
+            return (_table_get_keys(node, vocab) or frozenset()) & codes
+        return frozenset()
+
+    def _compared(self, node: ast.Compare, codes: frozenset[str], vocab: _Vocabulary) -> frozenset[str]:
+        seen: frozenset[str] = frozenset()
         operands = [node.left, *node.comparators]
         for i, op in enumerate(node.ops):
             left, right = operands[i], operands[i + 1]
-            for subject, other in ((left, right), (right, left)):
-                if not self.carries(subject):
-                    continue
-                direct = self.is_direct(subject)
-                if isinstance(op, (ast.Eq, ast.NotEq)):
-                    literal = vocab.literal(other)
-                    if literal is not None:
-                        seen |= literal if direct else literal & codes
-                elif isinstance(op, (ast.In, ast.NotIn)) and subject is left:
-                    held = vocab.members(other)
-                    if held is not None:
-                        members, local = held
-                        seen |= members if direct and local else members & codes
+            if isinstance(op, (ast.Eq, ast.NotEq)):
+                seen |= self._equality(left, right, codes, vocab) | self._equality(right, left, codes, vocab)
+            elif isinstance(op, (ast.In, ast.NotIn)) and self.carries(left):
+                seen |= self._membership(left, right, codes, vocab)
         return seen
+
+    def _equality(
+        self, subject: ast.expr, other: ast.expr, codes: frozenset[str], vocab: _Vocabulary
+    ) -> frozenset[str]:
+        """`subject == other` read from the subject's side."""
+        literal = vocab.literal(other) if self.carries(subject) else None
+        if literal is None:
+            return frozenset()
+        return literal if self.is_direct(subject) else literal & codes
+
+    def _membership(
+        self, subject: ast.expr, container: ast.expr, codes: frozenset[str], vocab: _Vocabulary
+    ) -> frozenset[str]:
+        """`subject in container`: a literal written at the site keeps a phantom; a shared one does not."""
+        held = vocab.members(container)
+        if held is None:
+            return frozenset()
+        members, local = held
+        return members if self.is_direct(subject) and local else members & codes
 
     def forwards(self, vocab: _Vocabulary) -> bool:
         """Does the code itself flow on from anywhere in the function."""
@@ -527,27 +548,32 @@ class _Site:
 
     def _forwards_at(self, node: ast.AST, vocab: _Vocabulary) -> bool:
         if isinstance(node, ast.Call):
-            if id(node) in self._calls or _table_get_keys(node, vocab) is not None:
-                return False
-            if isinstance(node.func, ast.Name) and node.func.id == "bool":
-                return False  # truthiness is a collapse, never a hand-off
-            return any(self.flows(a) for a in [*node.args, *(k.value for k in node.keywords)])
+            return self._passes_on(node, vocab)
         if isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)):
             return node.value is not None and self.flows(node.value)
         if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
             # a lookup keyed by the code in a table this reading cannot see the keys of
             return self.carries(node.slice) and vocab.table(node.value) is None
-        if (
-            isinstance(node, (ast.Assign, ast.AnnAssign))
-            and node.value is not None
-            and self.flows(node.value)
-        ):
-            stored = node.targets if isinstance(node, ast.Assign) else [node.target]
-            # stored somewhere that outlives the function, or packed/rendered into a new value
-            return any(isinstance(t, (ast.Attribute, ast.Subscript)) for t in stored) or not self.carries(
-                node.value
-            )
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            return self._stores(node)
         return False
+
+    def _passes_on(self, node: ast.Call, vocab: _Vocabulary) -> bool:
+        """The code handed to another function as an argument (a table lookup and `bool` excepted)."""
+        if id(node) in self._calls or _table_get_keys(node, vocab) is not None:
+            return False
+        if isinstance(node.func, ast.Name) and node.func.id == "bool":
+            return False  # truthiness is a collapse, never a hand-off
+        return any(self.flows(a) for a in [*node.args, *(k.value for k in node.keywords)])
+
+    def _stores(self, node: ast.Assign | ast.AnnAssign) -> bool:
+        """Stored somewhere that outlives the function, or packed/rendered into a new value."""
+        if node.value is None or not self.flows(node.value):
+            return False
+        stored = node.targets if isinstance(node, ast.Assign) else [node.target]
+        return any(isinstance(t, (ast.Attribute, ast.Subscript)) for t in stored) or not self.carries(
+            node.value
+        )
 
 
 def _assignment_targets(node: ast.AST) -> tuple[list[str], ast.expr | None]:

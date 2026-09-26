@@ -38,14 +38,18 @@ def _journals(root: str) -> list[Path]:
     return sorted(Path(root, trial_journal.TRIALS_REL).glob("*.json"))
 
 
+def _interrupted_while_on_disk(root: str, source: Path, interrupt: BaseException) -> None:
+    """Enter a trial and raise WHILE it is on disk — the moment EP-A1's restore exists for."""
+    with SourceTrial(root, str(source), ORIGINAL, TRIAL):
+        assert source.read_text(encoding="utf-8") == TRIAL
+        raise interrupt
+
+
 @pytest.mark.parametrize("interrupt", [RuntimeError("the suite crashed"), KeyboardInterrupt()])
 def test_every_exit_that_runs_python_restores_the_original(tmp_path, interrupt):
     root, source = _project(tmp_path)
-    # The raise must happen WHILE the trial is on disk, so the `with` sits inside the `raises` block.
     with pytest.raises(type(interrupt)):
-        with SourceTrial(root, str(source), ORIGINAL, TRIAL):
-            assert source.read_text(encoding="utf-8") == TRIAL
-            raise interrupt
+        _interrupted_while_on_disk(root, source, interrupt)
     assert source.read_text(encoding="utf-8") == ORIGINAL
     assert _journals(root) == []
 
