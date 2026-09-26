@@ -17,6 +17,28 @@ import pytest
 _TEMP = os.path.realpath(tempfile.gettempdir())
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _nested_sessions_load_only_declared_plugins():
+    """A pytest session Detective opens INSIDE this suite loads no plugin the suite did not declare
+    (EP-C4 — docs/ENGINEERING_PASS_2026-09-26.md).
+
+    Plugin auto-loading is interpreter state: every ``pytest11`` entry point installed in the running
+    Python loads into every session — including the nested ones Detective opens in-process and the
+    CLI subprocesses these tests spawn. Measured 2026-09-26 in the standing interpreter (miniconda
+    3.14, after a toolkit install): 24 tests red, because pytest-asyncio 1.4.0's ``pytest_configure``
+    warns and this suite's ``filterwarnings = ["error"]`` (process-global warnings state) turned the
+    warning into an INTERNALERROR inside the nested session; and every converge 2.2-2.3x slower from
+    other plugins' hooks. The locked ``.venv`` has none of them, so the same commit was green there.
+
+    Setting ``PYTEST_DISABLE_PLUGIN_AUTOLOAD`` for this session makes the result a function of the
+    commit rather than of the machine. The OUTER session's plugins (pytest-cov in CI) were loaded
+    before this fixture runs and are unaffected; restored when the session ends.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _a_temp_project_leaves_no_trace():
     """A throwaway project a test builds under the temp dir must not outlive that test in the
