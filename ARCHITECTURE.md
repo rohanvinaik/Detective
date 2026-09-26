@@ -383,6 +383,7 @@ All in `Detective/`; frozen dataclasses unless noted.
 | `adequacy.py` | adversarial adequacy benchmark for the decomposition transform | `run_adequacy`, `adequacy_bucket` |
 | `consumption.py` | is a pinned pure decision actually CONSUMED by production code | `consumption_disposition`, `declared_decisions` |
 | `distinction.py` | does each consumer of a decision DISTINGUISH all of its codes (§9 invariant 3) | `distinction_disposition`, `consumer_reads` |
+| `absorption.py` | does every defaulted `getattr` read a name something DECLARES (§9 invariant 7) | `absorption_disposition`, `getattr_reads`, `declared_attributes` |
 | `synthesis/characterization.py` | characterization-backed golden captures, with effect blocking | `capture_golden`, `golden_assert_line`, `block_fs_writes` |
 | `synthesis/oracle_light.py` | oracle-light executable properties from survivors | `generate_executable_property`, `property_identity` |
 | `synthesis/typed_synthesis.py` | resolve a type annotation into a constructible test value | `synthesize_value` |

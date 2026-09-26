@@ -49,6 +49,11 @@ BY_DESIGN: dict[str, str] = {
         "This guard's own decision. `Detective/consumption.py` is deliberately not wired to any "
         "verb — it is a repo-discipline instrument, and its consumer is this test."
     ),
+    "absorption.absorption_disposition": (
+        "The invariant-7 guard's own decision (EP-G3). `Detective/absorption.py` is, like this module, a "
+        "repo-discipline instrument deliberately not wired to any verb; its consumer is "
+        "tests/test_absorbed_rename_intent.py."
+    ),
     "distinction.distinction_disposition": (
         "The sibling guard's own decision (§3.2's second question, EP-G1). `Detective/distinction.py` "
         "is, like this module, a repo-discipline instrument deliberately not wired to any verb; its "

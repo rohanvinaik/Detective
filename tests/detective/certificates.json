@@ -1,4 +1,10 @@
 {
+  "Detective/absorption.py::absorption_disposition": {
+    "cut_reasons": [],
+    "function_digest": "894ca1612ebd598d",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/array_inputs.py::array_source_disposition": {
     "function_digest": "2a1b458f44f19f8f",
     "refusal": "",
