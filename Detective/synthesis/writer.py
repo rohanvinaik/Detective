@@ -123,6 +123,34 @@ def _has_float_golden(props: list[ExecutableProperty]) -> bool:
     return False
 
 
+def numeric_backend_name(target_source: str) -> str:
+    """The numeric backend THIS TARGET's own source imports — ``"numpy"``, ``"scipy"`` or ``""`` — read
+    from the AST alone (EP-B4, pure — pinned).
+
+    Split out of :func:`numeric_backend_for` because that function also reads ``sys.modules`` for the
+    LOADED version, which made its output a fact about the PROCESS: its generated characterization
+    captured ``'numpy'`` in a process where numpy had not yet been imported, and failed as ``'numpy
+    2.5.3'`` wherever anything imported numpy first — another test in the same run, or a pytest
+    plugin at session start. The name is a property of the text and is pinned; the version is read
+    by the shell, at the one call site that stamps it. An unparseable source, a relative import and a
+    source that imports neither backend all return ``""``.
+    """
+    try:
+        tree = ast.parse(target_source)
+    except (SyntaxError, ValueError):
+        return ""
+    roots: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            roots.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            roots.add(node.module.split(".")[0])
+    for name in ("numpy", "scipy"):
+        if name in roots:
+            return name
+    return ""
+
+
 def numeric_backend_for(target_source: str) -> str:
     """The platform-dependent numeric backend THIS TARGET imports, with its loaded version, or "".
 
@@ -138,22 +166,15 @@ def numeric_backend_for(target_source: str) -> str:
 
     Reads the SOURCE TEXT it is given rather than importing anything: asking a module whether it
     uses numpy by importing it would execute the target to answer a question about the target.
+
+    IMPURE by design, and therefore not pinned by value: the version comes from ``sys.modules``, a
+    fact about this process. The decision is :func:`numeric_backend_name` (EP-B4).
     """
-    try:
-        tree = ast.parse(target_source)
-    except (SyntaxError, ValueError):
+    name = numeric_backend_name(target_source)
+    if not name:
         return ""
-    roots: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            roots.update(a.name.split(".")[0] for a in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            roots.add(node.module.split(".")[0])
-    for name in ("numpy", "scipy"):
-        if name in roots:
-            mod = sys.modules.get(name)
-            return f"{name} {getattr(mod, '__version__', '?')}" if mod is not None else name
-    return ""
+    mod = sys.modules.get(name)
+    return f"{name} {getattr(mod, '__version__', '?')}" if mod is not None else name
 
 
 def _observation_platform() -> str:

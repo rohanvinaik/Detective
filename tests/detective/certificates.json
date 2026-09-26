@@ -393,6 +393,12 @@
     "refusal": "",
     "standing": "incomplete"
   },
+  "Detective/synthesis/writer.py::numeric_backend_name": {
+    "cut_reasons": [],
+    "function_digest": "f1c6dedbc2315371",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/trial_journal.py::trial_recovery_disposition": {
     "cut_reasons": [],
     "function_digest": "f81587083be34eb4",
