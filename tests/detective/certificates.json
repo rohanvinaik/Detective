@@ -393,6 +393,12 @@
     "refusal": "",
     "standing": "incomplete"
   },
+  "Detective/trial_journal.py::trial_recovery_disposition": {
+    "cut_reasons": [],
+    "function_digest": "f81587083be34eb4",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/validity.py::cut_reason_sentence": {
     "function_digest": "9b6852d884447520",
     "refusal": "",

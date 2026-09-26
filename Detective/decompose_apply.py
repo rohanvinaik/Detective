@@ -791,9 +791,13 @@ def _apply_decomposition_impl(
     from .certify import verify_under_pytest
     from .converge import converge
     from .decompose import decompose
+    from .trial_journal import SourceTrial, UnresolvedTrial, recover_interrupted_trials
 
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
+    # EP-A1: before the proof converge reads the source, put back any original an interrupted trial
+    # left rewritten — the CLI does this for every command; a library caller gets it here.
+    recover_interrupted_trials(root)
     # decompose's cost IS the converge below (mutating + running the suite), so without this
     # the slowest command is also the only silent one — it looks hung while doing the most.
     say = notify or (lambda _m: None)
@@ -996,23 +1000,34 @@ def _apply_decomposition_impl(
                 f"({', '.join(extraction.params)}) -> {', '.join(extraction.returns) or 'None'} "
                 "— re-running the proof suite against the rewrite…"
             )
-            with open(full, "w", encoding="utf-8") as fh:
-                fh.write(extraction.new_source)
-            # The proof run must import THIS trial, not bytecode cached from the
-            # pre-trial file (same-second, same-size writes fool the .pyc check).
-            _purge_stale_bytecode(full)
-            proven = baseline_green and _suite_green()
-            # A green trial is necessary but not sufficient (#16): it proves the suite pinned every
-            # dimension it PINS, but an interface obligation nothing can establish (`unsupported`)
-            # must not ride a green rerun into an auto-apply. `trial_verdict` is the ONE decision the
-            # loop consumes — proven / witnessed / rejected / unproven — so the message and the
-            # apply gate can never re-derive it differently. For the current model no real candidate
-            # carries an unsupported obligation, so the disposition only ever WITHHOLDS and a clean
-            # run applies exactly as before; #15's calibration is what can start producing `witnessed`.
-            _code = trial_verdict(
-                proven, proof_suite is not None, contract_apply_disposition(extraction.contract)
-            )
-            apply_ok = _code == "proven"
+            # EP-A1: the trial is journaled BEFORE it touches the user's file and restored on every
+            # exit unless kept — an exception or a Ctrl-C mid-suite used to leave it (possibly a
+            # rewrite the suite had just REJECTED) in the user's source, in dry-run mode too. A hard
+            # kill skips the restore; the journal lets the next command put the original back.
+            trial = SourceTrial(root, full, source, extraction.new_source)
+            try:
+                with trial:
+                    # The proof run must import THIS trial, not bytecode cached from the
+                    # pre-trial file (same-second, same-size writes fool the .pyc check).
+                    _purge_stale_bytecode(full)
+                    proven = baseline_green and _suite_green()
+                    # A green trial is necessary but not sufficient (#16): it proves the suite pinned
+                    # every dimension it PINS, but an interface obligation nothing can establish
+                    # (`unsupported`) must not ride a green rerun into an auto-apply. `trial_verdict`
+                    # is the ONE decision the loop consumes — proven / witnessed / rejected / unproven
+                    # — so the message and the apply gate can never re-derive it differently. For the
+                    # current model no real candidate carries an unsupported obligation, so the
+                    # disposition only ever WITHHOLDS and a clean run applies exactly as before; #15's
+                    # calibration is what can start producing `witnessed`.
+                    _code = trial_verdict(
+                        proven, proof_suite is not None, contract_apply_disposition(extraction.contract)
+                    )
+                    apply_ok = _code == "proven"
+                    if apply_ok and write:
+                        trial.keep()
+            except UnresolvedTrial as exc:
+                say(f"⚠ no trial run: {exc}")
+                break
             if _code == "unproven":
                 verdict = "unproven — no suite to prove against; proposed, not applied"
             elif _code == "rejected":
@@ -1028,14 +1043,12 @@ def _apply_decomposition_impl(
             else:
                 verdict = "PROVEN — behavior preserved"
             say(f"{verdict}: {extraction.helper_name}")
-            if apply_ok and write:
+            if trial.kept:
                 applied.append(extraction)
                 progressed = True
                 break  # keep it; re-read and re-plan against the rewritten file
-            with open(full, "w", encoding="utf-8") as fh:
-                fh.write(source)  # revert the trial
-            # Never leave the USER's next import running trial bytecode: the revert
-            # restores the pre-trial content, so retire the trial's cache with it.
+            # Never leave the USER's next import running trial bytecode: the trial's exit restored
+            # the pre-trial content, so retire the trial's cache with it.
             _purge_stale_bytecode(full)
             # Carry the ACTUAL trial code, not just `validated`: `_code` distinguishes a rewrite
             # the suite disproved (`rejected`) from one that was never tested (`unproven` — the

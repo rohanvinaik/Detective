@@ -5765,6 +5765,12 @@ def main(argv: list[str] | None = None) -> int:
     from .certify import GeneratedSuiteCollision
 
     args = _build_parser().parse_args(argv)
+    # EP-A1: a `decompose` trial a hard kill left in the user's source is restored before ANY command
+    # reads it — a `converge` or a `plan` over a file still holding a trial measures code nobody wrote.
+    # One `stat` when there is nothing to recover; never raises.
+    from .trial_journal import recover_interrupted_trials
+
+    recover_interrupted_trials(getattr(args, "project_root", None) or ".")
     # THE LEDGER'S ONE CALL SITE (docs/INVOCATION_LEDGER.md §6). `finally`, not a tail block: the
     # three typed-refusal paths below leave via `raise SystemExit` or `return 1` and would bypass a
     # tail entirely — and a refusal is exactly the process fact red needs. `_exit`/`_refusal` are
