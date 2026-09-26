@@ -110,13 +110,19 @@ def _store_path(project_root: str) -> str:
     return os.path.join(project_root, _REL_PATH)
 
 
-def load_ledger(project_root: str) -> dict[str, CensorLedgerEntry]:
+def load_ledger(project_root: str, *, strict: bool = False) -> dict[str, CensorLedgerEntry]:
     """Every persisted ledger entry, keyed by :func:`ledger_key`. Empty (never an error) when the store is
     absent or unreadable — a missing ledger is simply no ledger, mirroring
-    :func:`Detective.equivalents.load_flags`. A malformed entry is skipped, never fatal."""
-    from .atomic_store import read_json_store
+    :func:`Detective.equivalents.load_flags`. A malformed entry is skipped, never fatal.
 
-    raw, _found, _set_aside = read_json_store(_store_path(project_root))
+    ``strict`` (EP-A3c) is for `censor --list` and `--promote`, whose product is this ledger: an
+    unreadable one raises :class:`StoreRefused` rather than listing as empty or being merged into."""
+    from .atomic_store import read_json_store, require_usable, store_write_disposition
+
+    path = _store_path(project_root)
+    raw, found, set_aside = read_json_store(path)
+    if strict:
+        require_usable(path, store_write_disposition(found, set_aside))
     out: dict[str, CensorLedgerEntry] = {}
     for key, value in raw.items():
         entry = _parsed_entry(value)
@@ -144,18 +150,23 @@ def save_ledger(project_root: str, entries: dict[str, CensorLedgerEntry]) -> Non
     """Persist the censor ledger, creating ``.detective/`` if needed. Atomic replace (#63): a proposed
     censor is a corpus-derived artifact, and a mid-write crash must not clobber the store into an empty
     file the next load silently accepts."""
-    from .atomic_store import write_json_store
+    from .atomic_store import require_usable, write_json_store
 
     payload = {
         key: {"censor": asdict(e.censor), "kappa": e.kappa, "state": e.state, "generation": e.generation}
         for key, e in entries.items()
     }
-    # Guarded (EP-A3), and an entry this version cannot parse is carried through (EP-A3b).
-    write_json_store(
-        _store_path(project_root),
-        payload,
-        dumps=lambda p: json.dumps(p, indent=2),
-        parses=lambda value: _parsed_entry(value) is not None,
+    # Guarded (EP-A3), and an entry this version cannot parse is carried through (EP-A3b). A refusal
+    # RAISES (EP-A3c), so neither `censor --promote` nor `--learn` reports a promotion never saved.
+    path = _store_path(project_root)
+    require_usable(
+        path,
+        write_json_store(
+            path,
+            payload,
+            dumps=lambda p: json.dumps(p, indent=2),
+            parses=lambda value: _parsed_entry(value) is not None,
+        ),
     )
 
 

@@ -6933,6 +6933,37 @@ def _run_converge(args, file, function) -> int:
     )
 
 
+# What the operator does about each refusal `atomic_store.store_write_disposition` can return
+# (EP-A3c). Two states, two remedies, so two sentences: never one "could not save".
+_STORE_REFUSAL_REMEDY = {
+    "refuse_unreadable": "its current bytes could not be read — make the file readable, then re-run",
+    "refuse_unmoved": (
+        "it is not a readable JSON object and could not be moved aside — move it aside by hand "
+        "(or make its directory writable), then re-run"
+    ),
+}
+
+
+def _store_refused(args, target: str, exc) -> int:
+    """A verb whose product IS one durable store, and the store could not be used safely (EP-A3c).
+
+    Before this, `flag`, `flag-line`, `flag --style` and `censor --promote` printed their RECORDED /
+    DONE block and exited 0 over a write `write_json_store` had just refused, and `flag-line --list` /
+    `--remove` / `--clean` and `censor --list` answered from an unreadable store as if it were empty:
+    signs for states the tool had measured as false. Name the store, the refusal and its remedy, and
+    exit 2 — the world is wrong, fix the file and not the code (COMMUNICATING_DETERMINISM §4)."""
+    remedy = _STORE_REFUSAL_REMEDY.get(exc.code, "its bytes could not be read safely — fix it, then re-run")
+    detail = (
+        f"{exc.path} could not be used safely ({exc.code}); it was left as it is and nothing was "
+        f"recorded — {remedy}"
+    )
+    if getattr(args, "json", False):
+        payload = {"verdict": "REFUSED", "reason": exc.code, "target": target, "store": exc.path}
+        return _emit_json({**payload, "detail": detail}, 2)
+    sys.stderr.write(f"detective: {detail}\n")
+    return 2
+
+
 def _run_flag_style(args, file, function) -> int:
     """`flag --style` (§14.5): record the driver's answer to an AMBIGUOUS `plan` row — LEAVE or
     PROCEED — for a whole REGION, in the style ledger (`.detective/judgments.json`). STATIC: no live
@@ -6940,18 +6971,22 @@ def _run_flag_style(args, file, function) -> int:
     judgment about form, not a verdict about a mutant. The refusals, the regime check and the write
     are `judgments.record_style_judgment`, shared with the MCP `flag(style=True)` tool so the two
     surfaces cannot drift; this function only spells the outcome on the terminal's two channels."""
+    from .atomic_store import StoreRefused
     from .judgments import LEAVE, record_style_judgment
 
     target = args.target
-    rec = record_style_judgment(
-        args.project_root,
-        file,
-        function,
-        args.mutant_id is not None,
-        bool(args.leave),
-        bool(args.proceed),
-        args.note or "",
-    )
+    try:
+        rec = record_style_judgment(
+            args.project_root,
+            file,
+            function,
+            args.mutant_id is not None,
+            bool(args.leave),
+            bool(args.proceed),
+            args.note or "",
+        )
+    except StoreRefused as exc:
+        return _store_refused(args, target, exc)
     if rec.refusal in ("mutant_id_with_style", "no_disposition", "both_dispositions"):
         detail = {
             "mutant_id_with_style": "--style judges a REGION, not a mutant — drop the mutant id",
@@ -7021,6 +7056,7 @@ def _run_flag_style(args, file, function) -> int:
 def _run_flag_line(args, file, function) -> int:
     from Wesker.ci import walk_functions as _walk
 
+    from .atomic_store import StoreRefused
     from .line_flags import add_line_flag, clean_orphaned_flags, flag_statuses, remove_line_flag
 
     root_abs = os.path.abspath(args.project_root)
@@ -7041,7 +7077,10 @@ def _run_flag_line(args, file, function) -> int:
 
     if args.list or args.clean:
         if args.list:
-            statuses = flag_statuses(args.project_root, func_key, node)
+            try:
+                statuses = flag_statuses(args.project_root, func_key, node)
+            except StoreRefused as exc:
+                return _store_refused(args, args.target, exc)
             if args.json:
                 return _emit_json(
                     {
@@ -7058,7 +7097,10 @@ def _run_flag_line(args, file, function) -> int:
             if not statuses:
                 print("  (none)")
             return 0
-        removed = clean_orphaned_flags(args.project_root, func_key, node)
+        try:
+            removed = clean_orphaned_flags(args.project_root, func_key, node)
+        except StoreRefused as exc:
+            return _store_refused(args, args.target, exc)
         if args.json:
             return _emit_json(
                 {"action": "clean", "function": func_key, "removed": [asdict(f) for f in removed]},
@@ -7075,7 +7117,10 @@ def _run_flag_line(args, file, function) -> int:
         return 1
 
     if args.remove:
-        removed_flag = remove_line_flag(args.project_root, func_key, node, args.line)
+        try:
+            removed_flag = remove_line_flag(args.project_root, func_key, node, args.line)
+        except StoreRefused as exc:
+            return _store_refused(args, args.target, exc)
         if args.json:
             return _emit_json(
                 {
@@ -7093,7 +7138,10 @@ def _run_flag_line(args, file, function) -> int:
         print("DONE:  the line counts as a residual again on the next audit/converge.")
         return 0
 
-    flag = add_line_flag(args.project_root, func_key, node, args.line, note=args.note)
+    try:
+        flag = add_line_flag(args.project_root, func_key, node, args.line, note=args.note)
+    except StoreRefused as exc:
+        return _store_refused(args, args.target, exc)
     if flag is None:
         span = f"{node.lineno}-{node.end_lineno}"
         if args.json:
@@ -7126,6 +7174,7 @@ def _run_flag_line(args, file, function) -> int:
 
 
 def _run_flag(args, file, function) -> int:
+    from .atomic_store import StoreRefused
     from .engine import profile
     from .equivalents import add_flag
 
@@ -7155,13 +7204,16 @@ def _run_flag(args, file, function) -> int:
         print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
         return 1
     _verdict = "fence" if args.fence else "equivalent"
-    add_flag(
-        args.project_root,
-        result.function_key,
-        rec.get("diff_summary", ""),
-        note=args.note,
-        verdict=_verdict,
-    )
+    try:
+        add_flag(
+            args.project_root,
+            result.function_key,
+            rec.get("diff_summary", ""),
+            note=args.note,
+            verdict=_verdict,
+        )
+    except StoreRefused as exc:
+        return _store_refused(args, args.target, exc)
     suffix = f" ({args.note})" if args.note else ""
     print(f"{result.function_key} — flag · {args.mutant_id}")
     print("")
@@ -7356,6 +7408,7 @@ def _run_verify_rewrite(args, file, function) -> int:
     from .censor import learn_disposition
 
     if learn_disposition(result.verdict, args.learn) == "learn":
+        from .atomic_store import StoreRefused
         from .censor import censors_from_verification
         from .promotion_ledger import corpus_fixpoint, ledger_key, load_ledger, save_ledger
 
@@ -7364,12 +7417,18 @@ def _run_verify_rewrite(args, file, function) -> int:
         store = load_ledger(args.project_root)
         for e in promoted:
             store[ledger_key(e.censor)] = e
-        save_ledger(args.project_root, store)
-        if not args.json:
-            _notify_stderr(
-                f"learned {len(promoted)} censor(s) from the rejected rewrite "
-                f"({len(censors)} near-miss candidate(s)) → .detective/censors.json"
-            )
+        try:
+            save_ledger(args.project_root, store)
+        except StoreRefused as exc:
+            # The verdict stands and keeps its exit code; the learning is what did not happen, so it
+            # must not be announced (EP-A3c). The writer has already named the store and the refusal.
+            _notify_stderr(f"--learn: nothing was learned — {exc.path} was NOT written ({exc.code})")
+        else:
+            if not args.json:
+                _notify_stderr(
+                    f"learned {len(promoted)} censor(s) from the rejected rewrite "
+                    f"({len(censors)} near-miss candidate(s)) → .detective/censors.json"
+                )
     # PRESERVED passes (0); CHANGED/UNREVIEWED are a determined gap (1); an unusable receipt is a
     # precondition to regenerate (2); ABSTAIN — or a PRESERVED rewrite whose --budget read could not
     # measure — is an invalid measurement to re-run (3). CI branches on the code, and a --json
@@ -7424,6 +7483,7 @@ def _run_diagnose(args, file, function) -> int:
 def _run_censor(args) -> int:
     # Path-based + static (an AST call-site + call-graph pass), so it lands with the other advisory
     # verbs ABOVE _split_target — it carries `path`, not `target`, and never opens a live session.
+    from .atomic_store import StoreRefused
     from .censor import harvest_corpus_censors, score_censor
     from .promotion_ledger import (
         build_ledger,
@@ -7434,7 +7494,10 @@ def _run_censor(args) -> int:
     )
 
     if args.list:
-        entries = load_ledger(args.project_root)
+        try:
+            entries = load_ledger(args.project_root, strict=True)
+        except StoreRefused as exc:
+            return _store_refused(args, args.path, exc)
         if args.json:
             return _emit_json(
                 {
@@ -7459,10 +7522,13 @@ def _run_censor(args) -> int:
     if args.promote:
         result = corpus_fixpoint(args.project_root, censors)
         # Persist the promoted censors into the ledger (merge with any existing entries).
-        store = load_ledger(args.project_root)
-        for e in result["promoted"]:
-            store[ledger_key(e.censor)] = e
-        save_ledger(args.project_root, store)
+        try:
+            store = load_ledger(args.project_root, strict=True)
+            for e in result["promoted"]:
+                store[ledger_key(e.censor)] = e
+            save_ledger(args.project_root, store)
+        except StoreRefused as exc:
+            return _store_refused(args, args.path, exc)
         if args.json:
             return _emit_json(
                 {

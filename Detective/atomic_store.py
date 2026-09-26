@@ -162,7 +162,14 @@ def read_json_store(path: str | os.PathLike[str]) -> tuple[dict[str, Any], str, 
         text = p.read_text(encoding="utf-8")
     except FileNotFoundError:
         return {}, store_read_disposition(False, False, False, False), False
-    except OSError:
+    except OSError as exc:
+        # Announced, never silent (EP-A3d): every caller reads this as EMPTY, and a run that proceeds
+        # without the store must say so, or a verdict measured without the human's judgments reads as
+        # one measured with them.
+        sys.stderr.write(
+            f"⚠ {p} exists but could not be read ({exc.strerror}); proceeding WITHOUT it. "
+            "It will not be overwritten.\n"
+        )
         return {}, store_read_disposition(True, False, False, False), False
     try:
         raw = json.loads(text)
@@ -218,3 +225,33 @@ def write_json_store(
     p.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(p, dumps(payload))
     return code
+
+
+class StoreRefused(OSError):
+    """A durable store could not be used safely, so it was left exactly as it is (EP-A3c).
+
+    `write_json_store` refuses to write over a store whose current bytes could not be read safely,
+    and returns :func:`store_write_disposition`'s code. The savers used to drop that code, so `flag`,
+    `flag-line` and `flag --style` printed "RECORDED" and exited 0 over a write that never happened:
+    a sign for a state the tool had just measured as false. The read side had the same shape: a verb
+    that reports ON a store (`flag-line --list`, `--remove`, `--clean`, `censor --list`) read an
+    unreadable one as empty, and answered "(none)" or "no flag recorded at line N".
+
+    Raised by :func:`require_usable` wherever the store IS the product, it carries the path and the
+    code up to the verb, which names the refusal and its remedy and exits on it. An `OSError`, so a
+    caller that already treats an I/O failure as "nothing done" keeps doing so."""
+
+    def __init__(self, path: str | os.PathLike[str], code: str):
+        super().__init__(f"{path} could not be used safely ({code})")
+        self.path = os.fspath(path)
+        self.code = code
+
+
+def require_usable(path: str | os.PathLike[str], code: str) -> None:
+    """Raise :class:`StoreRefused` unless ``code`` is :func:`store_write_disposition`'s ``write`` (EP-A3c).
+
+    The same decision serves both directions, because "may this store be written over" and "may its
+    content be reported as the whole truth" fail in exactly the same states: unreadable bytes, and
+    corrupt bytes that could not be set aside."""
+    if code != "write":
+        raise StoreRefused(path, code)

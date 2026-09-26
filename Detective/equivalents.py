@@ -78,18 +78,23 @@ def _parsed_flag(value: object) -> EquivalenceFlag | None:
 
 def save_flags(project_root: str, flags: dict[str, EquivalenceFlag]) -> None:
     """Persist the flag store, creating ``.detective/`` if needed."""
-    from .atomic_store import write_json_store
+    from .atomic_store import require_usable, write_json_store
 
     payload = {key: asdict(flag) for key, flag in flags.items()}
     # Atomic replace (#63): an equivalence declaration is irreducible human input; a mid-write crash
     # must not clobber the store into an empty file the next load silently accepts and overwrites.
     # Guarded (EP-A3): never written over bytes that could not be read; and an entry this version
     # cannot parse (malformed, or from a newer schema) is carried through, not dropped (EP-A3b).
-    write_json_store(
-        _store_path(project_root),
-        payload,
-        dumps=lambda p: json.dumps(p, indent=2),
-        parses=lambda value: _parsed_flag(value) is not None,
+    # A refusal RAISES (EP-A3c): recording a flag is the whole of `flag`, so it must not read as saved.
+    path = _store_path(project_root)
+    require_usable(
+        path,
+        write_json_store(
+            path,
+            payload,
+            dumps=lambda p: json.dumps(p, indent=2),
+            parses=lambda value: _parsed_flag(value) is not None,
+        ),
     )
 
 

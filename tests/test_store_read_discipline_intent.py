@@ -109,7 +109,9 @@ def test_an_unreadable_store_is_never_overwritten(tmp_path, capsys):
     before = path.read_bytes()
     path.chmod(0)
     try:
-        equivalents.add_flag(root, "m.py::f", "diff two", note="second")
+        # EP-A3c: the refusal is RAISED to the verb, never swallowed into a save that did not happen.
+        with pytest.raises(st.StoreRefused):
+            equivalents.add_flag(root, "m.py::f", "diff two", note="second")
     finally:
         path.chmod(0o644)
     assert path.read_bytes() == before

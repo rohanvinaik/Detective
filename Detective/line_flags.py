@@ -125,14 +125,22 @@ def _store_path(project_root: str) -> str:
     return os.path.join(project_root, _REL_PATH)
 
 
-def load_line_flags(project_root: str) -> dict[str, LineFlag]:
+def load_line_flags(project_root: str, *, strict: bool = False) -> dict[str, LineFlag]:
     """Every persisted line flag, keyed by :func:`stmt_identity`. Empty (never an
     error) when the store is absent or unreadable — a missing oracle is no oracle. A CORRUPT store is
     set aside rather than read as empty (EP-A3); an entry this version cannot parse is skipped here
-    and carried by :func:`save_line_flags` (EP-A3b)."""
-    from .atomic_store import read_json_store
+    and carried by :func:`save_line_flags` (EP-A3b).
 
-    raw, _found, _set_aside = read_json_store(_store_path(project_root))
+    ``strict`` is for the callers whose product IS this store — `flag-line` adding, listing, removing
+    or cleaning records (EP-A3c). For them an unreadable store is not an empty one: "(none)" or "no
+    flag recorded at line N" would be a claim about bytes nobody read. They get :class:`StoreRefused`
+    instead; the verdict consumers keep the lenient read, announced on stderr (EP-A3d)."""
+    from .atomic_store import read_json_store, require_usable, store_write_disposition
+
+    path = _store_path(project_root)
+    raw, found, set_aside = read_json_store(path)
+    if strict:
+        require_usable(path, store_write_disposition(found, set_aside))
     flags: dict[str, LineFlag] = {}
     for key, value in raw.items():
         flag = _parsed_line_flag(value)
@@ -152,18 +160,23 @@ def _parsed_line_flag(value: object) -> LineFlag | None:
 
 
 def save_line_flags(project_root: str, flags: dict[str, LineFlag]) -> None:
-    from .atomic_store import write_json_store
+    from .atomic_store import require_usable, write_json_store
 
     # Atomic replace (#63): a line-unreachability flag is an irreducible human judgement — a mid-write
     # crash must leave the prior store intact, never a half-written file the next load reads as empty.
     # Guarded (EP-A3), and an entry this version cannot parse is carried through (EP-A3b). An entry
     # a caller REMOVES is a parsed one (`--remove` / `--clean` act on what the loader returned), so
-    # carrying only the unparseable ones never resurrects a deliberate removal.
-    write_json_store(
-        _store_path(project_root),
-        {key: asdict(flag) for key, flag in flags.items()},
-        dumps=lambda p: json.dumps(p, indent=2),
-        parses=lambda value: _parsed_line_flag(value) is not None,
+    # carrying only the unparseable ones never resurrects a deliberate removal. A refusal RAISES
+    # (EP-A3c), so `flag-line` cannot report a record, removal or clean that was never written.
+    path = _store_path(project_root)
+    require_usable(
+        path,
+        write_json_store(
+            path,
+            {key: asdict(flag) for key, flag in flags.items()},
+            dumps=lambda p: json.dumps(p, indent=2),
+            parses=lambda value: _parsed_line_flag(value) is not None,
+        ),
     )
 
 
@@ -183,7 +196,7 @@ def add_line_flag(
         source=ast.unparse(stmt).splitlines()[0],
         note=note,
     )
-    flags = load_line_flags(project_root)
+    flags = load_line_flags(project_root, strict=True)
     flags[flag.stmt_hash] = flag
     save_line_flags(project_root, flags)
     return flag
@@ -213,7 +226,7 @@ def flag_statuses(project_root: str, func_key: str, func_node: ast.AST) -> list[
     idents = _current_identities(func_key, func_node)
     return [
         (flag, "current" if flag.stmt_hash in idents else "orphaned")
-        for flag in load_line_flags(project_root).values()
+        for flag in load_line_flags(project_root, strict=True).values()
         if flag.func_key == func_key
     ]
 
@@ -222,7 +235,7 @@ def remove_line_flag(project_root: str, func_key: str, func_node: ast.AST, line:
     """Delete one exact flag: matched by current statement identity at ``line`` when
     it resolves, else by the line as recorded (so an orphaned record whose statement
     moved or changed is still removable by the number the listing shows)."""
-    flags = load_line_flags(project_root)
+    flags = load_line_flags(project_root, strict=True)
     key: str | None = None
     resolved = resolve_statement(func_node, line)
     if resolved is not None:
@@ -244,7 +257,7 @@ def clean_orphaned_flags(project_root: str, func_key: str, func_node: ast.AST) -
     Current records are never touched — cleanup is for identities the code has
     already walked away from, not a bulk reset."""
     idents = _current_identities(func_key, func_node)
-    flags = load_line_flags(project_root)
+    flags = load_line_flags(project_root, strict=True)
     removed = [
         flags.pop(k)
         for k in [k for k, f in flags.items() if f.func_key == func_key and f.stmt_hash not in idents]

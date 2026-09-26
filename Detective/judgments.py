@@ -26,7 +26,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-from .atomic_store import read_json_store, write_json_store
+from .atomic_store import read_json_store, require_usable, write_json_store
 
 JUDGMENTS_REL_PATH = os.path.join(".detective", "judgments.json")
 
@@ -131,13 +131,18 @@ def _parsed_judgment(value: object) -> StyleJudgment | None:
 def save_judgments(root: str, judgments: dict[str, StyleJudgment]) -> None:
     """Persist the ledger atomically (#63): a judgment is irreducible human input; a mid-write crash
     must not clobber the store into an empty file the next load silently accepts. Guarded (EP-A3), and
-    an entry this version cannot parse is carried through rather than dropped (EP-A3b)."""
+    an entry this version cannot parse is carried through rather than dropped (EP-A3b). A refusal
+    RAISES (EP-A3c): recording the judgment is the whole of `flag --style`."""
     payload = {key: asdict(j) for key, j in sorted(judgments.items())}
-    write_json_store(
-        _path(root),
-        payload,
-        dumps=lambda p: json.dumps(p, indent=2, sort_keys=True) + "\n",
-        parses=lambda value: _parsed_judgment(value) is not None,
+    path = _path(root)
+    require_usable(
+        path,
+        write_json_store(
+            path,
+            payload,
+            dumps=lambda p: json.dumps(p, indent=2, sort_keys=True) + "\n",
+            parses=lambda value: _parsed_judgment(value) is not None,
+        ),
     )
 
 
