@@ -16,7 +16,7 @@ dynamic = ["version"]
 description = "Writes the behavioral contract for a Python function — every behavior pinned by a test, every question it cannot answer named. On the Wesker mutation engine."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [{ name = "Rohan Vinaik" }]
 keywords = [
     "mutation-testing",
@@ -28,9 +28,9 @@ keywords = [
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Testing",
     "Topic :: Software Development :: Quality Assurance",
 ]
@@ -172,6 +172,14 @@ dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.16.7", "numpy>=1.24"]
 # rejects outright, so it is worth re-checking whenever this block changes.
 [tool.uv.sources]
 Wesker = { git = "https://github.com/rohanvinaik/Wesker.git", branch = "main" }
+
+# The project's interpreter is a uv-MANAGED CPython, never whatever else is active (EP-C4). Measured
+# 2026-09-26: with conda's base environment active, uv resolved the `.python-version` pin to conda's
+# interpreter — so the dev venv silently depended on an environment whose auto-loaded pytest plugins
+# had just made the suite read 25 failed. Managed builds are the same bytes on every developer machine
+# and CI runner; this setting is uv-only dev metadata and does not enter the wheel.
+[tool.uv]
+python-preference = "only-managed"
 
 # Only the package ships. The dev/ generator tree (which imports LintGate as a
 # dev-time conformance oracle) is deliberately excluded from the wheel so no

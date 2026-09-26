@@ -539,7 +539,9 @@ def extract_candidate(source: str, function: str, candidate) -> Extraction | Non
                 if isinstance(m, ast.Name)
             ],
         ]
-        for tp in getattr(func, "type_params", [])
+        for tp in func.type_params
+        # The three concrete kinds are exhaustive and each has `name`; the base `ast.type_param` does not.
+        if isinstance(tp, (ast.TypeVar, ast.ParamSpec, ast.TypeVarTuple))
     ]
     generic = helper_generic_clause(type_params, referenced)
     returns = ", ".join(candidate.outputs)

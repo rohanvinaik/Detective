@@ -29,14 +29,15 @@ concurrency:
 # wheel); the user-installs-from-PyPI experience is verified at RELEASE, not on every main push.
 jobs:
   test:
-    # Matrix over the Python versions the classifiers CLAIM (3.11/3.12/3.13) and two OSes. This
-    # project does fd-level capture, subprocess isolation, and in-process pytest sessions — exactly
-    # the surface that breaks across versions and platforms — so a single ubuntu/3.11 job left the
-    # classifier claims and macOS (the primary dev platform) asserted but unverified.
+    # Matrix over the Python versions the classifiers CLAIM (3.12/3.13/3.14 — 3.14 is the standard
+    # the project is built for; 3.12 is the floor because it is where `sys.monitoring` arrives) and
+    # two OSes. This project does fd-level capture, subprocess isolation, and in-process pytest
+    # sessions — exactly the surface that breaks across versions and platforms — so a single-cell job
+    # left the classifier claims and macOS (the primary dev platform) asserted but unverified.
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:

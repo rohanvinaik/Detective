@@ -17,11 +17,15 @@ through PYTHONPATH — the LOCAL repos, never the PyPI install:
 export PP=/Users/rohanvinaik/tools/Detective:/Users/rohanvinaik/tools/Wesker
 ```
 
-Every `detective` and every `pytest` invocation carries it. Prove resolution once per
-session before doing any work:
+Every `detective` and every `pytest` invocation carries it, and runs under the project's OWN
+interpreter, `.venv/bin/python` — a uv-managed CPython 3.14 (`[tool.uv] python-preference =
+"only-managed"`), never miniconda's base. The floor is 3.12 and 3.14 is the standard (founder
+ruling 2026-09-26). Measured the same day: miniconda base carries the analysis toolkit's
+auto-loading pytest plugins, which made the suite read 25 failed (EP-C4). Rebuild with
+`uv sync` if `.venv` is missing. Prove resolution once per session before doing any work:
 
 ```bash
-PYTHONPATH=$PP python3 -c "
+PYTHONPATH=$PP .venv/bin/python -c "
 import Detective, Wesker
 print('Detective ->', Detective.__file__)
 print('Wesker    ->', Wesker.__file__)
@@ -170,7 +174,7 @@ Ruff is **pinned to 0.16.7 via uvx** — the same version as the dev-group pin C
 bare `ruff`: an unpinned local ruff is not the CI gate.
 
 ```bash
-PYTHONPATH=$PP python3 -m pytest 2>&1 | tail -1 \
+PYTHONPATH=$PP .venv/bin/python -m pytest 2>&1 | tail -1 \
   && uvx ruff@0.16.7 format Detective tests 2>&1 | tail -1 \
   && uvx ruff@0.16.7 check Detective tests 2>&1 | tail -3 \
   && uvx ruff@0.16.7 format --check . 2>&1 | tail -1
@@ -192,7 +196,7 @@ no count to read, and `| tail -1` returns a warning instead.
 suite has been fully green through a regression that only the cross-repo run caught:
 
 ```bash
-PYTHONPATH=$PP python3 -m pytest 2>&1 | tail -3
+PYTHONPATH=$PP .venv/bin/python -m pytest 2>&1 | tail -3
 ```
 
 Run pytest twice — once with `-q` to see failures, once bare with `| tail -1` to capture the
@@ -223,8 +227,9 @@ Ruff is the commit gate; a push needs two more passes, in this order, and neithe
 
 1. `uvx pylint Detective` — reproducible from `[tool.pylint]` in pyproject (tuned to Sonar's
    ruleset, not pylint's defaults). Fix what is genuine in the code you wrote; the house
-   `except Exception:  # noqa: BLE001 — <reason>` guard, the big orchestrators' statement counts
-   and the `sys.monitoring` E1101s under 3.11 are known residue, not findings.
+   `except Exception:  # noqa: BLE001 — <reason>` guard and the big orchestrators' statement counts
+   are known residue, not findings. (The `sys.monitoring` E1101s were residue under 3.11; the 3.12
+   floor removes them.)
 2. The local SonarQube — the persistent Docker container `peitho-sonar` at `localhost:9000`
    (shared with Peitho and Wesker; creds in `~/.config/detective/sonar-local.env`, minted once —
    never re-mint per session). Coverage first, then the scanner, then read the gate by API:

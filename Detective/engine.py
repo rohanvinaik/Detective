@@ -203,7 +203,7 @@ def _suite_path(root: str) -> list[str]:
         with open(config, "rb") as fh:
             entries = tomllib.load(fh).get("tool", {}).get("pytest", {}).get("ini_options", {})
         configured = [os.path.join(root, p) for p in entries.get("pythonpath", []) or []]
-    except (OSError, ValueError, ImportError, AttributeError):
+    except (OSError, ValueError, AttributeError):
         pass  # no config, or unreadable: `root` alone is still the honest floor
     # The rootdir is on the suite's path IFF a root conftest.py puts it there. No conftest, no
     # entry — pytest inserts the TEST file's own directory instead, and the root is reachable

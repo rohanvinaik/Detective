@@ -175,7 +175,7 @@ def _pyproject_pytest_section(source: str) -> str | None:
         import tomllib
 
         pytest_tbl = tomllib.loads(source).get("tool", {}).get("pytest")
-    except (ValueError, ImportError, AttributeError):
+    except (ValueError, AttributeError):
         return None
     if not isinstance(pytest_tbl, dict):
         return None
@@ -373,7 +373,7 @@ def _pytest_table(root: str) -> dict:
                 if section == "[tool.pytest.ini_options]"
                 else {key: value for key, value in pytest_tbl.items() if key != "ini_options"}
             )
-        except (OSError, ValueError, ImportError, AttributeError):
+        except (OSError, ValueError, AttributeError):
             return {}
         if not isinstance(table, dict):
             return {}

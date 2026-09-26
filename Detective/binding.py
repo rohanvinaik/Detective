@@ -188,6 +188,9 @@ def strip_receiver_args(node: ast.FunctionDef | ast.AsyncFunctionDef, n: int):
         decorator_list=[],
         returns=node.returns,
         type_comment=None,
+        # A PEP 695 generic keeps its `[T]`: without it an annotation naming `T` is unresolved in the
+        # clone (a NameError at def time on 3.12/3.13, where annotations are evaluated eagerly).
+        type_params=node.type_params,
     )
     return ast.copy_location(clone, node)
 

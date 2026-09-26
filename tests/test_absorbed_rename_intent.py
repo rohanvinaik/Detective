@@ -52,10 +52,6 @@ EXTERNAL: dict[str, str] = {
         "A CPython code object's field, read off `getattr(fn, '__code__', None)` — a non-Python callable "
         "has no code object, so the object read can itself be None."
     ),
-    "type_params": (
-        "`ast.FunctionDef.type_params`, Python 3.12+ (PEP 695). Absent on 3.11, where no function has "
-        "type parameters; `decompose_apply` walks them when present."
-    ),
     "bound": (
         "`ast.TypeVar.bound`, Python 3.12+ (PEP 695), read off a type-parameter node, which an older "
         "interpreter never produces."

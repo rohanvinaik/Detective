@@ -61,10 +61,8 @@ def _pytest_norecursedirs(root: str) -> frozenset[str]:
     absent, unreadable, or has no such section: this is a hint, not a requirement.
     Only bare directory names (not globs) are honored — matches how our walker prunes.
     """
-    try:
-        import tomllib  # Python ≥ 3.11; Detective requires it.
-    except ImportError:
-        return frozenset()
+    import tomllib
+
     path = os.path.join(root, "pyproject.toml")
     try:
         with open(path, "rb") as fh:

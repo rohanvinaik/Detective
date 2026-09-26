@@ -810,6 +810,7 @@ def _compute_block_cc(stmts: list[ast.stmt]) -> int:
         body=stmts,
         decorator_list=[],
         returns=None,
+        type_params=[],
         lineno=0,
         col_offset=0,
     )
