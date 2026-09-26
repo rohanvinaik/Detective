@@ -21,6 +21,7 @@ import ast
 import itertools
 
 import Detective.engine as engine
+import Detective.equivalence as equivalence
 from Detective.engine import (
     _ADJACENCY_TOPOLOGIES,
     _is_nested_int_container,
@@ -147,17 +148,26 @@ def test_the_target_is_deep_structural():
 
 def test_b0_kills_a_residual_the_default_pool_leaves_candidate_equivalent(tmp_path, monkeypatch):
     root = _write_target(tmp_path)
+    # EP-H1 (docs/ENGINEERING_PASS_2026-09-26.md): bound the classifier's per-call timeout for THIS
+    # test. Its subject is B0's topology search, and every kill it asserts comes from an evaluation
+    # that terminates in microseconds. The timeout only bounds the worklist's NON-terminating mutants
+    # (`seen.add` deleted, on a cyclic topology), whose outcome is `blocked` — never evidence — at any
+    # bound. Measured 2026-09-26: the complete classification of both arms (every verdict's repr) is
+    # byte-identical at 5.0 s and at 0.25 s, and this test drops from 110.5 s to 6.0 s. It had been
+    # about half of the whole suite's wall clock, spent waiting out infinite loops.
+    monkeypatch.setattr(equivalence, "_CLASSIFY_TIMEOUT_S", 0.25)
 
     # With B0 forced OFF, the deep_structural target has at least one survivor no synthesized input
-    # discriminates — the candidate-equivalent residual the feature exists to close.
-    monkeypatch.setattr(engine, "structural_retry_gate", lambda *a, **k: "skip")
-    without = classify_survivors("graph.py", "sum_reachable", root)
+    # discriminates — the candidate-equivalent residual the feature exists to close. Scoped, so
+    # restoring the gate does not also undo the timeout above.
+    with monkeypatch.context() as gate_off:
+        gate_off.setattr(engine, "structural_retry_gate", lambda *a, **k: "skip")
+        without = classify_survivors("graph.py", "sum_reachable", root)
     kills_without = sum(1 for v in without.killable if v.killable)
     assert without.unclassified, "expected an un-discriminated residual before B0 (the F0 gap)"
 
     # With B0 (the real gate), the topology library proves strictly more kills, and at least one
     # winning witness IS a library topology — the cross-referential input the grid could not build.
-    monkeypatch.undo()
     with_b0 = classify_survivors("graph.py", "sum_reachable", root)
     kills_with = sum(1 for v in with_b0.killable if v.killable)
     assert kills_with > kills_without, (kills_without, kills_with)
