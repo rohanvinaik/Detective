@@ -145,7 +145,9 @@ BY_DESIGN: dict[str, str] = {
 }
 
 # The code documents these distinctions as ones a reader or a later step needs, and each site loses
-# or re-derives them. Eight on 2026-09-26, the day the guard was built; the founder rules on each.
+# or re-derives them. Eight on 2026-09-26, the day the guard was built; two resolved the same day by
+# fixes their decisions' docstrings already dictated (EP-G4: `decompose_terminal`, `parameter_scope`
+# now dispatch on the code). The founder rules on the rest.
 OPEN: dict[str, str] = {
     "array_inputs.array_source_disposition @ array_inputs.array_source": (
         "`finite` and `exact` are passed as the constants True, True, so two pinned branches cannot fire "
@@ -156,24 +158,11 @@ OPEN: dict[str, str] = {
         "stay behind the dtype check, since isfinite rejects object dtypes), and does a reader need the "
         "reason?"
     ),
-    "decompose.decompose_terminal @ cli._format_decompose": (
-        "The decision's docstring: 'Which terminal verdict `_format_decompose` prints — one code … never "
-        "re-derived'. The renderer returns early for `applied` (`if r.applied`), `ready` (`if validated "
-        "and not applied_mode`) and `no_suite` (`if proof is None`) BEFORE calling it, re-reading the facts "
-        "of the decision's first three branches. Identical today; §9 invariant 8 calls a second reading "
-        "drift with a delay fuse. Remedy: compute the code first and dispatch all six on it."
-    ),
     "censor.learn_disposition @ cli._run_verify_rewrite": (
         "The decision's docstring: 'the two skips are distinct so a reader sees WHY nothing was learned "
         "(flag off vs. rewrite clean)'. The only consumer prints a line for `learn` alone, so `--learn` on "
         "a verdict other than CHANGED prints nothing and the WHY reaches no one. Question: what the "
         "`skip_unchanged` line says (`skip_disabled` is the flag being off, which needs no line)."
-    ),
-    "cli.parameter_scope @ cli._input_template": (
-        "All three codes are told apart, but `unknown` by a second reading: `if not param_names:` after "
-        "`none` has returned. The decision's docstring names truthiness as what hides exactly this "
-        "None/() conflation; the order of the two checks is all that keeps it right. Remedy: dispatch on "
-        "the code (the type checker still wants its None narrowing)."
     ),
     "converge.regression_recovery @ converge._converge_impl": (
         "Asked once, with retried=False, and only `retry_unminimized` is compared. After the retry, "
@@ -290,9 +279,9 @@ def test_every_reason_actually_says_something() -> None:
 
 def test_the_open_collapses_are_exactly_what_we_know_about() -> None:
     """`len(OPEN)` is the number this guard exists to make visible. It was 8 when the guard was built
-    (2026-09-26). A fix or a ruling makes it go DOWN; a new finding arriving makes it go UP. Either is
-    a deliberate edit here, never a silent drift."""
-    assert len(OPEN) == 8
+    (2026-09-26) and 6 after the two EP-G4 fixes the same day. A fix or a ruling makes it go DOWN; a
+    new finding arriving makes it go UP. Either is a deliberate edit here, never a silent drift."""
+    assert len(OPEN) == 6
 
 
 def test_a_site_is_never_in_both_registries() -> None:

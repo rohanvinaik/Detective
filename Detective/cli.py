@@ -931,9 +931,13 @@ def _input_template(param_names: tuple[str, ...] | None) -> str:
     ``None`` still yields the generic placeholder: not-supplied is not the same fact as
     no-parameters, and only the latter licenses the abstention.
     """
-    if parameter_scope(param_names) == "none":
+    scope = parameter_scope(param_names)
+    if scope == "none":
         return ""
-    if not param_names:
+    # `unknown` from the CODE (EP-G4), not from `not param_names`: truthiness is what fused None and
+    # () in the first place. The `is None` beside it states the narrowing for the type checker; the
+    # decision's `unknown` IS that case.
+    if scope == "unknown" or param_names is None:
         return '--input "(<value>,)"'
     slots = ", ".join(f"<{n}>" for n in param_names)
     tail = "," if len(param_names) == 1 else ""
@@ -3953,7 +3957,27 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
         lines.append(_row("✗ not extractable", block))
     lines.append("")
 
-    if r.applied:
+    # ONE derivation, every ending (§9 invariant 8; EP-G4). The decision below was always documented as
+    # "which terminal verdict _format_decompose prints … never re-derived", but three of its six endings
+    # were rendered by early returns that re-read the same facts BEFORE it was asked (`r.applied`,
+    # `validated and not applied_mode`, `proof is None`): identical conditions, two derivations, and
+    # nothing to stop them drifting apart. Now the code is read once and every ending dispatches on it.
+    # The trial outcome still comes from the engine (`Decomposition.trial`), never from
+    # `functionally_complete`: a mutation-complete suite that retains candidate-equivalent survivors
+    # withheld its proof suite, so its trial was `unproven` (blocked), NOT `rejected`
+    # (#decompose-banner).
+    from .decompose import decompose_terminal
+
+    validated = [d for d in r.proposed if d.validated]
+    code = decompose_terminal(
+        any_applied=bool(r.applied),
+        has_validated=bool(validated),
+        applied_mode=applied_mode,
+        proof_present=proof is not None,
+        proof_complete=proof is not None and proof.functionally_complete,
+        any_rejected=any(d.trial == "rejected" for d in r.proposed),
+    )
+    if code == "applied":
         lines.append("DONE:  your source is rewritten. The suite ran green before AND after, and")
         lines.append("       unspecified behaviour was not baked in.")
         # NAME the helpers. "converge 'quote' on the new helper(s)" is not a command — it is a
@@ -3965,33 +3989,17 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
             lines.append(f"       Next (optional):  detective converge '{target}'")
         return "\n".join(lines)
 
-    validated = [d for d in r.proposed if d.validated]
-    if validated and not applied_mode:
+    if code == "ready":
         lines.append(f"DO THIS:  detective decompose '{tgt}' --apply")
         lines.append("          The proof already passed. --apply writes it. Nothing else is needed.")
         return "\n".join(lines)
 
-    if proof is None:
+    if code == "no_suite":
         lines.append(f"DO THIS:  detective converge '{tgt}'")
         lines.append("          No suite specifies this function yet, so there is nothing to prove")
         lines.append("          against. Your source was NOT touched.")
         return "\n".join(lines)
 
-    # The last three verdicts are the ones that were conflated. Read the trial outcome the
-    # engine computed (`Decomposition.trial`), never re-derive "rejected" from
-    # `functionally_complete`: a mutation-complete suite that still retains candidate-equivalent
-    # survivors withheld its proof suite, so the trial was `unproven` (blocked), NOT `rejected`
-    # (#decompose-banner). The pure decision is pinned; here we only dispatch on it.
-    from .decompose import decompose_terminal
-
-    code = decompose_terminal(
-        any_applied=bool(r.applied),
-        has_validated=bool(validated),
-        applied_mode=applied_mode,
-        proof_present=proof is not None,
-        proof_complete=proof is not None and proof.functionally_complete,
-        any_rejected=any(d.trial == "rejected" for d in r.proposed),
-    )
     if code == "rejected":
         # A trial ran against a SUFFICIENT (mutation-complete, unblocked) suite and went red:
         # the rewrite genuinely changes behaviour. There is no input to supply and nothing to
