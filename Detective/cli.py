@@ -6337,6 +6337,52 @@ def plugin_hint(blob: str) -> str:
     return ""
 
 
+PLUGIN_UNNAMED = "unnamed"
+PLUGIN_ABSENT = "absent"
+PLUGIN_PRESENT = "present"
+
+
+def plugin_presence(plugin: str, installed_here: bool) -> str:
+    """Is the package a pytest error names actually ABSENT where the live suite runs (EP-E2, pure — pinned)?
+
+    `plugin_hint` names the package a config/collection error points at, and the warning then said
+    "Install that plugin in this exact interpreter". That premise — absent — was never checked.
+    Measured 2026-09-26: with `pytest-asyncio` 1.4.0 installed, its own configure hook warned, the
+    project's `filterwarnings = ["error"]` made that fatal, and Detective told the reader to install
+    the plugin that was already installed and was the one raising. A false cause is worse than
+    silence (COMMUNICATING_DETERMINISM §3.1): the reader repeats an install that changes nothing, and
+    stops reading the error lines printed just above, which are where the cause is.
+
+      "unnamed"  the error names no package: nothing to install or to point at; the generic hint stands.
+      "absent"   named, and not installed in this interpreter: installing it is the remedy.
+      "present"  named, and installed here: it is NOT missing. The failure is the installed package's
+                 own, and the error lines are where its cause is.
+    """
+    if not plugin:
+        return PLUGIN_UNNAMED
+    return PLUGIN_PRESENT if installed_here else PLUGIN_ABSENT
+
+
+def _installed_here(package: str) -> bool:
+    """Whether ``package`` is installed in THIS interpreter, the one that runs the live suite
+    in-process (EP-E2). The distribution name first, then its import name, since `plugin_hint`
+    returns a module name for a `no module named` error. Never raises: a failed probe reads as not
+    installed, which keeps the old advice rather than inventing a new cause."""
+    import importlib.metadata
+    import importlib.util
+
+    try:
+        importlib.metadata.version(package)
+        return True
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    # BLE001: find_spec raises on a name that is not a valid module path; "not found" is the answer
+    try:
+        return importlib.util.find_spec(package.replace("-", "_")) is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def install_extra_target(extras: list[str]) -> str:
     """Which ``.[extra]`` a missing-dependency install command should name (pure — pinned).
 
@@ -6457,6 +6503,8 @@ def _format_session_warning(diagnostic: dict[str, Any], project_root: str | None
         # for hours (#66). Detect the import signature and give the accurate remedy.
         blob = " ".join(f"{n} {d}" for n, d in errors).lower()
         pkg = plugin_hint(blob)
+        # Named is not missing (EP-E2): ask this interpreter before telling anyone to install.
+        presence = plugin_presence(pkg, _installed_here(pkg) if pkg else False)
         is_import = any(s in blob for s in ("modulenotfound", "importerror", "no module named"))
         if is_import:
             # (usability, ARC_AGI_3 repro) If the missing module ALREADY lives in a sibling venv,
@@ -6485,17 +6533,29 @@ def _format_session_warning(diagnostic: dict[str, Any], project_root: str | None
                 )
                 # Turn "install something" into "install THIS": a --strict-config repo refuses its
                 # whole config when a plugin it declares an ini option for is absent, so name it.
-                if pkg:
+                if presence == PLUGIN_ABSENT:
                     install_plugin = shlex.join(["uv", "pip", "install", "--python", sys.executable, pkg])
                     hint += (
                         f"         Likely missing: `{pkg}` — `{install_plugin}` (or install the\n"
                         "         project's declared extra), then re-run.\n"
                     )
-        elif pkg:
+                elif presence == PLUGIN_PRESENT:
+                    hint += (
+                        f"         Named: `{pkg}`, which IS installed in this interpreter — the import\n"
+                        "         fails inside it or its dependencies, not for want of it. The failures\n"
+                        "         above are where the cause is.\n"
+                    )
+        elif presence == PLUGIN_ABSENT:
             install_plugin = shlex.join(["uv", "pip", "install", "--python", sys.executable, pkg])
             hint = (
                 f"         Pytest rejected a config/marker owned by `{pkg}`. Install that plugin\n"
                 f"         in this exact interpreter: `{install_plugin}`, then re-run.\n"
+            )
+        elif presence == PLUGIN_PRESENT:
+            hint = (
+                f"         Pytest rejected a config/marker owned by `{pkg}`, and `{pkg}` IS installed\n"
+                "         in this interpreter — it is not missing, and installing it again changes\n"
+                "         nothing. The failures above are the installed plugin's own.\n"
             )
         else:
             hint = (

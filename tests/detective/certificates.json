@@ -111,6 +111,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::plugin_presence": {
+    "cut_reasons": [],
+    "function_digest": "62c60d3489957b60",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::regime_outcome": {
     "cut_reasons": [],
     "function_digest": "aab92e14691dc641",
