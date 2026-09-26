@@ -247,3 +247,68 @@ wall time is not comparable; the instruction counts in §2 are.
 | `1cd47af`, `f6ec465` | pre-push gates | pylint knows `ast`'s `_attributes`; the eight new-code Sonar findings fixed (S3516, S5778, S3776 ×7) by code motion | local SonarQube GATE OK for Detective and Wesker (0 new violations; Detective new-code coverage 91.6%, 0 bugs/vulnerabilities/hotspots); SAME checks: 109 site reads, 28 flag runs byte-identical · pip-audit (all extras and groups) clean · zizmor clean |
 | Wesker `3718b0a` | pre-push gates | the cheap failure repr accepts pytest's formatting options by `*_args, **_kwargs` (W0613 / S1172) | Wesker 894 passed · Detective 3335 passed against it |
 | Wesker `49f7e91` | EP-C1 | the measurement session's items get a cheap `repr_failure` / `_repr_failure_py`; pytest's report construction otherwise untouched | SAME check through the real CLI: FINAL + generated suites + certificates byte-identical on two fixtures; instructions 27.85 G → 17.66 G (−37%) and 8.34 G → 7.47 G; B0 digests unchanged · Wesker `tests/test_cheap_failure_repr_intent.py` (4) · Wesker 894 passed · Detective 3267 passed in 95.3 s |
+
+
+---
+
+## 6. Founder rulings and the plan (2026-09-26, after the pass)
+
+The founder's framing, which governs every row below: several conservative mechanisms — the per-mutant
+allowance floor, "never run two converges at once", the removal of parallelism (H7), the harvest's wall,
+the in-place decompose trial, Uroboros's serial crawl — were **safety valves built before tracing and
+timing tools were available**, to keep unknown statefulness from spiralling. Each is to be REPLACED by a
+principled, measured mechanism, not tuned. On the fleet: *"Same reason. Statefulness."*
+
+An independent reading was taken once, from Codex (GPT-6-Astra, medium, read-only), on the native-code /
+parallelism / persistence / boundary questions; the lead's own reading was written first. Where they
+agree it is noted as evidence; its corrections were verified in the code before being adopted:
+
+* **Timeouts are scored as KILLS today.** `Wesker/engine.py:5696-5709` returns `killed=True,
+  killed_by="timeout"` when a mutant's allowance runs out, and `:5727` counts an uncontained timeout as a
+  run-only kill. So wall-clock IS evidence now, and under load a slow survivor can read as killed — the
+  wrong direction (a suite looks stronger than it is). EP-B1 as written ("pre-entry" timeouts) was too
+  narrow. Remedy direction, from DETERMINISTIC_SICP law 6 (*efficiency = deterministic budgets, never
+  wall-clock*): divergence is established by a DETERMINISTIC step budget (the mutant executes more than
+  k× the lines the original executes on the same test — the same count on every machine and load), and
+  wall-clock only bounds liveness: a wall bound that fires is `undetermined`, never killed, never survived.
+* **The mutant universe is not a function of the source alone.** `generate_mutants` (`engine.py:4347`)
+  also takes `pass_index`, `observed_return_types`, `seed`, `category_order`, `greedy` and the per-category
+  cap; observed types change as synthesis progresses. EP-C2's "the same universe four times" must be
+  verified before anything is reused, and a cache key must carry every generation input plus the
+  generator's version, the Python AST/compiler version and the serialization schema — and store mutant
+  DESCRIPTORS, never `wrapper_factory` callables.
+* **EP-C5's headline was too strong.** One fixture's allocation share does not establish CPU share across
+  targets. The rule stands (re-measure before porting), the headline softens to "no native candidate on
+  the measured fixture".
+* **EP-D1 overclaimed isolation.** fork separates memory, not files, inherited sockets or external services.
+
+| # | Item | Ruling (founder, quoted) | Plan |
+|---|---|---|---|
+| 1, 9 | EP-B1 allowance | "an ad-hoc implementation … a fail-safe for engineering debt"; "set this timeout to beyond the level any sane mutant should require" | Deterministic step budgets decide divergence; wall bounds become a generous liveness filter sized from a start-of-session harness calibration × a user compute-budget setting; a fired wall bound = `undetermined` (retried once, then named). Acceptance: the SAME check across this machine normally, under `taskpolicy -b` (efficiency cores — a slow-machine simulation), and on the old Mac Pro. |
+| 2 | EP-C1 | "have the record honestly abstain about the context, maybe point to … a command … for a proper, complete diagnosis" | The formatting cost is already gone (Wesker `49f7e91`: reports carry `Type: message`). Add explain-on-request: one command re-runs ONE mutant's killing test with full pytest reporting — the cost paid only when asked, and the kill record points at it. |
+| 3 | EP-A1 | in-memory "seems like … ANOTHER burden on RAM/statefulness" | Never write the trial into the user's file at all: the verification already runs pytest in a subprocess with `-p Wesker.verification_manifest` (`certify.run_pytest_verification`), so an import-overlay plugin serves the trial source for exactly the target module inside that subprocess. Cost: one module's source in a temp dir; nothing to restore; the journal retires to a one-release recovery shim. |
+| 4 | EP-A2/A3 | "addressed/persisted with appropriate provenance tracing" | `.detective/` is gitignored, so the human stores have no history anywhere. An append-only judgment history (time, actor/command, versions, target revision, evidence digest, before/after, superseded event) written in the same transaction as the current state. |
+| 5, 14 | EP-C4 | "Advice on how to handle the package management?"; "professionalism pass item" | One uv-managed `.venv` on 3.14 runs Detective (tests and CLI); the analysis toolkit lives in `uv tool` installs or its own env, never the interpreter that runs Detective; toolkit pytest plugins only ephemerally (`uv run --with`); the standing invocation moves off miniconda base. Product side: `regime`/`doctor` DISCLOSE undeclared auto-loaded plugins (never disable a user's plugins). |
+| 6 | EP-C5 | native paradigms, C/C++/Rust/JIT | Agreed with Codex: re-profile across target classes after the timeout, parallel and compute-once work; the pinned decision layer never leaves Python (it must stay pinnable by Detective itself); native (mypyc first, Rust only for a measured kernel) only where a profile shows a substantial mechanical kernel. |
+| 7 | EP-A6 | "If we're doing this right, then that shouldn't be an issue … a MASSIVE unlock" (Uroboros) | Transactional stores + source-untouched trials + private bytecode + private generated-test directories published by one coordinator with revision checks. Then Uroboros stage 3: K functions × M=1 first, nested parallelism second, one jobserver-style CPU budget plus a memory bound. |
+| 8 | EP-A7 | "We should implement this"; cross-correlated files | SQLite (stdlib) for `.detective/`: short transactions, WAL, foreign keys with cascades (the "cross-correlated existence" asked for: a function's cache, pins and certificates follow its record; eviction becomes a query), JSON export for review. The PRODUCT (generated suites, certificates) stays files in git, published via a manifest. |
+| 10 | EP-B2 | "Same" | The harvest stays in-process (captured inputs are live objects) with the same step budget and liveness bound as every other execution. |
+| 11 | EP-B3 | "disciplined handling of >=3.12 as the standard with appropriate legacy handling" | One instrumentation owner: `sys.monitoring` on 3.12+ (also the cheap way to count steps for item 1), `settrace`/`setprofile` as the legacy backend. |
+| 12 | EP-B4b | "similar ignorance-driven issue" | Reads of `sys.modules`, `sys.path`, `sys.flags`, `platform`, `sys.version*` count as environment reads; such goldens are withheld or stamped. |
+| 13 | EP-C2 | "sensible cache lookup if code is unchanged between runs" | First verify whether passes really regenerate an identical universe (see the correction above); propagate within a run; persist across runs only under the full generation key, after measuring hit rate against generation cost. |
+| 15 | EP-D1 | "I'd love to be able to genuinely build parallelism in" | Executor lives in Wesker beside its pytest runner, behind a plain-data protocol. First measurement (Codex's): serial vs parallel evidence equality, startup cost, memory. Backend choice below (a founder decision). |
+| 16 | EP-E1 | "Yes, add 3.14. I meant for 3.14 to be the standard" | `.python-version` 3.14, `.venv` rebuilt on 3.14, 3.14 in the CI matrix and classifiers, 3.14 the Sonar/coverage cell. |
+| 17 | EP-G1 | "the ceiling is to implement a typed, named solution for every genuinely deterministic, resolvable item … and communicate it correctly" | Resolve the six OPEN sites by typed, named solutions: split `array_source_disposition` (dtype admissibility, then finiteness over the measured fact); give `regression_recovery` an explicit retry-possible input and dispatch on it; name `skip_unchanged`; carry the three classification causes to the verdict; NAME `unknown_herb`; count the two C-gate standings apart. |
+| 18 | EP-G2 | "Professionalism pass" | Build the field guard, reflection- and equality-aware; each unread field is wired or deleted. |
+| 19 | EP-G3 | "best implementation that aligns with the strict information theoretic rigor on knowability" | Absence is not a value: where the object's type is known, a DIRECT read (a rename fails loudly, and ty sees it); where it genuinely may lack the field, a three-valued read (present-true / present-false / absent) whose `absent` renders as "could not determine", never as clean; `typing.Protocol`s for the duck-typed results so ty checks every read. |
+| 20 | EP-G4 | "Same" | Fix the two remaining re-derivations as part of item 17. |
+| 21 | EP-G6 | "The end state is what matters, mid-process issues are operator problems … Weakening this weakens the strict guarantees" | CLOSED: no change to the sentence. (Item 3 also makes it literally true mid-run.) |
+| 22 | EP-H1 | "classify, reason over best practice handling" | Named outcomes for the witness search (terminated-distinct, terminated-same, step-budget-divergent, wall-undetermined); per-input step budgets relative to the original on that input; the wall bound only for liveness. |
+| 23 | EP-H5 | "yes, high value target" | `pytest-xdist` in the dev group, `-n auto --dist loadfile` in CI, after repeated green runs under xdist. |
+
+**Order proposed:** (1) measurement correctness — timeout semantics and step budgets, the monitoring owner,
+calibrated liveness bounds, the cross-hardware SAME check; (2) state foundations — SQLite stores with
+history and cascades, source-untouched trials, compute-once, 3.14 and package hygiene, xdist in CI;
+(3) the parallel executor behind the plain-data boundary; (4) the Uroboros fleet; (5) the surface items
+(G1–G4, B4b, explain-on-request), which are independent and can interleave anywhere; (6) re-profile, then
+native only where measured.
