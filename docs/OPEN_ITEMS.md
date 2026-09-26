@@ -79,6 +79,24 @@ are **Uroboros's**, not Detective's — a scope boundary, not a backlog).
 
 ---
 
+## 2c. The 2026-09-26 engineering pass — state, persistence, caching, performance
+
+Detail and evidence: [`ENGINEERING_PASS_2026-09-26.md`](ENGINEERING_PASS_2026-09-26.md). Every row
+there was measured, not read. The founder calls it raises, each with a recommendation in the doc:
+
+| # | Question | Code |
+|---|---|---|
+| **EP-B1** | How should the per-mutant allowance be calibrated, and is a timeout that fired before the mutant was entered a retriable measurement limit rather than evidence? (8/8 instrumented runs wrong at the 50 ms floor, 5/5 right at 5000 ms.) | EP-B1 |
+| **EP-B3** | One instrumentation owner on `sys.monitoring` (3.12+) with the legacy hooks as the 3.10/3.11 backend? | EP-B3 |
+| **EP-D1** | A fork-per-mutant worker pool — parallelism and per-mutant state isolation from one mechanism (H7's spawn blocker does not apply to fork; 2.6 ms per fork)? | EP-D1 |
+| **EP-A6** | The advisory project lock #63 named as a separate increment. | EP-A6 |
+| **EP-C4 / EP-E1** | The dev interpreter: keep toolkit pytest plugins out of the one that runs Detective, and test (or stop developing on) 3.14. | EP-C4, EP-E1 |
+
+The bounded work (EP-A1–A5, EP-A7, EP-B2, EP-B4, EP-C1–C3, EP-C6, EP-E2) is tracked in that document's
+tables, with the commit that closed each one.
+
+---
+
 ## 3. RESEARCH — no bounded shape yet
 
 | # | Item | Where |

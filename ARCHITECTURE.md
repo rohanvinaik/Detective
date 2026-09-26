@@ -99,6 +99,7 @@ GitHub issue. The rest, and where each is defined:
 | `S`- and `R`-codes | `docs/CORRECTNESS_REPAIRS_2026-09-08.md` |
 | `F2` | `docs/F2_RESIDUAL_TYPING.md` |
 | `W`-codes | `docs/OPEN_ITEMS.md` |
+| `EP`-codes | `docs/ENGINEERING_PASS_2026-09-26.md` |
 | `Finding A`–`F` | `docs/dogfood/revalidation_2026-09-06.md` |
 
 `§` numbers are per document, so every module that cites them names its documents in its docstring,
