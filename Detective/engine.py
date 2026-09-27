@@ -1040,7 +1040,9 @@ def profile(
     _widen_tests: list[Callable[..., Any]] | None = None
     _session_baseline = None
     _routing_counts: dict[str, int] = {}
-    _synthesize_orphan = False
+    # The tests this run may EXECUTE for this function, once routing has decided them; None = routing
+    # did not run (no live session, an older Wesker, a failure below) and the collection stands.
+    _pool: list[Callable[..., Any]] | None = None
     _impossible_ids: set[int] = set()
     if _WESKER_TARGET_FIRST and scope_tests and tests:
         from Wesker.engine import _SESSION_BASELINE as _session_baseline
@@ -1117,6 +1119,18 @@ def profile(
                         _routing_counts["deferred_shaped"] = _deferred_shaped
                     if _not_consulted:
                         _routing_counts["not_consulted"] = _not_consulted
+                    # THE POOL IS THE CONSULTED SET, not merely the traced one. Seeding traces only the
+                    # candidates, but whatever is in the pool is RUN wherever the engine cannot scope a
+                    # mutant — a mutant off the body's lines (a default, an annotation on the `def`
+                    # line), or no line data at all — because `_tests_for` falls back to the WHOLE pool
+                    # there. Leaving the not-consulted and shape-deferred tests in it made that fallback
+                    # the whole-suite run the applicability ruling (2026-09-05) exists to forbid: measured
+                    # 2026-09-27, one annotation mutant of `Wesker/monitoring.py::step_budget_verdict`
+                    # ran 694 tests, two of them traced, and one of the rest ran the engine inside the
+                    # engine and orphaned its execution lock. Same membership as the capture harvest
+                    # (`_applicable_harvest_pool`) with the widen's shape deferral: candidates, then the
+                    # admitted unknowns. The impossible stratum was already out of it, for the same reason.
+                    _pool = [*_cands, *_widen_tests]
                 elif _disposition == "synthesize":
                     # Seed EMPTY (the forked baseline traces nothing) and profile against NO tests, so
                     # every mutant survives and routes to the existing synthesis pass. Disposition-exact:
@@ -1125,7 +1139,7 @@ def profile(
                     _seeded.seed([])
                     _seed_token = _session_baseline.set(_seeded)
                     _widen_tests = []
-                    _synthesize_orphan = True
+                    _pool = []
                     # A leaf orphan traces nothing: every unknown is unconsulted, and the census says so.
                     if _unknowns:
                         _routing_counts["not_consulted"] = len(_unknowns)
@@ -1133,6 +1147,7 @@ def profile(
         except Exception:  # noqa: BLE001
             _seed_token = None
             _widen_tests = None
+            _pool = None
     _prof_kwargs = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
     if isolated:
         _prof_kwargs["isolated"] = True
@@ -1143,8 +1158,10 @@ def profile(
         # one-sign default never passes this newer kwarg to a pre-two-sign Wesker.
         from .capture import capture_return_types
 
+        # Harvested over the pool, the same tests the profile may run — on the leaf-orphan route that
+        # is none at all, where this used to run the whole collection.
         _prof_kwargs["observed_return_types"] = capture_return_types(
-            original, [t for t in tests if id(t) not in _impossible_ids]
+            original, _pool if _pool is not None else [t for t in tests if id(t) not in _impossible_ids]
         )
     from Wesker.ci import _PROJECT_ROOT
 
@@ -1154,7 +1171,7 @@ def profile(
             node,
             func_key,
             categories,
-            [] if _synthesize_orphan else [t for t in tests if id(t) not in _impossible_ids],
+            _pool if _pool is not None else [t for t in tests if id(t) not in _impossible_ids],
             original,
             budget_ms=budget_ms,
             max_per_category=max_per_category,

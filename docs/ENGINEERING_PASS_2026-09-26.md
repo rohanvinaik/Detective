@@ -314,3 +314,79 @@ history and cascades, source-untouched trials, compute-once, 3.14 and package hy
 (3) the parallel executor behind the plain-data boundary; (4) the Uroboros fleet; (5) the surface items
 (G1–G4, B4b, explain-on-request), which are independent and can interleave anywhere; (6) re-profile, then
 native only where measured.
+
+---
+
+## 7. The orphaned execution lock (2026-09-27) — measured, one layer fixed, the rest for the founder
+
+**Symptom.** From Wesker's repo, `detective converge 'Wesker/monitoring.py::step_budget_verdict'` was
+REFUSED on every run ("the engine could not take its execution lock (orphaned)") while
+`tests/test_monitoring_step_budget_intent.py` existed. Removing any subset of its tests that left one
+routed to the target did not clear it; removing the whole file did.
+
+**Instrument.** A `sitecustomize` probe (scratchpad, not product code): `Wesker.engine._EXECUTION_LOCK`
+replaced by a forwarding proxy right after the module executes (repr forwarded, so the repr-owner orphan
+channel reads exactly what it read), logging every acquire attempt/result/release with thread and stack;
+wrappers on `_run_test_with_timeout`, `interrupt.abandon` (with the target thread's stack at that moment)
+and `_build_test_scope` (its inputs and outputs, and each mutant's covering set). Accepted as evidence
+because the verdict under it is unchanged (REFUSED, twice). One engine module and one lock in the process —
+the second-module hypothesis is refuted.
+
+**The chain, measured.**
+
+1. Pass 0 (`converge.py:1836`): target-first seeds the session baseline with the 2 candidate intent tests
+   (`line_cov` = lines 82–84, correct), but the POOL handed to `run_function_profiling` was **694** tests —
+   the collection minus proof-grade impossibles (`Detective/engine.py`, the `run_function_profiling` call
+   in `profile`). 690 are `not_consulted` under the 2026-09-05 ruling and were never traced.
+2. The first mutant, `ARITHMETIC_7e90ecd4`, is on the `def` line: it rewrites the `|` in the parameter
+   annotation `cap: int | None`, which `from __future__ import annotations` keeps a string nothing
+   evaluates. Line 75 is outside the traced lines, so `_tests_for` (`Wesker/engine.py:4222`, "no data for
+   this line — cannot scope safely") returns the whole pool. No candidate can kill an inert mutant, so the
+   evaluation walks the suite.
+3. At +0.13 s it reaches `tests/test_admissible_evidence.py::test_a_failing_tests_reach_is_observed_but_not_admissible`,
+   which runs `run_function_profiling` in-process on a fixture. In the test's worker thread the nested
+   `_baseline_failures` is refused `held_by_live_thread` (bounded) and carries on; the nested
+   `evaluate_mutant` then blocks in `_serialized`'s 5 s C-level acquire. A wait-for cycle: the main thread
+   holds the lock and joins the worker; the worker waits on the lock.
+4. The mutant's allowance (~230 ms) expires; `bounded_join` → `abandon`: the injection cannot land in a
+   thread blocked in C (`contained=False`, result `uncontained`). The main thread finishes and releases.
+5. The worker's acquire returns and the pending `Abandoned` lands before `_note_lock_entry` — the documented
+   HONEST LIMIT window — so it dies owning the RLock with the record 0/0. The next evaluation's probe reads a
+   dead owner in the repr: `orphaned`, re-raised, REFUSED.
+6. Without the intent file, pass 0 has no candidate: `_activate_target_first` → `synthesize`, an EMPTY pool,
+   and later passes profile only the written suite — the whole-collection pool never occurs. That is the
+   whole of "only removing the file clears it".
+
+**An independent reading** (Codex, GPT-6-Astra medium, read-only; the lead's reading written first, to
+`scratchpad/codex/my_reading_lock_orphan.md`) agreed on the chain and on both fixes, and added four points,
+each checked in the code: the same cycle can form in the BASELINE phase (`_baseline_failures` holds the
+lock while its workers run tests, `Wesker/engine.py:4012-4018`); a refusal raised as a `BaseException`
+alone is still read as a crash kill (`_run_test_with_timeout`'s `except BaseException`, `:6001`, and
+pytest's own capture), so it needs a status channel that survives interception; the two-sign return-type
+harvest ran the whole collection even for a leaf orphan; and a routing exception silently falls back to
+the whole collection.
+
+**Fixed (Detective, this pass).** `profile`'s pool is the CONSULTED set: on the seed route, the candidates
+then the widen-admitted, shape-admitted unknowns (the capture harvest's membership, `_applicable_harvest_pool`,
+with the widen's shape deferral); on the leaf-orphan route, nothing. The two-sign harvest takes the same
+pool. Evidence: `tests/test_engine_pool_is_the_consulted_set_intent.py` (2, through a real live session; a
+no-path test that counts its own executions — both FAIL on the previous code, at exactly `ran == 0`); the
+e2e fixture's converge is byte-identical before/after (FINAL, generated suite, certificates, full report) —
+a no-regression check only, since its pass pools were already the candidates; and the refused converge now
+reads `✓ COMPLETE (operator universe · modulo 2 unproven-equivalent) · 10/11 killed`, `not consulted 690`.
+Verdicts cached under the old pool are keyed identically until the next version bump (`engine_fingerprint`).
+
+**Open — the founder's calls, with both readings' recommendations.**
+
+| Item | What | Recommendation |
+|---|---|---|
+| Lock cycle | A consulted test that runs the engine in-process (most of Wesker's engine internals have them) still deadlocks the same way, in evaluation or in the baseline guard — detected and refused honestly, never prevented. | Prevent it: a worker whose measurement parent holds the lock refuses INSTANTLY (never enters the C wait) with a named non-kill outcome carried by a status channel that survives interception — undetermined, never a crash kill, never survival. Build it with item 1, which rewrites the same test-outcome vocabulary. Delegated re-entrancy for the measurement's own worker is the fuller answer (the isolated worker already gets it from same-thread RLock re-entrancy) but more invasive, and until timeouts stop being kills it turns a nested overrun into a false kill. |
+| Annotation sites | The generator mutates annotations; under PEP 563 (and PEP 649 absent introspection) such a mutant is inert except to code that evaluates annotations (FastAPI, pydantic, beartype, `get_type_hints`). | Codex: exclude annotation subtrees from the runtime operator universe (a policy change: the policy id moves). Lead: the founder's call — for introspecting frameworks the site is behavioural. |
+| Unscreened fallback | The fallback now runs only consulted tests, but a widen-admitted test in the pool is not baseline-screened until the widen traces it. | Screen before the fallback may run it (defensive, Wesker side). |
+| Routing failure | `profile`'s target-first `except Exception` and `_applicable_harvest_pool`'s `ImportError` path both authorize the whole collection silently. | Under the ruling routing is the applicability bound, not an optimisation: name the failure rather than widen to the suite. |
+| Allowance vs pool | `evaluate_mutant`'s `timeout_ms` is ONE budget for the whole mutant, sized from the covering tests; a large fallback pool spends it and returns `killed_by="timeout"` — a false kill (code reading; no timeout occurred in these runs). | Closed by item 1 (a fired wall bound is undetermined); the pool fix removes the amplifier. |
+
+`step_budget_verdict`'s two remaining candidates, as the tool reports them: `ARITHMETIC_7e90ecd4` (the
+annotation) and `BOUNDARY_1406e1d0` (`if cap is None:` → `if False:`). The lead's observation, not the
+tool's: the witness search tries only integers for `cap`, and `(0, None)` makes the second raise `TypeError`
+where the original returns `"unbounded"`; the intent test with `cap=None` already detects it by crash.
