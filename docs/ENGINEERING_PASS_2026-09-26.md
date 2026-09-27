@@ -359,6 +359,29 @@ the second-module hypothesis is refuted.
    and later passes profile only the written suite — the whole-collection pool never occurs. That is the
    whole of "only removing the file clears it".
 
+**Confirmed with the toolkit's own instruments** (the probe above was bespoke; the global rule is to measure
+with the installed tools). Four instrumented converges from one starting state (the committed Wesker tree,
+no cached verdict or pin for the function), each accepted only because its verdict matched the plain run's:
+stdlib **cProfile** (`sys.monitoring`-based on 3.12+, so it records every thread — checked on a threaded
+script) shows, before the fix, `run_function_profiling` called from Detective's `profile` AND from
+`_profile` in `tests/test_admissible_evidence.py:50` (the engine running inside the engine), 5.12 s spent
+waiting in the C-level `RLock.acquire`, one `abandon`, and 73 test functions from 37 files executed for a
+function whose consulted set is 5; after it, `profile` is the only caller, zero lock wait, no `abandon`,
+and exactly the 5 consulted tests ran. That is the static-versus-runtime check closing: statically Detective
+has ONE call site of `run_function_profiling` (`engine.profile`); the pre-fix runtime showed a second caller
+the static graph cannot show, which is the defect; the fixed runtime agrees with the static graph.
+**VizTracer 1.1.1 on 3.14 could not observe these runs at all** (no `threading.Thread` workers; nothing
+inside a converge; recorded in the global toolkit notes), so it is not the instrument for this pair.
+
+**A sibling the static trace found, NOT fixed here** (pre-existing, not a regression): under `--two-sign`,
+a cached profile result lacks the observed-codomain stash (`observed_return_types` is not a
+`ProfilingResult` field, so the cache drops it), and `classify_survivors` re-captures it over
+`discover_test_callables(...)`, which in a live session IS the whole collection (`Wesker/ci.py:1110`). Every
+warm two-sign run therefore executes not-consulted tests. Classification still resolves (the warm run
+observes a superset of return types and mutant ids are content-addressed), so it costs time and breaks the
+ruling rather than a verdict. The principled fix is EP-C2's: compute the observed codomain once and carry it
+with the verdict through the cache, so no second derivation exists.
+
 **An independent reading** (Codex, GPT-6-Astra medium, read-only; the lead's reading written first, to
 `scratchpad/codex/my_reading_lock_orphan.md`) agreed on the chain and on both fixes, and added four points,
 each checked in the code: the same cycle can form in the BASELINE phase (`_baseline_failures` holds the
