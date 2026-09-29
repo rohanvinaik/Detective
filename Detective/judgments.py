@@ -26,7 +26,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-from .atomic_store import read_json_store, require_usable, write_json_store
+from .atomic_store import parsed_entry, read_json_store, require_usable, write_json_store
 
 JUDGMENTS_REL_PATH = os.path.join(".detective", "judgments.json")
 
@@ -120,12 +120,7 @@ def load_judgments(root: str) -> dict[str, StyleJudgment]:
 
 def _parsed_judgment(value: object) -> StyleJudgment | None:
     """One stored entry as a judgment, or None when this version cannot read it (EP-A3b)."""
-    if not isinstance(value, dict):
-        return None
-    try:
-        return StyleJudgment(**value)
-    except (TypeError, ValueError):
-        return None
+    return parsed_entry(value, lambda entry: StyleJudgment(**entry))
 
 
 def save_judgments(root: str, judgments: dict[str, StyleJudgment]) -> None:

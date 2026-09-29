@@ -133,17 +133,17 @@ def load_ledger(project_root: str, *, strict: bool = False) -> dict[str, CensorL
 
 def _parsed_entry(value: object) -> CensorLedgerEntry | None:
     """One stored entry as a ledger entry, or None when this version cannot read it (EP-A3b)."""
-    if not isinstance(value, dict):
-        return None
-    try:
-        return CensorLedgerEntry(
-            censor=Censor(**value["censor"]),
-            kappa=value.get("kappa"),
-            state=value.get("state", "proposed"),
-            generation=value.get("generation", 0),
-        )
-    except (TypeError, ValueError, KeyError):
-        return None
+    from .atomic_store import parsed_entry
+
+    return parsed_entry(
+        value,
+        lambda entry: CensorLedgerEntry(
+            censor=Censor(**entry["censor"]),
+            kappa=entry.get("kappa"),
+            state=entry.get("state", "proposed"),
+            generation=entry.get("generation", 0),
+        ),
+    )
 
 
 def save_ledger(project_root: str, entries: dict[str, CensorLedgerEntry]) -> None:

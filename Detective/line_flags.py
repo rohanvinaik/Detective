@@ -151,12 +151,9 @@ def load_line_flags(project_root: str, *, strict: bool = False) -> dict[str, Lin
 
 def _parsed_line_flag(value: object) -> LineFlag | None:
     """One stored entry as a line flag, or None when this version cannot read it (EP-A3b)."""
-    if not isinstance(value, dict):
-        return None
-    try:
-        return LineFlag(**value)
-    except (TypeError, ValueError):
-        return None
+    from .atomic_store import parsed_entry
+
+    return parsed_entry(value, lambda entry: LineFlag(**entry))
 
 
 def save_line_flags(project_root: str, flags: dict[str, LineFlag]) -> None:

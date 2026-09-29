@@ -68,12 +68,9 @@ def load_flags(project_root: str) -> dict[str, EquivalenceFlag]:
 
 def _parsed_flag(value: object) -> EquivalenceFlag | None:
     """One stored entry as a flag, or None when this version cannot read it (EP-A3b)."""
-    if not isinstance(value, dict):
-        return None
-    try:
-        return EquivalenceFlag(**value)
-    except (TypeError, ValueError):
-        return None
+    from .atomic_store import parsed_entry
+
+    return parsed_entry(value, lambda entry: EquivalenceFlag(**entry))
 
 
 def save_flags(project_root: str, flags: dict[str, EquivalenceFlag]) -> None:

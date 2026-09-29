@@ -227,6 +227,25 @@ def write_json_store(
     return code
 
 
+def parsed_entry[T](value: object, build: Callable[[dict[str, Any]], T]) -> T | None:
+    """One stored entry through the store's own ``build``, or None when this version cannot read it
+    (EP-A3b) — the ONE per-entry contract every durable store shares, as :func:`read_json_store` is the
+    one file-level one. Four stores each kept a copy and they had already begun to differ.
+
+    Not a JSON object, or rejected by ``build`` — an unknown or missing field (``TypeError``), a value
+    the type refuses (``ValueError``), a required nested key absent (``KeyError``, the ledger's
+    ``censor``) — all mean the same thing: this version cannot read the entry. Its loader skips it, and
+    :func:`write_json_store` (``parses=``) carries it through the next write untouched rather than
+    deleting it.
+    """
+    if not isinstance(value, dict):
+        return None
+    try:
+        return build(value)
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
 class StoreRefused(OSError):
     """A durable store could not be used safely, so it was left exactly as it is (EP-A3c).
 

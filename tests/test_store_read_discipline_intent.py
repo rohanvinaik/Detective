@@ -221,3 +221,39 @@ def test_an_entry_this_version_cannot_parse_survives_a_save_of_the_others(
     on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert on_disk["newer-key"] == unreadable_entry, f"{name}: the save must carry it, not drop it"
     assert "valid-key" in on_disk
+
+
+# ── one per-entry contract (review finding 2026-09-29) ───────────────────────────────────────────
+# Four stores each kept their own "parse one entry, else None" and the copies had begun to differ. The
+# contract is `atomic_store.parsed_entry`; every store's parser goes through it, so they cannot drift.
+
+_PARSERS = {
+    "equivalents": (equivalents._parsed_flag, _FLAG),
+    "line_flags": (line_flags._parsed_line_flag, _LINE),
+    "judgments": (judgments._parsed_judgment, _JUDGMENT),
+    "promotion_ledger": (promotion_ledger._parsed_entry, _LEDGER),
+}
+
+
+def test_the_shared_contract_reads_or_declines_and_never_raises():
+    assert st.parsed_entry({"a": 1}, lambda entry: entry["a"]) == 1
+    assert st.parsed_entry(["a"], lambda entry: entry) is None  # not a JSON object
+    for error in (TypeError, ValueError, KeyError):
+
+        def build(entry, error=error):
+            raise error("this version cannot read it")
+
+        assert st.parsed_entry({}, build) is None
+
+
+@pytest.mark.parametrize("name", sorted(_PARSERS))
+def test_every_store_declines_the_same_malformed_shapes(name):
+    parse, valid = _PARSERS[name]
+    assert parse(valid) is not None, f"{name}: its own valid entry must read"
+    assert parse(["not", "an", "object"]) is None
+    assert parse("text") is None
+    newer = {**valid, "field_from_a_newer_release": True}
+    if name == "promotion_ledger":  # its schema is nested: the unknown field lives in the censor
+        newer = {**valid, "censor": {**valid["censor"], "field_from_a_newer_release": True}}
+        assert parse({key: v for key, v in valid.items() if key != "censor"}) is None  # required key absent
+    assert parse(newer) is None, f"{name}: an entry from a newer release must be declined, not raised"
