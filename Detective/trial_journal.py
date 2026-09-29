@@ -192,5 +192,9 @@ class SourceTrial:
                     f"{self.journal} and the next detective command will restore it.\n"
                 )
                 return
+            # The restore owns the cache retirement, on EVERY exit: the proof suite imported the trial,
+            # and a restore in the same second at the same size passes CPython's .pyc check, so the next
+            # import would run the trial over the original. The journal recovery retires it the same way.
+            _purge_bytecode(self.path)
         with contextlib.suppress(OSError):
             os.remove(self.journal)

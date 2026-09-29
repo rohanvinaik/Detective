@@ -54,6 +54,37 @@ def test_every_exit_that_runs_python_restores_the_original(tmp_path, interrupt):
     assert _journals(root) == []
 
 
+def test_an_interrupted_trial_leaves_no_trial_bytecode_for_the_next_import(tmp_path):
+    """Review finding (2026-09-29): the exception path restored the SOURCE but not its cache. The proof
+    suite imports the trial, so the trial's ``.pyc`` exists; CPython accepts a ``.pyc`` whose recorded
+    source mtime (whole seconds) and size match the file, so a restore landing in the same second at the
+    same size let the next import run the TRIAL over the original. The journal recovery and the normal
+    revert already retired the cache; this exit did not. Forced deterministically here: equal-length
+    sources, the trial compiled while on disk, and the restored file given the trial's mtime."""
+    import importlib.util
+    import py_compile
+
+    original, trial = "def f(x):\n    return x + 1\n", "def f(x):\n    return x + 2\n"
+    assert len(original) == len(trial)
+    source = tmp_path / "samesize.py"
+    source.write_text(original, encoding="utf-8")
+    cache = importlib.util.cache_from_source(str(source))
+    trial_mtime = 0.0
+    with pytest.raises(RuntimeError), SourceTrial(str(tmp_path), str(source), original, trial):
+        py_compile.compile(
+            str(source), cfile=cache, doraise=True, invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP
+        )
+        trial_mtime = os.stat(source).st_mtime
+        raise RuntimeError("the suite crashed")
+    assert source.read_text(encoding="utf-8") == original
+    os.utime(source, (trial_mtime, trial_mtime))  # the same-second restore, made certain
+    spec = importlib.util.spec_from_file_location("samesize_after_restore", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.f(1) == 2, "the next import ran the trial's cached bytecode, not the restored source"
+
+
 def test_a_kept_trial_stays_and_leaves_no_journal(tmp_path):
     root, source = _project(tmp_path)
     with SourceTrial(root, str(source), ORIGINAL, TRIAL) as trial:

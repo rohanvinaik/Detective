@@ -1049,9 +1049,8 @@ def _apply_decomposition_impl(
                 applied.append(extraction)
                 progressed = True
                 break  # keep it; re-read and re-plan against the rewritten file
-            # Never leave the USER's next import running trial bytecode: the trial's exit restored
-            # the pre-trial content, so retire the trial's cache with it.
-            _purge_stale_bytecode(full)
+            # The trial's exit restored the pre-trial content AND retired the trial's cache with it
+            # (`SourceTrial.__exit__`), on this path and on an interrupted one alike.
             # Carry the ACTUAL trial code, not just `validated`: `_code` distinguishes a rewrite
             # the suite disproved (`rejected`) from one that was never tested (`unproven` — the
             # suite was withheld because candidate-equivalents block it). The CLI banner needs that
