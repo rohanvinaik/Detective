@@ -34,6 +34,7 @@ from Detective.budget import (
     count_opcodes,
     growth_class,
     ladder_value,
+    paired_budget_read,
     paired_disposition,
 )
 
@@ -111,10 +112,10 @@ def test_ladder_values_are_sized_and_deterministic() -> None:
 
 # ── count_opcodes — the instrument shell ─────────────────────────────────────────────────────
 
-# The counter is `sys.monitoring` (Python ≥ 3.12). On an older interpreter it DECLINES — returns
-# None, never a guess — and slice 7's `verify-rewrite --budget` reads that as UNMEASURABLE. The CI
-# matrix's 3.11 cells exercise exactly that decline; the two tests that drive `sys.monitoring`
-# directly have nothing to say there and skip by name, never by a silent pass.
+# The counter is `sys.monitoring` (Python ≥ 3.12, the package floor since EP-E1). Below it the
+# instrument DECLINES — returns None, never a guess — and slice 7's `verify-rewrite --budget` reads
+# that as UNMEASURABLE; the tests that drive `sys.monitoring` directly skip there by name, never by
+# a silent pass.
 _NO_MONITORING = not hasattr(sys, "monitoring")
 _needs_monitoring = pytest.mark.skipif(
     _NO_MONITORING, reason="sys.monitoring is Python ≥ 3.12; the counter declines honestly below it"
@@ -140,6 +141,54 @@ def test_count_is_deterministic_and_grows_with_input() -> None:
     assert a is not None and a > 0
     bigger = count_opcodes(_quadratic_dupes, (ladder_value("list[int]", 32),))
     assert bigger is not None and bigger > a
+
+
+def _linear_dupes(xs: list) -> list:
+    seen: set = set()
+    out = []
+    for x in xs:
+        if x in seen and x not in out:
+            out.append(x)
+        seen.add(x)
+    return out
+
+
+@_needs_monitoring
+def test_a_co_resident_disabler_cannot_move_a_paired_read() -> None:
+    """A monitoring tool that disables each location after its first hit (coverage.py's default
+    core on 3.14) cannot move a paired budget read. Measured 2026-10-01: when such a tool's LINE
+    callback returns DISABLE, CPython (3.12, 3.13, 3.14) skips INSTRUCTION events on the execution
+    that disables the location, and the counter's own frame was cold on its first call, so under
+    `pytest --cov` on 3.14 one input read 1114 and then 1117 and the determinism test above failed.
+    The counter no longer counts its own frame, and `paired_budget_read` runs each arm before it
+    counts it, so no counted location is cold. The disabler here is fresh: every location, the
+    counter's own included, is a first hit for it."""
+    mon = sys.monitoring
+    kinds = ("list[int]",)
+    quiet = paired_budget_read(_quadratic_dupes, _linear_dupes, kinds, True)
+    slot = None
+    for candidate in (0, 4, 3):  # not 5, the counter's first choice; 1 is coverage's own
+        try:
+            mon.use_tool_id(candidate, "first-hit-disabler")
+            slot = candidate
+            break
+        except ValueError:
+            continue
+    if slot is None:
+        pytest.skip("no sys.monitoring slot is free for the interfering tool")
+    mon.register_callback(slot, mon.events.LINE, lambda _code, _line: mon.DISABLE)
+    mon.set_events(slot, mon.events.LINE)
+    try:
+        beside = paired_budget_read(_quadratic_dupes, _linear_dupes, kinds, True)
+    finally:
+        mon.set_events(slot, 0)
+        mon.register_callback(slot, mon.events.LINE, None)
+        mon.free_tool_id(slot)
+    assert quiet.incumbent_counts and quiet.candidate_counts  # it measured something
+    assert (beside.incumbent_counts, beside.candidate_counts) == (
+        quiet.incumbent_counts,
+        quiet.candidate_counts,
+    )
 
 
 @_needs_monitoring

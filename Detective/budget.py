@@ -303,15 +303,26 @@ def count_opcodes(fn: Callable, args: tuple) -> int | None:
     stopped delivering opcode events on 3.14 — measured, which is why this instrument is built
     on the modern surface). Deterministic for deterministic code on fixed inputs — the property
     wall-clock never has — and comparable BETWEEN arms measured by the same interpreter, never
-    across Python versions (the instruction stream is an interpreter detail; the read includes
-    a small constant enable/disable overhead, identical across arms).
+    across Python versions (the instruction stream is an interpreter detail).
+
+    The read leaves out this function's own frame. Its few instructions between switching the
+    events on and off are the instrument, not the arm, and they were the read's cold spot: when a
+    co-resident tool's LINE callback returns DISABLE (coverage.py's default core on 3.14 does so
+    at each location's first hit), CPython skips INSTRUCTION events on the execution that disables
+    the location, and this frame is cold on the counter's first call in a process. Measured
+    2026-10-01 on 3.12, 3.13 and 3.14 (JUMP and BRANCH events are unaffected): under
+    ``pytest --cov`` on 3.14 one input read 1114 and then 1117. The arm's own code is exposed the
+    same way the first time it runs beside such a tool, so a caller that needs the guarantee there
+    runs the arm once before counting it, as ``paired_budget_read`` does. Subscribing to LINE
+    events as well is not a remedy: measured on 3.14.7, after one read and a disabler's arrival,
+    INSTRUCTION events from the arm's code stopped arriving at all.
 
     Honest failure modes, all ``None`` (cannot-determine): an interpreter without
-    ``sys.monitoring`` (the API is 3.12+; the package floor is 3.11, so on 3.11 the instrument
-    ABSTAINS — never a crash, never a fallback to a counter measured broken), no free monitoring
-    tool slot (a debugger/coverage/profiler may hold them all), or the call raising — a crashed
-    arm has no budget read, and the caller's delta gate is already red. The slot is released in
-    ``finally`` so a surrounding session's own monitoring always survives the instrument."""
+    ``sys.monitoring`` (below the package's 3.12 floor the instrument ABSTAINS — never a crash,
+    never a fallback to a counter measured broken), no free monitoring tool slot (a
+    debugger/coverage/profiler may hold them all), or the call raising — a crashed arm has no
+    budget read, and the caller's delta gate is already red. The slot is released in ``finally``
+    so a surrounding session's own monitoring always survives the instrument."""
     mon = getattr(sys, "monitoring", None)
     if mon is None:
         return None
@@ -327,10 +338,12 @@ def count_opcodes(fn: Callable, args: tuple) -> int | None:
         return None
 
     count = 0
+    own_code = count_opcodes.__code__
 
-    def on_instruction(_code, _offset):
+    def on_instruction(code, _offset):
         nonlocal count
-        count += 1
+        if code is not own_code:
+            count += 1
 
     mon.register_callback(tool, mon.events.INSTRUCTION, on_instruction)
     mon.set_events(tool, mon.events.INSTRUCTION)
