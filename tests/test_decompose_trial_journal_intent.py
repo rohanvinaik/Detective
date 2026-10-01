@@ -12,8 +12,10 @@ overwritten; and an unresolved journal is never clobbered by a second trial.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import py_compile
 import subprocess
 import sys
 import textwrap
@@ -45,6 +47,20 @@ def _interrupted_while_on_disk(root: str, source: Path, interrupt: BaseException
         raise interrupt
 
 
+def _crash_with_the_trial_compiled(root: str, source: Path, original: str, trial: str, seen: dict) -> None:
+    """Enter a trial, compile it to its cache as the proof suite's import does, note the trial's
+    mtime in ``seen``, and crash WHILE it is on disk."""
+    with SourceTrial(root, str(source), original, trial):
+        py_compile.compile(
+            str(source),
+            cfile=importlib.util.cache_from_source(str(source)),
+            doraise=True,
+            invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP,
+        )
+        seen["mtime"] = os.stat(source).st_mtime
+        raise RuntimeError("the suite crashed")
+
+
 @pytest.mark.parametrize("interrupt", [RuntimeError("the suite crashed"), KeyboardInterrupt()])
 def test_every_exit_that_runs_python_restores_the_original(tmp_path, interrupt):
     root, source = _project(tmp_path)
@@ -61,23 +77,15 @@ def test_an_interrupted_trial_leaves_no_trial_bytecode_for_the_next_import(tmp_p
     same size let the next import run the TRIAL over the original. The journal recovery and the normal
     revert already retired the cache; this exit did not. Forced deterministically here: equal-length
     sources, the trial compiled while on disk, and the restored file given the trial's mtime."""
-    import importlib.util
-    import py_compile
-
     original, trial = "def f(x):\n    return x + 1\n", "def f(x):\n    return x + 2\n"
     assert len(original) == len(trial)
     source = tmp_path / "samesize.py"
     source.write_text(original, encoding="utf-8")
-    cache = importlib.util.cache_from_source(str(source))
-    trial_mtime = 0.0
-    with pytest.raises(RuntimeError), SourceTrial(str(tmp_path), str(source), original, trial):
-        py_compile.compile(
-            str(source), cfile=cache, doraise=True, invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP
-        )
-        trial_mtime = os.stat(source).st_mtime
-        raise RuntimeError("the suite crashed")
+    seen: dict[str, float] = {}
+    with pytest.raises(RuntimeError):
+        _crash_with_the_trial_compiled(str(tmp_path), source, original, trial, seen)
     assert source.read_text(encoding="utf-8") == original
-    os.utime(source, (trial_mtime, trial_mtime))  # the same-second restore, made certain
+    os.utime(source, (seen["mtime"], seen["mtime"]))  # the same-second restore, made certain
     spec = importlib.util.spec_from_file_location("samesize_after_restore", source)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
