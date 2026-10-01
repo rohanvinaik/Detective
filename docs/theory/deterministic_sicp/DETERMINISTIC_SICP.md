@@ -547,7 +547,13 @@ merge its claims into this document:
   seam, load-bearing), and each pin's synth invalidates the next pin's trace cache
   (tests-source-hash is in the key, correctly). Thrice-observed; budget for it, or grant the
   scoped exemption — do not tool around the cache keys, whose completeness is a soundness
-  property.
+  property. *Re-measured 2026-10-01 (`3ad2dee`):* the counter no longer counts its own frame.
+  Those 14 instructions per read (3.14.7) were the instrument, not the arm, and the frame was
+  where a co-resident monitoring tool's first-hit DISABLE (coverage.py's default core on 3.14)
+  dropped events, so two reads of one input differed under `pytest --cov`. Every read is now
+  exactly 14 lower: dedupe's 977,315 → 7,757 reads 977,301 → 7,743 (ratio still 0.0079), and
+  series' constant arm reads 11 where it read 25. Re-run on both counters: every class, every
+  disposition and both blind re-derivations are unchanged, and EXP-DS-004 still passes 5/5.
 - **Wave 3 — the template library v1 (EXP-DS-004). SHIPPED + MEASURED (2026-08-31).**
   `Detective/templates.py`: five conservative AST recognizers (`memoizable_pure_recursion`,
   `quadratic_membership_scan`, `loop_invariant_recompute`, `accumulator_series`,
