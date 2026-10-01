@@ -257,6 +257,12 @@ wall time is not comparable; the instruction counts in §2 are.
 
 ## 6. Founder rulings and the plan (2026-09-26, after the pass)
 
+> **Tracked as GitHub issues since 2026-10-01.** Every plan row below and every open item in §2 and §7
+> has an issue, grounded against code on that date: start at
+> [Detective #99](https://github.com/rohanvinaik/Detective/issues/99), the cross-repo index (Wesker's
+> view: [Wesker #36](https://github.com/rohanvinaik/Wesker/issues/36)). Founder, 2026-10-01: the whole
+> set is to be fixed, annotation mutants included.
+
 The founder's framing, which governs every row below: several conservative mechanisms — the per-mutant
 allowance floor, "never run two converges at once", the removal of parallelism (H7), the harvest's wall,
 the in-place decompose trial, Uroboros's serial crawl — were **safety valves built before tracing and

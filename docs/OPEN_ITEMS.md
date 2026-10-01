@@ -1,5 +1,13 @@
 # Open items — the single index
 
+> **Superseded as the index on 2026-10-01.** The open work for Detective and Wesker is now tracked in
+> the GitHub issue trackers, every issue grounded against current code on that date. **Start at
+> [Detective #99](https://github.com/rohanvinaik/Detective/issues/99)** (the cross-repo index: order of
+> work, the founder's rulings, the release sequence); Wesker's view is
+> [Wesker #36](https://github.com/rohanvinaik/Wesker/issues/36). This file is kept for its history —
+> §4 (what is closed) and §5 (the pattern) still hold. Its open rows map as: D4 → #71 · W8 → #75 ·
+> W11 → #89 · W12 → #74 · R1 → #72 · R2 → #73 · §2c (the 2026-09-26 engineering pass) → #99's phases.
+
 Written 2026-09-09, at the close of the doctor/ledger build. **This file is the index; the linked
 sections are the detail.** Before this, open items lived in five places (`DOCTOR.md` §7/§11,
 `INVOCATION_LEDGER.md` §7, `CORRECTNESS_REPAIRS_2026-09-08.md` §S10b/§R5.1/U1, and two GitHub
@@ -186,7 +194,9 @@ real count was 9 unconsumed, not 10. The corrected predicate was found by probin
 **The two questions still worth asking**, both decidable properties of the reference graph rather
 than proxies for meaning: *does every consumer distinguish ALL of a decision's states?* (the
 generalised form of §MI and #60) and *does each layer consume the computed signal or re-derive it?*
-(which is what W4 was). Neither is built.
+(which is what W4 was). Neither is built. *(Since built, 2026-09-26: the first as a standing guard,
+`Detective/distinction.py` + `tests/test_consumer_distinction_intent.py` (EP-G1); the second surfaced
+through it as collapses (EP-G4). The six sites it still lists as OPEN are Detective #93.)*
 
 The common remedy is not more tests; it is **asking what the check does NOT cover, and recording
 that**. A guard that swallows its own failure needs a test per BRANCH, because its failure mode is
