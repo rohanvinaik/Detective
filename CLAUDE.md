@@ -225,11 +225,13 @@ category. Exit `1` is a measured defect, `2` is "could not ask" (no sdist, not a
 Ruff is the commit gate; a push needs two more passes, in this order, and neither is optional
 (2026-09-06: both were skipped once and the founder noticed):
 
-1. `uvx pylint Detective` — reproducible from `[tool.pylint]` in pyproject (tuned to Sonar's
-   ruleset, not pylint's defaults). Fix what is genuine in the code you wrote; the house
+1. `uvx --python 3.14 pylint Detective` — reproducible from `[tool.pylint]` in pyproject (tuned
+   to Sonar's ruleset, not pylint's defaults). Fix what is genuine in the code you wrote; the house
    `except Exception:  # noqa: BLE001 — <reason>` guard and the big orchestrators' statement counts
-   are known residue, not findings. (The `sys.monitoring` E1101s were residue under 3.11; the 3.12
-   floor removes them.)
+   are known residue, not findings. So are `E1101` on `sys.monitoring` members: pylint's inference
+   library does not model `sys.monitoring` at all — measured 2026-10-01, still reported under 3.14,
+   so the 3.12 floor does NOT remove them (an earlier note here said it did). The `--python 3.14`
+   runs pylint under the project's interpreter; bare `uvx pylint` picks its own.
 2. The local SonarQube — the persistent Docker container `peitho-sonar` at `localhost:9000`
    (shared with Peitho and Wesker; creds in `~/.config/detective/sonar-local.env`, minted once —
    never re-mint per session). Coverage first, then the scanner, then read the gate by API:
