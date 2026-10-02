@@ -312,8 +312,12 @@ self-profiling.
 
 ## Scope boundaries
 
-- **Publishing, version bumps, publish order, and closing issues are the user's domain.** Never publish to PyPI. Don't
-  produce unrequested release advisories.
+- **Publishing, version bumps and publish order are the user's domain.** Never publish to PyPI. Don't produce
+  unrequested release advisories.
+- **Close an issue yourself once its acceptance is verified on CURRENT code**, with the evidence in the closing
+  comment: the sha, the pinned decision, the measurement (the per-issue loop's step 9). A past measurement is a lead,
+  not evidence; re-run it. The founder, 2026-10-02: "Leaving it open for me to close? Why are we not addressing it
+  right here?"
 - Fixes must be **general**, not idiomatic to whatever repo surfaced them; they should hold for arbitrary code.
 - Don't stop to offer menus when told to proceed. Don't rank "cheap" against "the one the issue actually names" and
   then pick cheap.
