@@ -1,0 +1,1042 @@
+From 17274d552cdfc6f336d34b71ea5c6e06f5b8beaf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 2 Oct 2026 04:51:09 +0000
+Subject: [PATCH] =?UTF-8?q?wip(#76):=20satisfiable,=20attributed=20witness?=
+ =?UTF-8?q?=20suggestions;=20fresh-call=20confirmation;=20no=20re-proposed?=
+ =?UTF-8?q?=20inputs=20=E2=80=94=20NOT=20READY,=20do=20not=20merge?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Stopped on the coordinator's wind-down. What is DONE in this commit (targeted tests green, ruff
+clean under pinned 0.16.7):
+
+* Reproduced on the pre-fix code with an environment-reading fixture (`env_ratio`, whose value
+  witnesses converge never writes, #39): `→ assert f(-1.0, -1) == nan   (mutant gives 1.0)`,
+  `FINAL … Incomplete: 3 killable · 12/15 killed`, and the next BARE run re-proposing the
+  `--input "(-1.0, -1)"` the previous run had just been given — the report's loop. The three
+  reported functions themselves (spread_ratio, vacated_ratio, half_by_sample, reconstructed) did
+  not loop on current code; their live defect was the `<= -1` VALUE mutant filed crash-only.
+* `suggestion_form(original_outcome, assertion_code)` — "raises" / "unpinnable" / "inline" /
+  "bound": the SUGGESTED line is now the test converge itself would write
+  (`converge._witness_property`): `result = f(-1.0, -1); assert repr(result) == 'nan'`, a
+  `pytest.raises` form for a raising original, never `== nan` or `== <raised …>`.
+* Every suggestion names the mutant(s) it kills and what THAT mutant gives
+  (`kills BOUNDARY_x: that mutant gives 1.0`); verbose shows each mutant's diff.
+* `witness_confirmation(first_o, first_m, fresh_o, fresh_m)` — "confirmed" / "indistinct" /
+  "unstable" / "blocked": before a witness is proposed, original and mutant are re-run on FRESH
+  copies of the pristine input (the call the written test makes). Equal observables — two NaNs
+  included — are no witness; a non-reproducing pair is blocked (unclassified), never a kill.
+  Witness args and live values now come from the pristine input, not an object the search's own
+  calls mutated.
+* `classify_survivor`: killable and crash-only are exclusive by construction (the receiver-state
+  fallback could set both).
+* The loop guard compares inputs by VALUE (`_canonical_input` → `equivalence.input_source`) and
+  across runs (`ConvergeResult.supplied_inputs` = typed + recalled); "repeated" hands over the pin.
+* `ConvergeResult.witness_tests_capturable`: when converge will never write the value witness
+  (env-reading return), the next action is `WRITE TEST … hand-write the pins` (`env_pin`), never
+  an `--input` that cannot land. Measured: the env fixture now ends in the pin on the first run.
+* #71's float-interior probe kills `<= 0` → `<= -1` at (0.0, -0.5) (spread_ratio: DOF 7/9 → 8/9,
+  only the genuinely crash-only `< 0` remains).
+
+What is NOT done / NOT verified:
+* `Detective/cli.py::suggestion_form` is NOT pinned (no converge run was started after the stop).
+* The broad classifier/converge/audit test set was NOT re-run after the fresh-call confirmation
+  landed in `_search_witness` — it changes witness search behaviour for argument-mutating and
+  nondeterministic functions, and its blast radius on the rest of the suite is unmeasured.
+* The full suite was not run. The FINAL banner's "N killable · M/M killed" pairing (crash kills
+  counted as killed while value-unpinned) is unchanged.
+
+Pin receipt so far:
+  Detective/equivalence.py::witness_confirmation: ✓ COMPLETE (operator universe · modulo 1
+    unproven-equivalent) · 30/31 killed
+Tests observed: tests/test_witness_suggestion_intent.py + tests/test_witness_dedupe.py — 30 passed
+(includes the three reported functions run bare → reported --input → bare through the real CLI:
+identical FINALs, no `== nan`, no re-proposed input, killable/crash-only disjoint; and the env
+fixture). ruff format + check clean under pinned 0.16.7 (whole-tree format check clean).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NaCikUHQLVnTA8aXyGKUo1
+---
+ Detective/cli.py                              | 173 ++++++-
+ Detective/converge.py                         |  12 +
+ Detective/equivalence.py                      | 112 ++++-
+ tests/detective/certificates.json             |   6 +
+ ...e_witness_confirmation_ff5059f875_synth.py |  19 +
+ tests/test_witness_dedupe.py                  |   5 +-
+ tests/test_witness_suggestion_intent.py       | 465 ++++++++++++++++++
+ 7 files changed, 764 insertions(+), 28 deletions(-)
+ create mode 100644 tests/detective/test_Detective_equivalence_witness_confirmation_ff5059f875_synth.py
+ create mode 100644 tests/test_witness_suggestion_intent.py
+
+diff --git a/Detective/cli.py b/Detective/cli.py
+index 99bf50d..031ad92 100644
+--- a/Detective/cli.py
++++ b/Detective/cli.py
+@@ -24,6 +24,7 @@ import ast
+ import difflib
+ import json
+ import os
++import re
+ import shlex
+ import sys
+ import textwrap
+@@ -1609,6 +1610,79 @@ def _update_per_mutant_ms(observed_ms: float) -> None:
+         pass
+ 
+ 
++def suggestion_form(original_outcome: str, assertion_code: str) -> str:
++    """How a SUGGESTED killing test shows the pin converge itself would write (#76, pure — pinned).
++
++    The suggestion read ``assert f(args) == <original repr>``: for a NaN that is ``== nan``, which no
++    value satisfies (NaN != NaN) — and the user who pasted it wrote a test that fails on the original
++    and kills nothing, while the next run re-proposed the same input; for a raising original it was
++    ``== <raised ValueError: …>``, which is not Python. The suggestion now IS the witness test converge
++    writes (`converge._witness_property` — `golden_assert_line`'s ``repr(result) == 'nan'`` for a NaN,
++    the type pins for an ``==``-equal pair), and this decides only how it is shown on one line:
++
++      "raises"      the original RAISES there: a ``pytest.raises`` form, never an equality
++      "unpinnable"  the writer has no portable pin (a machine-specific value): say so; hand-write it
++      "inline"      the pin is ``assert result == X`` / ``assert result is X`` with one ``result``:
++                    the call stands in for it — ``assert f(2.0, 4.0) == 0.5``
++      "bound"       any other pin (``repr``, a sorted-repr, an iterator, extra type pins): bind
++                    ``result = f(...)`` first, then the pins unchanged, ``; ``-joined
++    """
++    if original_outcome.startswith("<raised"):
++        return "raises"
++    if not assertion_code:
++        return "unpinnable"
++    lines = assertion_code.split("\n")
++    if (
++        len(lines) == 2
++        and lines[0].startswith("result = ")
++        and (lines[1].startswith("assert result == ") or lines[1].startswith("assert result is "))
++        and lines[1].count("result") == 1
++    ):
++        return "inline"
++    return "bound"
++
++
++def _suggested_assertion(w) -> str:
++    """The one-line SUGGESTED test for a killable witness — the test converge would write there,
++    in the form `suggestion_form` chooses (#76). ``f`` stands for the target, as the report's
++    signature line names it."""
++    call = f"f({_call_args_source(w.args)})"
++    if w.state_pins:
++        pins = "; ".join(f"assert <receiver>.{attr} == {value}" for attr, value in w.state_pins)
++        return f"<receiver>.{call}; {pins}   # receiver state after the call"
++    import dataclasses
++
++    from .converge import _witness_property
++
++    # The outcomes are observation STRINGS by contract; a hand-built witness may carry the raw value.
++    w = dataclasses.replace(w, original=str(w.original), mutant=str(w.mutant))
++    prop = None if w.original.startswith("<raised") else _witness_property("f", w)
++    code = prop.assertion_code if prop is not None else ""
++    form = suggestion_form(w.original, code)
++    if form == "raises":
++        match = re.fullmatch(r"<raised (\w+)(?:: (.*))?>", w.original, re.DOTALL)
++        exc = match.group(1) if match else "Exception"
++        message = f"   # message: {match.group(2)}" if match and match.group(2) else ""
++        return f"with pytest.raises({exc}): {call}{message}"
++    if form == "inline":
++        bound, pin = code.split("\n")
++        return pin.replace("assert result", f"assert {bound[len('result = ') :]}", 1)
++    if form == "bound":
++        return "; ".join(code.split("\n"))
++    return f"{call} returns {w.original} — no portable equality pin; hand-write the assertion"
++
++
++def _kills_attribution(verdicts) -> str:
++    """WHICH mutant a suggestion kills, and what THAT mutant gives there (#76). The report printed
++    "mutant gives 1.0" with no mutant named, and the reader matched it to the nearest PRINTED mutant —
++    one that does not give 1.0 there — so the witness looked like it could not distinguish anything."""
++    if len(verdicts) == 1:
++        return f"kills {verdicts[0].mutant_id}: that mutant gives {str(verdicts[0].witness.mutant)[:40]}"
++    parts = [f"{v.mutant_id} gives {str(v.witness.mutant)[:40]}" for v in verdicts]
++    shown = ", ".join(parts[:4]) + (f", +{len(parts) - 4} more" if len(parts) > 4 else "")
++    return f"kills {len(parts)}: {shown}"
++
++
+ # Why the boundary-probe pass did not run, per `engine.boundary_probe_gate` code (#71) — the clause a
+ # reader needs to judge a candidate-equivalent that was never probed.
+ _UNPROBED_BECAUSE: dict[str, str] = {
+@@ -1759,21 +1833,21 @@ def _format_survivor_report(
+             w = v.witness
+             args = _call_args_source(w.args)
+             grouped.setdefault((args, str(w.original)), []).append(v)
+-        for (args, original), verdicts in grouped.items():
++        for (_args, original), verdicts in grouped.items():
+             w = verdicts[0].witness
+-            if len(verdicts) == 1:
+-                kills = ""
+-            else:
+-                ids = ", ".join(v.mutant_id for v in verdicts)
+-                kills = f"   (kills {len(verdicts)}: {ids})"
++            # #76: every suggestion names the mutant(s) it kills and what THAT mutant gives, and is the
++            # test converge itself would write there — never `== nan`, never `== <raised …>`.
++            kills = _kills_attribution(verdicts)
+             if _witness_input(w) is not None:
+-                lines.append(f"    → assert f({args}) == {original}   (mutant gives {w.mutant}){kills}")
++                lines.append(f"    → {_suggested_assertion(w)}   ({kills})")
+             else:
+                 objects = ", ".join(type(a).__name__ for a in w.args) or "test-built object"
+-                lines.append(
+-                    f"    → hand-write a test using {objects}; observed {original} "
+-                    f"(mutant gives {w.mutant}){kills}"
+-                )
++                lines.append(f"    → hand-write a test using {objects}; observed {original}   ({kills})")
++            if verbose:
++                lines += [
++                    f"        ↳ {v.mutant_id} [{v.category}]: {_concise_diff(v.diff_summary)}"
++                    for v in verdicts
++                ]
+     if rep.unclassified:
+         tail = f": {rep.note}" if rep.note else ""
+         lines.append(f"  uncertain — {len(rep.unclassified)} survivor(s) not classified{tail}")
+@@ -3426,7 +3500,22 @@ def _call_args_source(args) -> str:
+ def _witness_args(w) -> str:
+     """A witness's args as a tuple literal. `(1)` is not a tuple, it is `1` — a one-argument
+     call needs the trailing comma or the command does not parse as what it claims to be."""
+-    return _call_args_source(w.args) + ("," if len(w.args) == 1 else "")
++    from .equivalence import input_source
++
++    return input_source(tuple(w.args))[1:-1]
++
++
++def _canonical_input(raw: str) -> str:
++    """The `--input` text Detective would PRINT for what ``raw`` parses to (#76) — so a typed input and
++    a printed witness compare by value. `(0.1,nan)` typed and `(0.1, float('nan'))` printed are one
++    input; compared as raw text they never matched, so the loop guard below never fired. An input the
++    parser refuses here (a module name it cannot see without the target's namespace) stays as typed."""
++    from .equivalence import InputExpressionError, input_source, parse_input_expression
++
++    try:
++        return input_source(parse_input_expression(raw))
++    except InputExpressionError:
++        return raw
+ 
+ 
+ @dataclass(frozen=True)
+@@ -3516,7 +3605,19 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
+         for v, rendered in commandable
+         if not _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)
+     ]
+-    attempted = set(attempted_inputs)
++    # A value witness converge will never WRITE (#39: the return reads the environment) cannot be closed
++    # by any `--input` — proposing one is an action that cannot land, run after run (#76). Hand over the
++    # pins themselves, the terminating action, before any input is offered.
++    if input_closes and not getattr(proof, "witness_tests_capturable", True):
++        return _input_plan("env_pin", _pin_items(input_closes), len(input_closes))
++    # "Already run" means by VALUE and across runs (#76): the inputs typed THIS run, parsed back to the
++    # spelling a witness prints, plus every input the run RECALLED from an earlier `--input` (converge
++    # carries them on the result). Raw text from this run alone missed both `(0.1,nan)` vs
++    # `(0.1, float('nan'))` and the bare re-run that recalls the stored input — which re-proposed the
++    # identical DO THIS, the loop the report quoted.
++    attempted = {_canonical_input(raw) for raw in attempted_inputs} | set(
++        getattr(proof, "supplied_inputs", ()) or ()
++    )
+     fresh_inputs = [(v, rendered) for v, rendered in input_closes if rendered not in attempted]
+     if fresh_inputs:
+         return _input_plan("witness", [rendered for _, rendered in fresh_inputs], len(fresh_inputs))
+@@ -3524,11 +3625,11 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
+     # is a proven loop, not guidance. Route to the existing terminating hand-pin action.
+     repeated_inputs = [(v, rendered) for v, rendered in input_closes if rendered in attempted]
+     if repeated_inputs:
+-        items = [
+-            f"{rendered} — supplied already; real {v.witness.original[:28]} vs mutant {v.witness.mutant[:28]}"
+-            for v, rendered in repeated_inputs
+-        ]
+-        return _input_plan("repeated", items, len(repeated_inputs))
++        # The terminating action is a hand-written test, so hand over the pin itself (#76) — the
++        # satisfiable one converge would write, naming the mutant it kills — not just the two outcomes.
++        return _input_plan(
++            "repeated", _pin_items(repeated_inputs, "supplied already; "), len(repeated_inputs)
++        )
+     hand_pin = [v for v, _ in commandable if _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)]
+     if hand_pin:
+         items = [
+@@ -3583,6 +3684,19 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
+     return _input_plan("author", [], 0)
+ 
+ 
++def _pin_items(pairs, note: str = "") -> list[str]:
++    """One hand-pin item per distinct input (#76): the pin converge would write there, and every
++    mutant it kills with what each gives — grouped, as the SUGGESTED section groups, so one call that
++    closes two mutants is one line, not two identical ones."""
++    groups: dict[str, list] = {}
++    for v, rendered in pairs:
++        groups.setdefault(rendered, []).append(v)
++    return [
++        f"{rendered} — {note}pin: {_suggested_assertion(vs[0].witness)}   ({_kills_attribution(vs)})"
++        for rendered, vs in groups.items()
++    ]
++
++
+ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
+     """Backward-compatible data adapter; new renderers consume :class:`InputPlan` directly."""
+     plan = _derive_input_plan(proof, rep)
+@@ -3870,11 +3984,30 @@ def _derived_input(
+         out.append(f"THEN RUN:  {cmd}")
+         return out
+ 
++    if kind == "env_pin":
++        # #76/#39: the witness pass never writes a value test for a return that reads the environment
++        # (it would pin this machine's setting), so an --input cannot close these — the terminating
++        # action is the pin, written by hand under the environment the reader means.
++        out = ["WRITE TEST:  hand-write the pins below — no --input closes them for this function"]
++        out.append("")
++        out.append(_row("· Why", "This function's return reads the environment, so converge writes"))
++        out.append(_row("", "no value test for it (it would pin this machine's setting). Pin each"))
++        out.append(_row("", "under the environment you mean — set it in the test."))
++        out.append(_row("· Pin by hand", f"1. {items[0]}"))
++        for i, d in enumerate(items[1:], start=2):
++            out.append(_row("", f"{i}. {d}"))
++        if plan.item_total > len(items):
++            out.append(_row("", f"({plan.item_total - len(items)} more distinct calls in {where})"))
++        out.append("")
++        out.append(f"THEN RUN:  {cmd}")
++        return out
++
+     if kind == "repeated":
+         out = ["WRITE TEST:  pin the observed distinction below; the supplied --input did not close it"]
+         out.append("")
+-        out.append(_row("· Why", "Detective accepted and ran this exact input, then returned"))
+-        out.append(_row("", "the same residual. Repeating the command is a proven loop."))
++        out.append(_row("· Why", "Detective already ran this exact input — supplied now, or recalled"))
++        out.append(_row("", "from an earlier --input — and it returned the same residual."))
++        out.append(_row("", "Repeating the command is a proven loop."))
+         out.append(_row("· Observed", f"1. {items[0]}"))
+         for i, d in enumerate(items[1:], start=2):
+             out.append(_row("", f"{i}. {d}"))
+diff --git a/Detective/converge.py b/Detective/converge.py
+index 4564bcb..6349a05 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -55,6 +55,7 @@ from .engine import (
+ from .equivalence import (
+     SourceExpr,
+     SurvivorReport,
++    input_source,
+     literal_source,
+     structural_input_difficulty,
+     structural_shape,
+@@ -371,6 +372,15 @@ class ConvergeResult:
+     # for building the input template. Both are cheap AST reads (node.args), no execution.
+     signature: str = ""  # e.g. "minimal_cover_2axis(kill_matrix: dict, line_coverage: dict)"
+     param_names: tuple[str, ...] = ()  # positional param names -> --input slot placeholders
++    # Every `--input` this run USED — typed now or recalled from `.detective/inputs.json` — in the
++    # spelling Detective prints (`equivalence.input_source`). The next-action derivation reads it so an
++    # input already run is never proposed again: a bare re-run recalls the stored input, and before
++    # #76 it re-proposed the identical `DO THIS --input`, the loop the report quoted.
++    supplied_inputs: tuple[str, ...] = ()
++    # Whether the witness pass may WRITE a value test for this target (#39's `_capturable`): False when
++    # its return reads the environment, so a value witness is never written and no `--input` can close
++    # one — the next action must be the hand-written pin, not an input proposal that cannot land (#76).
++    witness_tests_capturable: bool = True
+     # The target's structural class for input synthesis (#67 detector): "deep_structural" when the
+     # function has the nested / worklist-driven shape whose distinguishing inputs deterministic
+     # synthesis does not reach, else "flat" (or "" on an older result). A survivor on a
+@@ -2618,6 +2628,8 @@ def _converge_impl(
+         coverage_guarantee=greedy_coverage_guarantee(node, _cats, max_per_cat, len(iterations)),
+         signature=sig,
+         param_names=param_names,
++        supplied_inputs=tuple(input_source(tuple(args)) for args in (supplied_inputs or ())),
++        witness_tests_capturable=_capturable,
+         structural_difficulty=structural_difficulty,
+         deferred_shaped=max(
+             getattr(final_result, "test_routing", {}).get("deferred_shaped", 0),
+diff --git a/Detective/equivalence.py b/Detective/equivalence.py
+index 63c75d5..8bee4cd 100644
+--- a/Detective/equivalence.py
++++ b/Detective/equivalence.py
+@@ -363,6 +363,15 @@ def literal_source(value: Any) -> str:
+ _NONFINITE_SOURCE: dict[str, str] = {"nan": "float('nan')", "inf": "float('inf')", "-inf": "float('-inf')"}
+ 
+ 
++def input_source(args: tuple) -> str:
++    """ONE call's arguments as the ``--input`` text Detective prints for them — ``(a, b)``, ``(a,)``,
++    each in :func:`literal_source`'s spelling. The single rendering both ends compare (#76): the
++    witness a DO THIS block offers, the input the user typed (parsed back), and the inputs a run
++    recalled from ``samples`` — so "this exact input was already run" is decided by value, never by
++    spacing, quoting or ``nan`` vs ``float('nan')``."""
++    return "(" + ", ".join(literal_source(a) for a in args) + ("," if len(args) == 1 else "") + ")"
++
++
+ def _nonfinite_source(value: Any, seen: set[int]) -> str:
+     """:func:`literal_source` below the gate: ``value`` nests a non-finite float somewhere."""
+     kind = type(value)
+@@ -1475,6 +1484,65 @@ def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
+     return "witness"
+ 
+ 
++def witness_confirmation(
++    first_original: str, first_mutant: str, fresh_original: str, fresh_mutant: str
++) -> str:
++    """Does a value witness REPRODUCE on fresh calls — the calls its test will make (#76, pure — pinned)?
++
++    The search calls the original and then the mutant on ONE argument object, so an original that
++    mutates its argument hands the mutant a different input, and a nondeterministic mutant differs
++    from itself; either way the pair the search saw is not a fact a test can pin. The written test
++    calls the ORIGINAL on fresh literals and asserts what it returned there, and the report prints
++    "mutant gives <X>" — so a witness counts only when a fresh original reproduces the pinned outcome
++    and a fresh mutant reproduces the printed one. Observations compare as strings, so two NaNs are
++    equal (``repr`` is ``nan`` on both sides) and "both NaN" is ``indistinct``, never a witness.
++
++      "confirmed"   the fresh pair is the pair the search saw, and it distinguishes by value
++      "indistinct"  the original reproduced, but fresh calls do not tell the two apart: the search's
++                    "distinction" was an artifact of shared argument state — this input is NOT a
++                    witness (like ``same``), and counting the mutant killable on it is what looped
++      "unstable"    an outcome did not reproduce (or the mutant now raises instead): the input
++                    proves nothing either way — honest uncertainty, never a kill
++      "blocked"     a fresh call timed out (#42)
++    """
++    fresh = _pair_disposition(fresh_original, fresh_mutant)
++    if fresh == "blocked":
++        return "blocked"
++    if fresh_original != first_original:
++        return "unstable"
++    if fresh == "same":
++        return "indistinct"
++    if fresh != "witness" or fresh_mutant != first_mutant:
++        return "unstable"
++    return "confirmed"
++
++
++_IMMUTABLE_SCALARS: tuple[type, ...] = (int, float, complex, str, bytes, bool, type(None))
++
++
++def _all_immutable(value: Any) -> bool:
++    """True when nothing a call does can change ``value`` — scalars, and tuples/frozensets of them."""
++    if isinstance(value, _IMMUTABLE_SCALARS):
++        return True
++    if type(value) in (tuple, frozenset):
++        return all(_all_immutable(v) for v in value)
++    return False
++
++
++def _fresh_args(args: tuple) -> tuple:
++    """A deep copy of ``args`` — the call a written test makes passes its OWN fresh literals, never an
++    object an earlier call has mutated. Immutable arguments (the scalar grids, most of the pool) are
++    returned as they are — no call can change them, so there is nothing to copy. An argument that
++    cannot be copied is passed as it is (the search's own behaviour, so nothing is lost)."""
++    if all(_all_immutable(a) for a in args):
++        return tuple(args)
++    try:
++        return copy.deepcopy(tuple(args))
++    # BLE001: an uncopyable argument (a lock, a live handle) keeps the search's shared-object protocol
++    except Exception:  # noqa: BLE001
++        return tuple(args)
++
++
+ def _outcome_budget_s(deadline: float | None) -> float:
+     """How long a single ``_outcome`` may run — ``min(the per-call cap, the remaining aggregate
+     wall)`` (issue #31, reopened). The per-input search checked the wall only BEFORE each call, so a
+@@ -1824,6 +1892,10 @@ def _search_witness(
+             # correctly left a survivor and surfaces as an `--input` residual — the I_solve ask,
+             # where a human supplies the instance synthesis cannot build.
+             continue
++        # The arguments as they are BEFORE any call touches them — what a written test passes. Kept so
++        # a value witness can be re-checked on fresh copies (#76); the search itself still shares one
++        # object between the two calls, exactly as before.
++        pristine = _fresh_args(tuple(args))
+         # Each classification is bounded by the REMAINING aggregate wall, recomputed per call, so a
+         # single non-terminating _outcome cannot overrun the command deadline by a full 5s cap (#31).
+         original_outcome = _outcome(original, args, _outcome_budget_s(deadline))
+@@ -1844,22 +1916,44 @@ def _search_witness(
+             # least crash-detects the mutant). Keep the FIRST such input; a value-witness
+             # found later still outranks it.
+             if crash_witness is None:
++                # `pristine`, not `args`: the calls above may have mutated the shared object, and
++                # the golden written at this witness calls the function on what is RENDERED here.
+                 crash_witness = Witness(
+-                    tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)
++                    pristine,
++                    original_outcome,
++                    mutant_outcome,
++                    _outcome_value(original, _fresh_args(pristine)),
+                 )
+             continue
++        # #76: before this input is PROPOSED — written as a test, printed as a suggestion, counted as
++        # a kill — evaluate the original and the mutant on it afresh. Only a pair that reproduces is
++        # a witness; a shared-state artifact is no distinction at all, and a non-reproducing one is
++        # honest uncertainty (blocked), never a kill counted on its strength.
++        confirmation = witness_confirmation(
++            original_outcome,
++            mutant_outcome,
++            _outcome(original, _fresh_args(pristine), _outcome_budget_s(deadline)),
++            _outcome(mutant, _fresh_args(pristine), _outcome_budget_s(deadline)),
++        )
++        if confirmation == "indistinct":
++            continue
++        if confirmation != "confirmed":
++            blocked = True
++            continue
+         return (
+             # Capture the MUTANT's live value too (symmetric to the original), so an object /
+             # dataclass distinction that ``==`` cannot see is pinnable by type at the leaf rather
+             # than silently dropped (its repr is not ``literal_eval``-able). Re-runs the mutant
+             # once at construction — the same one-extra-call the original already pays here, and
+-            # only when a value-witness is actually built, never per candidate input.
++            # only when a value-witness is actually built, never per candidate input. The args and
++            # both live values come from the PRISTINE input (#76): the witness renders the call its
++            # test makes, so it must not carry an object the search's own calls have mutated.
+             Witness(
+-                tuple(args),
++                pristine,
+                 original_outcome,
+                 mutant_outcome,
+-                _outcome_value(original, args),
+-                _outcome_value(mutant, args),
++                _outcome_value(original, _fresh_args(pristine)),
++                _outcome_value(mutant, _fresh_args(pristine)),
+             ),
+             None,
+             blocked,
+@@ -2119,8 +2213,12 @@ def classify_survivor(
+         killable=witness is not None,
+         witness=witness,
+         searched=len(candidate_inputs),
+-        crash_only=crash_witness is not None,
+-        crash_witness=crash_witness,
++        # Killable and crash-only are EXCLUSIVE (#76): a witness outranks a crash input. The receiver-
++        # state fallback could return both (a state witness AND the crash input the value search met
++        # first), and the one mutant then counted in FINAL's "killable" while sitting in the
++        # crash-only list — the self-contradiction the report quoted.
++        crash_only=crash_witness is not None and witness is None,
++        crash_witness=crash_witness if witness is None else None,
+         suite_detected=suite_detected,
+         blocked=blocked and witness is None,
+     )
+diff --git a/tests/detective/certificates.json b/tests/detective/certificates.json
+index 449383b..e779b25 100644
+--- a/tests/detective/certificates.json
++++ b/tests/detective/certificates.json
+@@ -280,6 +280,12 @@
+     "refusal": "",
+     "standing": "complete"
+   },
++  "Detective/equivalence.py::witness_confirmation": {
++    "cut_reasons": [],
++    "function_digest": "761eea92dc8c99fd",
++    "refusal": "",
++    "standing": "complete"
++  },
+   "Detective/extract.py::extract_readiness": {
+     "function_digest": "70b63c783f4524cd",
+     "refusal": "",
+diff --git a/tests/detective/test_Detective_equivalence_witness_confirmation_ff5059f875_synth.py b/tests/detective/test_Detective_equivalence_witness_confirmation_ff5059f875_synth.py
+new file mode 100644
+index 0000000..a1a3694
+--- /dev/null
++++ b/tests/detective/test_Detective_equivalence_witness_confirmation_ff5059f875_synth.py
+@@ -0,0 +1,19 @@
++# detective-content-sha256: 3dcb4707dfbb3123c57586478249f11d64d55940e004493a19064f1c785e7495
++"""Auto-generated by Detective — warrant-classed tests for Detective/equivalence.py::witness_confirmation.
++Function digest: 761eea92dc8c99fd.
++
++Regenerated wholesale by `detective converge`; hand edits will be
++overwritten. Witness lines carry full fidelity on purpose."""
++
++import pytest
++
++from Detective.equivalence import witness_confirmation
++
++
++@pytest.mark.detective
++def test_witness_confirmation_value_0():
++    """VALUE survivor — golden capture (pure + deterministic)."""
++    result = witness_confirmation(
++        first_original="abc", first_mutant="abc", fresh_original="abc", fresh_mutant="abc"
++    )
++    assert result == "indistinct"
+diff --git a/tests/test_witness_dedupe.py b/tests/test_witness_dedupe.py
+index 246790c..65b80c7 100644
+--- a/tests/test_witness_dedupe.py
++++ b/tests/test_witness_dedupe.py
+@@ -39,7 +39,10 @@ def test_identical_witnesses_collapse_to_one_line_with_kill_set():
+     assert "VALUE_aaaa1111" in shared
+     assert "SWAP_bbbb2222" in shared
+     solo = next(ln for ln in arrows if "81" in ln)
+-    assert "kills" not in solo
++    # #76: a lone suggestion still names the ONE mutant it kills — the report once printed "mutant
++    # gives X" with no mutant named and the reader matched it to the wrong one. No kill-SET, though.
++    assert "kills BOUNDARY_cccc3333" in solo
++    assert "(kills 2:" not in solo
+     # The header still counts VERDICTS, not lines — three killable mutants.
+     assert "not auto-applied, 3" in out
+ 
+diff --git a/tests/test_witness_suggestion_intent.py b/tests/test_witness_suggestion_intent.py
+new file mode 100644
+index 0000000..8bf9d99
+--- /dev/null
++++ b/tests/test_witness_suggestion_intent.py
+@@ -0,0 +1,465 @@
++"""Intent tests for #76 — a suggested witness that cannot distinguish the printed mutant, and the loop.
++
++The report (detective 1.1.1, `spread_ratio(d, p) = math.nan if p <= 0 else d / p`), verbatim:
++
++    value-equivalent, crash-only-distinguishable (2: BOUNDARY, VALUE) — ...
++      → mutant VALUE_8e43bfab [VALUE]: - ... spread_parent_um <= 0 ...  + ... spread_parent_um <= -1 ...
++    killable — SUGGESTED tests (not auto-applied, 1):
++      → assert f(-1.0, -1) == nan   (mutant gives 1.0)
++    FINAL src/cell_tracking/committee/conservation.py::spread_ratio: Incomplete: 1 killable · 9/9 killed
++
++Grounded on current code with the three functions reconstructed as fixtures, what was live:
++
++1. The suggestion never NAMED the mutant it kills. "mutant gives 1.0" belonged to an unprinted
++   `if False:` BOUNDARY mutant; the reader matched it to the printed `<= -1` VALUE mutant, which does
++   NOT give 1.0 at (-1.0, -1) — hence "the witness does not distinguish the printed mutant".
++2. The suggested assertion was `assert f(args) == <original repr>` — `== nan` can never pass, and a
++   raising original printed `== <raised ValueError: …>`, which is not Python.
++3. The `<= -1` VALUE mutant was filed crash-only although every input strictly inside (-1, 0) kills it
++   by value (#71's float interiors now reach it — asserted end to end below).
++4. The loop's guard compared the typed `--input` text with the rendered witness byte-for-byte and only
++   within one run: `(0.1,nan,0.087)` never matched `(0.1, float('nan'), 0.087)`, and the next BARE run
++   — which recalls the stored input — re-proposed the identical `DO THIS --input`.
++5. A witness was never re-checked on FRESH calls — the calls the written test makes — so a distinction
++   produced by shared argument state or a nondeterministic mutant counted as killable.
++6. `killable` and `crash_only` could both be true of one verdict (the receiver-state fallback).
++
++Each test states the promise it holds, written from intent — not from the implementation.
++"""
++
++from __future__ import annotations
++
++import ast
++import copy
++import math
++import re
++import shutil
++import subprocess
++import sys
++import types
++from pathlib import Path
++
++import pytest
++
++from Detective.cli import _canonical_input, _derive_input_plan, _format_survivor_report, suggestion_form
++from Detective.engine import _compile_mutant
++from Detective.equivalence import (
++    MutantVerdict,
++    SurvivorReport,
++    Witness,
++    _search_witness,
++    classify_survivor,
++    witness_confirmation,
++)
++
++# --- fixtures: a function, and a hand-built mutant of it ------------------------------------------
++
++_SPREAD = """
++import math
++def spread_ratio(spread_daughter_um: float, spread_parent_um: float) -> float:
++    return math.nan if spread_parent_um <= 0 else spread_daughter_um / spread_parent_um
++"""
++
++
++def _module(src: str) -> tuple[ast.Module, dict]:
++    tree = ast.parse(src)
++    ns: dict = {}
++    exec(compile(tree, "<fixture>", "exec"), ns)  # noqa: S102
++    return tree, ns
++
++
++def _mutant_of(tree: ast.Module, ns: dict, name: str, src_from: str, src_to: str):
++    node = copy.deepcopy(next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name))
++    for sub in ast.walk(node):
++        for field, value in ast.iter_fields(sub):
++            if isinstance(value, ast.expr) and ast.unparse(value) == src_from:
++                setattr(sub, field, ast.parse(src_to, mode="eval").body)
++                break
++        else:
++            continue
++        break
++    else:
++        raise AssertionError(f"{src_from!r} not found")
++    return _compile_mutant(types.SimpleNamespace(mutated_node=node, wrapper_factory=None), ns[name])
++
++
++def _exec_suggestion(line: str, fn) -> None:
++    """Run a one-line suggestion as written, with `f` bound to ``fn`` (pytest available)."""
++    exec(compile(line, "<suggestion>", "exec"), {"f": fn, "pytest": pytest, "math": math})  # noqa: S102
++
++
++def _report_with(verdict: MutantVerdict) -> list[str]:
++    rep = SurvivorReport(verdicts=(verdict,), unclassified=(), inputs_expressible=True, boundary_probe="run")
++    return _format_survivor_report(rep, "f(spread_daughter_um, spread_parent_um)", ("a", "b"))
++
++
++def _suggestion_lines(lines: list[str]) -> list[str]:
++    return [
++        ln.strip()[2:].split("   (kills")[0] for ln in lines if ln.strip().startswith("→ ") and "(kills" in ln
++    ]
++
++
++# --- 2. the suggested assertion is satisfiable, and it is the test converge would write -----------
++
++
++def test_a_nan_original_is_suggested_by_a_satisfiable_pin_never_eq_nan():
++    tree, ns = _module(_SPREAD)
++    original = ns["spread_ratio"]
++    mutant = _mutant_of(tree, ns, "spread_ratio", "spread_parent_um <= 0", "False")
++    witness, _crash, _blocked = _search_witness(original, mutant, [(-1.0, -1)])
++    assert witness is not None and witness.original == "nan" and witness.mutant == "1.0"
++    verdict = MutantVerdict("BOUNDARY_x", "BOUNDARY", "", True, witness, 1)
++    (line,) = _suggestion_lines(_report_with(verdict))
++    assert "== nan" not in line.replace(" ", "")
++    _exec_suggestion(line, original)  # holds on the original…
++    with pytest.raises(AssertionError):
++        _exec_suggestion(line, mutant)  # …and fails on the mutant it names
++
++
++def test_a_raising_original_is_suggested_as_a_raise_not_an_equality():
++    witness = Witness(args=(0,), original="<raised ValueError: negative>", mutant="'a'")
++    verdict = MutantVerdict("BOUNDARY_r", "BOUNDARY", "", True, witness, 1)
++    (line,) = _suggestion_lines(_report_with(verdict))
++    assert "== <raised" not in line
++    assert "ValueError" in line and "raises" in line
++
++
++@pytest.mark.parametrize(
++    ("original", "code", "form"),
++    [
++        ("<raised ValueError: x>", "", "raises"),
++        ("nan", "", "unpinnable"),
++        ("0.5", "result = f(1.0, 2.0)\nassert result == 0.5", "inline"),
++        ("None", "result = f(1)\nassert result is None", "inline"),
++        ("nan", "result = f(-1.0, -1)\nassert repr(result) == 'nan'", "bound"),
++        ("1", "result = f(1)\nassert result == 1\nassert type(result) is int", "bound"),
++        ("'result'", "result = f(1)\nassert result == 'result'", "bound"),
++    ],
++)
++def test_suggestion_form_decides_how_the_writer_pin_is_shown(original, code, form):
++    assert suggestion_form(original, code) == form
++
++
++# --- 1. the suggestion names the mutant it kills, and what THAT mutant gives -----------------------
++
++
++def test_each_suggestion_names_its_mutant_and_that_mutants_outcome():
++    witness = Witness(
++        args=(-1.0, -1), original="nan", mutant="1.0", original_value=math.nan, mutant_value=1.0
++    )
++    verdict = MutantVerdict("BOUNDARY_129b128d", "BOUNDARY", "- if p <= 0:\n+ if False:", True, witness, 1)
++    text = "\n".join(_report_with(verdict))
++    assert "kills BOUNDARY_129b128d" in text
++    assert "gives 1.0" in text
++
++
++# --- 5. a witness is a proof only if a fresh call reproduces it ------------------------------------
++
++
++@pytest.mark.parametrize(
++    ("first", "fresh", "code"),
++    [
++        (("1", "2"), ("1", "2"), "confirmed"),
++        (("1", "2"), ("1", "1"), "indistinct"),
++        (("nan", "1.0"), ("nan", "nan"), "indistinct"),  # both NaN on the fresh call: equal observables
++        (("1", "2"), ("3", "2"), "unstable"),  # the original's pinned value did not reproduce
++        (("1", "2"), ("1", "5"), "unstable"),  # the printed "mutant gives" would be false
++        (("1", "2"), ("1", "<raised ValueError>"), "unstable"),
++        (("1", "2"), ("<classifier-timeout>", "2"), "blocked"),
++    ],
++)
++def test_witness_confirmation_codes(first, fresh, code):
++    assert witness_confirmation(*first, *fresh) == code
++
++
++def test_a_nondeterministic_distinction_is_not_counted_killable():
++    calls = {"n": 0}
++
++    def original(x):
++        return x
++
++    def flaky(x):
++        calls["n"] += 1
++        return x + calls["n"]  # differs on every call: no fresh call can reproduce what was seen
++
++    verdict = classify_survivor("VALUE_f", "VALUE", "", original, flaky, [(1,), (2,)])
++    assert not verdict.killable
++    assert verdict.blocked  # honest uncertainty, never a false candidate-equivalent
++
++
++def test_a_distinction_made_by_shared_argument_state_is_not_a_witness():
++    """The search calls the original and then the mutant on ONE argument object; an original that
++    appends to it hands the mutant a different input. The written test passes fresh literals, so the
++    'distinction' is the harness's, not the code's."""
++
++    def original(items):
++        items.append(1)
++        return len(items)
++
++    def mutant(items):
++        items.append(2)
++        return len(items)
++
++    witness, crash, _blocked = _search_witness(original, mutant, [([],)])
++    assert witness is None and crash is None
++
++
++# --- 6. killable and crash-only are mutually exclusive ---------------------------------------------
++
++
++def test_a_verdict_is_never_both_killable_and_crash_only():
++    class Box:
++        def __init__(self) -> None:
++            self.seen: list = []
++
++    def make_call(raise_on_zero: bool):
++        def call(x):
++            box = Box()
++            call.last_receiver = box
++            if raise_on_zero and x == 0:
++                raise ValueError("zero")
++            box.seen.append(x if not raise_on_zero else -x)
++            return None
++
++        call.last_receiver = None
++        return call
++
++    original, mutant = make_call(False), make_call(True)
++    verdict = classify_survivor("STATE_s", "STATE", "", original, mutant, [(0,), (1,)])
++    assert verdict.killable  # the receiver-state fallback found the state witness at (1,)
++    assert not verdict.crash_only and verdict.crash_witness is None
++    rep = SurvivorReport(verdicts=(verdict,), unclassified=())
++    assert rep.killable == (verdict,) and rep.crash_only == () and rep.candidate_equivalent == ()
++
++
++# --- 4. an input already supplied — this run or recalled — is never re-proposed ---------------------
++
++
++def _proof(supplied: tuple[str, ...] = ()) -> types.SimpleNamespace:
++    return types.SimpleNamespace(
++        param_names=("a", "b"),
++        missing_lines=(),
++        missing_line_guards=(),
++        inputs_expressible=True,
++        supplied_inputs=supplied,
++    )
++
++
++def _killable_report() -> SurvivorReport:
++    witness = Witness(args=(0.1, math.nan), original="0.5", mutant="0.25")
++    return SurvivorReport(
++        verdicts=(MutantVerdict("VALUE_k", "VALUE", "", True, witness, 1),), unclassified=()
++    )
++
++
++def test_a_typed_input_matches_its_rendered_witness_after_normalisation():
++    plan = _derive_input_plan(_proof(), _killable_report(), ("(0.1,nan)",))
++    assert plan.kind == "repeated", plan
++
++
++def test_an_input_recalled_from_an_earlier_run_is_not_reproposed_on_a_bare_run():
++    plan = _derive_input_plan(_proof(("(0.1, float('nan'))",)), _killable_report(), ())
++    assert plan.kind == "repeated", plan
++
++
++def test_a_fresh_witness_is_still_proposed():
++    plan = _derive_input_plan(_proof(), _killable_report(), ())
++    assert plan.kind == "witness" and plan.items == ("(0.1, float('nan'))",)
++
++
++# --- the three reported functions, through the real CLI --------------------------------------------
++
++_CONSERVATION = '''\
++"""Conservation ratios (the three #76 shapes)."""
++
++import math
++
++
++def spread_ratio(spread_daughter_um: float, spread_parent_um: float) -> float:
++    return math.nan if spread_parent_um <= 0 else spread_daughter_um / spread_parent_um
++
++
++def vacated_ratio(after: float, before: float) -> float:
++    return math.nan if before <= 0 else after / before
++
++
++def half_by_sample(rank: int) -> str:
++    if rank < 0:
++        raise ValueError(f"rank must be non-negative, got {rank}")
++    return "a" if rank % 2 == 0 else "b"
++'''
++
++_TESTS = """\
++import math
++
++import conservation
++
++
++def test_spread_ratio_divides():
++    assert conservation.spread_ratio(2.0, 4.0) == 0.5
++
++
++def test_spread_ratio_zero_parent_is_nan():
++    assert math.isnan(conservation.spread_ratio(1.0, 0.0))
++
++
++def test_vacated_ratio_divides():
++    assert conservation.vacated_ratio(3.0, 6.0) == 0.5
++
++
++def test_half_by_sample_even():
++    assert conservation.half_by_sample(0) == "a"
++"""
++
++
++def _cli(project: Path, *args: str) -> str:
++    """The terse output a user sees — the one that carries the next action (DO THIS / WRITE TEST)."""
++    script = Path(sys.executable).with_name("detective.exe" if sys.platform == "win32" else "detective")
++    assert script.is_file(), f"the installed console script is required beside {sys.executable}"
++    r = subprocess.run(
++        [str(script), *args, "--project-root", str(project)],
++        cwd=str(project),
++        capture_output=True,
++        text=True,
++        timeout=600,
++    )
++    out = r.stdout + r.stderr
++    assert r.returncode == 0, out
++    return out
++
++
++def _final(out: str) -> str:
++    return next(ln for ln in out.splitlines() if ln.startswith("FINAL"))
++
++
++def _report(project: Path, fn: str) -> str:
++    """The full report converge always writes — the survivor sections, verbose."""
++    return (project / ".detective" / "reports" / f"converge_{fn}.txt").read_text()
++
++
++def _section_ids(report: str, header: str) -> set[str]:
++    """Mutant ids listed under one survivor section of the report: its `→ mutant <ID>` rows, or the
++    `kills …` attribution rows of the SUGGESTED section."""
++    ids: set[str] = set()
++    inside = False
++    for ln in report.splitlines():
++        if header in ln:
++            inside = True
++            continue
++        if inside and not ln.startswith("    "):
++            break
++        if inside:
++            ids |= set(re.findall(r"\b[A-Z]+_[0-9a-f]{8}\b", ln))
++    return ids
++
++
++def _proposed_inputs(out: str) -> list[str]:
++    """The `--input` values a DO THIS line proposes, canonicalised the way Detective compares them."""
++    for ln in out.splitlines():
++        if ln.startswith("DO THIS:") and "--input" in ln:
++            return [_canonical_input(s) for s in re.findall(r"--input \"([^\"]*)\"", ln)]
++    return []
++
++
++@pytest.fixture(scope="module")
++def conservation(tmp_path_factory):
++    root = tmp_path_factory.mktemp("issue76")
++    (root / "tests").mkdir()
++    (root / "conservation.py").write_text(_CONSERVATION)
++    (root / "tests" / "test_conservation.py").write_text(_TESTS)
++    return root
++
++
++def _no_unsatisfiable_suggestion(text: str) -> None:
++    assert "==nan" not in text.replace(" ", "")
++    assert "== <raised" not in text
++
++
++@pytest.mark.parametrize(
++    ("fn", "inputs"),
++    [
++        ("spread_ratio", ["(-1.0, -1)"]),
++        ("vacated_ratio", ["(-1.0, -1)"]),
++        ("half_by_sample", ["(2,)", "(1,)"]),
++    ],
++)
++def test_the_reported_run_sequence_converges_without_a_loop(conservation, tmp_path, fn, inputs):
++    """bare → the reported inputs applied → bare: every FINAL identical (the pinned count does not
++    move under the same inputs), no unsatisfiable assertion, no input re-proposed once supplied, no
++    mutant both killable and crash-only, and the `<= -1`-style VALUE mutant killed by a value inside
++    its region instead of filed crash-only."""
++    project = tmp_path / fn
++    shutil.copytree(conservation, project)
++    target = f"conservation.py::{fn}"
++    flags = [arg for s in inputs for arg in ("--input", s)]
++    outs, reports = [], []
++    for argv in ((), tuple(flags), ()):
++        outs.append(_cli(project, "converge", target, *argv))
++        reports.append(_report(project, fn))
++    finals = [_final(o) for o in outs]
++    assert finals[0] == finals[1] == finals[2], finals
++    supplied = {_canonical_input(s) for s in inputs}
++    for out, report in zip(outs, reports, strict=True):
++        _no_unsatisfiable_suggestion(out + report)
++        killable = _section_ids(report, "killable — SUGGESTED")
++        crash_only = _section_ids(report, "crash-only-distinguishable")
++        assert not killable & crash_only, (killable, crash_only)
++    for out in outs[1:]:
++        assert not supplied & set(_proposed_inputs(out)), out
++    if fn in ("spread_ratio", "vacated_ratio"):
++        # `<= 0` → `<= -1` differs by VALUE strictly inside (-1, 0): it is killed, not crash-only.
++        crash_rows = [ln for ln in reports[-1].splitlines() if "→ mutant" in ln and "<= -1" in ln]
++        assert not crash_rows, crash_rows
++        assert "Incomplete" not in finals[-1]
++
++
++_ENV_TARGET = '''\
++"""A ratio scaled by an environment setting: converge writes no value test for it (#39)."""
++
++import math
++import os
++
++
++def env_ratio(d: float, p: float) -> float:
++    scale = float(os.environ.get("RATIO_SCALE", "1"))
++    return math.nan if p <= 0 else scale * d / p
++'''
++
++_ENV_TESTS = """\
++import math
++
++import ratios
++
++
++def test_divides():
++    assert ratios.env_ratio(2.0, 4.0) == 0.5
++
++
++def test_zero_parent_is_nan():
++    assert math.isnan(ratios.env_ratio(1.0, 0.0))
++"""
++
++
++def test_an_input_that_cannot_land_is_never_proposed_the_pin_is_handed_over(tmp_path):
++    """The loop in its purest form, measured on the pre-fix code with this fixture: `DO THIS --input
++    "(-1.0, -1)"`, the input applied, the residual unchanged (the witness pass never writes a value test
++    for an environment-reading return), and the next bare run re-proposing it — under a suggested
++    `assert f(-1.0, -1) == nan`. The terminating action is the pin itself, satisfiable and attributed."""
++    (tmp_path / "tests").mkdir()
++    (tmp_path / "ratios.py").write_text(_ENV_TARGET)
++    (tmp_path / "tests" / "test_ratios.py").write_text(_ENV_TESTS)
++    out = _cli(tmp_path, "converge", "ratios.py::env_ratio")
++    assert not _proposed_inputs(out), out
++    assert "WRITE TEST:  hand-write the pins below" in out
++    assert "repr(result) == 'nan'" in out
++    assert re.search(r"kills (\d+: )?BOUNDARY_[0-9a-f]{8} gives 1\.0", out), out
++    _no_unsatisfiable_suggestion(out + _report(tmp_path, "env_ratio"))
++
++
++def test_a_value_witness_that_can_never_be_written_routes_to_the_pin():
++    proof = _proof()
++    proof.witness_tests_capturable = False
++    plan = _derive_input_plan(proof, _killable_report(), ())
++    assert plan.kind == "env_pin"
++    (item,) = plan.items
++    assert "pin: assert f(0.1, float('nan')) == 0.5" in item and "kills VALUE_k" in item
+-- 
+2.43.0
+
