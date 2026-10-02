@@ -40,6 +40,7 @@ def test_a_first_append_creates_the_directory_it_needs(tmp_path) -> None:
     assert os.path.isfile(ledger_path(str(tmp_path)))
 
 
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root writes through a 0o500 mode")
 def test_an_unwritable_project_costs_the_record_and_not_the_run(tmp_path) -> None:
     """The load-bearing one. A read-only checkout, a container with no write mount, a
     permissions mistake — none of them may take down the converge that was actually asked for."""
