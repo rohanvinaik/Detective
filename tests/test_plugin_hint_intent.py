@@ -9,6 +9,7 @@ THIS".
 
 from __future__ import annotations
 
+from Detective import cli
 from Detective.cli import _format_session_warning, plugin_hint
 
 # ── the pure decision ──
@@ -37,9 +38,16 @@ def test_an_unrecognised_error_yields_no_guess():
 # ── the render consumes it ──
 
 
-def test_the_collection_error_warning_names_the_missing_plugin():
+def test_the_collection_error_warning_names_the_missing_plugin(monkeypatch):
     """End of the chain: a config-load failure whose detail carries the asyncio signature renders a
-    `pip install pytest-asyncio` line, on top of the generic guidance."""
+    `pip install pytest-asyncio` line, on top of the generic guidance.
+
+    The plugin is fixed ABSENT. Since EP-E2 the render asks the running interpreter whether a named
+    plugin is installed (`_installed_here`), so unfixed, this test's verdict was a read of whichever
+    interpreter ran it: green under the project venv, red under miniconda's base, which carries
+    pytest-asyncio (measured 2026-10-02). The installed branch is pinned in
+    `test_session_warning_plugin_presence_intent.py`."""
+    monkeypatch.setattr(cli, "_installed_here", lambda _pkg: False)
     diagnostic = {
         "reason": "collection_errors",
         "errors": [
