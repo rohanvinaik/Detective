@@ -306,7 +306,7 @@ def float_spelling(value: float) -> str:
     ``"finite"`` (#78, pure — pinned). The writer's half of the one input grammar: :func:`literal_source`
     renders a non-finite float as ``float('<code>')``, which the parser folds back to the same value —
     so the codes here and the parser's are one vocabulary, and a finite float keeps ``repr``."""
-    if value != value:
+    if math.isnan(value):
         return "nan"
     if value == math.inf:
         return "inf"
