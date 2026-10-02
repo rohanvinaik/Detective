@@ -291,7 +291,12 @@ def _gap_desc(verdict: Any, expressible: bool) -> str:
     rest is another test, which is what the next action says.
     """
     if verdict.witness and expressible:
-        return f"{verdict.category} [{verdict.mutant_id}] — kill with {verdict.witness.args}"
+        # `literal_source`, not the tuple's repr: a NaN in the witness prints `float('nan')`, a
+        # spelling `--input` accepts and a test can run (#78).
+        from .equivalence import literal_source
+
+        kill_with = literal_source(tuple(verdict.witness.args))
+        return f"{verdict.category} [{verdict.mutant_id}] — kill with {kill_with}"
     return f"{verdict.category} [{verdict.mutant_id}]"
 
 

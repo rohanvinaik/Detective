@@ -55,6 +55,7 @@ from .engine import (
 from .equivalence import (
     SourceExpr,
     SurvivorReport,
+    literal_source,
     structural_input_difficulty,
     structural_shape,
 )
@@ -669,11 +670,16 @@ def _kwargs_names(node: ast.AST, qualname: str) -> tuple[str, ...]:
 def _render_call(fname: str, values: Sequence, kw_names: Sequence[str] = ()) -> str:
     """``f(weight_kg=1, distance_km=2)`` when the names are usable and cover the values
     exactly, else ``f(1, 2)``. The VALUES are identical either way — the witness that was
-    found is the witness that is written; only its presentation changes."""
+    found is the witness that is written; only its presentation changes.
+
+    Each value in ``literal_source``'s spelling (#78): byte-identical to ``repr`` unless a
+    non-finite float is inside, which renders ``float('nan')`` — ``repr``'s bare ``nan`` is a
+    NameError in the generated test, so ``property_holds`` rejected it and the killing test at a
+    NaN input was never written, leaving the survivor to be re-witnessed every run."""
     if kw_names and len(kw_names) == len(values):
         pairs = zip(kw_names, values, strict=True)  # lengths equal — guarded above
-        return f"{fname}({', '.join(f'{n}={v!r}' for n, v in pairs)})"
-    return f"{fname}({', '.join(repr(v) for v in values)})"
+        return f"{fname}({', '.join(f'{n}={literal_source(v)}' for n, v in pairs)})"
+    return f"{fname}({', '.join(literal_source(v) for v in values)})"
 
 
 def _remaining_summary(survivor_records: list[dict]) -> tuple[str, ...]:
@@ -836,7 +842,9 @@ def _golden_property(
         # Parametrizable only when the assertion is idiomatic value-equality (a literal
         # output); methods (dotted qualname) need a receiver, so they are not folded.
         golden_case = (
-            (repr(tuple(capture.inputs)), capture.output)
+            # The row is pasted into a module-level `parametrize` list, so a bare `nan` here would
+            # NameError at IMPORT and take every test in the file down with it (#78).
+            (literal_source(tuple(capture.inputs)), capture.output)
             if assertion.startswith("assert result == ") and "." not in fname
             else None
         )

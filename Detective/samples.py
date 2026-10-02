@@ -12,7 +12,9 @@ purged (§8). Stored per function key; a later run unions the remembered samples
 freshly supplied on the CLI, so supplying more only ever adds knowledge.
 
 Literal-only, matching `--input` itself: what is written here round-trips through
-``ast.literal_eval``, so the file can never smuggle code into a later run.
+``equivalence.parse_input_expression`` — the grammar gate, never ``exec`` — so the file can never
+smuggle code into a later run. ``repr`` writes a non-finite float as ``nan`` / ``inf``, which the
+parser reserves (#78), so a supplied NaN reloads as the NaN it was.
 
 References:
     §8, §10  ARCHITECTURE.md

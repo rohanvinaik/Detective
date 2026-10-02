@@ -1075,8 +1075,8 @@ def _survivor_lines(verdicts, verbose: bool, param_names: tuple[str, ...] | None
                 out.append(f"        ↳ {hint}")
             if v.crash_only and not v.suite_detected and v.crash_witness is not None:
                 # The fact that decides the next action: this survivor is invisible to the
-                # current suite, and here is the input that exposes it.
-                args = ", ".join(repr(a) for a in v.crash_witness.args)
+                # current suite, and here is the input that exposes it — spelled so it parses (#78).
+                args = _call_args_source(v.crash_witness.args)
                 out.append(f"        ↳ reached by no current test — crash witness: f({args})")
         return out
     groups: dict[str, list] = {}
@@ -1727,7 +1727,7 @@ def _format_survivor_report(
         grouped: dict[tuple[str, str], list] = {}
         for v in rep.killable:
             w = v.witness
-            args = ", ".join(repr(a) for a in w.args)
+            args = _call_args_source(w.args)
             grouped.setdefault((args, str(w.original)), []).append(v)
         for (args, original), verdicts in grouped.items():
             w = verdicts[0].witness
@@ -3369,10 +3369,19 @@ def _hint_relation(hint: str) -> str:
     return tail[len("supply an input ") :] if tail.startswith("supply an input ") else tail
 
 
+def _call_args_source(args) -> str:
+    """A call's positional arguments as source — ``f(<this>)`` — each in `literal_source`'s spelling,
+    not `repr`'s (#78): a NaN prints `float('nan')`, which `--input` accepts AND a pasted test can run;
+    `repr`'s bare `nan` is a NameError in a test and was, before #78, refused by `--input` too."""
+    from .equivalence import literal_source
+
+    return ", ".join(literal_source(a) for a in args)
+
+
 def _witness_args(w) -> str:
     """A witness's args as a tuple literal. `(1)` is not a tuple, it is `1` — a one-argument
     call needs the trailing comma or the command does not parse as what it claims to be."""
-    return ", ".join(repr(a) for a in w.args) + ("," if len(w.args) == 1 else "")
+    return _call_args_source(w.args) + ("," if len(w.args) == 1 else "")
 
 
 @dataclass(frozen=True)
@@ -4881,6 +4890,8 @@ def _build_parser() -> argparse.ArgumentParser:
                 help="one real call's positional arguments, as a Python literal tuple — e.g. "
                 "\"([{'qty': 5, 'price': 2.0}], 0.08, 'gold', None)\" — to reach behaviour "
                 "synthesis could not. Repeatable; a bare non-tuple literal is one argument. "
+                "Non-finite floats are spelled `nan`, `inf`, `-inf` or `float('nan')` / "
+                "`float('-inf')`, whatever the target module imports. "
                 "LITERALS ONLY (plus `ast.*`): this parses an allowlist, which is what makes "
                 '"no arbitrary code execution" checkable rather than hoped-for — so it CANNOT '
                 "carry your own classes (`Account(...)` is rejected). For a function taking a "

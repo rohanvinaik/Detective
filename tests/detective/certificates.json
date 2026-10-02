@@ -244,6 +244,18 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/equivalence.py::float_spelling": {
+    "cut_reasons": [],
+    "function_digest": "aa1e47172cea628c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/equivalence.py::nonfinite_float_spelling": {
+    "cut_reasons": [],
+    "function_digest": "78ef4192f4d7867c",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/extract.py::extract_readiness": {
     "function_digest": "70b63c783f4524cd",
     "refusal": "",

@@ -27,7 +27,9 @@ References:
 from __future__ import annotations
 
 import ast
+import copy
 import itertools
+import math
 import re
 import sys
 import threading
@@ -212,6 +214,190 @@ def reject_unsafe_expression(node: ast.AST, src: str, names: dict[str, Any] | No
             )
 
 
+# The values the reserved non-finite spellings denote (#78), keyed by `nonfinite_float_spelling`'s
+# codes. Constants, never names: nothing here is ever looked up in a namespace or called.
+_NONFINITE_VALUE: dict[str, float] = {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}
+
+
+def nonfinite_float_spelling(token: str, via_float_call: bool) -> str:
+    """Which non-finite float an ``--input`` spelling denotes, if any (#78, pure — pinned).
+
+    ``nan`` / ``inf`` have no Python LITERAL, so before #78 the parser accepted them only when the
+    TARGET module happened to bind the name: ``(0.1, np.nan, 0.087)`` parsed beside ``import numpy as
+    np`` and ``(0.1, nan, 0.087)`` was refused everywhere — while the tool's own witnesses printed
+    ``nan`` bare, a spelling its own parser rejected. The input language now RESERVES the spellings
+    and this decides each one, from text alone, so the answer cannot depend on any namespace.
+
+    ``token`` is the identifier of a bare NAME (``via_float_call`` False), or the string argument of a
+    one-argument ``float(...)`` call (``via_float_call`` True). The two grammars differ on purpose:
+
+      * a NAME is reserved only as exactly ``nan`` or ``inf`` — the spellings ``repr`` writes, so what
+        ``samples.remember`` stores reloads. ``-inf`` needs nothing more: it is unary minus on ``inf``.
+      * a ``float()`` string follows ``float()`` itself for the non-finite words: optional sign,
+        any case, surrounding whitespace, ``inf`` or ``infinity`` or ``nan``.
+
+    Codes:
+      "nan"           a NaN (a sign on a NaN is not observable through ``repr``, so ``-nan`` is ``nan``)
+      "inf"           positive infinity
+      "-inf"          negative infinity (``float("-inf")``; the NAME form arrives as ``-`` + ``inf``)
+      "not_reserved"  anything else — the token is NOT a non-finite spelling and passes through to the
+                      unchanged grammar gate, which judges it exactly as before (``float("1.5")``
+                      therefore stays refused: ``float`` is not an input name)
+    """
+    if not via_float_call:
+        return token if token in ("nan", "inf") else "not_reserved"
+    text = token.strip().lower()
+    negative = text.startswith("-")
+    if text[:1] in ("+", "-"):
+        text = text[1:]
+    if text == "nan":
+        return "nan"
+    if text in ("inf", "infinity"):
+        return "-inf" if negative else "inf"
+    return "not_reserved"
+
+
+class _NonFiniteFold(ast.NodeTransformer):
+    """Rewrite the reserved non-finite spellings (#78) — and NOTHING else — before the grammar gate.
+
+    ``as_constants`` True folds each to an ``ast.Constant`` (what the gate and the evaluator see: a
+    float constant, which the grammar already admits). False normalises each to the canonical
+    ``float('nan')`` call instead, which is what a SOURCE must carry: a generated test executes that
+    source, where a bare ``nan`` is a NameError, and ``ast.unparse`` renders a NaN constant as
+    ``(1e309-1e309)`` — a BinOp the parser refuses. Only a ``Load`` NAME and a one-positional-string
+    ``float(...)`` call are touched; every other node, ``float`` itself included, passes through to
+    the gate unchanged.
+    """
+
+    def __init__(self, *, as_constants: bool) -> None:
+        self.as_constants = as_constants
+
+    def _replacement(self, code: str, at: ast.AST) -> ast.AST:
+        if self.as_constants:
+            node: ast.AST = ast.Constant(value=_NONFINITE_VALUE[code])
+        else:
+            node = ast.Call(
+                func=ast.Name(id="float", ctx=ast.Load()), args=[ast.Constant(value=code)], keywords=[]
+            )
+        return ast.copy_location(node, at)
+
+    def visit_Name(self, node: ast.Name) -> ast.AST:
+        code = nonfinite_float_spelling(node.id, False) if isinstance(node.ctx, ast.Load) else "not_reserved"
+        return node if code == "not_reserved" else self._replacement(code, node)
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        self.generic_visit(node)
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "float"
+            and len(node.args) == 1
+            and not node.keywords
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            code = nonfinite_float_spelling(node.args[0].value, True)
+            if code != "not_reserved":
+                return self._replacement(code, node)
+        return node
+
+
+def float_spelling(value: float) -> str:
+    """The ``nonfinite_float_spelling`` code of a float VALUE — ``"nan"`` / ``"inf"`` / ``"-inf"``, or
+    ``"finite"`` (#78, pure — pinned). The writer's half of the one input grammar: :func:`literal_source`
+    renders a non-finite float as ``float('<code>')``, which the parser folds back to the same value —
+    so the codes here and the parser's are one vocabulary, and a finite float keeps ``repr``."""
+    if value != value:
+        return "nan"
+    if value == math.inf:
+        return "inf"
+    if value == -math.inf:
+        return "-inf"
+    return "finite"
+
+
+_LITERAL_CONTAINERS = (list, tuple, set, frozenset, dict)
+
+
+def _has_nonfinite(value: Any, _seen: set[int] | None = None) -> bool:
+    """Whether ``value`` is, or nests (through the exact literal containers), a non-finite float or a
+    complex with a non-finite part. Cycle-safe — a self-containing list is walked once."""
+    kind = type(value)
+    if kind is float:
+        return not math.isfinite(value)
+    if kind is complex:
+        return not (math.isfinite(value.real) and math.isfinite(value.imag))
+    if kind not in _LITERAL_CONTAINERS:
+        return False
+    seen = _seen if _seen is not None else set()
+    if id(value) in seen:
+        return False
+    seen.add(id(value))
+    items = [x for kv in value.items() for x in kv] if kind is dict else list(value)
+    return any(_has_nonfinite(item, seen) for item in items)
+
+
+def literal_source(value: Any) -> str:
+    """The source a person TYPES for ``value`` — ``repr``, except where ``repr`` is not an input (#78).
+
+    Every printed witness, suggested input, and generated call renders through here, so what Detective
+    prints is a spelling its own parser accepts AND valid Python in a test file. ``repr`` was both
+    until a NaN appeared: ``repr(float("nan"))`` is ``nan``, a NameError in a generated test (so the
+    witness test was judged unsound by ``property_holds`` and never written — the killable survivor
+    then came back, with the same suggestion, every run) and, before #78, refused by ``--input`` too.
+
+    A non-finite float renders ``float('nan')`` / ``float('inf')`` / ``float('-inf')`` — valid Python
+    everywhere, and folded back to the same value by :func:`parse_input_expression`. A complex with a
+    non-finite REAL part renders ``(float('inf')+1.0j)`` (literal arithmetic the parser accepts); one
+    with a non-finite IMAGINARY part has no input spelling at all and renders ``complex(...)`` — valid
+    Python for a test, refused as ``--input``, matching :func:`is_expressible`. Everything without a
+    non-finite float — the overwhelming case — is byte-identical to ``repr``, so no existing rendering
+    moves. A :class:`SourceExpr` keeps its constructor source.
+    """
+    if isinstance(value, SourceExpr) or not _has_nonfinite(value):
+        return repr(value)
+    return _nonfinite_source(value, set())
+
+
+# The canonical spelling of each non-finite `float_spelling` code — one entry per code, so the writer
+# names every code it renders and the parser's `_NONFINITE_VALUE` maps each straight back.
+_NONFINITE_SOURCE: dict[str, str] = {"nan": "float('nan')", "inf": "float('inf')", "-inf": "float('-inf')"}
+
+
+def _nonfinite_source(value: Any, seen: set[int]) -> str:
+    """:func:`literal_source` below the gate: ``value`` nests a non-finite float somewhere."""
+    kind = type(value)
+    if kind is float:
+        code = float_spelling(value)
+        return repr(value) if code == "finite" else _NONFINITE_SOURCE[code]
+    if kind is complex:
+        real = _nonfinite_source(value.real, seen)
+        if not math.isfinite(value.imag):
+            return f"complex({real}, {_nonfinite_source(value.imag, seen)})"
+        sign = "-" if math.copysign(1.0, value.imag) < 0 else "+"
+        return f"({real}{sign}{abs(value.imag)!r}j)"
+    if kind not in _LITERAL_CONTAINERS:
+        return literal_source(value)
+    if id(value) in seen:
+        return {list: "[...]", dict: "{...}"}.get(kind, "...")
+    seen = seen | {id(value)}
+    if kind is dict:
+        return (
+            "{"
+            + ", ".join(
+                f"{_nonfinite_source(k, seen)}: {_nonfinite_source(v, seen)}" for k, v in value.items()
+            )
+            + "}"
+        )
+    parts = ", ".join(_nonfinite_source(item, seen) for item in value)
+    if kind is list:
+        return f"[{parts}]"
+    if kind is tuple:
+        return f"({parts}{',' if len(value) == 1 else ''})"
+    if kind is set:
+        return "{" + parts + "}"
+    return "frozenset({" + parts + "})"
+
+
 def parse_input_expression(s: str, ns: dict[str, Any] | None = None) -> tuple:
     """One positional-argument tuple from a literal OR a constructor expression.
 
@@ -239,6 +425,18 @@ def parse_input_expression(s: str, ns: dict[str, Any] | None = None) -> tuple:
 
     Raises :class:`InputExpressionError` for anything unparseable or not permitted; see
     :func:`reject_unsafe_expression` for the boundary and what it is not.
+
+    THE NON-FINITE FLOATS (#78) have no Python literal — ``nan`` and ``inf`` are NAMES and
+    ``float("nan")`` is a CALL — so the literal grammar alone cannot carry them, and the accepted
+    spelling used to depend on whether the target module happened to bind one (``np.nan`` parsed
+    only beside ``import numpy as np``). The input language therefore reserves ``nan``, ``inf``,
+    ``-inf`` and ``float("nan" | "inf" | "-inf" | …)`` and folds them to constants BEFORE the
+    gate (:func:`nonfinite_float_spelling` decides each spelling). Nothing is opened: no name is
+    added to the evaluator's namespace and no call is made — the gate and the dunder ban only ever
+    see ``Constant`` nodes, which they already admit, and a float constant reaches nothing a
+    ``1.5`` literal did not. The reserved spellings mean the same value whatever the target binds
+    (a module's own ``nan``/``float`` cannot change them), so what ``samples.remember`` writes —
+    ``repr`` of a float is ``nan`` / ``inf`` — reloads to the value it wrote.
     """
     try:
         return _literal_tuple(ast.literal_eval(s))
@@ -246,15 +444,35 @@ def parse_input_expression(s: str, ns: dict[str, Any] | None = None) -> tuple:
         pass
     try:
         tree = ast.parse(s, mode="eval")
+        # Two folds of the reserved non-finite spellings (#78), each on its own copy: `folded` makes
+        # them constants — what the gate and the evaluator see; `canonical` normalises them to the
+        # Python-valid `float('nan')`, the SOURCE a SourceExpr carries into generated tests, where a
+        # bare `nan` is a NameError (and `ast.unparse` writes a NaN constant as `(1e309-1e309)`, a
+        # BinOp this parser refuses). `tree` itself stays as typed, for the messages.
+        folded = _NonFiniteFold(as_constants=True).visit(copy.deepcopy(tree))
+        canonical = _NonFiniteFold(as_constants=False).visit(copy.deepcopy(tree))
     except SyntaxError as exc:
         raise InputExpressionError(f"not a valid literal or expression: {s!r} ({exc})") from None
+    except (MemoryError, RecursionError):
+        raise InputExpressionError(f"input too large or too deeply nested: {s[:60]!r}") from None
+    # With the non-finite spellings folded, a plain tuple of numbers (`(0.1, nan, 0.087)`) is a
+    # literal again — take the literal path, so it needs no carrier.
+    try:
+        return _literal_tuple(ast.literal_eval(folded))
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        pass
 
     target_ns = {k: v for k, v in (ns or {}).items() if not k.startswith("_")}
     module = (ns or {}).get("__name__", "")
-    elements = tree.body.elts if isinstance(tree.body, ast.Tuple) else [tree.body]
+
+    def _elements(expr: ast.Expression) -> list[ast.expr]:
+        return expr.body.elts if isinstance(expr.body, ast.Tuple) else [expr.body]
+
     args: list[Any] = []
-    for elt in elements:
-        src = ast.unparse(elt)
+    for elt, source_elt, typed_elt in zip(
+        _elements(folded), _elements(canonical), _elements(tree), strict=True
+    ):
+        src = ast.unparse(typed_elt)
         reject_unsafe_expression(elt, src, target_ns)
         try:
             # Grammar checked above, builtins emptied here: BOTH are required.
@@ -270,20 +488,39 @@ def parse_input_expression(s: str, ns: dict[str, Any] | None = None) -> tuple:
             ast.literal_eval(elt)
             args.append(value)  # a literal needs no carrier
         except (ValueError, SyntaxError):
-            imports = [f"import {m}" for m in sorted(INPUT_MODULES) if f"{m}." in src]
+            # The CANONICAL source, not the typed one: it is what a generated test executes, so a
+            # reserved `nan` inside a constructor must arrive as `float('nan')` (#78).
+            source = ast.unparse(source_elt)
+            imports = [f"import {m}" for m in sorted(INPUT_MODULES) if f"{m}." in source]
             # A target-module name needs `from <module> import <Name>`, or the generated test
             # renders `Account(...)` and NameErrors — which `property_holds` then rejects, and
             # the killing test silently never gets written.
             names = sorted({n.id for n in ast.walk(elt) if isinstance(n, ast.Name) and n.id in target_ns})
             if module and names:
                 imports.append(f"from {module} import {', '.join(names)}")
-            args.append(SourceExpr(value=value, expr=src, imports=tuple(imports)))
+            args.append(SourceExpr(value=value, expr=source, imports=tuple(imports)))
     return tuple(args)
 
 
 def _literal_tuple(value: Any) -> tuple:
     """A parsed literal as an argument tuple; a bare value is one positional argument."""
     return value if isinstance(value, tuple) else (value,)
+
+
+def parse_literal_value(s: str) -> Any:
+    """ONE literal value in the input language — ``ast.literal_eval`` plus the reserved non-finite
+    spellings (#78). Raises ``ValueError`` / ``SyntaxError`` for anything else, exactly as
+    ``literal_eval`` does, so a caller's existing ``except`` keeps working.
+
+    The single-VALUE twin of :func:`parse_input_expression` (which parses an argument TUPLE and also
+    admits constructors). Converge hands a supplied input to the golden-capture pass as ``repr``
+    strings that the capture reads back with ``literal_eval`` — and ``repr`` of a NaN is ``nan``,
+    which ``literal_eval`` refuses, so a supplied NaN input was silently DROPPED from golden capture
+    while the witness search, which takes the live values, used it. Reading through here, the writer
+    (``repr``) and the reader agree on every float.
+    """
+    tree = ast.parse(s.lstrip(" \t"), mode="eval")
+    return ast.literal_eval(_NonFiniteFold(as_constants=True).visit(tree))
 
 
 # The representative source for an AST-typed parameter: a snippet to parse and the
@@ -1585,6 +1822,11 @@ def is_expressible(value: Any) -> bool:
         return False
     if isinstance(value, ast.AST):  # the reason the expression path exists at all
         return True
+    if type(value) is complex and not math.isfinite(value.imag):
+        # #78: a non-finite IMAGINARY part has no input spelling (`repr` writes `infj`, a name the
+        # language does not reserve), so `literal_source` renders it `complex(...)`, which `--input`
+        # refuses. Every other float — `nan` and `inf` included — now has one.
+        return False
     if isinstance(value, _LITERAL_TYPES):
         return True
     if isinstance(value, (list, tuple, set, frozenset)):

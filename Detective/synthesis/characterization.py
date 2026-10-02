@@ -25,7 +25,7 @@ from enum import StrEnum
 from typing import Any
 
 from ..capabilities import apply_clock, apply_env, restore_clock, restore_env
-from ..equivalence import unwrap
+from ..equivalence import literal_source, parse_literal_value, unwrap
 
 
 class Provenance(StrEnum):
@@ -210,12 +210,16 @@ _UNSET = object()
 
 
 def _as_literal(value: Any) -> Any:
-    """A literal value, evaluating strings via ast.literal_eval; _UNSET if not."""
+    """A literal value, evaluating strings via ast.literal_eval; _UNSET if not.
+
+    Through `parse_literal_value`, so the reserved non-finite spellings read back (#78): the sites
+    handed here are written with `repr`, and `repr` of a NaN is `nan` — which plain `literal_eval`
+    refused, silently dropping a supplied NaN input from golden capture."""
     if not isinstance(value, str):
         return value
     try:
-        return ast.literal_eval(value)
-    except (ValueError, SyntaxError):
+        return parse_literal_value(value)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         return _UNSET
 
 
@@ -734,8 +738,10 @@ def _docstring(cap: GoldenCapture) -> str:
 
 
 def _call_args(cap: GoldenCapture) -> str:
-    parts = [repr(a) for a in cap.inputs]
-    parts += [f"{k}={v!r}" for k, v in cap.kwargs.items()]
+    # `literal_source`, not `repr`: a NaN argument must render `float('nan')`, or the emitted test
+    # NameErrors on `nan` (#78). Byte-identical to `repr` for every value without a non-finite float.
+    parts = [literal_source(a) for a in cap.inputs]
+    parts += [f"{k}={literal_source(v)}" for k, v in cap.kwargs.items()]
     return ", ".join(parts)
 
 
