@@ -1170,6 +1170,158 @@ def candidate_inputs(arity: int, max_int: int = 3) -> list[tuple]:
     return diagonals + varied
 
 
+# The boundary-probe pool's bound (#71): how many rows the probe pass may add. The FULL product of
+# the per-parameter probes is taken whenever it fits — every pure decision measured in #71 does
+# (18, 27, 100, 12 rows) — and a pairwise covering array stands in above it, so every pair of
+# probe values still meets in some row. Each row costs two direct calls per RESIDUAL mutant only.
+PROBE_CAP = 256
+
+# Values a dict probe stores under each key the body reads, by the mapping's declared value type.
+# Two distinct values and the falsy one, because the reads that decide are `==` between two
+# records (needs two different values) and `bool(d.get(k, ""))` (needs the empty one).
+_PROBE_MAPPING_VALUES: dict[str, list] = {
+    "int": [0, 1],
+    "float": [0.0, 1.0],
+    "bool": [False, True],
+    "str": ["x", "y", ""],
+}
+
+
+def _dedupe_typed(values: list) -> list:
+    """Order-preserving dedupe that keeps ``1``, ``1.0`` and ``True`` apart (they hash equal)."""
+    out: list = []
+    seen: set[tuple[type, Any]] = set()
+    for v in values:
+        key = (type(v), repr(v))
+        if key not in seen:
+            seen.add(key)
+            out.append(v)
+    return out
+
+
+def boundary_probe_values(
+    type_name: str, optional: bool, constants: list, keys: list, value_type: str = ""
+) -> list | None:
+    """The boundary probes for ONE parameter (#71, pure — pinned), or None when its type has no
+    literal probe domain (the caller then uses the ordinary grid, or declines the probe pass).
+
+    The witness search under-searched domains it could fully express (§R5b): on
+    ``outcome_disposition(int, int, bool)`` four candidate-equivalents fell to the obvious inputs
+    ``(1,0,False)``…, and on ``step_budget_verdict(iterations, cap: int | None)`` the ``None`` half of
+    ``cap`` was never tried at all. A probe is a value AT or JUST INSIDE an edge the function's own
+    body draws, plus the members of the type a guard tests for:
+
+      * the ``None`` of an Optional parameter — FIRST, because a guard on it (``if cap is None``) is
+        the one boundary no value of the other member can reach;
+      * ``bool``: both members;
+      * ``int``: each constant the body compares the parameter against, with its neighbours
+        ``c-1, c, c+1`` (one on each side of every edge), then ``0, 1, -1``;
+      * ``float``: each constant ``c`` with ``c±1`` and the INTERIORS ``c±0.5`` — a VALUE mutant that
+        moves ``<= 0`` to ``<= -1`` differs only strictly inside ``(-1, 0)``, where no integer lands
+        (#76's ``spread_ratio``), then ``0.0, ±0.5, ±1.0``;
+      * ``str``: the literals the body compares against, then ``""``, the whitespace-only ``" "`` (the
+        ``.strip()`` edge) and a non-matching ``"x"``;
+      * ``dict``: ``{}``, then each key the body reads with two distinct values and the falsy one
+        (typed by ``value_type``, strings when undeclared), all keys at once, and an unread key.
+
+    ``constants`` are the literals the body compares THIS parameter against (``==``/``in`` and the
+    orderings), in source order; ``keys`` the string keys the body reads off any mapping.
+    """
+    head: list = [None] if optional else []
+    if type_name == "bool":
+        return head + [False, True]
+    # Finite and float-representable only: a `1e309` literal is `inf`, and an int past 1e308 has no
+    # float — neither is an edge a neighbour can be taken of.
+    numeric = [
+        c
+        for c in constants
+        if isinstance(c, (int, float)) and not isinstance(c, bool) and abs(c) < 1e300 and math.isfinite(c)
+    ]
+    floaty = type_name == "float" or (type_name == "" and any(isinstance(c, float) for c in numeric))
+    if floaty:
+        around = [float(n) for c in numeric for n in (c - 1, c - 0.5, c, c + 0.5, c + 1)]
+        return head + _dedupe_typed(around + [0.0, 0.5, -0.5, 1.0, -1.0])
+    if type_name == "int" or (type_name == "" and numeric):
+        around = [n for c in numeric for n in (int(c) - 1, int(c), int(c) + 1)]
+        return head + _dedupe_typed(around + [0, 1, -1])
+    if type_name == "str":
+        literals = [c for c in constants if isinstance(c, str)]
+        return head + _dedupe_typed(literals + ["", " ", "x"])
+    if type_name in ("dict", "Dict", "Mapping"):
+        fills = _PROBE_MAPPING_VALUES.get(value_type, _PROBE_MAPPING_VALUES["str"])
+        read = [k for k in dict.fromkeys(keys) if isinstance(k, str)]
+        probes: list = [{}]
+        probes += [{k: v} for k in read for v in fills]
+        if len(read) > 1:
+            probes.append(dict.fromkeys(read, fills[0]))
+        probes.append({"_unread": fills[0]})
+        return head + probes
+    if type_name == "None":
+        return [None]
+    return None
+
+
+def probe_rows(grids: list[list], cap: int = PROBE_CAP) -> list[tuple]:
+    """Probe rows from per-parameter probe lists (#71): the FULL product when it fits under ``cap``,
+    else a deterministic pairwise covering array — every pair of values of every two parameters meets
+    in at least one row (until ``cap``), which is what a two-parameter boundary such as ``(1, 0, False)``
+    needs and what ``bounded_product``'s three rotations per lead value do not guarantee. Rows are
+    ordered from each list's head, so the ``None`` of an Optional is probed first."""
+    if not grids:
+        return [()]
+    total = 1
+    for grid in grids:
+        total *= max(1, len(grid))
+    if total <= cap:
+        return [tuple(combo) for combo in itertools.product(*grids)]
+    return [
+        tuple(grids[k][i] for k, i in enumerate(row))
+        for row in _pairwise_indices([len(g) for g in grids], cap)
+    ]
+
+
+def _pairwise_indices(sizes: list[int], cap: int) -> list[tuple[int, ...]]:
+    """Greedy all-pairs over value INDICES (values may be unhashable): seed each row with the first
+    uncovered pair, fill every other position with the index covering the most uncovered pairs
+    against the positions already fixed (ties to the lowest index), until all pairs are covered or
+    ``cap`` rows exist. Deterministic."""
+    n = len(sizes)
+    if n == 1:
+        return [(i,) for i in range(min(sizes[0], cap))]
+    uncovered = {
+        (p, a, q, b)
+        for p in range(n)
+        for q in range(p + 1, n)
+        for a in range(sizes[p])
+        for b in range(sizes[q])
+    }
+    rows: list[tuple[int, ...]] = []
+    while uncovered and len(rows) < cap:
+        p, a, q, b = min(uncovered)
+        row: list[int | None] = [None] * n
+        row[p], row[q] = a, b
+        for k in range(n):
+            if row[k] is None:
+                gains = [(_pair_gain(row, k, c, uncovered), -c) for c in range(sizes[k])]
+                row[k] = -max(gains)[1]
+        done = tuple(int(i) for i in row if i is not None)
+        for x in range(n):
+            for y in range(x + 1, n):
+                uncovered.discard((x, done[x], y, done[y]))
+        rows.append(done)
+    return rows
+
+
+def _pair_gain(row: list[int | None], k: int, c: int, uncovered: set[tuple[int, int, int, int]]) -> int:
+    """How many still-uncovered pairs value ``c`` at position ``k`` would cover against the
+    positions of ``row`` already fixed."""
+    return sum(
+        1
+        for m, fixed in enumerate(row)
+        if fixed is not None and ((m, fixed, k, c) if m < k else (k, c, m, fixed)) in uncovered
+    )
+
+
 @dataclass(frozen=True)
 class Witness:
     """A concrete input on which the original and the mutant observably differ."""
@@ -1903,6 +2055,14 @@ class SurvivorReport:
     # The exact measurement being classified must admit a certificate; a report alone
     # is not evidence that profiling succeeded (audit B/E).
     measurement_valid: bool = True
+    # Whether the boundary-probe pass ran over the residual (#71) — `engine.boundary_probe_gate`'s code
+    # ("run" / "skip_no_residual" / "skip_effects" / "skip_inexpressible" / "skip_wall"), "" from a path
+    # that never reached the gate. A candidate-equivalent that survived "run" was tried at every edge of
+    # a fully-expressible signature; one that did not was never probed, and the DONE block must say
+    # which before it offers `flag` — "no input FOUND" is a fact about a search, not a frontier.
+    boundary_probe: str = ""
+    # How many probe inputs that pass tried (the residual's own pool, beyond `searched`'s first pass).
+    boundary_probes: int = 0
 
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:

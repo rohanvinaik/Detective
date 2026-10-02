@@ -137,6 +137,18 @@
     "refusal": "",
     "standing": "ungateable"
   },
+  "Detective/cli.py::residual_done_basis": {
+    "cut_reasons": [],
+    "function_digest": "b25d62efe889d068",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::residual_done_why": {
+    "cut_reasons": [],
+    "function_digest": "fb72413bd4e6c0f9",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::residual_input_route": {
     "function_digest": "677f51e538afeab7",
     "refusal": "",
@@ -234,6 +246,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/engine.py::boundary_probe_gate": {
+    "cut_reasons": [],
+    "function_digest": "d391705ab013af39",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/engine.py::widen_admission": {
     "function_digest": "73cedde34adfb8a2",
     "refusal": "",
@@ -241,6 +259,12 @@
   },
   "Detective/equivalence.py::_traces_to": {
     "function_digest": "98fa6dd4ee69d9d5",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/equivalence.py::boundary_probe_values": {
+    "cut_reasons": [],
+    "function_digest": "b0152dfcb730a06a",
     "refusal": "",
     "standing": "complete"
   },

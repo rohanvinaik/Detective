@@ -66,12 +66,14 @@ from .equivalence import (
     _record_arity,
     _type_of,
     ast_grid,
+    boundary_probe_values,
     bounded_product,
     classify_survivor,
     conditioning_edge,
     coupled_topologies,
     is_expressible,
     is_scalar_type,
+    probe_rows,
     structural_input_difficulty,
     structural_shape,
     synth_ast_input,
@@ -2266,6 +2268,248 @@ def _guard_directed_inputs(
     return out
 
 
+def boundary_probe_gate(residual: int, has_effects: bool, expressible: bool, wall_exhausted: bool) -> str:
+    """Whether the boundary-probe pass runs over a survivor residual, and if not, WHY (#71, pure — pinned).
+
+    The residual on a ``✓ COMPLETE modulo N`` was read as an undecidability frontier, and measurement
+    says much of it was search budget (§R5b, five for five). The probes are boundary values of a
+    FULLY-EXPRESSIBLE signature (:func:`equivalence.boundary_probe_values`), so the pass obeys the gates
+    every fabricated pool obeys — and its code travels to the report, because "probed, nothing
+    distinguished them" and "never probed" warrant different sentences beside a `flag`:
+
+      "run"                 a residual remains, every parameter has a literal probe domain, it is safe
+      "skip_no_residual"    nothing to probe: no candidate-equivalent, crash-only or flagged survivor
+      "skip_effects"        the target escapes the process — a fabricated probe CALLS it, damage not a
+                            guess (the same gate as the grid); its residual is UNPROBED
+      "skip_inexpressible"  some parameter has no literal probe domain (a domain object): no ``--input``
+                            spells a probe, so the residual is the fixture caveat's, UNPROBED here
+      "skip_wall"           the aggregate deadline is gone (#31): keep the verdicts, say UNPROBED
+
+    Ordered so the reason reported is the binding one: with no residual nothing else matters; an
+    effectful target is never probed even if its inputs could be typed.
+    """
+    if residual <= 0:
+        return "skip_no_residual"
+    if has_effects:
+        return "skip_effects"
+    if not expressible:
+        return "skip_inexpressible"
+    if wall_exhausted:
+        return "skip_wall"
+    return "run"
+
+
+def _probe_constant_values(node: ast.AST) -> list:
+    """The literal value(s) a comparison operand denotes — a constant, a signed constant, or the
+    constants of a literal tuple/list/set (``x in ("a", "b")``). A non-literal yields nothing."""
+    try:
+        value = ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return []
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return [v for v in value if isinstance(v, (bool, int, float, str, type(None)))]
+    return [value] if isinstance(value, (bool, int, float, str, type(None))) else []
+
+
+def _compared_constants(node: ast.AST) -> dict[str, list]:
+    """Per parameter NAME, the literals the body compares it against — equality, membership AND
+    ordering, the name on either side, in source order (#71). `_compared_literals` stops at equality
+    and `_ordering_edge_values` reads only a left-hand name; the boundary probe wants every edge."""
+    found: dict[str, list] = {}
+    for cmp_node in ast.walk(node):
+        if not isinstance(cmp_node, ast.Compare):
+            continue
+        operands = [cmp_node.left, *cmp_node.comparators]
+        for left, right in zip(operands, operands[1:], strict=False):
+            for name_side, value_side in ((left, right), (right, left)):
+                if isinstance(name_side, ast.Name):
+                    bucket = found.setdefault(name_side.id, [])
+                    for value in _probe_constant_values(value_side):
+                        if (type(value), value) not in {(type(b), b) for b in bucket}:
+                            bucket.append(value)
+    return found
+
+
+def _table_keys(node: ast.AST, namespace: dict) -> dict[str, list]:
+    """Per parameter NAME, the keys of a TABLE the body indexes with it (#71): ``{"a": …}.get(p, …)``,
+    ``{"a": …}[p]``, or the same through a module-level dict (``_TABLE.get(p)``). A string-dispatch
+    parameter's domain is written in the table, not in a comparison — `line_gap_why`'s shape — and a
+    probe that never lands on a key leaves every entry but the default unreached."""
+    found: dict[str, list] = {}
+
+    def keys_of(table: ast.AST) -> list:
+        if isinstance(table, ast.Dict):
+            return [v for k in table.keys if k is not None for v in _probe_constant_values(k)]
+        if isinstance(table, ast.Name) and isinstance(namespace.get(table.id), dict):
+            return [k for k in namespace[table.id] if isinstance(k, (bool, int, float, str))]
+        return []
+
+    for n in ast.walk(node):
+        if (
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "get"
+            and n.args
+            and isinstance(n.args[0], ast.Name)
+        ):
+            table, key = n.func.value, n.args[0].id
+        elif isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Name):
+            table, key = n.value, n.slice.id
+        else:
+            continue
+        bucket = found.setdefault(key, [])
+        for value in keys_of(table):
+            if value not in bucket:
+                bucket.append(value)
+    return found
+
+
+def _read_keys(node: ast.AST, limit: int = 6) -> list[str]:
+    """String keys the body reads off a mapping, in source order (#71): ``d.get("k")``, ``d["k"]``,
+    ``"k" in d``, and the members of a literal key set it tests (``k not in ("a", "b")``). Bounded, so
+    a dict-heavy body cannot multiply the probe pool."""
+    keys: list[str] = []
+
+    def add(value: object) -> None:
+        if isinstance(value, str) and value not in keys and len(keys) < limit:
+            keys.append(value)
+
+    for n in ast.walk(node):
+        if (
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "get"
+            and n.args
+            and isinstance(n.args[0], ast.Constant)
+        ):
+            add(n.args[0].value)
+        elif isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant):
+            add(n.slice.value)
+        elif (
+            isinstance(n, ast.Compare)
+            and len(n.ops) == 1
+            and isinstance(n.ops[0], (ast.In, ast.NotIn))
+            and isinstance(n.left, (ast.Name, ast.Constant))
+        ):
+            # `"k" in d` names a key; `k not in ("a", "b")` names the key set a loop variable is
+            # tested against. A CALL's result tested for membership (`decide(...) in ("x", "y")`) is a
+            # code, not a key, and is left out.
+            for operand in (n.left, *n.comparators):
+                for value in _probe_constant_values(operand):
+                    add(value)
+    return keys
+
+
+def _is_optional_annotation(ann: ast.AST | None) -> bool:
+    """``X | None``, ``Optional[X]`` or ``Union[..., None]`` — a parameter whose ``None`` is a member."""
+    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
+        return any(
+            (isinstance(side, ast.Constant) and side.value is None) or _is_optional_annotation(side)
+            for side in (ann.left, ann.right)
+        )
+    if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name):
+        if ann.value.id == "Optional":
+            return True
+        if ann.value.id == "Union":
+            members = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+            return any(isinstance(m, ast.Constant) and m.value is None for m in members)
+    return False
+
+
+def _mapping_value_type(ann: ast.AST | None) -> str:
+    """The declared VALUE type of a ``dict[K, V]`` / ``Mapping[K, V]`` annotation (through ``| None``),
+    or "" when undeclared."""
+    if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
+        return _mapping_value_type(ann.left) or _mapping_value_type(ann.right)
+    if (
+        isinstance(ann, ast.Subscript)
+        and isinstance(ann.value, ast.Name)
+        and ann.value.id in ("dict", "Dict", "Mapping", "Optional")
+    ):
+        if ann.value.id == "Optional":
+            return _mapping_value_type(ann.slice)
+        if isinstance(ann.slice, ast.Tuple) and len(ann.slice.elts) == 2:
+            return _type_of(ann.slice.elts[1]) or ""
+    return ""
+
+
+def _boundary_probe_inputs(node: ast.FunctionDef | ast.AsyncFunctionDef, namespace: dict) -> list[tuple]:
+    """B4 (#71): the boundary-probe pool — every positional parameter's probes
+    (:func:`equivalence.boundary_probe_values`), crossed by :func:`equivalence.probe_rows`.
+
+    A parameter whose type has no probe domain of its own (a list, an AST node) takes its ordinary grid
+    — with ``None`` in front when it is Optional — provided every value there is ``--input``-expressible.
+    If ANY parameter cannot be probed with expressible values the signature is not fully expressible and
+    this returns ``[]``: the domain-object passes (B2/B3) and the fixture caveat own that residual.
+    """
+    params = [a for a in node.args.args if a.arg not in ("self", "cls")]
+    if not params:
+        return [()]  # the whole input domain of a no-argument call — already tried, so nothing new
+    constants = _compared_constants(node)
+    for name, table_keys in _table_keys(node, namespace).items():
+        bucket = constants.setdefault(name, [])
+        bucket.extend(k for k in table_keys if (type(k), k) not in {(type(b), b) for b in bucket})
+    keys = _read_keys(node)
+    ordinary: list[list] | None = None
+    grids: list[list] = []
+    for index, arg in enumerate(params):
+        optional = _is_optional_annotation(arg.annotation)
+        probes = boundary_probe_values(
+            _type_of(arg.annotation) or "",
+            optional,
+            constants.get(arg.arg, []),
+            keys,
+            _mapping_value_type(arg.annotation),
+        )
+        if probes is None:
+            if ordinary is None:
+                ordinary = _input_grids(node, namespace)
+            fallback = list(ordinary[index]) if index < len(ordinary) else []
+            probes = ([None] if optional else []) + fallback
+        if not probes or not all(is_expressible(v) for v in probes):
+            return []
+        grids.append(probes)
+    return probe_rows(grids)
+
+
+def _adopt_probe_verdicts(
+    verdicts: list[MutantVerdict], manual: list[str], fence: list[str], probed: list[MutantVerdict]
+) -> tuple[list[MutantVerdict], list[str], list[str]]:
+    """Merge the boundary-probe pass's verdicts into the first pass's (#71) — POSITIVE-ONLY.
+
+    ``probed`` holds the probe pool's verdicts for the residual records only. A probe value witness
+    upgrades a candidate-equivalent OR a crash-only mutant to killable; a probe crash witness upgrades
+    a candidate-equivalent to crash-only (it is then distinguished, so no longer an equivalence
+    candidate); anything else leaves the first-pass verdict, its ``searched`` count extended by the
+    probes it also survived — "no distinguishing input in N tried" then counts what was tried. A
+    verdict for a FLAGGED record arrives only when the probe found a value witness (the classifier's
+    ``contract_disposition`` routes it ``killable`` — proof outranks the flag), and moves the mutant
+    out of the flagged bucket. Never a downgrade: a probe that times out yields no verdict here.
+    """
+    by_id = {p.mutant_id: p for p in probed}
+    merged: list[MutantVerdict] = []
+    for v in verdicts:
+        p = by_id.pop(v.mutant_id, None)
+        if p is None or v.killable:
+            merged.append(v)
+            continue
+        searched = v.searched + p.searched
+        if p.killable or (p.crash_only and not v.crash_only):
+            merged.append(dataclasses.replace(p, searched=searched))
+        else:
+            merged.append(dataclasses.replace(v, searched=searched))
+    manual_left, fence_left = list(manual), list(fence)
+    for p in by_id.values():
+        if not p.killable:
+            continue
+        for bucket in (manual_left, fence_left):
+            if p.diff_summary in bucket:
+                bucket.remove(p.diff_summary)
+                break
+        merged.append(p)
+    return merged, manual_left, fence_left
+
+
 # The recursion cap for nested-dataclass constructor rendering (#68a). A generous bound: real domain
 # objects nest a handful deep; beyond it we abstain to a fixture hand-back rather than risk a cyclic
 # or pathologically deep render. NOT a fitted number — a structural backstop against runaway/cycle.
@@ -2965,7 +3209,11 @@ def classify_survivors(
 
     def _classify_pool(
         pool: list[tuple],
+        records: list[dict] | None = None,
     ) -> tuple[list[MutantVerdict], list[str], list[str], list[str]]:
+        # `records` narrows the classification to a subset of the survivors — the boundary-probe
+        # pass (#71) re-searches only the RESIDUAL, never a mutant already proven killable or one the
+        # search could not classify (a non-terminating mutant would pay its timeout on every probe).
         _verdicts: list[MutantVerdict] = []
         _unclassified: list[str] = []
         _manual: list[str] = []
@@ -2983,7 +3231,7 @@ def classify_survivors(
             else:  # "unclassified" — no verdict to trust and no flag speaks for it
                 _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
 
-        for rec in survivors:
+        for rec in survivors if records is None else records:
             # Aggregate wall exhausted (issue #31): stop starting new witness searches. Every
             # survivor not yet classified is UNCLASSIFIED — honest uncertainty, the same bucket
             # #42's per-mutant timeout uses — never defaulted to a false candidate-equivalent.
@@ -3025,6 +3273,42 @@ def classify_survivors(
     verdicts, unclassified, manual_equivalent, fence = _classify_pool(inputs)
     final_pool = inputs  # the pool the FINAL verdicts were classified over; updated when a retry adopts
     note: str | None = None
+
+    # B4 (#71): BOUNDARY PROBES over a fully-expressible signature, before anything reads the residual.
+    # The witness search under-searched domains it could fully express — `bounded_product` truncates
+    # a 50-row (int, int, bool) product to 15 rotations, an `int | None` parameter never gets its None,
+    # and no float grid value lands inside (-1, 0) — so `✓ COMPLETE modulo N` read as a frontier when
+    # it was search budget (§R5b; five targets of five). Probing runs first because what follows asks
+    # "can a LITERAL distinguish this?" (`rescue_disposition`'s skip_ask_input) — a question the probes
+    # answer by trying. Positive-only and residual-only: a probe that distinguishes a candidate makes
+    # it killable or crash-only; one that distinguishes a crash-only mutant by VALUE makes it killable;
+    # one that distinguishes a FLAGGED mutant overturns the flag (proof outranks judgement — a flag
+    # authored on the old DONE wording is exactly the certificate-weakening #71 names). Nothing
+    # already decided is re-searched, and nothing is ever downgraded.
+    probes_tried: list[tuple] = []
+    _killable_ids = {v.mutant_id for v in verdicts if v.killable}
+    _unclassified_descs = set(unclassified)
+    _residual_recs = [
+        r
+        for r in survivors
+        if r.get("mutant_id") not in _killable_ids
+        and r.get("mutant", r.get("mutant_id", "?")) not in _unclassified_descs
+    ]
+    _probe_inputs = [] if effects else _boundary_probe_inputs(node, ns)
+    boundary_probe = boundary_probe_gate(
+        len(_residual_recs), bool(effects), bool(_probe_inputs), _cls_exhausted()
+    )
+    if boundary_probe == "run":
+        probes_tried = [t for t in _probe_inputs if _safely_fresh(t, inputs)]
+        if probes_tried:
+            verdicts, manual_equivalent, fence = _adopt_probe_verdicts(
+                verdicts, manual_equivalent, fence, _classify_pool(probes_tried, _residual_recs)[0]
+            )
+            # Every later retry re-classifies ALL survivors over `supplied + its own + inputs` and adopts
+            # on a higher kill count — so the probes join `inputs`, or a retry that gains two kills
+            # elsewhere could silently drop one the probes proved.
+            inputs = inputs + probes_tried
+            final_pool = inputs
 
     # POOL-POVERTY RESCUE. The capture fallback above triggers on "every candidate
     # RAISES" — reachability. But a total function can be reached by a degenerate
@@ -3240,7 +3524,15 @@ def classify_survivors(
             _reach_budget = (
                 5.0 if _cls_abs_deadline is None else max(0.0, min(5.0, _cls_abs_deadline - time.monotonic()))
             )
-            _reached = _reached_lines(original_call, final_pool, _fname, _want, _reach_budget)
+            # The boundary probes were tried on every residual mutant too, so a line they reach is reached
+            # (they are already in `final_pool` unless a later retry adopted its own pool).
+            _reached = _reached_lines(
+                original_call,
+                [*final_pool, *(t for t in probes_tried if _safely_fresh(t, final_pool))],
+                _fname,
+                _want,
+                _reach_budget,
+            )
             verdicts = [
                 dataclasses.replace(v, reached=(_id_line.get(v.mutant_id) in _reached))
                 if (not v.killable and not v.crash_only and _id_line.get(v.mutant_id) is not None)
@@ -3257,4 +3549,6 @@ def classify_survivors(
         inputs_expressible=expressible,
         deferred_shaped=_deferred_shaped_capture,
         not_consulted=_harvest_not_consulted,
+        boundary_probe=boundary_probe,
+        boundary_probes=len(probes_tried),
     )

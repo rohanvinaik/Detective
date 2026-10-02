@@ -134,6 +134,13 @@ class SuiteAudit:
     # out only so a renderer stops saying "no input distinguishes them" about a class where
     # that is false — which is what sent readers hunting for an input that cannot exist.
     crash_only_equivalent: int = 0
+    # WHICH of `candidate_equivalent_ids` are crash-only (#71): an input distinguishes them, so the
+    # closing action never offers `flag` (an equivalence claim) for one. Defaulted — additive.
+    crash_only_ids: tuple[str, ...] = ()
+    # Whether the classifier's boundary-probe pass ran over the residual (#71) — the
+    # `engine.boundary_probe_gate` code the report carried, "" when it never reached the gate. The
+    # closing action names an unprobed residual as possible search budget instead of a frontier.
+    boundary_probe: str = ""
     # Mutants a test pins by VALUE (assertion kills). Exposed so the whole universe partitions,
     # derivably and provably: `total_mutants = value_killed + len(killable_gaps) + candidate_equivalent
     # + manual_equivalent + authored_fence + unclassified` (asserted in `audit_suite` via
@@ -403,6 +410,8 @@ def audit_suite(
     candidate_equivalent = 0
     candidate_equivalent_ids: tuple[str, ...] = ()
     crash_only_equivalent = 0
+    crash_only_ids: tuple[str, ...] = ()
+    boundary_probe = ""
     unclassified = 0
     classified = False
     # The measurement-block signals (Finding E), carried onto the audit so its next action names the
@@ -430,6 +439,8 @@ def audit_suite(
         candidate_equivalent = len(report.equivalent)
         candidate_equivalent_ids = tuple(v.mutant_id for v in report.equivalent)
         crash_only_equivalent = sum(1 for v in report.equivalent if v.crash_only)
+        crash_only_ids = tuple(v.mutant_id for v in report.equivalent if v.crash_only)
+        boundary_probe = str(getattr(report, "boundary_probe", "") or "")
         unclassified = len(report.unclassified)
         # An authored fence is an UNENFORCED must-not (Q8) — a gap like killable/unclassified, so it
         # blocks mutant-completeness exactly as they do; never treated as a discharged equivalent.
@@ -525,6 +536,8 @@ def audit_suite(
         candidate_equivalent=candidate_equivalent,
         candidate_equivalent_ids=candidate_equivalent_ids,
         crash_only_equivalent=crash_only_equivalent,
+        crash_only_ids=crash_only_ids,
+        boundary_probe=boundary_probe,
         unclassified=unclassified,
         value_killed=result.value_killed,
         total_mutants=total,

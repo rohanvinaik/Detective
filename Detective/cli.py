@@ -1609,6 +1609,31 @@ def _update_per_mutant_ms(observed_ms: float) -> None:
         pass
 
 
+# Why the boundary-probe pass did not run, per `engine.boundary_probe_gate` code (#71) — the clause a
+# reader needs to judge a candidate-equivalent that was never probed.
+_UNPROBED_BECAUSE: dict[str, str] = {
+    "skip_effects": "the target escapes the process, so Detective fabricates no input for it",
+    "skip_inexpressible": "a parameter has no --input literal form",
+    "skip_wall": "the aggregate deadline ran out first",
+    "skip_no_residual": "nothing was left to probe",
+}
+
+
+def _probe_status_line(boundary_probe: str, probes: int) -> str:
+    """One line under the candidate-equivalent header: were these survivors boundary-probed (#71)?
+    "no distinguishing input in N tried" is a fact about a search; this says which search."""
+    if boundary_probe == "run":
+        return (
+            f"      boundary-probed: {probes} further probe input(s) — both sides of every edge, the None of "
+            "every Optional — distinguished none of these"
+        )
+    because = _UNPROBED_BECAUSE.get(boundary_probe, "this engine did not run the boundary probe")
+    return (
+        f"      NOT boundary-probed ({because}) — they may be search budget, not equivalence: probe the "
+        "edges below with --input before you `flag`"
+    )
+
+
 def _format_survivor_report(
     rep,
     signature: str = "",
@@ -1648,7 +1673,10 @@ def _format_survivor_report(
         lines.append(
             f"  candidate-equivalent — retained, UNPROVEN ({len(unproven)}: {cats}); "
             f"no distinguishing input in {tried} tried. To KILL: supply an input reaching a "
-            "mutated branch below (or `flag` if truly equivalent):"
+            "mutated branch below (or `flag` what you can PROVE equivalent):"
+        )
+        lines.append(
+            _probe_status_line(getattr(rep, "boundary_probe", ""), getattr(rep, "boundary_probes", 0))
         )
         # NOT `param_names or None` (#8): an empty tuple means 'no parameters', a fact that makes
         # abstention certain — collapsing it to None restored the unguarded rendering.
@@ -1683,7 +1711,9 @@ def _format_survivor_report(
                 "NO current test — converge writes a golden capture at each crash witness "
                 "(↳ below) so they are at least crash-detected."
             )
-        head += " `flag` if truly equivalent:"
+        # #71: an input distinguishes every one of these, so offering `flag` (an equivalence claim) here
+        # contradicted the evidence printed beside it.
+        head += " An input distinguishes each, so none is an equivalence candidate — nothing to `flag`:"
         lines.append(head)
         lines += _survivor_lines(crash_only, verbose, param_names)
     # #67 detector: when the target has the nested / worklist-driven shape whose distinguishing
@@ -2208,12 +2238,20 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
     # Make the equivalent-mutant escape hatch discoverable: a new user should never have
     # to read --help to learn `flag`, nor loop forever chasing an unkillable mutant. Emit
     # the EXACT copy-pasteable command with the mutant id already filled in.
-    _eq = result.survivor_report.equivalent if result.survivor_report is not None else ()
-    if _eq:
-        _ids = [v.mutant_id for v in _eq]
+    # Only for survivors no known or printed input distinguishes (#71): never a crash-only mutant (an
+    # input distinguishes it), and — on an unprobed residual — never one beside a printed boundary input.
+    _rep = result.survivor_report
+    _basis = residual_done_basis(*_residual_counts(_rep), str(getattr(_rep, "boundary_probe", "") or ""))
+    _ids = _flaggable_ids(_rep, _basis, result.param_names)
+    if _ids:
+        _lead = (
+            "▶ boundary-probed and still undistinguished — if you can PROVE one equivalent, record it"
+            if _basis == "probed"
+            else "▶ NOT boundary-probed — probe these with --input first (edges, the None of an Optional); "
+            "only if you can then PROVE one equivalent, record it"
+        )
         lines.append(
-            f"  ▶ if truly equivalent, accept it (stops the unkillable-mutant chase): "
-            f"`detective flag '{result.function}' {_ids[0]} --note \"why-equivalent\"`"
+            f"  {_lead}: `detective flag '{result.function}' {_ids[0]} --note \"why-equivalent\"`"
             + (f"   (repeat for: {', '.join(_ids[1:])})" if len(_ids) > 1 else "")
         )
     # Second completeness axis + minimality (from the baseline line-coverage pass).
@@ -3162,13 +3200,20 @@ def _converge_action(
         f"         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> '{fn}' --budget)",
     ]
     if rep is not None and rep.equivalent:
-        ids = [v.mutant_id for v in rep.equivalent]
+        # #71: the residual is named for what the search established — boundary-probed or not, crash-
+        # distinguished or not — never filed under undecidability by default, and `flag` is offered only
+        # for survivors no known or printed input distinguishes.
+        basis = residual_done_basis(*_residual_counts(rep), str(getattr(rep, "boundary_probe", "") or ""))
+        ids = _flaggable_ids(rep, basis, getattr(result, "param_names", None))
         more = f"  ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
+        flag_lines = [
+            f"       If you can PROVE one equivalent: detective flag '{fn}' {first} --note \"why\"{more}"
+            for first in ids[:1]
+        ]
         return [
-            "DONE:  every killable behaviour is pinned. What remains cannot be distinguished",
-            "       by any input Detective found — whether it is truly equivalent is UNDECIDABLE",
-            "       in general, so the engine will not claim it. Leave them; they are not a gap.",
-            f"       If you can prove one is: detective flag '{fn}' {ids[0]} --note \"why\"{more}",
+            "DONE:  every killable behaviour Detective found is pinned.",
+            *(f"       {line}" for line in residual_done_why(basis).split("\n")),
+            *flag_lines,
             *style_handoff,
             *review,
         ]
@@ -3634,6 +3679,91 @@ def line_gap_why(rationale: str) -> str:
             "runs cannot be killed, so reach these first."
         ),
     }.get(rationale, f"unrecognised rationale: {rationale}")
+
+
+def residual_done_basis(candidate_equivalent: int, crash_only: int, boundary_probe: str) -> str:
+    """What the residual under a settled converge may be CLAIMED to be (#71, pure — pinned).
+
+    The DONE block said of every residual: *"What remains cannot be distinguished by any input
+    Detective found — whether it is truly equivalent is UNDECIDABLE in general … Leave them; they are
+    not a gap."* The first clause is scoped; the rest files the residual under Rice-undecidability, and
+    measurement says much of it was SEARCH BUDGET — five targets of five killed by obvious boundary
+    probes (§R5b), one by the ``None`` of an ``int | None`` the search never tried. An operator following
+    the advice flags those as equivalent, and a flag is honoured: the certificate silently weakens on
+    the tool's own recommendation. Named codes, because each warrants a different sentence:
+
+      "none"        no residual — the plain DONE
+      "crash_only"  only crash-only survivors: an input DOES distinguish each (by crash), so none is an
+                    equivalence candidate and nothing is offered to `flag`
+      "probed"      candidate-equivalents survived the boundary-probe pass (``boundary_probe == "run"``):
+                    stronger candidates, still unproven — a bounded search is not a proof
+      "unprobed"    candidate-equivalents that were NEVER boundary-probed (effects, an inexpressible
+                    parameter, the wall, or an engine that never reached the gate): the residual may be
+                    search budget, and the remedy — probe the edges and the None first — is named
+    """
+    if candidate_equivalent <= 0:
+        return "crash_only" if crash_only > 0 else "none"
+    return "probed" if boundary_probe == "run" else "unprobed"
+
+
+def residual_done_why(basis: str) -> str:
+    """The rendered sentence for each `residual_done_basis` code (#71, pure — pinned).
+
+    ONE owner per code, as `line_gap_why` is: converge's DONE block and audit's closing row say the
+    same thing about the same residual, so neither can drift back to asserting a frontier the search
+    did not establish. Newline-separated; the caller indents each line. An unrecognised code renders
+    NAMED rather than blank — a blank beside a `flag` reads as "no caveat".
+    """
+    return {
+        "none": "The suite pins every behaviour this function makes.",
+        "crash_only": (
+            "What remains differs from your function only by a CRASH: an input\n"
+            "distinguishes each (the mutant raises where your function returns), so\n"
+            "none is an equivalence candidate and nothing is offered to `flag` — no\n"
+            "value assertion can pin a raise. They are detected, not equivalent."
+        ),
+        "probed": (
+            "What remains was not distinguished by any input Detective TRIED — and it\n"
+            "probed this signature's boundaries (both sides of every comparison edge,\n"
+            "the None of every Optional). Still a bounded search, not a proof:\n"
+            "equivalence is undecidable in general, so the engine will not claim it."
+        ),
+        "unprobed": (
+            "What remains was not distinguished by any input Detective TRIED. That is\n"
+            "a fact about a bounded search, not a frontier — it may be SEARCH BUDGET.\n"
+            "Before accepting `modulo N`, probe each survivor with boundary inputs\n"
+            "(both sides of every comparison edge, the None of every Optional) via\n"
+            "--input. Flag only what you can prove."
+        ),
+    }.get(basis, f"unrecognised residual basis: {basis}")
+
+
+def _flaggable_ids(rep, basis: str, param_names: tuple[str, ...] | None) -> list[str]:
+    """The survivors a `flag` may be OFFERED for (#71): candidate-equivalents only — a crash-only
+    mutant has a distinguishing input, so calling it equivalent contradicts the evidence — and, when
+    the residual was never boundary-probed, only those with no printed boundary input either: the
+    report prints `↳ supply an input where X == C` for them, an input nobody has tried, and offering
+    `flag` beside an untried kill is the recommendation #71 exists to retract."""
+    if basis not in ("probed", "unprobed") or rep is None:
+        return []
+    ids: list[str] = []
+    for v in getattr(rep, "equivalent", ()) or ():
+        if getattr(v, "crash_only", False):
+            continue
+        if basis == "unprobed" and getattr(v, "category", "") == "BOUNDARY":
+            hint = _boundary_hint(getattr(v, "diff_summary", ""), param_names)
+            if hint and not _is_internal_hint(hint):
+                continue
+        ids.append(v.mutant_id)
+    return ids
+
+
+def _residual_counts(rep) -> tuple[int, int]:
+    """``(candidate_equivalent, crash_only)`` read off the verdicts, not the report's properties — a
+    duck-typed report (an older engine, a test stub) carries only ``equivalent``."""
+    eq = list(getattr(rep, "equivalent", ()) or ()) if rep is not None else []
+    crash = sum(1 for v in eq if getattr(v, "crash_only", False))
+    return len(eq) - crash, crash
 
 
 def _derived_input(
@@ -4440,15 +4570,24 @@ def _audit_closing_action(a, kind: str) -> list[str]:
             _row("", "to, and edits only this function's own test file — never a cross-file test."),
         ]
     if kind == "flag_equivalents":
-        first = a.candidate_equivalent_ids[0]
-        more = f"   ({a.candidate_equivalent - 1} more in the report)" if a.candidate_equivalent > 1 else ""
+        # #71: the SAME basis and sentence converge's DONE block renders — the residual is named for
+        # what the search established, and `flag` is offered for candidate-equivalents only (never a
+        # crash-only mutant, which an input distinguishes).
+        crash_ids = set(getattr(a, "crash_only_ids", ()) or ())
+        ids = [i for i in a.candidate_equivalent_ids if i not in crash_ids]
+        basis = residual_done_basis(len(ids), len(crash_ids), str(getattr(a, "boundary_probe", "") or ""))
+        why = residual_done_why(basis).split("\n")
+        more = f"   ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
         return [
-            "DONE:  every killable behaviour is pinned and every line covered.",
+            "DONE:  every killable behaviour Detective found is pinned and every line covered.",
             "",
             _row("· What remains", f"{a.candidate_equivalent} survivor(s) no VALUE assertion pins."),
-            _row("", "Whether they are truly equivalent is UNDECIDABLE in"),
-            _row("", "general — the engine will not claim it. Leave them."),
-            _row("· If you can PROVE", f"detective flag '{a.function}' {first} --note \"why\"{more}"),
+            *(_row("", line) for line in why),
+            *(
+                [_row("· If you can PROVE", f"detective flag '{a.function}' {ids[0]} --note \"why\"{more}")]
+                if ids
+                else []
+            ),
         ]
     if kind == "done_unclassified":
         return [
