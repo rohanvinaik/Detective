@@ -149,9 +149,32 @@ Container: Linux, 4 cores, uv-managed CPython 3.14.0rc2, running as root (permis
   nits: R0916 `_NonFiniteFold.visit_Call` (6/5 boolean expressions), R1702 `engine._compared_constants`
   (6/5 nested blocks), C0123 `type(value) is complex` in `is_expressible` (deliberate: exact type).
   Plus item 9 above (`_build_test_scope` statement count).
-- Not run here: the local SonarQube gate (no Docker or local Sonar in this container), the sdist
-  check (no publish), the macOS/`taskpolicy` SAME checks. One worker ran `ty` on its Wesker change:
-  the same 6 environment-only diagnostics before and after.
+- Both suites also ran on CPython 3.12.11 (the floor): identical counts. The sdist check passed in
+  both repos (all members tracked).
+- GitHub CI on the new `main` heads — Wesker `23ab488`, Detective `6537487`: green in every matrix
+  cell (3.12 / 3.13 / 3.14 × ubuntu / macOS), package, workflow audit and CodeQL.
+- SonarCloud (CI's scan; the local SonarQube container is not available in a cloud session):
+  - Wesker gate **OK**.
+  - Detective gate **ERROR on `new_security_rating`, and it was already red before this round**:
+    the analysis of `c3ee434` (2026-10-01, the previous `main`) is tagged "Red (was Green)" with
+    "Changes in 'Sonar way comprehensive' (py)" — the profile gained the `pythonsecurity:S8707` /
+    `S8705` "path traversal / argument injection via LLM-supplied CLI arguments" rules, which now
+    report 11 open vulnerabilities, all created between 2026-08-07 and 2026-09-26 (`atomic_store`,
+    `certify`, `cli`, `parsimony_map`, `dev/`). None is from this round. Whether a CLI that takes a
+    path from its own user is a traversal is a profile/triage decision for the founder.
+  - New-code issues this round added — code smells only (no bugs, vulnerabilities or hotspots):
+    S3776 cognitive complexity (Detective: 5 in `engine.py`'s boundary-probe helpers around
+    lines 2333–2494, 2 in `equivalence.py` at 366/401; Wesker: `engine.py` 4232, 5350, 5489 — the last
+    is 35); S107 `_build_test_scope` has 15 parameters (Wesker, after #31); S5778 ×4 in
+    `tests/test_nonfinite_input_spelling_intent.py` (144, 146, 148, 250 — the rule `c3ee434` fixed);
+    S9073 composite assertions in the new intent tests (the founder's profile decision, per
+    CLAUDE.md); and two classified as not-a-defect: S5655 at `cli.py` 2249/3238 is a FALSE POSITIVE
+    (`_residual_counts` returns `tuple[int, int]`, which unpacks exactly into
+    `residual_done_basis(int, int, str)` — transition it with a comment), and S5709 at Wesker
+    `interrupt.py:55` is BY DESIGN (`nested_measurement` must be a BaseException so a nested broad
+    `except Exception` cannot swallow it — #28's whole point).
+- Not run here: the local SonarQube container, the macOS/`taskpolicy` SAME checks. One worker ran
+  `ty` on its Wesker change: the same 6 environment-only diagnostics before and after.
 
 ## Resuming
 
