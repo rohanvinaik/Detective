@@ -1036,21 +1036,30 @@ def profile(
     # survivor (or an uncovered line). The fork means seeding this function cannot corrupt a sibling
     # profiled in the same session. A LEAF ORPHAN (nothing reaches the target) SYNTHESIZES from an
     # empty baseline instead of tracing the suite (the synthesis floor, TEST_BASIS); the full-baseline
-    # path is kept only when a reacher exists but nothing is deferred. Wrapped so any failure degrades
-    # to the ordinary full run: a speedup must never break a verdict.
+    # path is kept only when a reacher exists but nothing is deferred. Routing is the APPLICABILITY
+    # BOUND (founder ruling 2026-09-05), not a speedup, so a failure in this block is NAMED and runs
+    # nothing (#91, `routing_outcome`) — it used to "degrade to the ordinary full run", which is the
+    # whole collection, silently.
     _seed_token = None
     _widen_tests: list[Callable[..., Any]] | None = None
     _session_baseline = None
     _routing_counts: dict[str, int] = {}
     # The tests this run may EXECUTE for this function, once routing has decided them; None = routing
-    # did not run (no live session, an older Wesker, a failure below) and the collection stands.
+    # was not attempted (no live session, unscoped, an engine without target-first) and the collection
+    # stands. A routing FAILURE is not None: it is the empty pool, below.
     _pool: list[Callable[..., Any]] | None = None
     _impossible_ids: set[int] = set()
+    _route_attempted = False
+    _route_raised = False
+    _route_error = ""
     if _WESKER_TARGET_FIRST and scope_tests and tests:
         from Wesker.engine import _SESSION_BASELINE as _session_baseline
 
+        # A ContextVar read with a default cannot raise, so it sits outside the guarded block: whether
+        # routing was ATTEMPTED must be known even when the attempt fails.
+        _holder = _session_baseline.get()
+        _route_attempted = _holder is not None
         try:
-            _holder = _session_baseline.get()
             if _holder is not None:
                 _target_name = (qualname or function).split(".")[-1]
                 _route_budgets = (
@@ -1145,11 +1154,25 @@ def profile(
                     # A leaf orphan traces nothing: every unknown is unconsulted, and the census says so.
                     if _unknowns:
                         _routing_counts["not_consulted"] = len(_unknowns)
-        # BLE001: target-first is an optimisation; never fail the run
-        except Exception:  # noqa: BLE001
-            _seed_token = None
-            _widen_tests = None
-            _pool = None
+        # BLE001: routing is the applicability bound (#91) — its failure is caught to be NAMED, never widened
+        except Exception as exc:  # noqa: BLE001
+            # A raise AFTER the seed was installed (the shape admission below `.set` can raise) must not
+            # leave this function's seeded fork in the session's context: `reset` restores exactly the
+            # holder the call found. The token used to be dropped un-reset, so the fork outlived the call.
+            if _seed_token is not None and _session_baseline is not None:
+                _session_baseline.reset(_seed_token)
+                _seed_token = None
+            _route_raised = True
+            _route_error = _routing_error_text(exc)
+    _routing = routing_outcome(_route_attempted, _route_raised)
+    if _routing == ROUTING_FAILED and _session_baseline is not None:
+        # The bound is unknown, so NO test is authorised: the empty pool, no widen, and no census — the
+        # partition, if one was half-computed, did not decide what runs. And NO HOLDER for the call: the
+        # session's shared holder builds its baseline over the whole collection on first read, which is
+        # the widening this exists to stop, so the engine sees no session baseline and traces the empty
+        # pool. The finally below restores the holder. The result is cut `routing_failed` (validity).
+        _pool, _widen_tests, _routing_counts = [], [], {}
+        _seed_token = _session_baseline.set(None)
     _prof_kwargs = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
     if isolated:
         _prof_kwargs["isolated"] = True
@@ -1192,6 +1215,12 @@ def profile(
             _session_baseline.reset(_seed_token)
     if _routing_counts:
         result.test_routing = _routing_counts
+    # The routing outcome travels WITH the measurement it bounded (#91), the same Detective-side
+    # convention as test_routing: `validity.normalize_validity` consumes the code — a `routing_failed`
+    # run is cut, so it is never cached or certified — and the report and --json carry the error as the
+    # evidence for the remedy. Absent on a cache hit, which returned above: a cut run is never stored.
+    result.routing_outcome = _routing  # ty: ignore[unresolved-attribute]
+    result.routing_error = _route_error  # ty: ignore[unresolved-attribute]
     if two_sign:
         # Carry the observed codomain (μ⁻ Fork 2) as a Detective-side attribute — the same
         # convention as test_routing / function_basis — so classify_survivors can regenerate the
@@ -2813,6 +2842,48 @@ def _admit_search_pool(
     return admitted, deferred
 
 
+ROUTED = "routed"
+UNROUTED = "unrouted"
+# The same word as the cut reason it becomes (`validity.CUT_REASONS`) — one name for one fact.
+ROUTING_FAILED = "routing_failed"
+
+
+def routing_outcome(attempted: bool, raised: bool) -> str:
+    """What routing established about the tests one run may EXECUTE for one function (#91, pure — pinned).
+
+    Under the founder's 2026-09-05 ruling routing is the APPLICABILITY BOUND — the set of tests a run
+    may consult for one function — not an optimisation. Its failure was nonetheless handled as one:
+    `profile` caught any exception ("target-first is an optimisation; never fail the run") and
+    `_applicable_harvest_pool` caught ImportError, and both then ran the WHOLE collection. "Routing was
+    never attempted" and "routing raised" collapsed into one state — `profile`'s `_pool = None`, the
+    collection stands — so a failure silently authorised every not-consulted test. Measured: an injected
+    `_route_tests` failure ran a no-path test 4 times for one function, with an empty census and no cut
+    reason, and the verdict came back gateable and cacheable. Three codes, because they are three facts:
+
+      "routed"          routing ran: the pool is exactly the set it consulted (`profile`'s seed /
+                        synthesize / full_baseline; the harvest's candidates and caller-reachers).
+      "unrouted"        routing was not attempted — no live session holds a collection to route (a
+                        standalone profile), the caller asked for no scoping, the engine predates
+                        target-first, or nothing was collected. The tests handed in stand, scoped by the
+                        engine's own per-function trace: the contract from before target-first, unchanged.
+      "routing_failed"  routing was attempted and RAISED. The bound is unknown, so NO test is authorised:
+                        the run measures the empty pool and is cut `routing_failed` (`validity`), with the
+                        error carried for the remedy. Never the old silent widening to the collection.
+
+    ``raised`` is read only once routing was ``attempted``: nothing can fail that did not run.
+    """
+    if not attempted:
+        return UNROUTED
+    return ROUTING_FAILED if raised else ROUTED
+
+
+def _routing_error_text(exc: Exception) -> str:
+    """A routing failure's evidence, for its remedy: the exception type and its message's first line —
+    enough to report or act on, and never a multi-line traceback inside a one-line report row."""
+    lines = str(exc).strip().splitlines()
+    return f"{type(exc).__name__}: {lines[0]}" if lines else type(exc).__name__
+
+
 def _route_tests(
     root: str,
     full: str,
@@ -2830,7 +2901,7 @@ def _route_tests(
     caller evidence plus observed reach from the persistent trace cache (#15). ONE owner for both the
     speculative widen (`profile`) and the capture harvest (`classify_survivors`), so the two cannot
     disagree about which tests are applicable to the function. Raises ImportError on a Wesker without
-    routing; each caller degrades as it did before."""
+    routing; each caller names any raise as `routing_failed` (#91, `routing_outcome`) and runs nothing."""
     from Wesker.ci import callable_origin, partition_live_callables
     from Wesker.trace_cache import observed_function_reach
 
@@ -2852,13 +2923,19 @@ def _applicable_harvest_pool(
     exec_lines: set[int],
     trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
     trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
-) -> tuple[list[Callable[..., Any]], int]:
-    """The tests the capture HARVEST may run — ``(pool, not_consulted)`` — under the SAME applicability
-    bound the widen obeys (`widen_admission`): the routed candidates (static / fixture / observed) plus
-    the caller-reaching unknowns, in that order. Only a test that reaches the function can capture its
-    inputs, so the no-path strata are zero-yield by construction; running them was the whole-suite
-    trace the discovery device exists to avoid (the 51-minute witness pass, 2026-09-05). Degrades to
-    the whole pool on a Wesker without routing, as the harvest did before."""
+) -> tuple[list[Callable[..., Any]], int, str]:
+    """The tests the capture HARVEST may run — ``(pool, not_consulted, routing_error)`` — under the SAME
+    applicability bound the widen obeys (`widen_admission`): the routed candidates (static / fixture /
+    observed) plus the caller-reaching unknowns, in that order. Only a test that reaches the function
+    can capture its inputs, so the no-path strata are zero-yield by construction; running them was the
+    whole-suite trace the discovery device exists to avoid (the 51-minute witness pass, 2026-09-05).
+
+    A routing failure is a NAMED outcome (#91, `routing_outcome` → ``routing_failed``): the pool is
+    EMPTY and ``routing_error`` carries the evidence for the caller to report. It used to return the
+    whole pool on ImportError — the very widening routing exists to forbid, and silent. Any raise, not
+    only ImportError: the floor Wesker has routing, so an ImportError here is a broken install, and a
+    failure of any other type propagated out of classification as a crash. ``routing_error`` is ``""``
+    when routing ran."""
     try:
         from Wesker.engine import session_budgets as _session_budgets
         from Wesker.engine import session_regime_digest as _session_regime
@@ -2872,10 +2949,11 @@ def _applicable_harvest_pool(
         cands, unknowns, _impossible, _observed, _callers = _route_tests(
             root, full, tree, target_name, tests, exec_lines, budgets, regime
         )
-    except ImportError:  # older Wesker without routing — the harvest runs the whole pool, as before
-        return list(tests), 0
+    # BLE001: routing is the applicability bound (#91) — its failure is caught to be NAMED, never widened
+    except Exception as exc:  # noqa: BLE001
+        return [], 0, _routing_error_text(exc)
     pool = list(cands) + [c for c, code in unknowns if widen_admission(code) == WIDEN]
-    return pool, len(tests) - len(pool)
+    return pool, len(tests) - len(pool), ""
 
 
 def classify_survivors(
@@ -3112,16 +3190,22 @@ def classify_survivors(
     # tests (`capture.harvest_disposition`). It used to run every discovered test with no check
     # anywhere — the 51-minute silent witness pass of 2026-09-05, its wall long gone.
     _harvest_not_consulted = 0
+    # The harvest's routing failure (#91): its evidence, "" while routing ran. A failed harvest runs no
+    # test, so its emptiness says nothing about what the covering tests pass — carried on the report so
+    # the caller cuts the measurement (`normalize_validity(routing_failed=...)`) rather than let a
+    # starved search stand as a claim about the code.
+    _harvest_routing_error = ""
 
     def _harvest() -> list[tuple]:
-        nonlocal _deferred_shaped_capture, _harvest_not_consulted
+        nonlocal _deferred_shaped_capture, _harvest_not_consulted, _harvest_routing_error
         func_names = [qn for qn, _ in walk_functions(tree)]
         discovered = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
         )
-        pool, skipped = _applicable_harvest_pool(
+        pool, skipped, routing_error = _applicable_harvest_pool(
             discovered, root, full, tree, (qualname or function).split(".")[-1], set(_executable_lines(node))
         )
+        _harvest_routing_error = _harvest_routing_error or routing_error
         _harvest_not_consulted = max(_harvest_not_consulted, skipped)
         pool, _hd = _admit_search_pool(pool, include_shaped)
         _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
@@ -3168,6 +3252,7 @@ def classify_survivors(
             inputs_expressible=None,  # nothing exercised it; `note` carries the reason
             deferred_shaped=_deferred_shaped_capture,
             not_consulted=_harvest_not_consulted,
+            routing_error=_harvest_routing_error,
         )
 
     pure = _is_pure(node, is_method="." in (qualname or ""))
@@ -3373,6 +3458,13 @@ def classify_survivors(
                     f"no candidate input discriminates any survivor — pool included "
                     f"{len(fresh)} captured real input(s) from the covering tests"
                 )
+        elif _harvest_routing_error:
+            # The sentence below would claim the covering tests were RUN and passed nothing new. They
+            # were not run at all: routing failed, so no test was authorised (#91). Say that instead.
+            note = (
+                f"the capture harvest could not be routed ({_harvest_routing_error}), so no covering "
+                "test was run for a real input — the survivors were classified over synthesized inputs only"
+            )
         elif not any(v.killable for v in verdicts):
             note = (
                 "no candidate input discriminates any survivor, and the covering tests "
@@ -3551,4 +3643,5 @@ def classify_survivors(
         not_consulted=_harvest_not_consulted,
         boundary_probe=boundary_probe,
         boundary_probes=len(probes_tried),
+        routing_error=_harvest_routing_error,
     )

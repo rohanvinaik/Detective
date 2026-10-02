@@ -418,6 +418,8 @@ def audit_suite(
     # SAME escape converge does via `measurement_block_route`. Defaulted here so the advisory
     # except-fallback below leaves them at "measurement ran, nothing blocked".
     _load_failed = False
+    # The capture harvest's routing failure (#91) — classification's fact, like `_load_failed`.
+    _harvest_routing_failed = False
     _report_expressible: bool | None = None
     _report_note = ""
     try:
@@ -429,6 +431,7 @@ def audit_suite(
         # stub) must not crash the classification into the advisory except-fallback below — which would
         # silently zero candidate_equivalent and mis-read a fully-classified suite as a gap.
         _load_failed = bool(getattr(report, "load_failed", False))
+        _harvest_routing_failed = bool(getattr(report, "routing_error", ""))
         _report_expressible = getattr(report, "inputs_expressible", None)
         _report_note = getattr(report, "note", "") or ""
         # Whether a killable gap may name the input to kill it with — see `_gap_desc`.
@@ -492,7 +495,7 @@ def audit_suite(
     # `admits_certificate` on the same measurement and got True, so one run was ungateable here
     # and clean there. Carried on the object, both surfaces read the one refusal, and it arrives
     # with a typed reason (`target_load_failed`) instead of an anonymous False.
-    validity = normalize_validity(result, load_failed=_load_failed)
+    validity = normalize_validity(result, load_failed=_load_failed, routing_failed=_harvest_routing_failed)
     mutant_complete = mutant_complete and validity.admits_certificate
     _basis = function_basis(
         result,

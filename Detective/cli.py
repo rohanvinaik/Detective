@@ -1908,7 +1908,12 @@ def _final_banner(result) -> str:
     # exception could not land in `time.sleep`/a C call — measured something other than this
     # suite against this code. Named here rather than folded into "Incomplete", because
     # "11/11 killed · Incomplete" with no reason reads as a gap to close and is not one.
-    if not getattr(result, "measurement_gateable", True):
+    # The ABSORBING answer (`admits_certificate`: gateable AND no cut reason), the one `complete` and
+    # the next action consume — not the engine's raw `measurement_gateable`, which is True for every
+    # reason Detective itself adds (#91: a routing failure that ran NO test read "Incomplete: N-line
+    # gap" here, sending the reader to close a gap that nothing measured). The fallback is for a
+    # duck-typed result without the property, which keeps the reading it always had.
+    if not getattr(result, "admits_certificate", getattr(result, "measurement_gateable", True)):
         # Name the ACTUAL reason. A shadowed collection (#58) finished cleanly and may have exact
         # counts — attributing it to a timeout sends the reader to raise a budget that was never
         # the problem.
@@ -2725,6 +2730,9 @@ def repair_measurement_route(
     them.
 
     Returns a named route (the render maps it to a command + a ``cut_reason_sentence`` why):
+      * ``fix_routing``    — routing, the applicability bound, raised (#91), so no test ran: every count
+                             is an empty observation. The remedy acts on the ERROR (an incompatible Wesker
+                             install, or a defect to report), never on a budget, an input or the regime.
       * ``regime``         — an ambiguous module identity: the live collection resolved one name to more
                              than one file. ``detective regime`` is the move.
       * ``fix_collection`` — a test file failed to COLLECT (an import error). No trace/deadline budget
@@ -2770,6 +2778,11 @@ def repair_measurement_route(
     # audit named the missing dependency from the same report (S7).
     if "target_load_failed" in cut_reasons:
         return "fix_load"
+    # SECOND, for the same reason (#91): routing is the applicability bound, so when it fails NO test
+    # runs, and every reason below describes a measurement that observed nothing. Taught here with the
+    # reason itself — S7 was `target_load_failed` added without this branch, falling to the residual.
+    if "routing_failed" in cut_reasons:
+        return "fix_routing"
     if "ambiguous_module_identity" in cut_reasons or has_collection_conflicts:
         return "regime"
     if "collection_incomplete" in cut_reasons:
@@ -2803,6 +2816,7 @@ def repair_measurement_route(
 # every reason, so they have nothing left over.
 _ROUTE_ADDRESSES: dict[str, tuple[str, ...]] = {
     "fix_load": ("target_load_failed",),
+    "fix_routing": ("routing_failed",),
     "fix_collection": ("collection_incomplete",),
     "regime": ("ambiguous_module_identity",),
     "deadline": ("budget_exhausted",),
@@ -3055,6 +3069,24 @@ def _converge_action(
                 _row("", "neither regime --migrate nor a larger budget can fix an import."),
                 _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
                 _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
+                *_also_live_rows(reasons, route),
+            ]
+        if route == "fix_routing":
+            # The ERROR is the remedy's input (#91): the sentence names the class, the error names WHICH —
+            # an ImportError is an install to repair, anything else a defect to report with it. Read off
+            # the result, which carries the evidence from every measurement its validity rests on.
+            error = str(getattr(result, "routing_error", "") or "").strip()
+            return [
+                f"STOP:  {cut_reason_sentence('routing_failed')}",
+                "",
+                *([_row("· The error", error)] if error else []),
+                _row(_WHY_FIRST_ROW, "routing decides which tests may run for this function; with no"),
+                _row("", "answer, none was authorised and no mutant met a test — a 0-kill here is"),
+                _row("", "blindness, not a result, and running the whole suite instead is what"),
+                _row("", "the bound forbids. No --input, --deadline or regime migration moves it."),
+                _row(_FIX_ROW, "an ImportError: run under an interpreter whose Wesker meets Detective's"),
+                _row("", "declared floor. Anything else: report it with the error above. Then:"),
+                _row("", f"detective converge '{fn}'"),
                 *_also_live_rows(reasons, route),
             ]
         if route == "mutant_phase":

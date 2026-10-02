@@ -29,7 +29,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from Wesker.ci import relevant_test_files, walk_functions
-from Wesker.engine import estimate_universe_size, greedy_coverage_guarantee
+from Wesker.engine import ProfilingResult, estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
 
 from ._contain import budget_is_exhausted, contained_stdout, remaining_budget_ms
@@ -44,6 +44,7 @@ from .certify import (
     wire_pytest,
 )
 from .engine import (
+    ROUTING_FAILED,
     FunctionBasis,
     _load_original,
     _resolve,
@@ -313,6 +314,20 @@ def _survivor_ids(result: object) -> tuple[str, ...]:
     return tuple(sorted(r.get("mutant_id", "") for r in records))
 
 
+def _routing_evidence(*sources: object) -> str:
+    """The errors behind a ``routing_failed`` cut (#91), from every measurement a result rests on, in
+    the order given and each once — ``""`` when none carries one.
+
+    Read off the sources rather than threaded through, because a routing failure is discovered in three
+    places — `profile` stamps ``routing_error`` on its result, the isolated verification is a second
+    profile, and the capture harvest puts its own on the `SurvivorReport` — and the cut reason names
+    only the CLASS. "report it with the error" is unactionable without the error. A ``None`` source (a
+    verification that never ran, a classification that did not) contributes nothing.
+    """
+    found = (str(getattr(source, "routing_error", "") or "") for source in sources)
+    return "; ".join(dict.fromkeys(error for error in found if error))
+
+
 @dataclass(frozen=True)
 class ConvergeResult:
     """Outcome of the convergence loop."""
@@ -444,6 +459,11 @@ class ConvergeResult:
     # to whoever fixes the first. Travels on the result so `--json` and the banner render the
     # SAME vocabulary; `dataclasses.asdict` carries it to the JSON surface for free.
     cut_reasons: tuple[str, ...] = ()
+    # The EVIDENCE behind a `routing_failed` cut (#91): the error routing raised — type and first
+    # line — from whichever measurement this result rests on (the final or verification profile, or
+    # the capture harvest). "" unless routing failed. The reason names the class and its remedy; this
+    # is what the remedy acts on ("report it with the error"), carried for the report and `--json`.
+    routing_error: str = ""
     # The single normalized MeasurementValidity (#60) — one absorbing answer to "may this
     # measurement support a certificate?". The flattened `measurement_gateable` / `cut_reasons` /
     # `coverage_depth` / `collection_conflicts` above are its projection for rendering; the DECISION
@@ -1867,6 +1887,14 @@ def _converge_impl(
             baseline_killed_ids, baseline_line_ids, baseline_arc_ids, baseline_contract_ids = (
                 _self_owned_obligation_ids(result, _foreign_names)
             )
+        if getattr(result, "routing_outcome", "") == ROUTING_FAILED:
+            # #91: routing — the applicability bound — failed, so no test was authorised and every
+            # mutant "survived" an empty observation. Synthesizing against that would WRITE tests for
+            # behaviour the suite may already pin, from a measurement that observed nothing. Stop; the
+            # final measurement carries the named cut and its remedy. `converged` stays False: a loop
+            # stopped by blindness reached no fixed point.
+            say("⚠ routing failed — no test was authorised for this function; nothing was synthesized")
+            break
         # Value-survivors: what the suite hasn't pinned the RETURN VALUE of — true
         # survivors plus crash/timeout kills. Converging drives THIS to zero, so a
         # crash-dominated "100%" no longer reads as done.
@@ -2406,9 +2434,15 @@ def _converge_impl(
     # fails. Passing it here is what stops a target that never imported from producing a clean
     # `certificate_standing`: without it, all three standing guards pass and routing asks the
     # operator to author inputs for a module that cannot load (conorheins `str2bool`, 0/27, exit 0).
+    # `routing_failed` likewise (#91): the PROFILE's own routing failure rides on `final_result` and
+    # the normalizer reads it there; the capture HARVEST's is classification's fact, supplied here —
+    # a harvest that could not route ran no test, so its survivors were never offered a real input.
     _validity = normalize_validity(
-        final_result, load_failed=bool(getattr(survivor_report, "load_failed", False))
+        final_result,
+        load_failed=bool(getattr(survivor_report, "load_failed", False)),
+        routing_failed=bool(getattr(survivor_report, "routing_error", "")),
     )
+    _verify_result: ProfilingResult | None = None
     # A certificate-facing check observes the SAME function/test basis in isolated
     # mutation workers. A replay, missing identity, invalid pass or disagreement refuses.
     # Classification above consumes final_result itself, never a separately measured set.
@@ -2655,6 +2689,8 @@ def _converge_impl(
         coverage_depth=str(getattr(final_result, "coverage_depth", "") or ""),
         collection_conflicts=tuple(getattr(final_result, "collection_conflicts", ()) or ()),
         cut_reasons=_validity.cut_reasons,
+        # The evidence for `routing_failed`, from every measurement `_validity` rests on (#91).
+        routing_error=_routing_evidence(final_result, _verify_result, survivor_report),
         environment_coupled=tuple(environment_coupled),
         environment_gated=environment_reads(node),
         budget_exhausted=budget_cut,

@@ -198,10 +198,13 @@ def test_the_harvest_pool_is_candidates_plus_callers_and_the_rest_is_counted(tmp
         tests = [*tests, module.test_unrelated]
         leaf_node = next(n for n in tree.body if getattr(n, "name", "") == "leaf")
         exec_lines = set(engine._executable_lines(leaf_node))  # type: ignore[arg-type]
-        pool, skipped = _applicable_harvest_pool(tests, str(root), full, tree, "leaf", exec_lines)
+        pool, skipped, routing_error = _applicable_harvest_pool(
+            tests, str(root), full, tree, "leaf", exec_lines
+        )
         got = sorted(getattr(t, "__name__", "?") for t in pool)
         assert got == ["test_caller", "test_leaf"]  # the candidate and the caller-reacher, nothing else
         assert skipped == 1  # test_unrelated: imports the module, names neither the target nor a caller
+        assert routing_error == ""  # routing ran (#91: a failure would be named here, with an empty pool)
     finally:
         _forget_modules("applic_pkg", "test_applic")
 

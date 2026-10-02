@@ -130,12 +130,10 @@
     "standing": "complete"
   },
   "Detective/cli.py::repair_measurement_route": {
-    "cut_reasons": [
-      "mutant_not_entered"
-    ],
-    "function_digest": "e7bc7f6f5f5bd29f",
+    "cut_reasons": [],
+    "function_digest": "4fb1b75b32494fae",
     "refusal": "",
-    "standing": "ungateable"
+    "standing": "complete"
   },
   "Detective/cli.py::residual_done_basis": {
     "cut_reasons": [],
@@ -249,6 +247,12 @@
   "Detective/engine.py::boundary_probe_gate": {
     "cut_reasons": [],
     "function_digest": "d391705ab013af39",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/engine.py::routing_outcome": {
+    "cut_reasons": [],
+    "function_digest": "74e94d9f30b7f262",
     "refusal": "",
     "standing": "complete"
   },
@@ -466,16 +470,15 @@
     "standing": "complete"
   },
   "Detective/validity.py::cut_reason_sentence": {
-    "function_digest": "9b6852d884447520",
+    "cut_reasons": [],
+    "function_digest": "47a344fbca257c41",
     "refusal": "",
     "standing": "complete"
   },
   "Detective/validity.py::measurement_cut_reasons": {
-    "cut_reasons": [
-      "mutant_not_entered"
-    ],
-    "function_digest": "053fbac463dfa852",
+    "cut_reasons": [],
+    "function_digest": "5393cc61abdc83c3",
     "refusal": "",
-    "standing": "ungateable"
+    "standing": "complete"
   }
 }

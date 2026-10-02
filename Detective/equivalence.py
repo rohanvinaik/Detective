@@ -2063,6 +2063,13 @@ class SurvivorReport:
     boundary_probe: str = ""
     # How many probe inputs that pass tried (the residual's own pool, beyond `searched`'s first pass).
     boundary_probes: int = 0
+    # The capture harvest's routing failure (#91): the error, or "" when routing ran (or the harvest
+    # never did). Non-empty means the harvest ran NO test — routing is the applicability bound, and an
+    # unknown bound authorises nothing — so a survivor no synthesized input discriminated was never
+    # offered a real one. Like `load_failed`, it is classification's fact, not the profile's: the caller
+    # supplies it to `normalize_validity(routing_failed=...)`, which cuts the run `routing_failed`, so a
+    # starved search can never stand as an equivalence claim about the code.
+    routing_error: str = ""
 
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:

@@ -34,13 +34,16 @@ import dataclasses
 # 3: `mutant_evaluation_failed` split into the three dispositions it collapsed —
 #    `mutant_construction_failed` / `mutant_not_installed` / `mutant_not_entered` (S13). A changed
 #    reason vocabulary is exactly what this number exists to signal.
-MEASUREMENT_VALIDITY_SCHEMA = 3
+# 4: `routing_failed` joins the vocabulary (#91). Additive, but the vocabulary is exhaustive on
+#    purpose, so a reader that switches over it must learn the new member rather than meet it.
+MEASUREMENT_VALIDITY_SCHEMA = 4
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
 # requirement that "identical cut reasons" is stated in.
 CUT_REASONS: tuple[str, ...] = (
     "target_load_failed",
+    "routing_failed",
     "budget_exhausted",
     "uncontained_worker",
     "coverage_truncated",
@@ -76,6 +79,7 @@ def measurement_cut_reasons(
     not_installed: bool = False,
     not_entered: bool = False,
     target_load_failed: bool = False,
+    routing_failed: bool = False,
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -98,6 +102,11 @@ def measurement_cut_reasons(
     module exists to end. One object carries it now, so every consumer reads the same refusal
     instead of each re-deriving its own.
 
+    ``routing_failed`` is SECOND, beside it and for the same reason (#91): routing is the
+    applicability bound, so when it raises no test is authorised and no mutant meets one — every count
+    on the run describes an empty observation. It replaced a silent widening: the failure used to run
+    the whole collection, not-consulted tests included, and the run came back gateable with no reason.
+
     ``collection_incomplete`` is the "degrade loudly" enforcement for the test FLOOR: a test file
     that failed to COLLECT (an ImportError at collection — a torch dep, a broken conftest) is
     silently absent from the routed suite, so a mutant only that file's tests would kill reads as
@@ -118,6 +127,8 @@ def measurement_cut_reasons(
     reasons: list[str] = []
     if target_load_failed:
         reasons.append("target_load_failed")
+    if routing_failed:
+        reasons.append("routing_failed")
     if budget_exhausted:
         reasons.append("budget_exhausted")
     if containment == "uncontained":
@@ -167,6 +178,12 @@ def cut_reason_sentence(reason: str) -> str:
         " evaluated and every count on this run describes an empty observation — run under an"
         " interpreter that has the module's dependencies; no --input, --deadline or regime"
         " migration substitutes for an import that fails",
+        "routing_failed": "routing — the bound on which tests may run for this function — failed, so no"
+        " test was authorised, no mutant met a test, and every count on this run describes an empty"
+        " observation; the error reported with it names the cause: an ImportError means the installed"
+        " Wesker lacks the routing Detective requires (run under an interpreter whose Wesker meets"
+        " Detective's declared floor), anything else is a defect to report with that error — no --input,"
+        " --deadline or budget replaces the bound",
         "budget_exhausted": "the aggregate deadline was exhausted, so the universe was never fully measured",
         "uncontained_worker": "a timed-out worker could not be stopped, so later phases"
         " shared a process with it",
@@ -271,7 +288,7 @@ def _containment_status(contained_raw: object) -> str:
 
 
 def normalize_validity(
-    result: object, engine_version: str = "", load_failed: bool = False
+    result: object, engine_version: str = "", load_failed: bool = False, routing_failed: bool = False
 ) -> MeasurementValidity:
     """Adapt a Wesker profiling result into ONE Detective validity object.
 
@@ -284,6 +301,14 @@ def normalize_validity(
     `converge` had no equivalent, so the same measurement was ungateable on one surface and
     clean on the other. Defaults False: a caller that does not know keeps the previous behaviour
     exactly (#60).
+
+    ROUTING (#91) is Detective's own fact too, and it arrives two ways. The profile names its own
+    failure ON the result — ``routing_outcome``, the code `engine.routing_outcome` decided — and it is
+    consumed here, so every consumer of one measurement reads one refusal. The capture harvest's
+    failure is found later, by classification, so it rides in beside ``load_failed`` as
+    ``routing_failed``. Either cuts the run: no test was authorised, so nothing was observed. An
+    absent ``routing_outcome`` (a cache hit — a cut run is never stored — or a foreign result) says
+    nothing failed, the same no-information default as ``load_failed``.
 
     THE ADAPTER IS THE CAPABILITY MATRIX. Each field is read with an explicit absent-sentinel so
     "the engine did not report this" is distinguishable from "the engine reported a falsy value"
@@ -346,6 +371,8 @@ def normalize_validity(
         not_installed=_unscored_by(result, "not_installed"),
         not_entered=_unscored_by(result, "not_entered"),
         target_load_failed=bool(load_failed),
+        # `engine.ROUTING_FAILED` — the outcome code is this module's cut reason by the same name.
+        routing_failed=bool(routing_failed) or getattr(result, "routing_outcome", "") == "routing_failed",
     )
     return MeasurementValidity(
         gateable=gateable,
