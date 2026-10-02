@@ -134,7 +134,8 @@ needs-fixture and get ordinary unit tests.
 Bare first, to find the gap:
 
 ```bash
-PYTHONPATH=$PP detective converge 'Detective/converge.py::line_proof_basis' 2>&1 | tail -8
+PYTHONPATH=$PP detective converge 'Detective/converge.py::line_proof_basis' > run.log 2>&1
+# then Read run.log IN FULL — never tail it
 ```
 
 Then follow the `DO THIS` block **literally** — one `--input` per uncovered line, read
@@ -143,7 +144,8 @@ straight off the `Uncovered` conditions — and re-run until `✓ COMPLETE`:
 ```bash
 PYTHONPATH=$PP detective converge 'Detective/certify.py::write_disposition' \
   --input "(True, 'other.py::f', 'mine.py::f')" \
-  --input "(True, '', 'mine.py::f')" 2>&1 | tail -8
+  --input "(True, '', 'mine.py::f')" > run.log 2>&1
+# then Read run.log IN FULL — never tail it
 ```
 
 - Compute real digests/paths rather than inventing them (`D=$(python3 -c "import hashlib;...")`).
@@ -174,10 +176,10 @@ Ruff is **pinned to 0.16.7 via uvx** — the same version as the dev-group pin C
 bare `ruff`: an unpinned local ruff is not the CI gate.
 
 ```bash
-PYTHONPATH=$PP .venv/bin/python -m pytest 2>&1 | tail -1 \
-  && uvx ruff@0.16.7 format Detective tests 2>&1 | tail -1 \
-  && uvx ruff@0.16.7 check Detective tests 2>&1 | tail -3 \
-  && uvx ruff@0.16.7 format --check . 2>&1 | tail -1
+PYTHONPATH=$PP .venv/bin/python -m pytest; echo "SUITE=$?"
+uvx ruff@0.16.7 format Detective tests
+uvx ruff@0.16.7 check Detective tests; echo "CHECK=$?"
+uvx ruff@0.16.7 format --check .; echo "FORMAT=$?"
 ```
 
 **The format check is WHOLE-TREE (`.`), not `Detective tests`** — because CI's is, deliberately:
@@ -190,17 +192,20 @@ unformatted, passed the scoped gate, and was pushed. `check` stays scoped (it is
 
 Note `pytest` is run BARE here on purpose. `[tool.pytest.ini_options] addopts` already carries
 `-q`, so adding another makes it `-qq`, which suppresses the summary line entirely — there is then
-no count to read, and `| tail -1` returns a warning instead.
+no count to read.
+
+**Read each exit code; never `| tail` a gate before `&& git commit`** — the pipe makes the shell
+report the filter's status, so you commit over a failure that printed and was discarded.
 
 **After any Wesker change, also run Detective's suite against the local Wesker.** Wesker's own
 suite has been fully green through a regression that only the cross-repo run caught:
 
 ```bash
-PYTHONPATH=$PP .venv/bin/python -m pytest 2>&1 | tail -3
+PYTHONPATH=$PP .venv/bin/python -m pytest
 ```
 
-Run pytest twice — once with `-q` to see failures, once bare with `| tail -1` to capture the
-exact count that goes into the commit body.
+Run it once, bare, and read the whole output: the failures and the summary count that goes into
+the commit body are both in it.
 
 ### Before every PUBLISH: build, then check the artifact against git
 
