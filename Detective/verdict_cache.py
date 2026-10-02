@@ -200,11 +200,29 @@ def key_prefix(func_key: str) -> str:
     return f"{func_key}:"
 
 
+# The observed codomain (μ⁻ Fork 2, #92) — the one Detective-side fact a verdict is computed UNDER. It is
+# not a ProfilingResult field, so `asdict` drops it, yet it decided which type-conditional OUTPUT mutants
+# exist; classification must regenerate exactly those. Stored beside the fields, restored as an attribute.
+_CODOMAIN_KEY = "observed_return_types"
+
+
 def _to_json(result: ProfilingResult) -> dict:
-    """ProfilingResult -> JSON-safe dict (enum categories -> their string values)."""
+    """ProfilingResult -> JSON-safe dict (enum categories -> their string values), plus the observed
+    codomain the verdict was computed under (#92).
+
+    The codomain is carried so a warm two-sign hit hands classification the cold run's own observation.
+    Without it every warm run re-captured it over the whole live collection — not-consulted tests
+    executed for a value computed once already. Sorted for a deterministic row; stored only when the
+    result HAS one, so a one-sign verdict's row is byte-identical to before and an EMPTY observation
+    round-trips as empty rather than as absent — two facts `engine.codomain_source` keeps apart.
+    """
     d = asdict(result)
     for cat in d.get("per_category", []):
         cat["category"] = getattr(cat["category"], "value", cat["category"])
+    # A literal attribute name, so invariant 7's guard (`absorption.py`) sees this read.
+    codomain = getattr(result, "observed_return_types", None)
+    if codomain is not None:
+        d[_CODOMAIN_KEY] = sorted(codomain)
     return d
 
 
@@ -245,6 +263,10 @@ def _from_json(d: dict) -> ProfilingResult:
     ``CategoryResult`` still rejects becomes a cache MISS in :func:`get`, which recomputes.
     """
     d = dict(d)
+    # Popped before construction — `ProfilingResult(**d)` rejects a key it does not declare — and
+    # restored below as the attribute it was (#92). A row written before the codomain was carried has
+    # no key and restores none: absence, which `engine.codomain_source` re-observes, never empty.
+    codomain = d.pop(_CODOMAIN_KEY, None)
     cat_fields = {f.name for f in fields(CategoryResult)} - {"category"}
     d["per_category"] = [
         CategoryResult(
@@ -272,7 +294,10 @@ def _from_json(d: dict) -> ProfilingResult:
         d["collection_conflicts"] = tuple(d["collection_conflicts"])
     if "proof_basis" in d:
         d["proof_basis"] = tuple(tuple(pair) for pair in d["proof_basis"])
-    return ProfilingResult(**d)
+    result = ProfilingResult(**d)
+    if codomain is not None:
+        result.observed_return_types = frozenset(codomain)  # ty: ignore[unresolved-attribute]
+    return result
 
 
 def _cache_path(project_root: str) -> Path:

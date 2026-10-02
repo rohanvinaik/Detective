@@ -250,6 +250,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/engine.py::codomain_source": {
+    "cut_reasons": [],
+    "function_digest": "f3610075faf17f77",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/engine.py::routing_outcome": {
     "cut_reasons": [],
     "function_digest": "74e94d9f30b7f262",

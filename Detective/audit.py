@@ -426,7 +426,11 @@ def audit_suite(
         # Reuse THIS profile (#65): classify the survivors of the exact measurement whose counts the
         # partition below checks, so the two can never come from two divergent profiles and crash the
         # assertion. `classify_survivors` re-profiles only when no compatible result is handed to it.
-        report = classify_survivors(file, function, project_root, profile_result=result)
+        # Under the SAME policy the profile used (#92): classification regenerates the content-addressed
+        # mutants it witness-searches, and a one-sign regeneration has no OUTPUT (μ⁻) ids — so under
+        # `--two-sign` every surviving negative DOF read "un-buildable" and fell to `unclassified`
+        # instead of surfacing in killable_gaps, which is what the two-sign audit exists to gate on.
+        report = classify_survivors(file, function, project_root, profile_result=result, two_sign=two_sign)
         # Defensive reads (#60): a report without the Finding-E fields (an older SurvivorReport, a test
         # stub) must not crash the classification into the advisory except-fallback below — which would
         # silently zero candidate_equivalent and mis-read a fully-classified suite as a gap.

@@ -882,6 +882,29 @@ def _attach_function_basis(result: ProfilingResult, root: str, node: ast.AST) ->
     return result
 
 
+def _discover_profile_tests(
+    root: str, rel: str, tree: ast.Module, extra_test_dirs: tuple[str, ...] = ()
+) -> list[Callable[..., Any]]:
+    """The tests `profile` discovers for one target file — ONE derivation, shared with the two-sign
+    codomain fallback (#92) so the two cannot observe over different collections.
+
+    Honors the repo's pytest `testpaths` (the regime is the single source of truth) so a suite pytest
+    collects ONLY because testpaths names it — a bare `test.py`, say — is not invisible to Wesker's
+    static discovery and silently reported as 0%. Found dogfooding python-slugify: pytest collected its
+    82-test `test.py`, static discovery saw zero, `slugify` read 0 pinned. In a live session discovery
+    returns the live collection whatever is passed, and routing bounds it.
+    """
+    from .regime import resolve_regime
+
+    return discover_test_callables(
+        root,
+        rel,
+        [qn for qn, _ in walk_functions(tree)],
+        extra_dirs=list(extra_test_dirs) or None,
+        testpaths=resolve_regime(root).testpaths,
+    )
+
+
 def profile(
     file: str,
     function: str,
@@ -938,21 +961,7 @@ def profile(
     func_key = f"{rel}::{qualname}"
 
     if tests is None:
-        func_names = [qn for qn, _ in walk_functions(tree)]
-        # Honor the repo's pytest `testpaths` (the regime is the single source of truth) so a suite
-        # pytest collects ONLY because testpaths names it — a bare `test.py`, say — is not invisible
-        # to Wesker's static discovery and silently reported as 0%. Found dogfooding python-slugify:
-        # pytest collected its 82-test `test.py`, static discovery saw zero, `slugify` read 0 pinned.
-        from .regime import resolve_regime
-
-        testpaths = resolve_regime(root).testpaths
-        tests = discover_test_callables(
-            root,
-            rel,
-            func_names,
-            extra_dirs=list(extra_test_dirs) or None,
-            testpaths=testpaths,
-        )
+        tests = _discover_profile_tests(root, rel, tree, extra_test_dirs)
 
     # The budgets above default to the ENGINE's, imported — not to `None`. `None` is a real
     # value meaning "unbounded", so restating the session default as None claimed every
@@ -1109,39 +1118,18 @@ def profile(
                     _seeded = _holder.fork()
                     _seeded.seed(_cands)
                     _seed_token = _session_baseline.set(_seeded)
-                    # Defer shape-hazardous unknowns from the SPECULATIVE widen (shaped-defer): a
-                    # non-hermetic test forces the expensive isolation path (a subprocess per mutant,
-                    # a 50s live-game system test per widen step) and is almost never the minimal
-                    # witness for a unit mutant. Disclosed via test_routing["deferred_shaped"];
-                    # --include-shaped (include_shaped=True) forces them back in. The scoped baseline
-                    # is untouched — this only trims the speculative widen of unconfirmed reachers.
-                    # THE APPLICABILITY BOUND (`widen_admission`, founder ruling 2026-09-05): only the
-                    # unknowns with a positive static signal — the caller-reaching stratum — are
-                    # widened. The rest carry no evidence of reaching THIS function and are never
-                    # traced; their count is disclosed on the census. Discovery finds the tests
-                    # applicable to one function; it does not prove a negative over the suite (the
-                    # 1,584-step whole-suite widen of 2026-09-05 was exactly that inversion).
-                    _applicable = [c for c, code in _unknowns if widen_admission(code) == WIDEN]
-                    _not_consulted = len(_unknowns) - len(_applicable)
-                    _widen_tests, _deferred_shaped = _admit_search_pool(_applicable, include_shaped)
+                    # THE POOL IS THE CONSULTED SET — the candidates, then the widen-admitted,
+                    # shape-admitted unknowns (`_consulted_pool`, which says why each stratum is in or
+                    # out). One derivation, shared with the two-sign codomain fallback (#92).
+                    _pool, _widen_tests, _not_consulted, _deferred_shaped = _consulted_pool(
+                        _cands, _unknowns, include_shaped
+                    )
                     # Disclose only when there IS a deferral — a zero would clutter the census and
                     # break its exact-partition consumers for the hermetic common case.
                     if _deferred_shaped:
                         _routing_counts["deferred_shaped"] = _deferred_shaped
                     if _not_consulted:
                         _routing_counts["not_consulted"] = _not_consulted
-                    # THE POOL IS THE CONSULTED SET, not merely the traced one. Seeding traces only the
-                    # candidates, but whatever is in the pool is RUN wherever the engine cannot scope a
-                    # mutant — a mutant off the body's lines (a default, an annotation on the `def`
-                    # line), or no line data at all — because `_tests_for` falls back to the WHOLE pool
-                    # there. Leaving the not-consulted and shape-deferred tests in it made that fallback
-                    # the whole-suite run the applicability ruling (2026-09-05) exists to forbid: measured
-                    # 2026-09-27, one annotation mutant of `Wesker/monitoring.py::step_budget_verdict`
-                    # ran 694 tests, two of them traced, and one of the rest ran the engine inside the
-                    # engine and orphaned its execution lock. Same membership as the capture harvest
-                    # (`_applicable_harvest_pool`) with the widen's shape deferral: candidates, then the
-                    # admitted unknowns. The impossible stratum was already out of it, for the same reason.
-                    _pool = [*_cands, *_widen_tests]
                 elif _disposition == "synthesize":
                     # Seed EMPTY (the forked baseline traces nothing) and profile against NO tests, so
                     # every mutant survives and routes to the existing synthesis pass. Disposition-exact:
@@ -1224,8 +1212,10 @@ def profile(
     if two_sign:
         # Carry the observed codomain (μ⁻ Fork 2) as a Detective-side attribute — the same
         # convention as test_routing / function_basis — so classify_survivors can regenerate the
-        # SAME content-addressed OUTPUT mutants (its by_id) that it must witness-search. Absent on a
-        # cache hit (which returns before the capture above); classify re-captures as the fallback.
+        # SAME content-addressed OUTPUT mutants (its by_id) that it must witness-search. Computed ONCE
+        # (#92): the verdict cache stores it with the row and restores it on a hit, so a warm run
+        # carries the cold run's observation; only a row cached before that lacks it, and
+        # `codomain_source` then observes over the consulted pool, never the collection.
         result.observed_return_types = _prof_kwargs.get("observed_return_types")  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     # Collection completeness (the "degrade loudly" enforcement for the test FLOOR). Tests that failed
     # to COLLECT (an import error — a torch dep, a broken conftest) are silently absent from the routed
@@ -2842,6 +2832,39 @@ def _admit_search_pool(
     return admitted, deferred
 
 
+def _consulted_pool(
+    cands: list[Callable[..., Any]],
+    unknowns: list[tuple[Callable[..., Any], str]],
+    include_shaped: bool,
+) -> tuple[list[Callable[..., Any]], list[Callable[..., Any]], int, int]:
+    """The tests one function's run may EXECUTE once routing has partitioned them — ``(pool, widen,
+    not_consulted, deferred_shaped)``. ONE derivation for `profile`'s pool and for the two-sign codomain
+    fallback (#92), so a cold and a warm run observe the codomain over the same tests.
+
+    THE POOL IS THE CONSULTED SET, not merely the traced one. Seeding traces only the candidates, but
+    whatever is in the pool is RUN wherever the engine cannot scope a mutant — a mutant off the body's
+    lines (a default, an annotation on the `def` line), or no line data at all — because `_tests_for`
+    falls back to the WHOLE pool there. Leaving the not-consulted and shape-deferred tests in it made
+    that fallback the whole-suite run the applicability ruling (2026-09-05) exists to forbid: measured
+    2026-09-27, one annotation mutant of `Wesker/monitoring.py::step_budget_verdict` ran 694 tests, two
+    of them traced, and one of the rest ran the engine inside the engine and orphaned its execution lock.
+
+    The strata: the candidates (static / fixture / observed) always; of the unknowns, only those
+    `widen_admission` admits — the caller-reaching stratum, the one with a positive static signal; the
+    rest carry no evidence of reaching THIS function, are never traced, and are counted as
+    ``not_consulted`` (discovery finds the tests applicable to one function; it does not prove a negative
+    over the suite — the 1,584-step whole-suite widen of 2026-09-05 was exactly that inversion). The
+    admitted unknowns are then shape-filtered (shaped-defer): a non-hermetic test forces the expensive
+    isolation path and is almost never the minimal witness for a unit mutant, so it is deferred and
+    counted unless ``include_shaped``. The proof-grade impossibles left before routing returned. For a
+    leaf orphan (no candidate, no caller-reacher) this is the empty pool, and with nothing deferred it is
+    the candidates — every routed test — so it agrees with all three `_activate_target_first` codes.
+    """
+    applicable = [c for c, code in unknowns if widen_admission(code) == WIDEN]
+    widen, deferred = _admit_search_pool(applicable, include_shaped)
+    return [*cands, *widen], widen, len(unknowns) - len(applicable), deferred
+
+
 ROUTED = "routed"
 UNROUTED = "unrouted"
 # The same word as the cut reason it becomes (`validity.CUT_REASONS`) — one name for one fact.
@@ -2936,15 +2959,7 @@ def _applicable_harvest_pool(
     only ImportError: the floor Wesker has routing, so an ImportError here is a broken install, and a
     failure of any other type propagated out of classification as a crash. ``routing_error`` is ``""``
     when routing ran."""
-    try:
-        from Wesker.engine import session_budgets as _session_budgets
-        from Wesker.engine import session_regime_digest as _session_regime
-
-        measured_under = _session_budgets()
-        regime = _session_regime()
-    except ImportError:  # older Wesker without the accessors — outside a session, the defaults
-        measured_under, regime = None, ""
-    budgets = measured_under if measured_under is not None else (trace_budget_s, trace_session_budget_s)
+    budgets, regime = _routing_keys(trace_budget_s, trace_session_budget_s)
     try:
         cands, unknowns, _impossible, _observed, _callers = _route_tests(
             root, full, tree, target_name, tests, exec_lines, budgets, regime
@@ -2954,6 +2969,108 @@ def _applicable_harvest_pool(
         return [], 0, _routing_error_text(exc)
     pool = list(cands) + [c for c, code in unknowns if widen_admission(code) == WIDEN]
     return pool, len(tests) - len(pool), ""
+
+
+def _routing_keys(
+    trace_budget_s: float | None = _WESKER_DEFAULT_TRACE_BUDGET_S,
+    trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
+) -> tuple[tuple[float | None, float | None], str]:
+    """The ``(budgets, regime)`` routing's observed reach is keyed on: the live session's own, read
+    non-forcingly (the same accessors `profile` keys its verdict on) — outside a session, the given
+    defaults and an unknown regime."""
+    try:
+        from Wesker.engine import session_budgets as _session_budgets
+        from Wesker.engine import session_regime_digest as _session_regime
+
+        measured_under = _session_budgets()
+        regime = _session_regime()
+    except ImportError:  # older Wesker without the accessors — outside a session, the defaults
+        measured_under, regime = None, ""
+    budgets = measured_under if measured_under is not None else (trace_budget_s, trace_session_budget_s)
+    return budgets, regime
+
+
+def _consulted_codomain(
+    original: Callable[..., Any] | None,
+    root: str,
+    full: str,
+    tree: ast.Module,
+    target_name: str,
+    exec_lines: set[int],
+    extra_test_dirs: tuple[str, ...],
+    include_shaped: bool,
+) -> tuple[frozenset[str], str]:
+    """The codomain observation when none travels with the result (#92, `codomain_source` →
+    ``harvest_consulted``) — ``(observed, routing_error)`` — over exactly the tests `profile` would have
+    consulted for this function, by `profile`'s own derivation: the same discovery
+    (`_discover_profile_tests`) and, where `profile` routes — a live session — the same routing
+    (`_route_tests`) and pool (`_consulted_pool`). Where `profile` does not route, neither does this:
+    the discovered tests stand for both. A routing failure observes nothing and is named (#91).
+
+    It replaced a capture over `discover_test_callables(...)` with no bound at all — in a live session
+    the WHOLE collection, run on every warm two-sign classification.
+    """
+    from Wesker.engine import _SESSION_BASELINE
+
+    from .capture import capture_return_types
+
+    tests = _discover_profile_tests(root, os.path.relpath(full, root), tree, extra_test_dirs)
+    # `profile`'s own condition, with its default `scope_tests=True` (the one classification uses).
+    attempted = _WESKER_TARGET_FIRST and bool(tests) and _SESSION_BASELINE.get() is not None
+    raised = False
+    error = ""
+    consulted: list[Callable[..., Any]] = []
+    if attempted:
+        budgets, regime = _routing_keys()
+        try:
+            cands, unknowns, _impossible, _observed, _callers = _route_tests(
+                root, full, tree, target_name, tests, exec_lines, budgets, regime
+            )
+            consulted = _consulted_pool(cands, unknowns, include_shaped)[0]
+        # BLE001: routing is the applicability bound (#91) — its failure is caught to be NAMED, never widened
+        except Exception as exc:  # noqa: BLE001
+            raised, error = True, _routing_error_text(exc)
+    outcome = routing_outcome(attempted, raised)
+    if outcome == ROUTING_FAILED:
+        return frozenset(), error
+    if outcome == ROUTED:
+        return capture_return_types(original, consulted), ""
+    # UNROUTED: `profile` routed nothing either, so the discovered tests stood for its capture — and here.
+    return capture_return_types(original, tests), ""
+
+
+CODOMAIN_NOT_NEEDED = "not_needed"
+CODOMAIN_CARRIED = "carried"
+CODOMAIN_HARVEST = "harvest_consulted"
+
+
+def codomain_source(two_sign: bool, carried: bool) -> str:
+    """Where classification's observed codomain comes from (#92, pure — pinned).
+
+    Under the two-sign contract the profile OBSERVES the codomain — the return types its covering tests
+    see (μ⁻ Fork 2) — and generates the type-conditional OUTPUT mutants from it. Classification
+    regenerates the same content-addressed mutants to witness-search them, so it needs the SAME
+    observation. It was a Detective stash the verdict cache dropped (the cache stores `asdict`, fields
+    only), so every warm two-sign run re-captured it over `discover_test_callables(...)` — in a live
+    session the WHOLE collection: not-consulted tests executed (the 2026-09-05 ruling), and a second
+    derivation of a value the cold run had already computed over the consulted pool (invariant 8).
+    Measured: a warm classification ran a no-path test the cold one never touched. Named codes:
+
+      "not_needed"         one-sign: the universe has no μ⁻ operator, so nothing is observed
+      "carried"            the profile's own observation travels with the result — fresh, or restored by
+                           the verdict cache with the verdict it was computed under. Used as is, EMPTY
+                           included: an empty codomain is an observation (nothing reached the function, or
+                           it only returned None), not an absence, and is never re-harvested
+      "harvest_consulted"  two-sign, and nothing travels with the result — a row cached before the
+                           codomain was carried, or a foreign result. Observed again over the tests
+                           `profile` itself would consult (`_consulted_codomain`), never the collection
+
+    ``carried`` is whether the result HAS the observation — never whether it is non-empty: reading an
+    absent one as empty would drop the type-conditional survivors' ids and send them to `unclassified`.
+    """
+    if not two_sign:
+        return CODOMAIN_NOT_NEEDED
+    return CODOMAIN_CARRIED if carried else CODOMAIN_HARVEST
 
 
 def classify_survivors(
@@ -3190,10 +3307,11 @@ def classify_survivors(
     # tests (`capture.harvest_disposition`). It used to run every discovered test with no check
     # anywhere — the 51-minute silent witness pass of 2026-09-05, its wall long gone.
     _harvest_not_consulted = 0
-    # The harvest's routing failure (#91): its evidence, "" while routing ran. A failed harvest runs no
-    # test, so its emptiness says nothing about what the covering tests pass — carried on the report so
-    # the caller cuts the measurement (`normalize_validity(routing_failed=...)`) rather than let a
-    # starved search stand as a claim about the code.
+    # A classification harvest's routing failure (#91) — the input harvest's, or the codomain fallback's
+    # (#92): its evidence, "" while routing ran. A failed harvest runs no test, so its emptiness says
+    # nothing about what the covering tests pass — carried on the report so the caller cuts the
+    # measurement (`normalize_validity(routing_failed=...)`) rather than let a starved search stand as a
+    # claim about the code.
     _harvest_routing_error = ""
 
     def _harvest() -> list[tuple]:
@@ -3260,24 +3378,35 @@ def classify_survivors(
     # the same policy the profile used — else an OUTPUT (μ⁻) survivor's id is absent, it reads as
     # "un-buildable", and falls to `unclassified` instead of being witness-searched (the Fork-2 →abs
     # gap this closes). Under the two-sign contract, regenerate WITH two_sign and the profile's observed
-    # codomain (carried on the result, re-captured on a cache hit that returned before the capture), so
-    # the OUTPUT mutant ids match. The one-sign default stays byte-identical and passes no newer kwarg,
-    # so it still resolves against a pre-two-sign Wesker.
-    if two_sign:
-        from .capture import capture_return_types
-
-        _observed = getattr(result, "observed_return_types", None)
-        if _observed is None:
-            _obs_names = [qn for qn, _ in walk_functions(tree)]
-            _observed = capture_return_types(
+    # codomain, so the OUTPUT mutant ids match: the observation the profile made, carried with the
+    # verdict through the cache (#92), or — for a row cached before that, or a foreign result — observed
+    # again over the tests the profile would consult, never the collection (`codomain_source`). The
+    # one-sign default stays byte-identical and passes no newer kwarg, so it still resolves against a
+    # pre-two-sign Wesker.
+    _carried = getattr(result, "observed_return_types", None)
+    _codomain = codomain_source(two_sign, _carried is not None)
+    if _codomain == CODOMAIN_NOT_NEEDED:
+        by_id = {
+            m.mutant_id: m
+            for m in generate_mutants(node, filter_categories(node, pure))  # type: ignore[arg-type]
+        }
+    else:
+        if _codomain == CODOMAIN_CARRIED:
+            _observed = _carried
+        else:
+            _observed, _codomain_routing_error = _consulted_codomain(
                 original,
-                discover_test_callables(
-                    root,
-                    os.path.relpath(full, root),
-                    _obs_names,
-                    extra_dirs=list(extra_test_dirs) or None,
-                ),
+                root,
+                full,
+                tree,
+                (qualname or function).split(".")[-1],
+                set(_executable_lines(node)),
+                extra_test_dirs,
+                include_shaped,
             )
+            # A codomain harvest that could not route observed nothing (#91): the same named failure as
+            # the input harvest's, carried on the report so the caller cuts the run.
+            _harvest_routing_error = _harvest_routing_error or _codomain_routing_error
         by_id = {
             m.mutant_id: m
             for m in generate_mutants(
@@ -3285,11 +3414,6 @@ def classify_survivors(
                 filter_categories(node, pure, two_sign=True),  # type: ignore[arg-type]
                 observed_return_types=_observed,
             )
-        }
-    else:
-        by_id = {
-            m.mutant_id: m
-            for m in generate_mutants(node, filter_categories(node, pure))  # type: ignore[arg-type]
         }
 
     def _classify_pool(
