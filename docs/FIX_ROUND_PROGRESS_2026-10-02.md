@@ -4,8 +4,10 @@ A session worked the #99 index in parallel workers, then wound down on request. 
 what landed, what is partial, what was grounded but not built, what new defects were found, and
 what needs a founder decision. The commit essays carry the full reasoning; this is the map.
 
-Nothing here closes an issue — closing is the founder's. Nothing was published. `main` is untouched
-in both repos.
+Nothing here closes an issue — closing is the founder's. Nothing was published. At the founder's
+direction the completed branch was fast-forwarded into `main` in both repos (Wesker first, then
+Detective with its `uv.lock` bumped to that Wesker); the unfinished #76 work rides along only as a
+patch file under `docs/wip/`, never as code.
 
 ## Where the work is
 
@@ -14,11 +16,10 @@ in both repos.
 | Detective | `claude/wesker-project-issues-7wejxy` | `c3ee434` | 6 (+ this record and one WIP patch file) |
 | Wesker | `claude/wesker-project-issues-7wejxy` | `81c5cc1` | 8 |
 
-Detective's `uv.lock` still pins Wesker `81c5cc1`. Detective CI resolves Wesker from GitHub `main`,
-so until the Wesker branch reaches `main` and the lock is bumped (#88), CI exercises this Detective
-against the OLD Wesker. The gate below ran Detective against the combined Wesker branch; this
-Detective against the old Wesker `81c5cc1` was NOT run. Land Wesker first, then bump the lock in the
-same push as Detective, as #88 already says.
+Detective CI resolves Wesker from GitHub `main` through `uv.lock`, so the Wesker branch went to
+`main` first and Detective's lock moved off `81c5cc1` to that Wesker in the same push (#88's rule).
+The published floor (`Wesker>=1.1.1`) is unchanged: raising it is a release decision, and nothing
+here was published. This Detective against the OLD Wesker `81c5cc1` was not run.
 
 ## Status by issue
 
@@ -86,7 +87,7 @@ also: Detective must learn `nested_measurement`, below), #84, #89, #86, #79 (the
 1. **Detective does not know `nested_measurement`.** A converge of a Wesker engine function whose
    last mutant is refused that way stops with "engine refused unspecified". Workaround: `--isolated`.
    Belongs with #80's consumer work.
-2. **Verdict-cache eviction** — `verdict_cache.params_suffix` assumes keys END in
+2. **Verdict-cache eviction** (filed with item 3 as #100) — `verdict_cache.params_suffix` assumes keys END in
    `:max:pass:budgets`, but `:two_sign` and the regime digest are appended after them: in a live
    session a two-sign pass evicts the other passes' rows, and a fast run evicts the full run's row
    for the same pass. Measured: a two-pass two-sign converge's final measurement missed the cache
