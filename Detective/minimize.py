@@ -72,10 +72,17 @@ def _obligations_by_test(
 
 
 def minimal_cover_2axis(kill_matrix: dict[str, list[str]], line_coverage: dict[str, list[int]]) -> set[str]:
-    """Greedy set-cover over BOTH axes: the smallest test set that kills every
-    killed mutant AND covers every covered line. A test survives minimization when
-    it is the sole killer of a mutant OR the sole coverer of a line — so trimming to
-    this set preserves mutant-completeness and line-completeness together."""
+    """Greedy set-cover over BOTH axes: a test set that kills every killed mutant AND
+    covers every covered line, built by repeatedly taking the test with the largest
+    remaining gain (ties by name).
+
+    It is NOT the smallest such set, which this function used to claim (#103, the
+    addendum to #54): greedy set cover only approximates the minimum, and it need not be
+    inclusion-minimal either, since a test taken early can be covered by later picks.
+    Every sole killer of a mutant and sole coverer of a line is always taken. What it
+    guarantees is what deletion relies on: each observed kill and covered line keeps a
+    test in this set, so trimming to it preserves mutant- and line-completeness
+    together."""
     by_test = _obligations_by_test(kill_matrix, line_coverage)
     uncovered: set = set().union(*by_test.values()) if by_test else set()
     chosen: set[str] = set()

@@ -158,7 +158,9 @@ SC Thm 3.15.
 **Commitment:** `audit --remove` deletes a test line-and-mutant-redundant *for one function*; the field
 failure is that it was load-bearing over the closure — the bridge counterexample. Correct invariant:
 safe to remove iff it banks zero κ-weighted coverage over the closure. Supporting theorems already
-machine-checked (SC Thm 2.3, 3.11). Blocked on κ-for-code.
+machine-checked (SC Thm 2.3, 3.11). Blocked on κ-for-code. *Built since (2026-10-03, #103):*
+`--remove` deletes a test only when it is redundant for every function it is observed to execute, within a
+budget; that is unweighted, and the κ-weighted invariant is still unbuilt.
 **Where:** §10 (Cor. 10.6). Read: SIGNIFICANCE_WEIGHTING §17; Detective #54.
 
 ## Empirical grounding — measured, not argued

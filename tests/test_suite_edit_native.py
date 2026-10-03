@@ -113,6 +113,16 @@ def _pr_for(function_key, kill_matrix, line_coverage):
     return pr
 
 
+def _reach_seen(*candidates):
+    """`candidate_reach` patched to an OBSERVED empty reach: these fixtures pin the sibling rule, and
+    their candidates have no test file to run. Since #103 an unobserved reach is unverified, never
+    empty, so the probe is stood in for explicitly rather than left to fail on a fictional test."""
+    return patch(
+        "Detective.audit.candidate_reach",
+        return_value=({c: ("known", frozenset()) for c in candidates}, {}),
+    )
+
+
 def test_module_safe_removals_retains_a_siblings_only_killer(tmp_path):
     """The wrapper's 'pointless' test that is the helper's only killer stays."""
     _write(
@@ -132,10 +142,13 @@ def test_module_safe_removals_retains_a_siblings_only_killer(tmp_path):
         {"MUT_H1": ["test_boundary"]},
         {"test_boundary": [2], "test_extra": []},
     )
-    with patch("Detective.audit.profile", return_value=sibling_pr):
-        safe, retained = module_safe_removals("m.py", "f", str(tmp_path), ["test_boundary", "test_extra"])
+    with patch("Detective.audit.profile", return_value=sibling_pr), _reach_seen("test_extra"):
+        safe, retained, unverified = module_safe_removals(
+            "m.py", "f", str(tmp_path), ["test_boundary", "test_extra"]
+        )
     assert retained == {"test_boundary": "helper"}
     assert safe == ("test_extra",)
+    assert unverified == {}
 
 
 def test_module_safe_removals_passes_sibling_redundant_tests(tmp_path):
@@ -157,10 +170,11 @@ def test_module_safe_removals_passes_sibling_redundant_tests(tmp_path):
         {"MUT_H1": ["test_one", "test_two"]},
         {"test_one": [2], "test_two": [2]},
     )
-    with patch("Detective.audit.profile", return_value=sibling_pr):
-        safe, retained = module_safe_removals("m.py", "f", str(tmp_path), ["test_two"])
+    with patch("Detective.audit.profile", return_value=sibling_pr), _reach_seen("test_two"):
+        safe, retained, unverified = module_safe_removals("m.py", "f", str(tmp_path), ["test_two"])
     assert safe == ("test_two",)
     assert retained == {}
+    assert unverified == {}
 
 
 def test_module_safe_removals_no_siblings_is_all_safe(tmp_path):
@@ -171,9 +185,27 @@ def test_module_safe_removals_no_siblings_is_all_safe(tmp_path):
             return x + 1
         """,
     )
-    safe, retained = module_safe_removals("m.py", "f", str(tmp_path), ["test_a"])
+    with _reach_seen("test_a"):
+        safe, retained, unverified = module_safe_removals("m.py", "f", str(tmp_path), ["test_a"])
     assert safe == ("test_a",)
     assert retained == {}
+    assert unverified == {}
+
+
+def test_a_candidate_no_collected_test_answers_to_is_kept_unobserved(tmp_path):
+    """#103: a fictional candidate (no test file answers to it) has an UNOBSERVED reach, and an
+    unobserved reach is never read as an empty one — it is kept, under its own code, never deleted."""
+    _write(
+        tmp_path / "m.py",
+        """
+        def f(x):
+            return x + 1
+        """,
+    )
+    safe, retained, unverified = module_safe_removals("m.py", "f", str(tmp_path), ["test_ghost"])
+    assert safe == ()
+    assert retained == {}
+    assert unverified == {"test_ghost": ("reach_unobserved", "")}
 
 
 def test_parametrized_cases_are_reported_not_removed(tmp_path):

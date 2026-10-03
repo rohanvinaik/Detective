@@ -70,12 +70,6 @@ BY_DESIGN: dict[str, str] = {
         "loop emits nothing per entry. The decision's docstring gives the split's purpose as pinning the "
         "gates' order ('a re-merge (e.g. letting a demoted censor re-promote) fails a pin'), not rendering."
     ),
-    "suite_edit.nodeid_kind @ suite_edit.apply_removals": (
-        "A filter: only `parametrized_case` is set aside here, and the comment above it says why. The "
-        "other three go on to `_locate`, which resolves each through `nodeid_function_name` and "
-        "`nodeid_file_hint`: a `qualified` id pins its file, a `bare` one matches any in-root "
-        "definition, and an `empty` one matches no callable and is reported not_found."
-    ),
     "converge.owned_obligation_disposition @ converge._self_owned_obligation_ids._mutant_kept": (
         "Stated by the accessor's docstring: it 'drops only the foreign_only ones … KEPT: owned … AND "
         "unwitnessed (a kill with no recorded killer is this target's kill, not a foreign dependency — "

@@ -905,6 +905,45 @@ def _discover_profile_tests(
     )
 
 
+def session_baseline_scope(has_session: bool, target_files: list[str], file: str) -> str:
+    """Whether the live session's shared baseline can answer for a function in ``file`` (#103, pure —
+    pinned).
+
+    The seam traces the session baseline "once for all of" the files it was opened for, and for any
+    other file "the per-function baseline stands" (`Wesker.ci.run_with_live_suite`). Nothing checked the
+    second half. Measured: inside `audit f`'s session, profiling `g` in another module, with or without
+    explicit tests and in-process or isolated, came back 5 mutants, 0 killed, and `{test_g: []}`
+    coverage, though `test_g` calls `g` directly, and every one of those results was VALID. That empty
+    "valid" profile is how the one-hop bridge check deleted nothing it should and kept nothing it
+    should. ``file`` and ``target_files`` are real paths.
+
+      "no_session"    no live session: the per-function baseline is the only one.
+      "undeclared"    a session baseline that did not declare what it traces (a bare closure, an older
+                      seam): used as before.
+      "covers"        the baseline traced ``file``: use it, the once-per-session saving the seam exists for.
+      "foreign_file"  the baseline traced other files only and holds no line of this one: measure on the
+                      per-function baseline instead.
+    """
+    if not has_session:
+        return "no_session"
+    if not target_files:
+        return "undeclared"
+    return "covers" if file in target_files else "foreign_file"
+
+
+def _session_baseline_scope_for(full: str) -> str:
+    """`session_baseline_scope` over the live holder, read where it is published."""
+    try:
+        from Wesker.engine import _SESSION_BASELINE
+    except ImportError:  # a Wesker without the live seam has no session baseline at all
+        return "no_session"
+    holder = _SESSION_BASELINE.get()
+    # A Wesker whose holder predates `target_files` declares nothing, which the decision reads as
+    # "undeclared" (used as before), never as a crash inside every profile of the session.
+    targets: list[str] = sorted(getattr(holder, "target_files", None) or ()) if holder is not None else []
+    return session_baseline_scope(holder is not None, targets, os.path.realpath(full))
+
+
 def profile(
     file: str,
     function: str,
@@ -941,6 +980,36 @@ def profile(
     """
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
+    if _session_baseline_scope_for(full) == "foreign_file":
+        # The live baseline never traced this file (#103): measure on the per-function baseline the
+        # seam documents as the fallback, with the session's holder withdrawn for this call only.
+        from Wesker.engine import _SESSION_BASELINE
+
+        token = _SESSION_BASELINE.set(None)
+        try:
+            return profile(
+                file,
+                function,
+                project_root,
+                is_pure=is_pure,
+                tests=tests,
+                budget_ms=budget_ms,
+                max_per_category=max_per_category,
+                pass_index=pass_index,
+                extra_test_dirs=extra_test_dirs,
+                progress=progress,
+                scope_tests=scope_tests,
+                use_cache=use_cache,
+                isolated=isolated,
+                mutant_slice=mutant_slice,
+                trace_budget_s=trace_budget_s,
+                trace_progress=trace_progress,
+                trace_session_budget_s=trace_session_budget_s,
+                include_shaped=include_shaped,
+                two_sign=two_sign,
+            )
+        finally:
+            _SESSION_BASELINE.reset(token)
     # Before ANY import can touch the target — test discovery and the traced
     # baseline both import it transitively — retire a possibly-stale bytecode
     # cache, or every number below describes a file no longer on disk.

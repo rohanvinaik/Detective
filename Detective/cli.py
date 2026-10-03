@@ -4590,7 +4590,7 @@ def _audit_closing_action(a, kind: str) -> list[str]:
     if kind == "removing_now":
         return [
             _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
-            _row("", "a test pointless here can still be a sibling's only pin."),
+            _row("", "a test pointless here can still be the only pin of a function it runs."),
         ]
     if kind == "remove_redundant":
         return [
@@ -4598,8 +4598,10 @@ def _audit_closing_action(a, kind: str) -> list[str]:
             "",
             _row("· Why", f"{len(a.redundant_tests)} test(s) kill no mutant AND cover no line"),
             _row("", "OF THIS FUNCTION that another test does not already. --remove"),
-            _row("", "re-checks every sibling in the file, keeps any a candidate still contributes"),
-            _row("", "to, and edits only this function's own test file — never a cross-file test."),
+            _row("", "re-checks every function each one serves (this file's functions, the"),
+            _row("", "target's direct callers and callees, every function the test is observed"),
+            _row("", "to execute), keeps any still needed there or not fully checked, and"),
+            _row("", "deletes the rest from whichever test file defines them."),
         ]
     if kind == "flag_equivalents":
         # #71: the SAME basis and sentence converge's DONE block renders — the residual is named for
@@ -5121,7 +5123,20 @@ def _build_parser() -> argparse.ArgumentParser:
             p.add_argument(
                 "--remove",
                 action="store_true",
-                help="CONFIRM deletion of the proposed pointless tests (removes them from your files)",
+                help="CONFIRM deletion of the proposed pointless tests. Each is first checked against every "
+                "function it serves (this file's functions, the target's direct callers and callees, and "
+                "every function it is observed to execute) and kept if any still needs it or could not be "
+                "checked; the rest are removed from whichever test file defines them.",
+            )
+            p.add_argument(
+                "--reach-budget",
+                type=int,
+                metavar="N",
+                default=None,
+                help="with --remove: the most functions a candidate is observed to execute, beyond this "
+                "file and the target's direct neighbours, that are profiled to clear it (default 32). "
+                "A count of profiles, not seconds. A candidate whose reach does not fit is kept as "
+                "reach_over_budget, never deleted on a guess.",
             )
             p.add_argument(
                 "--check",
@@ -7018,11 +7033,17 @@ def _run_audit(args, file, function) -> int:
             "strict": strict,
             "exit": gate_exit,
         }
-    print(
-        json.dumps(_with_exit(payload, gate_exit if check else 0), indent=2, default=str)
-        if args.json
-        else _format_audit(report, removing=bool(args.remove and report.redundant_tests))
-    )
+    # `--check` returns below before anything is removed, so it never announces a removal (#103: the
+    # "· Removing … safety-checked below" line used to print over a run that then removed nothing).
+    removing = bool(args.remove and report.redundant_tests) and not check
+    if not (args.json and removing):
+        # With --json --remove the payload is printed ONCE, after the removal, carrying its outcomes:
+        # printed first, a machine reader never saw what was deleted (#103).
+        print(
+            json.dumps(_with_exit(payload, gate_exit if check else 0), indent=2, default=str)
+            if args.json
+            else _format_audit(report, removing=removing)
+        )
     if check:
         if meas_incomplete and not spec_gap:
             # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search
@@ -7033,72 +7054,150 @@ def _run_audit(args, file, function) -> int:
                 file=sys.stderr,
             )
         return gate_exit
-    if args.remove and report.redundant_tests:
-        from .audit import module_safe_removals
-        from .suite_edit import apply_removals
-
-        # The redundant set is single-function evidence; deletion is a
-        # module-level act. Filter against every sibling in the file first —
-        # a test pointless for THIS function can be the only killer of a
-        # sibling's mutant (the post-decompose wrapper case).
-        safe, retained = module_safe_removals(file, function, args.project_root, list(report.redundant_tests))
-        for name, sibling in sorted(retained.items()):
-            # Honest about WHAT the sibling check verified (issue #54): it confirms the test still
-            # contributes a kill/line to `sibling` — NOT that `sibling` is itself specified. If
-            # `sibling` is far from complete, "still contributes" is a weaker guarantee than "pins".
-            print(
-                f"  retained {name} — still contributes kills/lines to {sibling} "
-                f"({sibling}'s own completeness unknown)"
-            )
-        result = apply_removals(file, args.project_root, list(safe))
-        if result.removed:
-            print(f"  removed {len(result.removed)}: {', '.join(result.removed)}")
-        if result.not_found:
-            # An explicit scope RULE, not a shrug (issue #54): --remove edits only tests Detective
-            # can attribute to this function's own file. A candidate elsewhere (a test of another
-            # function that traverses this one) is out of scope — never a deletion candidate,
-            # regardless of file layout, so it was protected by policy, not by accident.
-            print(
-                f"  skipped {len(result.not_found)} — outside this function's editable test scope "
-                "(--remove edits only its own test file, never a cross-file test): "
-                f"{', '.join(result.not_found)}"
-            )
-        if result.parametrized:
-            print(
-                f"  parametrized case(s) — rows of a live test, not removable as "
-                f"functions; prune the @parametrize row(s) yourself: "
-                f"{', '.join(result.parametrized)}"
-            )
-        if result.removed:
-            # Re-audit so the user sees the suite is still complete after pruning.
-            after = audit_suite(file, function, args.project_root, two_sign=getattr(args, "two_sign", False))
-            print(
-                f"  after removal: {after.test_count} test(s), "
-                f"complete={after.complete}, minimal cover={after.minimal_test_count}"
-            )
-            print(f"DONE:  removed {len(result.removed)} test(s); the suite above is what remains.")
+    if removing:
+        record = _audit_remove(
+            file,
+            function,
+            args.project_root,
+            report,
+            two_sign=getattr(args, "two_sign", False),
+            reach_budget=getattr(args, "reach_budget", None),
+        )
+        # A refused removal is exit 3 (invalid_measurement_rerun): re-measure the target first. A re-check
+        # that found an obligation newly open is exit 1 (gap_or_refusal): a removal may have broken it.
+        reading = (record.get("after") or {}).get("reading", "")
+        removal_exit = 3 if record["gate"] != "proceed" else 1 if reading == "gap_new" else 0
+        if args.json:
+            payload["removal"] = record
+            print(json.dumps(_with_exit(payload, removal_exit), indent=2, default=str))
         else:
-            # Issue #10: the requested action RAN and retained everything — say why and
-            # stop. Repeating `audit --remove` here instructs the user to re-run a
-            # command that just proved itself a no-op.
-            why = (
-                ", ".join(
-                    p
-                    for p in (
-                        f"{len(retained)} still contribute to a sibling" if retained else "",
-                        f"{len(result.parametrized)} are parametrized rows (report-only)"
-                        if result.parametrized
-                        else "",
-                        f"{len(result.not_found)} outside this function's editable test scope"
-                        if result.not_found
-                        else "",
-                    )
-                    if p
-                )
-                or "no candidate was safely removable"
-            )
-            print(f"DONE:  removed nothing — {why}. Every test is retained; the suite stands.")
+            print("\n".join(_removal_lines(record)))
+        return removal_exit
     return 0
+
+
+def _audit_remove(
+    file: str, function: str, project_root: str, report, *, two_sign: bool, reach_budget: int | None = None
+) -> dict:
+    """Carry out `audit --remove` and return its record: every candidate's outcome, with its cause (#103).
+
+    The redundant set is single-function evidence and deletion is a suite-level act, so each candidate
+    is first checked against every function it serves (`audit.module_safe_removals`). That means the
+    file's functions, the target's one-hop neighbours, and every function the test is observed to
+    execute. Only what survives that is handed to the editor (`suite_edit.apply_removals`), which
+    deletes exactly the definition each id names. One record serves the text renderer
+    (`_removal_lines`) and `--json` alike, and names the reach budget that applied, since a
+    ``reach_over_budget`` outcome is relative to it.
+    """
+    from .audit import REACH_BUDGET, audit_suite, module_safe_removals, removal_after_reading, removal_gate
+    from .suite_edit import apply_removals, removal_outcome_why
+
+    root = os.path.abspath(project_root)
+    budget = REACH_BUDGET if reach_budget is None else reach_budget
+    candidates = list(report.redundant_tests)
+    # The redundant set is the target's OWN measurement, which nothing below re-checks: it is acted on
+    # only when that measurement admits a certificate (`removal_gate`).
+    target_state = str(getattr(getattr(report, "function_basis", None), "action", "") or "")
+    gate = removal_gate(target_state)
+    record = {
+        "target": report.function,
+        "gate": gate,
+        "target_state": target_state,
+        "candidates": candidates,
+        "reach_budget": budget,
+    }
+    if gate != "proceed":
+        rows = [
+            {"test": t, "code": "target_unresolved", "subject": report.function} for t in sorted(candidates)
+        ]
+        for row in rows:
+            row["why"] = removal_outcome_why(row["code"], row["subject"])
+        return {**record, "outcomes": rows, "removed": [], "files_changed": [], "after": None}
+    safe, retained, unverified = module_safe_removals(file, function, project_root, candidates, budget)
+    result = apply_removals(file, project_root, list(safe))
+    rows = [
+        *({"test": t, "code": "retained_for", "subject": fn} for t, fn in sorted(retained.items())),
+        *({"test": t, "code": code, "subject": what} for t, (code, what) in sorted(unverified.items())),
+        *({"test": t, "code": code, "subject": ""} for t, code in result.outcomes),
+    ]
+    for row in rows:
+        row["why"] = removal_outcome_why(row["code"], row["subject"])
+    after = None
+    if result.removed:
+        # Re-audit so the reader sees the target is still complete after pruning. Its STATE is read, not
+        # `complete`: in-process after a mid-file edit the re-check can build only part of the mutant
+        # universe (measured: 2 of 11), and a bool would print that engine limit as a gap in the suite.
+        a = audit_suite(file, function, project_root, two_sign=two_sign)
+        state = str(getattr(getattr(a, "function_basis", None), "action", "") or "unresolved")
+        # What is open now that was not before: the target's file is never edited, so its gap and
+        # line descriptions compare directly across the two measurements.
+        newly_open = len(set(a.killable_gaps) - set(report.killable_gaps)) + len(
+            set(a.missing_lines) - set(report.missing_lines)
+        )
+        after = {
+            "test_count": a.test_count,
+            "state": state,
+            "reading": removal_after_reading(target_state, state, newly_open),
+            "newly_open": newly_open,
+            "cover": a.minimal_test_count,
+        }
+    return {
+        **record,
+        "outcomes": rows,
+        "removed": list(result.removed),
+        "files_changed": [os.path.relpath(p, root) for p in result.files_changed],
+        "after": after,
+    }
+
+
+def _removal_lines(record: dict) -> list[str]:
+    """The text rendering of an `_audit_remove` record: each kept test with its cause, the deletions, the
+    re-check read against the measurement before it, and one closing line (#103): DONE, or STOP when the
+    target's own measurement refused removal or the re-check found something newly open. Every cause is
+    `removal_outcome_why`'s sentence, never a second wording, and an empty run says WHY it removed
+    nothing (#10) rather than prescribing a re-run."""
+    from .suite_edit import removal_summary
+
+    kept = [r for r in record["outcomes"] if r["code"] != "removed"]
+    lines = [f"  {r['test']} — {r['why']}" for r in kept]
+    removed = record["removed"]
+    target = record.get("target", "")
+    if record.get("gate", "proceed") != "proceed":
+        lines.append(
+            f"STOP:  --remove refused — {target}'s own measurement admits no certificate "
+            f"({record.get('target_state') or 'no state'}), so no test is established as redundant."
+        )
+        lines.append(f"       Re-measure it first: detective audit '{target}'")
+        return lines
+    if removed:
+        lines.append(f"  removed {len(removed)}: {', '.join(removed)}")
+        after = record.get("after") or {}
+        reading = after.get("reading", "")
+        count = f"  after removal: {after.get('test_count')} test(s)"
+        if reading in ("complete", "gap_kept"):
+            lines.append(
+                f"{count}, complete, greedy cover={after.get('cover')}"
+                if reading == "complete"
+                else f"{count}; the gap named above, and nothing new"
+            )
+            lines.append(f"DONE:  removed {len(removed)} test(s); the suite above is what remains.")
+            return lines
+        if reading == "gap_new":
+            lines.append(f"{count}, and {after.get('newly_open')} obligation(s) open that were not before")
+            lines.append(
+                f"STOP:  a removal may have broken {target}. "
+                f"Confirm in a fresh run: detective audit '{target}'"
+            )
+            lines.append("       If it agrees, restore the removed tests listed above (git checkout).")
+            return lines
+        lines.append("  after removal: not re-measured — the in-process re-check admits no certificate")
+        lines.append(
+            f"DONE:  removed {len(removed)} test(s). Confirm in a fresh run: detective audit '{target}'"
+        )
+    else:
+        why = removal_summary([r["code"] for r in kept])
+        lines.append(f"DONE:  removed nothing — {why}. Every test is retained; the suite stands.")
+    return lines
 
 
 def _run_converge(args, file, function) -> int:

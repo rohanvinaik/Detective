@@ -1608,6 +1608,20 @@ caller/callee's mutant in another file (a BRIDGE, Def. 10.2) is retained; the br
 into the neighbor's profile via `profile(tests=)` (bypassing the import-reachability discovery that would
 hide it), and the mutant propagates through Wesker's module-qualified patch (measured on a cross-file
 wrapper). One hop — per-function-bounded, never the transitive closure (the sandwich thesis).
+**Cor. 10.6, extended (2026-10-03, #103).** One hop was measured insufficient. With `h` → `g` → `f`, each
+in its own module, a test redundant for `f` and for its neighbour `g` was the only test reaching `h`'s
+`x > 100` branch, and `--remove` deleted it (`h` fell from 12/14 to 5/14 value-pinned). Inside the CLI's
+live session the one-hop check had also measured nothing: the session baseline traces only the target's
+file, so a neighbour in another file profiled as valid and empty (Wesker's `LazySessionBaseline.target_files`
+now lets Detective measure such a function on its own baseline). The evidence boundary is now each
+candidate's OBSERVED REACH: the candidate is re-run once under a call profiler, and every function it
+executes that the file and one-hop checks did not cover is profiled with its own tests and the candidate
+force-included. Each measurement is still one function's operators and tests, and the set is what the
+test actually executes, never a closure, capped at `--reach-budget` profiles (default 32, spent on the
+smallest reach first). Every kept candidate names its cause (`retained_for` · `reach_unobserved` ·
+`reach_not_reproduced` · `reach_unmeasured` · `reach_over_budget` · `target_unresolved`), and `--remove`
+acts only on a target measurement that admits a certificate. Not built: the κ-WEIGHTED invariant of
+Cor. 10.6 (κ-for-code, §18 Q1), and the verify-and-restore transaction (#102, A2).
 
 **Measured.** The out-of-universe rewrite passing a positive SC=1 badge (Prop. 3.5, slugify, 2026-08-07);
 the "degenerate" near-miss witnesses outperforming hand-written tests (2026-08-07; a teaching artifact,

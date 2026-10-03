@@ -7,9 +7,11 @@ a regression neither matrix models, so the caller gates every removal behind an
 explicit confirmation (the ``--remove`` flag), and only tests the audit itself
 flagged are ever eligible.
 
-The core (:func:`remove_function_from_source`) is pure — source in, source out —
-so the risky part (which functions to drop) is deterministic and testable; the
-file I/O and discovery are a thin shell around it.
+The core (:func:`remove_definition_from_source`) is pure — source in, source out —
+so the risky part (which definition to drop) is deterministic and testable; the
+file I/O and discovery are a thin shell around it. Every id gets a named outcome
+(`removal_disposition`, `removal_outcome_why`), and only the definition an id
+exactly names is ever deleted (#103).
 """
 
 from __future__ import annotations
@@ -43,37 +45,71 @@ except ImportError:  # Wesker < 0.9.5 — same resolution rules, applied locally
         return os.path.abspath(f) if f else None
 
 
-def remove_function_from_source(source: str, name: str) -> str | None:
-    """``source`` with the top-level function ``name`` (and any decorators) removed,
-    or None if no such function is defined.
+def remove_definition_from_source(source: str, qualname: str) -> tuple[str, str]:
+    """``source`` with ONE test definition removed, and the outcome (#103, pure — pinned).
 
-    Removes the whole definition span — from the first decorator (or the ``def``
-    line when undecorated) through ``end_lineno`` — plus a single blank separator
-    line left behind, so the file does not accumulate blank gaps."""
-    tree = ast.parse(source)
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
-            start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
-            end = node.end_lineno or node.lineno
-            lines = source.splitlines(keepends=True)
-            del lines[start - 1 : end]
-            if start - 1 < len(lines) and lines[start - 1].strip() == "":
-                del lines[start - 1]  # drop the single blank the removed block left
-            return "".join(lines)
-    return None
+    ``qualname`` is the definition's Python qualified name: ``test_x`` for a module-level test,
+    ``TestC.test_m`` for a method (classes may nest). The span removed runs from the first decorator
+    (or the ``def`` line when undecorated) through ``end_lineno``, plus the single blank separator it
+    leaves, so the file does not accumulate gaps.
+
+      "removed"   the definition is gone. A class it leaves with no statement keeps a ``pass``, so the
+                  file still parses and the class's other members, decorators and bases are untouched.
+      "missing"   no definition of that qualified name exists in this source: the collection that
+                  proposed it is stale, or the source does not parse. Any parser failure counts, not
+                  only a SyntaxError: on 3.14 a deep expression overflows the parser stack as a
+                  MemoryError, and a lone surrogate raises UnicodeEncodeError (measured).
+      "shadowed"  the name is bound more than once in its scope. Python keeps the LAST binding, so
+                  removing either copy deletes the live test or resurrects a dead one; neither is the
+                  edit that was asked for. (The function this replaced removed the FIRST copy: the dead
+                  one, reporting the live test as deleted.)
+    """
+    try:
+        tree = ast.parse(source)
+    # BLE001: whatever the parser raises on a str (syntax, surrogate, stack overflow), it defines nothing
+    except Exception:  # noqa: BLE001
+        return ("missing", source)
+    parts = [p for p in qualname.split(".") if p]
+    if not parts:
+        return ("missing", source)
+    body: list[ast.stmt] = tree.body
+    owner: ast.ClassDef | None = None
+    for name in parts[:-1]:
+        classes = [n for n in body if isinstance(n, ast.ClassDef) and n.name == name]
+        if len(classes) != 1:
+            return ("shadowed" if classes else "missing", source)
+        owner = classes[0]
+        body = owner.body
+    defs = [n for n in body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == parts[-1]]
+    if len(defs) != 1:
+        return ("shadowed" if defs else "missing", source)
+    node = defs[0]
+    start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+    end = node.end_lineno or node.lineno
+    lines = source.splitlines(keepends=True)
+    del lines[start - 1 : end]
+    if owner is not None and len(owner.body) == 1:
+        # The method was the class's only statement, and an empty class body is a syntax error.
+        lines.insert(start - 1, " " * node.col_offset + "pass\n")
+    elif start - 1 < len(lines) and lines[start - 1].strip() == "":
+        del lines[start - 1]  # drop the single blank the removed block left
+    return ("removed", "".join(lines))
 
 
 @dataclass(frozen=True)
 class RemovalReport:
     """Outcome of applying deletions: what was removed and from where."""
 
-    removed: tuple[str, ...]  # test names actually deleted
-    not_found: tuple[str, ...]  # requested names no source definition matched
+    removed: tuple[str, ...]  # ids whose OWN definition was deleted (exact, never by bare name)
+    not_found: tuple[str, ...]  # ids kept for any reason but being a row; each has its cause in `outcomes`
     files_changed: tuple[str, ...]  # files rewritten
     # Bracketed names (test_x[case]) — ROWS of a live parametrized test. Removal
     # works at function granularity: deleting the function to prune a row would
     # take the live rows with it, so these are never attempted, only reported.
     parametrized: tuple[str, ...] = ()
+    # (id, code) for EVERY requested id — `removal_disposition`'s codes plus the edit's own
+    # "removed" / "stale_collection" / "shadowed" — so no id is reported without its cause (#103).
+    outcomes: tuple[tuple[str, str], ...] = ()
 
 
 def nodeid_kind(identifier: str) -> str:
@@ -116,95 +152,236 @@ def nodeid_function_name(identifier: str) -> str:
     return rest.split("[", 1)[0]
 
 
-def nodeid_file_hint(identifier: str) -> str:
-    """The FILE an identifier names, or "" when it does not name one (#54, pure — pinned).
+def nodeid_parts(identifier: str) -> tuple[str, str, str]:
+    """The (file, qualified name, case) an audit-reported identifier names (#103, pure — pinned).
 
-    Used to delete the RIGHT definition when two files define the same test name — matching on
-    the bare name alone would pick whichever the discovery happened to yield first, and deleting
-    the wrong test is the one mistake this module must never make.
-
-    ``?`` is Wesker's explicit unknown-origin placeholder in the legacy form; it names no file,
-    so it must not be treated as one.
+    ``tests/t.py::TestC::test_m[x-1]`` → ``("tests/t.py", "TestC.test_m", "x-1")``. The file is the
+    FIRST ``::`` segment and every later one is a scope. Before #103 the file was everything before
+    the LAST ``::``, so a class-method id named ``tests/t.py::TestC`` as its file, which equals no path:
+    every class-method candidate fell to `not_found`, under a sentence calling it a scope policy.
+    The ``legacy:`` namespace is stripped, Wesker's ``?`` unknown-origin placeholder names no file, and
+    its ``#display`` disambiguator is not part of the name. A bare name names no file.
     """
     rest = identifier[len("legacy:") :] if identifier.startswith("legacy:") else identifier
+    rest, bracket, case = rest.partition("[")
+    if bracket and case.endswith("]"):
+        case = case[:-1]
     if "::" not in rest:
-        return ""
-    head = rest.rsplit("::", 1)[0]
-    return "" if head == "?" else head
+        return ("", rest.split("#", 1)[0], case)
+    head, _, tail = rest.partition("::")
+    return ("" if head == "?" else head, tail.split("#", 1)[0].replace("::", "."), case)
 
 
-def _locate(project_root: str, file: str, names: set[str]) -> dict[str, set[str]]:
-    """Map each test file path to the requested test names it defines, via Wesker's
-    discovery — the same callables that were profiled, so a name resolves to the
-    exact function that ran."""
-    root = os.path.abspath(project_root)
-    full = file if os.path.isabs(file) else os.path.join(root, file)
-    rel = os.path.relpath(full, root)
+def removal_disposition(kind: str, located: int, shape: str) -> str:
+    """What `--remove` may do with ONE candidate it was handed, before any file is touched (#103,
+    pure — pinned).
+
+    ``kind`` is `nodeid_kind`'s code; ``located`` counts the distinct definitions the id resolves to
+    in the current suite; ``shape`` is ``function`` or ``method`` for a definition the editor can
+    remove intact, anything else otherwise.
+
+      "parametrized_row"  one row of a live parametrized test. Its function is alive while any other
+                          row earns its keep, so a row is never edited here (rows: #102 A3).
+      "not_located"       nothing in the current source answers to the id.
+      "ambiguous"         the id names no file and several definitions answer to it. Deleting all of
+                          them deletes tests nobody proposed (the function this replaced did exactly
+                          that), and picking one is a guess.
+      "unsupported_shape" exactly one definition, but not a module-level function or a class method.
+      "remove"            exactly one supported definition: the edit that was asked for.
+    """
+    if kind == "parametrized_case":
+        return "parametrized_row"
+    if kind == "empty" or located <= 0:
+        return "not_located"
+    if located > 1:
+        return "ambiguous"
+    if shape not in ("function", "method"):
+        return "unsupported_shape"
+    return "remove"
+
+
+def removal_outcome_why(code: str, subject: str = "") -> str:
+    """The one sentence each removal outcome renders as (#103, pure — pinned).
+
+    One owner, so the per-test lines, the closing summary and the JSON carry the same words and cannot
+    drift apart. ``subject`` is the detail a code's sentence names: the function a kept candidate is
+    still needed by (``retained_for``), the target (``target_unresolved``), how its re-run ended
+    (``reach_not_reproduced``), or the functions it runs that went unchecked (``reach_unmeasured``,
+    ``reach_over_budget``). An unknown code renders NAMED, never blank: a blank beside a kept test reads
+    as "no reason".
+    """
+    sentences = {
+        "removed": "deleted: redundant for this function and for every function it was observed to execute",
+        "retained_for": (
+            f"kept: {subject or 'another function'} still needs it (a kill or a line only it supplies)"
+        ),
+        "target_unresolved": (
+            f"kept: {subject or 'this function'}'s own measurement admits no certificate,"
+            " so its redundancy there is not established"
+        ),
+        "reach_unobserved": "kept: no collected test answers to this id, so its run could not be observed",
+        "reach_not_reproduced": (
+            f"kept: re-run by itself it did not pass (it {subject or 'gave no verdict'}),"
+            " so what it executes is unknown"
+        ),
+        "reach_unmeasured": (
+            f"kept: it executes {subject or 'a function'} with no valid measurement,"
+            " so its removal is not proven safe"
+        ),
+        "reach_over_budget": (
+            f"kept: it executes {subject or 'functions'} left unchecked when the reach budget ran out;"
+            " re-run with a larger --reach-budget"
+        ),
+        "parametrized_row": (
+            "kept: a row of a live parametrized test; rows are never edited (prune it by hand)"
+        ),
+        "not_located": "kept: no definition in the current source answers to this id",
+        "ambiguous": (
+            "kept: the id names no file and several definitions answer to it; deleting any would be a guess"
+        ),
+        "unsupported_shape": (
+            "kept: not a module-level test or a class method, so it cannot be removed intact"
+        ),
+        "stale_collection": "kept: collected, but the source no longer defines it there; re-run the audit",
+        "shadowed": (
+            "kept: its name is defined twice in one scope, and removing either copy changes which test runs"
+        ),
+    }
+    return sentences.get(code, f"unrecognised removal outcome: {code}")
+
+
+_SUMMARY_ORDER = (
+    ("retained_for", "still needed by another function"),
+    ("target_unresolved", "unestablished (the target's own measurement admits no certificate)"),
+    ("reach_unobserved", "not collected, so never run"),
+    ("reach_not_reproduced", "did not pass when re-run by themselves"),
+    ("reach_unmeasured", "run a function with no valid measurement"),
+    ("reach_over_budget", "past the reach budget (re-run with a larger --reach-budget)"),
+    ("parametrized_row", "parametrized row(s), report-only"),
+    ("not_located", "not found in the current source"),
+    ("ambiguous", "ambiguous (an id naming no file, with several definitions)"),
+    ("unsupported_shape", "of a shape that cannot be removed intact"),
+    ("stale_collection", "stale (re-run the audit)"),
+    ("shadowed", "defined twice in one scope"),
+)
+
+
+def removal_summary(codes: list[str]) -> str:
+    """Why a `--remove` run deleted nothing, as one clause (#103, pure — pinned).
+
+    Counts the kept candidates by outcome, in a fixed order so the same run always reads the same.
+    A code outside the vocabulary is still counted, by its own name, never folded into another; and
+    an empty list says so, rather than going silent.
+    """
+    if not codes:
+        return "no candidate was safely removable"
+    known = dict(_SUMMARY_ORDER)
+    parts = [f"{codes.count(code)} {label}" for code, label in _SUMMARY_ORDER if code in codes]
+    parts += [f"{codes.count(code)} {code}" for code in sorted(set(codes)) if code not in known]
+    return ", ".join(parts)
+
+
+def _test_qualname(call: Any) -> str:
+    """The Python qualified name of the test a discovered callable runs.
+
+    The ``__wrapped__`` function's when discovery wrapped the test (the live-item shape); else the
+    scopes of the nodeid a live wrapper carries as its ``__qualname__``; else the callable's own
+    ``__name__`` when its qualname is a closure's. pytest collects no nested test, so a ``<locals>``
+    qualname is always a wrapper's own, never the test's.
+    """
+    wrapped = getattr(call, "__wrapped__", None)
+    if wrapped is not None:
+        return str(getattr(wrapped, "__qualname__", "") or getattr(wrapped, "__name__", "") or "")
+    qual = str(getattr(call, "__qualname__", "") or "")
+    if "::" in qual:
+        return nodeid_parts(qual)[1]
+    if not qual or "<locals>" in qual:
+        return str(getattr(call, "__name__", "") or "")
+    return qual
+
+
+def _definition_shape(qualname: str) -> str:
+    """``function`` / ``method`` for a definition the editor can remove intact, ``unsupported`` else."""
+    if not qualname or "<" in qualname:
+        return "unsupported"
+    return "method" if "." in qualname else "function"
+
+
+def _resolve_definitions(project_root: str, file: str, ids: set[str]) -> dict[str, set[tuple[str, str]]]:
+    """Each requested id → the (real path, qualified name) definitions it denotes in the current suite.
+
+    Resolution goes through Wesker's discovery, the same callables that were profiled, so an id
+    resolves to the exact test that ran (#54). An id that names a file matches only the definition IN
+    that file with that qualified name, so two files defining one test name never resolve to each
+    other. An id that names no file matches every definition of that name, and `removal_disposition`
+    refuses more than one as ``ambiguous`` (#103: the function this replaced deleted them ALL). Only
+    files under the project root answer: an origin outside it is a wrapper's own module
+    (site-packages), the one file this module must never edit.
+    """
+    aroot = os.path.abspath(project_root)
+    rroot = os.path.realpath(project_root)
+    full = file if os.path.isabs(file) else os.path.join(aroot, file)
     with open(full, encoding="utf-8") as fh:
         tree = ast.parse(fh.read(), filename=full)
-    func_names = [qn for qn, _ in walk_functions(tree)]
-    callables = discover_test_callables(root, rel, func_names)
-    # Match on the RESOLVED function name, not the raw identifier (#54). `names` arrives as
-    # pytest nodeids, so comparing them to a callable's `__name__` never matched and every
-    # request became `not_found`. A file hint, where the identifier carries one, additionally
-    # pins WHICH definition — two files defining one test name must not resolve to whichever
-    # discovery yielded first.
-    wanted_names = {nodeid_function_name(n) for n in names}
-    hints: dict[str, set[str]] = {}
-    for n in names:
-        hints.setdefault(nodeid_function_name(n), set()).add(nodeid_file_hint(n))
-    by_file: dict[str, set[str]] = {}
+    callables = discover_test_callables(
+        aroot, os.path.relpath(full, aroot), [qn for qn, _ in walk_functions(tree)]
+    )
+    wanted = {ident: nodeid_parts(ident) for ident in ids}
+    found: dict[str, set[tuple[str, str]]] = {ident: set() for ident in ids}
     for call in callables:
-        name = getattr(call, "__name__", "")
-        if name not in wanted_names:
+        origin = callable_origin(call)
+        if not origin:
             continue
-        path = callable_origin(call)
-        if not path:
+        real = os.path.realpath(origin)
+        if not real.startswith(rroot + os.sep):
             continue
-        # An identifier that named a file only matches the definition IN that file. An empty
-        # hint means the identifier named none, so any in-root definition of the name qualifies.
-        _hints = {h for h in hints.get(name, set()) if h}
-        if _hints and not any(
-            os.path.abspath(path) == os.path.abspath(os.path.join(root, h)) for h in _hints
-        ):
-            continue
-        # Only files under the project root are candidates for editing. A path
-        # outside it means origin resolution fell through to a wrapper's own
-        # module (site-packages) — deleting "a test" from THERE is the one edit
-        # this function must never make, so the name stays unlocated instead.
-        if not os.path.abspath(path).startswith(root + os.sep):
-            continue
-        by_file.setdefault(path, set()).add(name)
-    return by_file
+        qual = _test_qualname(call)
+        for ident, (hint, name, _case) in wanted.items():
+            if hint:
+                if qual == name and os.path.realpath(os.path.join(aroot, hint)) == real:
+                    found[ident].add((real, qual))
+            elif name and (qual == name or qual.rsplit(".", 1)[-1] == name):
+                found[ident].add((real, qual))
+    return found
 
 
 def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalReport:
-    """Delete the named test functions from their source files.
+    """Delete the named test definitions from their source files, and name every id's outcome.
 
-    CALLER MUST HAVE CONFIRMATION: this writes to the user's test files. It removes
-    only the ``names`` it is given (the audit's redundant set), and rewrites each
-    file once. A name whose definition cannot be located is reported in
-    ``not_found``, never guessed at."""
+    CALLER MUST HAVE CONFIRMATION: this writes to the user's test files. It removes only the ``names``
+    it is given (the audit's redundant set, already filtered by `audit.module_safe_removals`), each
+    resolved to exactly ONE definition (`removal_disposition`), and rewrites each file once,
+    atomically. An id is reported removed only when its own definition was deleted: the function this
+    replaced accounted by bare name, so a same-named test in another file read as removed (#103).
+    """
     wanted = set(names)
-    # A bracketed name is one CASE of a parametrized test — a row, not a
-    # function. The function is alive (its other rows earn their keep, or it
-    # would have been proposed by its bare name), so it must not be deleted to
-    # get at the row. Set aside and report; the user prunes the row.
-    cases = {n for n in wanted if nodeid_kind(n) == "parametrized_case"}
-    wanted -= cases
-    by_file = _locate(project_root, file, wanted)
-    removed: list[str] = []
+    # A bracketed name is one CASE of a parametrized test — a row, not a function. The function is
+    # alive (its other rows earn their keep), so it must not be deleted to get at the row.
+    outcomes: dict[str, str] = {
+        n: "parametrized_row" for n in wanted if nodeid_kind(n) == "parametrized_case"
+    }
+    rest = sorted(wanted - set(outcomes))
+    found = _resolve_definitions(project_root, file, set(rest)) if rest else {}
+    plan: dict[str, list[tuple[str, str]]] = {}
+    for ident in rest:
+        defs = found.get(ident, set())
+        path, qual = next(iter(defs)) if len(defs) == 1 else ("", "")
+        disposition = removal_disposition(nodeid_kind(ident), len(defs), _definition_shape(qual))
+        if disposition == "remove":
+            plan.setdefault(path, []).append((ident, qual))
+        else:
+            outcomes[ident] = disposition
     changed: list[str] = []
-    for path, file_names in by_file.items():
+    for path, items in sorted(plan.items()):
         with open(path, encoding="utf-8") as fh:
             source = fh.read()
         touched = False
-        for name in sorted(file_names):
-            new_source = remove_function_from_source(source, name)
-            if new_source is not None:
-                source = new_source
-                removed.append(name)
-                touched = True
+        for ident, qual in items:
+            edit, edited = remove_definition_from_source(source, qual)
+            # "missing" after a definite resolution means the source moved under the collection.
+            outcomes[ident] = edit if edit in ("removed", "shadowed") else "stale_collection"
+            if edit == "removed":
+                source, touched = edited, True
         if touched:
             from .atomic_store import atomic_write_text
 
@@ -212,15 +389,7 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
             # original file whole, never half a test module.
             atomic_write_text(path, source)
             changed.append(path)
-    # Keyed off REMOVED, not located: a name can locate to a file whose parse
-    # then shows no such top-level def (a stale collection, a nested test). The
-    # old `wanted - located` accounting made that case silently vanish from the
-    # report — neither removed nor not_found — which is how a total no-op once
-    # printed as a clean "removed nothing" with no reason attached.
-    # Report in the spelling the CALLER used. `removed` accumulates resolved function names, but
-    # the user was shown nodeids and a report that answers in a different vocabulary reads as a
-    # different set of tests.
-    _removed_names = set(removed)
-    removed_ids = [n for n in wanted if nodeid_function_name(n) in _removed_names]
-    not_found = tuple(sorted(wanted - set(removed_ids)))
-    return RemovalReport(tuple(sorted(removed_ids)), not_found, tuple(sorted(changed)), tuple(sorted(cases)))
+    removed = tuple(sorted(i for i, c in outcomes.items() if c == "removed"))
+    rows = tuple(sorted(i for i, c in outcomes.items() if c == "parametrized_row"))
+    kept = tuple(sorted(i for i, c in outcomes.items() if c not in ("removed", "parametrized_row")))
+    return RemovalReport(removed, kept, tuple(changed), rows, tuple(sorted(outcomes.items())))

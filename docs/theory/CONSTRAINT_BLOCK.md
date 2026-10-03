@@ -80,7 +80,8 @@ the block is broken, not the reader.
 
 - **`audit --remove` measures the wrong invariant (#54).** Local kill+line redundancy is the bridge
   counterexample; correct gate is κ-weighted coverage over the closure (SC Thm 2.3, 3.11). Blocked on
-  κ-for-code. §10 (Cor. 10.6).
+  κ-for-code. §10 (Cor. 10.6). Since #103 (2026-10-03) the unweighted check spans every function the
+  test is observed to execute; the κ-weighted gate is still unbuilt.
 
 - **A prediction that was WRONG — do not re-make it.** That censors land in the **bulk** regime with a
   sharp knee, by analogy with SSL's constants. Censors span call sites, so in a sparse graph a censor

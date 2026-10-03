@@ -45,7 +45,9 @@ def test_cross_file_bridge_is_retained_via_the_callee(tmp_path):
     root = _repo(tmp_path)
     # test_run_empty is redundant for `run` (a pure wrapper) but the SOLE killer of parse's raise-guard,
     # which lives in helper_mod.py — a cross-file bridge the file-scoped guard would wrongly delete.
-    safe, retained = module_safe_removals("main_mod.py", "run", root, [_cid(root, "test_run_empty")])
+    safe, retained, _unverified = module_safe_removals(
+        "main_mod.py", "run", root, [_cid(root, "test_run_empty")]
+    )
     assert safe == ()  # not removable
     assert retained.get(_cid(root, "test_run_empty")) == "parse"  # retained, needed by the callee
 
@@ -54,6 +56,9 @@ def test_a_genuinely_redundant_candidate_is_still_removable(tmp_path):
     root = _repo(tmp_path)
     # test_run_dup duplicates test_run — redundant for `run` AND `parse` (covers only the happy path), so no
     # neighbor needs it: the κ-neighborhood extension must not over-retain a real redundancy.
-    safe, retained = module_safe_removals("main_mod.py", "run", root, [_cid(root, "test_run_dup")])
+    safe, retained, unverified = module_safe_removals(
+        "main_mod.py", "run", root, [_cid(root, "test_run_dup")]
+    )
     assert safe == (_cid(root, "test_run_dup"),)
     assert not retained
+    assert not unverified  # its reach (run, parse) was observed, and both were consulted (#103)

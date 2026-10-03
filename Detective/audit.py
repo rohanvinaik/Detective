@@ -581,22 +581,233 @@ def _is_test_file(rel_path: str) -> bool:
     return base.startswith("test_") or base.endswith("_test.py")
 
 
+def _test_identity(test_id: str, root: str) -> str:
+    """One test's identity across spellings: the nodeid, the legacy form, absolute or root-relative."""
+    path, separator, case = test_id.removeprefix(_LEGACY_PREFIX).partition("::")
+    return os.path.realpath(os.path.join(root, path)) + separator + case
+
+
 def _removal_needs(result, candidates: set[str], root: str) -> set[str]:
     """Match candidate spellings to measured identities; retain on an invalid measurement."""
     from .validity import normalize_validity
 
     if not normalize_validity(result).admits_certificate:
         return set(candidates)
-
-    def identity(test_id: str) -> str:
-        path, separator, case = test_id.removeprefix(_LEGACY_PREFIX).partition("::")
-        return os.path.realpath(os.path.join(root, path)) + separator + case
-
     needed = set(_obligations_by_test(result.kill_matrix, result.line_coverage)) - redundant_2axis(
         result.kill_matrix, result.line_coverage
     )
-    measured = {identity(name) for name in needed}
-    return {candidate for candidate in candidates if identity(candidate) in measured}
+    measured = {_test_identity(name, root) for name in needed}
+    return {candidate for candidate in candidates if _test_identity(candidate, root) in measured}
+
+
+def removal_safety(needed_by: str, reach_status: str, unmeasured: int, over_budget: int) -> str:
+    """Whether one deletion candidate may go, once every function it touches was consulted (#103,
+    pure — pinned).
+
+    The defect, measured through the real CLI: `test_mixed` asserted `f(3) == 6` (a duplicate) and
+    `h(200) == 400`, and was the only test reaching `h`'s `x > 100` branch. `h` calls `g` calls `f`,
+    each in its own module. `audit f --remove` checked `f`'s file and its one-hop neighbour `g`, found
+    `test_mixed` redundant in both, and deleted it: `h` fell from 12/14 value-pinned to 5/14, with line
+    6 uncovered, under "complete=True". The neighbourhood docstring named the hole ("A test serving a
+    function OUTSIDE that neighborhood is still beyond audit's evidence") and the verb deleted anyway.
+
+    Every code but ``removable`` keeps the test, and no two causes share a code, because each has its
+    own remedy:
+
+      "retained_for"          ``needed_by`` names a function that still needs it: a kill or a line only
+                              it supplies there. Outranks everything; it is a measured need.
+      "reach_unobserved"      no collected test answered to it (``reach_status`` ``not_collected``), so
+                              it never ran. Remedy: the collection (re-run the audit).
+      "reach_not_reproduced"  re-run by itself it did not pass as it did when measured (any other
+                              status but ``known``), so what it executes is unknown. Remedy: the test.
+      "reach_unmeasured"      ``unmeasured`` functions it executes had no valid measurement. Remedy:
+                              their measurement. Outranks the budget, which raising cannot fix.
+      "reach_over_budget"     ``over_budget`` functions it executes were left unchecked when the reach
+                              budget ran out. Remedy: a larger budget.
+      "removable"             redundant for the target and for every function it was observed to
+                              execute. Correct, however far from the target those functions are.
+    """
+    if needed_by.strip():
+        return "retained_for"
+    if reach_status != "known":
+        return "reach_unobserved" if reach_status == "not_collected" else "reach_not_reproduced"
+    if unmeasured > 0:
+        return "reach_unmeasured"
+    if over_budget > 0:
+        return "reach_over_budget"
+    return "removable"
+
+
+def probe_reach_status(raised: bool, item_status: str) -> str:
+    """What one probe run of a deletion candidate establishes about its reach (#103, pure — pinned).
+
+    The probe re-runs the candidate by itself to see what it executes, and that reach stands for the
+    run that was measured only if this run PASSED as that one did. A live pytest item returns normally
+    for a pass, a skip and an expected failure alike, so its category travels beside the return
+    (Wesker's ``callable_item_status``: ``passed`` / ``failed`` / ``error`` / ``skipped`` / ``xfailed``,
+    or ``unobserved`` for a callable that carries none). Split from `candidate_reach`, which holds the
+    callable, so the decision takes only the two facts.
+
+      "known"     it passed, or a callable that carries no category (a plain function) returned
+                  normally: what it executed is its reach.
+      "raised"    the call raised and no category names why.
+      <category>  the item's own category when it did not pass (``failed`` / ``error`` / ``skipped`` /
+                  ``xfailed``, or one this does not know), passed through as the cause: a skipped run
+                  executed only what came before the skip, so its reach is partial, never complete.
+    """
+    status = item_status or "unobserved"
+    if raised and status in ("passed", "unobserved"):
+        return "raised"
+    if status in ("passed", "unobserved"):
+        return "known"
+    return status
+
+
+def candidate_reach(
+    project_root: str, file: str, function: str, candidates: Sequence[str]
+) -> tuple[dict[str, tuple[str, frozenset[tuple[str, str]]]], dict[str, Any]]:
+    """Every project function each candidate test EXECUTES, observed by running it once (#103).
+
+    A test can kill a mutant only in a function it executes: a mutant changes one function, and a
+    change to a function that never runs is unobservable. So a candidate's obligations lie exactly
+    in its observed reach (tests deterministic, as everywhere the kill matrix is read). The probe runs
+    the SAME callable the profile ran, the live pytest item with its fixtures, under a call profiler
+    on every thread. It keeps the frames whose code is the project's own source:
+    - under the root, and outside hidden, skipped and interpreter (site-packages) directories;
+    - not a collected test file, and not a ``conftest.py``.
+    A nested function counts as its outermost enclosing function, the unit Wesker mutates.
+
+    Returns ``({candidate: (status, {(rel_file, qualname)})}, {candidate: callable})``. ``status`` is
+    ``not_collected`` when no collected test answers to the id, else `probe_reach_status`'s code for
+    the run: ``known`` only for a run that passed as the measured one did. `removal_safety` reads every
+    other status as a reach not observed, never as an empty one.
+    """
+    import contextlib
+    import io
+    import sys
+    import threading
+
+    from Wesker.ci import callable_item_status, callable_origin, callable_test_id, discover_test_callables
+
+    from .kappa import _SKIP_DIRS
+
+    root = os.path.abspath(project_root)
+    rroot = os.path.realpath(root)
+    full = file if os.path.isabs(file) else os.path.join(root, file)
+    callables = list(discover_test_callables(root, os.path.relpath(full, root), [function]))
+    test_files = {os.path.realpath(o) for c in callables if (o := callable_origin(c))}
+    interpreter = tuple(
+        {os.path.realpath(p) + os.sep for p in (sys.prefix, sys.base_prefix, sys.exec_prefix)}
+    )
+    by_identity: dict[str, Any] = {}
+    for c in callables:
+        by_identity.setdefault(_test_identity(callable_test_id(c, root), root), c)
+    rel_of: dict[str, str] = {}
+
+    def _project_rel(filename: str) -> str:
+        """The root-relative path of a frame's file when it is project source, else ''."""
+        rel = rel_of.get(filename)
+        if rel is None:
+            real = os.path.realpath(filename)
+            parts = os.path.relpath(real, rroot).split(os.sep) if real.startswith(rroot + os.sep) else []
+            project = (
+                bool(parts)
+                and real.endswith(".py")
+                and real not in test_files
+                and parts[-1] != "conftest.py"
+                and not real.startswith(interpreter)
+                and not any(
+                    p in _SKIP_DIRS or p.startswith(".") or p in ("site-packages", "dist-packages")
+                    for p in parts[:-1]
+                )
+            )
+            rel = os.sep.join(parts) if project else ""
+            rel_of[filename] = rel
+        return rel
+
+    reach: dict[str, tuple[str, frozenset[tuple[str, str]]]] = {}
+    matched: dict[str, Any] = {}
+    for cid in candidates:
+        call = by_identity.get(_test_identity(cid, root))
+        if call is None:
+            reach[cid] = ("not_collected", frozenset())
+            continue
+        matched[cid] = call
+        seen: set[tuple[str, str]] = set()
+
+        def _profile(frame: Any, event: str, _arg: Any, _seen: set = seen) -> None:
+            if event == "call":
+                rel = _project_rel(frame.f_code.co_filename)
+                qual = frame.f_code.co_qualname.split(".<locals>.", 1)[0]
+                if rel and "<" not in qual:
+                    _seen.add((rel, qual))
+
+        previous = sys.getprofile()
+        threading.setprofile_all_threads(_profile)
+        raised = False
+        # Each run is wrapped in its own redirect, as `trace_suite` wraps every test it runs: a pytest
+        # item's protocol can leave `sys.stdout` replaced, and run bare the probe once swallowed every
+        # line printed after it, the removal report included, under exit 0 (#103, measured).
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                call()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        # BLE001: pytest's `Failed`/`Skipped` derive from BaseException; such a run is not the measured one
+        except BaseException:  # noqa: BLE001
+            raised = True
+        finally:
+            threading.setprofile_all_threads(None)
+            sys.setprofile(previous)
+        reach[cid] = (probe_reach_status(raised, callable_item_status(call)), frozenset(seen))
+    return reach, matched
+
+
+def removal_gate(target_action: str) -> str:
+    """Whether `--remove` may act on this function's redundant set at all (#103, pure — pinned).
+
+    ``target_action`` is the FunctionBasis terminal state of the target's OWN audit (`basis_action`).
+    The redundant set is read off that measurement's kill matrix, and `module_safe_removals` re-checks
+    every OTHER function a candidate serves, never the target. So a measurement that admits no
+    certificate (a truncated search, mutants that could not be built, a module that would not load)
+    leaves "redundant here" unestablished. Measured: re-audited in-process after a mid-file test edit,
+    such a run built 2 of 11 mutants and listed a boundary mutant's only killer as redundant.
+
+      "proceed"            ``complete`` or ``gap``: a valid measurement. A gap is mutants no test kills,
+                           which no deletion changes; every kill observed stays observed.
+      "refuse_unresolved"  anything else (``unresolved``, or a state this does not know): nothing is
+                           deleted, and every candidate is kept as ``target_unresolved``.
+    """
+    return "proceed" if target_action in ("complete", "gap") else "refuse_unresolved"
+
+
+def removal_after_reading(before: str, after: str, newly_open: int) -> str:
+    """What the post-removal re-check says about the removal (#103, pure — pinned).
+
+    ``before`` / ``after`` are the target's FunctionBasis states (`basis_action`) measured before and
+    after the deletions; ``newly_open`` counts obligations open after that were not open before
+    (killable survivors and uncovered lines; the target's file is never edited, so they compare
+    directly). Every deleted test was redundant wherever it ran, so a removal cannot open an
+    obligation unless that reasoning failed, and this is the check that would say so. Reading only
+    ``after`` printed a gap the target ALREADY had as if the removal made it.
+
+      "complete"    the re-check reads complete.
+      "gap_kept"    it reads a gap, the same one the target had before; nothing newly open.
+      "gap_new"     it reads an obligation open that was not before: a removal may have broken the
+                    target, and it is reported as such, never as done.
+      "unmeasured"  the re-check admits no certificate (measured: in-process after a mid-file edit it
+                    built 2 of 11 mutants), so it says nothing either way; a fresh run must confirm.
+    """
+    if after == "complete":
+        return "complete"
+    if after == "gap":
+        return "gap_kept" if before == "gap" and newly_open <= 0 else "gap_new"
+    return "unmeasured"
+
+
+# The most reached functions `--remove` profiles in one run beyond the target's file and its one-hop
+# neighbours (#103). A count of profiles, never seconds, so the same run always reads the same.
+REACH_BUDGET = 32
 
 
 def module_safe_removals(
@@ -604,8 +815,10 @@ def module_safe_removals(
     function: str,
     project_root: str = ".",
     candidates: Sequence[str] = (),
-) -> tuple[tuple[str, ...], dict[str, str]]:
-    """Filter deletion candidates against every SIBLING function in ``file``.
+    reach_budget: int = REACH_BUDGET,
+) -> tuple[tuple[str, ...], dict[str, str], dict[str, tuple[str, str]]]:
+    """Filter deletion candidates against every function they serve: the file's siblings, the target's
+    one-hop neighbours, and every function each candidate is observed to execute.
 
     ``redundant_tests`` is measured against ONE function's mutants and lines —
     evidence that says nothing about the rest of the module. A test that kills
@@ -627,20 +840,34 @@ def module_safe_removals(
     module. Because Detective's import-reachability discovery would HIDE such a
     bridge test when profiling the neighbor (it imports the caller's module, not
     the neighbor's), the candidate's test files are force-included via profile's
-    explicit ``tests=``. One hop only, so the set stays per-function-bounded (the
-    sandwich thesis), never the whole transitive closure. A test serving a function
-    OUTSIDE that neighborhood is still beyond audit's evidence, so the caller's
-    report scopes its claim accordingly — not "nothing else changes".
+    explicit ``tests=``.
+
+    One hop was not enough (#103): a test can serve a function two hops away in another module, and
+    the one-hop guard deleted it. So the boundary also covers each remaining candidate's OBSERVED
+    REACH (`candidate_reach`): every function it executes and nothing above has consulted is profiled
+    the same way, with the candidates force-included as their live items. The unit stays per function
+    (each reached function is one profile, bounded by what the test runs), never a repo-wide trace,
+    and at most ``reach_budget`` such profiles run (`reach_consultation_plan`). Each candidate then
+    gets one verdict from `removal_safety`.
+
+    Returns ``(safe, retained, unverified)``:
+    - the candidates proven removable;
+    - those kept, mapped to the function that still needs each;
+    - those kept because their reach was not fully established, mapped to ``(code, subject)``: the
+      `removal_safety` code and the detail its sentence names.
     """
     wanted = set(candidates)
     if not wanted:
-        return (), {}
+        return (), {}, {}
     root = os.path.abspath(project_root)
     full = file if os.path.isabs(file) else os.path.join(root, file)
     with open(full, encoding="utf-8") as fh:
         tree = ast.parse(fh.read(), filename=full)
+    rel_target = os.path.relpath(full, root)
     retained: dict[str, str] = {}
+    checked: set[tuple[str, str]] = set()
     for qn, _node in walk_functions(tree):
+        checked.add((rel_target, qn))
         if qn == function or not wanted:
             continue
         result = profile(file, qn, root, isolated=True, use_cache=False)
@@ -659,7 +886,6 @@ def module_safe_removals(
 
         from .kappa import build_call_graph, call_graph_neighbors, function_locations
 
-        rel_target = os.path.relpath(full, root)
         cand_files = [f for f in _candidate_test_files(wanted) if os.path.exists(f)]
         cand_callables = load_test_callables(cand_files, root) if cand_files else []
         if cand_callables:
@@ -676,7 +902,12 @@ def module_safe_removals(
                     # file-sibling loop uses — the neighbor's own reachable tests PLUS the force-included
                     # candidates — so a bridge is caught but a candidate the neighbor's own suite already
                     # covers is not spuriously retained.
-                    nb_own = list(discover_test_callables(root, nb_file, [nb_qn]))
+                    checked.add((nb_file, nb_qn))
+                    # Statically routed tests only (#103). Since a foreign-file neighbour is measured on
+                    # its own per-function baseline (`engine.session_baseline_scope`), the whole live
+                    # suite here would be a full trace per neighbour. Fewer of the neighbour's own tests
+                    # can only make a candidate look MORE needed, so the narrowing errs toward keeping.
+                    nb_own = list(discover_test_callables(root, nb_file, [nb_qn], conservative=True))
                     nb_result = profile(
                         nb_file, nb_qn, root, tests=nb_own + cand_callables, isolated=True, use_cache=False
                     )
@@ -684,4 +915,121 @@ def module_safe_removals(
                     for name in sorted(wanted & nb_needed):
                         retained[name] = nb_qn
                     wanted -= nb_needed
-    return tuple(sorted(wanted)), retained
+    reach: dict[str, tuple[str, frozenset[tuple[str, str]]]] = {}
+    gaps: dict[tuple[str, str], str] = {}
+    if wanted:
+        reach, live = candidate_reach(root, file, function, sorted(wanted))
+        gaps = _consult_reach(root, reach, live, wanted, checked, retained, reach_budget)
+    safe: list[str] = []
+    unverified: dict[str, tuple[str, str]] = {}
+    for cid in sorted(set(candidates)):
+        status, reached = reach.get(cid, ("known", frozenset()))
+        unmeasured = sorted(f"{f}::{q}" for f, q in reached if gaps.get((f, q)) == "unmeasured")
+        over = sorted(f"{f}::{q}" for f, q in reached if gaps.get((f, q)) == "over_budget")
+        verdict = removal_safety(retained.get(cid, ""), status, len(unmeasured), len(over))
+        if verdict == "removable":
+            safe.append(cid)
+        elif verdict != "retained_for":
+            detail = {
+                "reach_not_reproduced": status,
+                "reach_unmeasured": _named_functions(unmeasured),
+                "reach_over_budget": _named_functions(over),
+            }
+            unverified[cid] = (verdict, detail.get(verdict, ""))
+    return tuple(safe), retained, unverified
+
+
+def _named_functions(names: list[str]) -> str:
+    """Up to three names in full, then a count, so a long reach stays one readable clause."""
+    shown = ", ".join(names[:3])
+    return shown if len(names) <= 3 else f"{shown} and {len(names) - 3} more"
+
+
+def reach_consultation_plan(unchecked: dict[str, list[str]], budget: int) -> dict[str, str]:
+    """Which candidates get their unchecked reach profiled within ``budget`` profiles (#103, pure —
+    pinned).
+
+    ``unchecked`` maps each candidate still in question to the functions it executes that nothing has
+    consulted yet; ``budget`` is how many of those functions this run may profile. A candidate is
+    decided only once EVERY function it executes has been consulted, so the budget is spent a whole
+    candidate at a time, smallest unchecked reach first (then by id, so the same run always reads the
+    same): one integration test that reaches hundreds of functions cannot starve the unit tests that
+    reach two. A function several candidates share is paid for once. Split from `_consult_reach`,
+    which holds live callables, so the decision takes only names.
+
+      "covered"      it executes nothing unchecked: the measurements already taken decide it.
+      "consult"      its unchecked reach fits in what remains, so each of those functions is profiled.
+      "over_budget"  it does not fit, so it is kept (``reach_over_budget``), never deleted on a guess.
+    """
+    plan: dict[str, str] = {}
+    scheduled: set[str] = set()
+    # No clamp: a budget at or below zero schedules nothing either way, since every non-empty reach
+    # costs at least one (pinned: the clamp's mutants were each provably equivalent).
+    remaining = budget
+    for cid in sorted(unchecked, key=lambda c: (len(set(unchecked[c])), c)):
+        reach = set(unchecked[cid])
+        new = reach - scheduled
+        if not reach:
+            plan[cid] = "covered"
+        elif len(new) <= remaining:
+            scheduled |= new
+            remaining -= len(new)
+            plan[cid] = "consult"
+        else:
+            plan[cid] = "over_budget"
+    return plan
+
+
+def _consult_reach(
+    root: str,
+    reach: dict[str, tuple[str, frozenset[tuple[str, str]]]],
+    live: dict[str, Any],
+    wanted: set[str],
+    checked: set[tuple[str, str]],
+    retained: dict[str, str],
+    budget: int,
+) -> dict[tuple[str, str], str]:
+    """Profile what the remaining candidates execute that nothing has consulted yet, within ``budget``
+    profiles (#103).
+
+    Each reached function is one profile over its own statically routed tests plus the candidates
+    themselves, force-included as their LIVE items so a fixture-using test runs as it did in the
+    measurement. Narrowing the function's own tests can only make a candidate look MORE needed (fewer
+    other tests share its kills), so the narrowing errs toward keeping, never toward deleting. A
+    candidate still needed there is moved to ``retained`` (mutating ``wanted`` and ``retained``).
+    Whose reach is consulted is `reach_consultation_plan`'s decision.
+
+    Returns every reached function left without a verdict, with why: ``unmeasured`` (its profile was
+    not a valid measurement) or ``over_budget`` (the budget ran out before it), which `removal_safety`
+    turns into ``reach_unmeasured`` / ``reach_over_budget`` for each candidate that reached it.
+    """
+    from Wesker.ci import callable_test_id, discover_test_callables
+
+    from .validity import normalize_validity
+
+    unchecked = {cid: sorted(f"{f}::{q}" for f, q in reach[cid][1] - checked) for cid in sorted(wanted)}
+    plan = reach_consultation_plan(unchecked, budget)
+    gaps: dict[tuple[str, str], str] = {}
+    pending = sorted({fn for cid in wanted if plan[cid] == "consult" for fn in reach[cid][1]} - checked)
+    for rel_file, qual in pending:
+        if not any((rel_file, qual) in reach[cid][1] for cid in wanted):
+            continue  # every candidate that reached it is already kept
+        checked.add((rel_file, qual))
+        routed = list(discover_test_callables(root, rel_file, [qual], conservative=True))
+        seen = {_test_identity(callable_test_id(c, root), root) for c in routed}
+        forced = [
+            c for cid, c in sorted(live.items()) if cid in wanted and _test_identity(cid, root) not in seen
+        ]
+        result = profile(rel_file, qual, root, tests=routed + forced, isolated=True, use_cache=False)
+        if not normalize_validity(result).admits_certificate:
+            gaps[(rel_file, qual)] = "unmeasured"
+            continue
+        needed = _removal_needs(result, wanted, root)
+        for name in sorted(wanted & needed):
+            retained[name] = f"{rel_file}::{qual}"
+        wanted -= needed
+    for cid in sorted(wanted):
+        if plan[cid] == "over_budget":
+            for fn in reach[cid][1] - checked:
+                gaps.setdefault(fn, "over_budget")
+    return gaps

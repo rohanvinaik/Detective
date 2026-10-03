@@ -37,9 +37,9 @@ import pytest
 
 from Detective.suite_edit import (
     apply_removals,
-    nodeid_file_hint,
     nodeid_function_name,
     nodeid_kind,
+    nodeid_parts,
 )
 
 NODEID = "tests/detective/test_g_synth.py::test_boundary_0"
@@ -67,15 +67,15 @@ def test_a_parametrized_row_is_not_a_function():
 
 
 def test_a_qualified_identifier_names_its_file():
-    assert nodeid_file_hint(NODEID) == "tests/detective/test_g_synth.py"
-    assert nodeid_file_hint(LEGACY) == "tests/detective/test_g_synth.py"
+    assert nodeid_parts(NODEID)[0] == "tests/detective/test_g_synth.py"
+    assert nodeid_parts(LEGACY)[0] == "tests/detective/test_g_synth.py"
 
 
 def test_an_unqualified_identifier_names_no_file():
     """`?` is Wesker's explicit unknown-origin placeholder — it names no file, and treating it
     as one would look for a directory called '?'."""
-    assert nodeid_file_hint("test_boundary_0") == ""
-    assert nodeid_file_hint("legacy:?::test_boundary_0") == ""
+    assert nodeid_parts("test_boundary_0")[0] == ""
+    assert nodeid_parts("legacy:?::test_boundary_0")[0] == ""
 
 
 # --------------------------------------------------------------------------------------

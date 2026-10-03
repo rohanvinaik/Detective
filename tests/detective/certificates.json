@@ -22,6 +22,36 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/audit.py::probe_reach_status": {
+    "cut_reasons": [],
+    "function_digest": "3dd2430dc0ae4a9b",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::reach_consultation_plan": {
+    "cut_reasons": [],
+    "function_digest": "8c128c4c5f688f49",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::removal_after_reading": {
+    "cut_reasons": [],
+    "function_digest": "c77f774a6f46caa5",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::removal_gate": {
+    "cut_reasons": [],
+    "function_digest": "efd2effcda9ed729",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::removal_safety": {
+    "cut_reasons": [],
+    "function_digest": "167226588f041570",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/binding.py::classify_target": {
     "function_digest": "b23ec4f2f66218df",
     "refusal": "",
@@ -262,6 +292,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/engine.py::session_baseline_scope": {
+    "cut_reasons": [],
+    "function_digest": "7526bb926f74384f",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/engine.py::widen_admission": {
     "function_digest": "73cedde34adfb8a2",
     "refusal": "",
@@ -421,6 +457,36 @@
   },
   "Detective/rewrite.py::verify_rewrite_replay_row_shown": {
     "function_digest": "695bdafab6494fa4",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/suite_edit.py::nodeid_parts": {
+    "cut_reasons": [],
+    "function_digest": "b83c37933d15a562",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/suite_edit.py::removal_disposition": {
+    "cut_reasons": [],
+    "function_digest": "f2c305a4fbc6910a",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/suite_edit.py::removal_outcome_why": {
+    "cut_reasons": [],
+    "function_digest": "2f93de7e7156795d",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/suite_edit.py::removal_summary": {
+    "cut_reasons": [],
+    "function_digest": "b8613c416014d9d1",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/suite_edit.py::remove_definition_from_source": {
+    "cut_reasons": [],
+    "function_digest": "99e696c7701e01ec",
     "refusal": "",
     "standing": "complete"
   },
