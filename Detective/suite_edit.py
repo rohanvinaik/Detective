@@ -46,12 +46,15 @@ except ImportError:  # Wesker < 0.9.5 — same resolution rules, applied locally
 
 
 def remove_definition_from_source(source: str, qualname: str) -> tuple[str, str]:
-    """``source`` with ONE test definition removed, and the outcome (#103, pure — pinned).
+    """``source`` with ONE test definition removed, and the outcome (#103, #106, pure — pinned).
 
     ``qualname`` is the definition's Python qualified name: ``test_x`` for a module-level test,
     ``TestC.test_m`` for a method (classes may nest). The span removed runs from the first decorator
-    (or the ``def`` line when undecorated) through ``end_lineno``, plus the single blank separator it
-    leaves, so the file does not accumulate gaps.
+    (or the ``def`` line when undecorated) through ``end_lineno``, plus ONE of the two blank-line
+    separators around it: the one after it when another statement follows it in its block, the one
+    before it when it is the block's last statement. The spacing left between its neighbours is then
+    one the file already had, so a formatter-clean file stays clean (#106: the single trailing blank
+    this replaced left three blank lines between top-level functions, and trailing blanks at the end).
 
       "removed"   the definition is gone. A class it leaves with no statement keeps a ``pass``, so the
                   file still parses and the class's other members, decorators and bases are untouched.
@@ -87,12 +90,21 @@ def remove_definition_from_source(source: str, qualname: str) -> tuple[str, str]
     start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
     end = node.end_lineno or node.lineno
     lines = source.splitlines(keepends=True)
-    del lines[start - 1 : end]
     if owner is not None and len(owner.body) == 1:
         # The method was the class's only statement, and an empty class body is a syntax error.
-        lines.insert(start - 1, " " * node.col_offset + "pass\n")
-    elif start - 1 < len(lines) and lines[start - 1].strip() == "":
-        del lines[start - 1]  # drop the single blank the removed block left
+        lines[start - 1 : end] = [" " * node.col_offset + "pass\n"]
+    elif node is body[-1]:
+        # The block's last statement takes the separator BEFORE it, so whatever follows the block (the
+        # next outer statement, or the end of the file) keeps the spacing it had. Counted over a finite
+        # slice rather than walked with a loop, so no mutant of the count can fail to terminate.
+        above = lines[: start - 1]
+        start -= next((i for i, line in enumerate(reversed(above)) if line.strip()), len(above))
+        del lines[start - 1 : end]
+    else:
+        # Any other takes the separator AFTER it, so the statement before it keeps its own spacing.
+        below = lines[end:]
+        end += next((i for i, line in enumerate(below) if line.strip()), len(below))
+        del lines[start - 1 : end]
     return ("removed", "".join(lines))
 
 

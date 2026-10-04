@@ -486,7 +486,7 @@
   },
   "Detective/suite_edit.py::remove_definition_from_source": {
     "cut_reasons": [],
-    "function_digest": "99e696c7701e01ec",
+    "function_digest": "5315598b8d8640c7",
     "refusal": "",
     "standing": "complete"
   },
