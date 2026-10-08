@@ -19,36 +19,69 @@ These pin the repair from intent, not from the code that implements it:
   as a clean one;
 * a hand-pin item carries the test Detective writes itself, which compiles — and null where Detective
   declines, exactly as converge declines.
+
+D1b corrects the record the line reads (`D1b_detective_decision_record_corrected.md`), and these pin
+each correction from intent too:
+
+* §1 a witness's test is written by the writer converge itself chooses — a receiver-state witness by
+  the state writer, in converge's own order — and its `test_status` says whether it was rendered,
+  declined, or failed to render: a failure is never reported as a decline;
+* §3 an `internal` item carries its condition as the expression Detective derived, never the sentence;
+* §6 a value supplied at a `lines`, `boundary`, `internal`, `author` or `sample` stop that leaves the
+  ask unchanged ends the loop with `supplied_did_not_reach`; a changed ask, a changed source, a run
+  with no supplied input and a run with no earlier ask are progress;
+* §7 `decision.final` is the FINAL line the page prints, on every channel;
+* §11 a clean `--two-sign` audit names converge, and an audit without `--two-sign` is unchanged.
 """
 
 from __future__ import annotations
 
+import ast
 import importlib
 import json
 import os
 import shlex
 import subprocess
 import sys
+import time
 import types
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import pytest
 
 from Detective.audit import SuiteAudit
 from Detective.cli import (
     _audit_action,
+    _audit_commands,
     _audit_decision,
     _converge_action,
     _converge_decision,
     _decision_payload,
+    _final_banner,
+    _internal_record,
+    _plan_signature,
+    _record_invocation,
     _regime_action,
     _regime_decision,
+    _run_audit,
     _run_converge,
+    _witness_property_for,
+    _WitnessContext,
+    audit_step,
+    converge_step,
     main,
+    supplied_ask_disposition,
 )
 from Detective.converge import ConvergeResult
 from Detective.equivalence import MutantVerdict, SurvivorReport, Witness
-from Detective.ledger import read_recent, reset_observations, take_observations
+from Detective.ledger import (
+    latest_ask_row,
+    plan_signature,
+    read_recent,
+    reset_observations,
+    same_ask,
+    take_observations,
+)
 
 _TARGET = "def magnitude(x):\n    if x >= 0:\n        return x\n    return -x\n"
 _SUITE = (
@@ -550,7 +583,7 @@ def _hand_pin_result(function: str, signature: str) -> types.SimpleNamespace:
     return _gap_result(function=function, signature=signature, param_names=("x",))
 
 
-def test_a_hand_pin_item_carries_detectives_own_test_which_compiles(tmp_path):
+def test_a_hand_pin_item_carries_detectives_own_test_which_compiles(tmp_path, monkeypatch):
     (tmp_path / "decision_hand_pin.py").write_text(
         "def check(x):\n    if x < 0:\n        raise ValueError('bad')\n    return x\n"
     )
@@ -571,9 +604,11 @@ def test_a_hand_pin_item_carries_detectives_own_test_which_compiles(tmp_path):
         "VALUE_0000000a",
     )
     test = item["test"]
+    assert item["test_status"] == "rendered"
     compile(test, "<detective-test>", "exec")
     assert "def test_check_value_0000000a_value_0():" in test, "the name is unique per mutant id"
     assert "except ValueError as _exc:" in test, "it pins the outcome the witness distinguishes"
+    _run_rendered(test, tmp_path, monkeypatch)  # and it passes on the real function
 
 
 def test_a_declined_hand_pin_item_carries_null(tmp_path):
@@ -592,4 +627,734 @@ def test_a_declined_hand_pin_item_carries_null(tmp_path):
     assert d.plan is not None and d.plan.kind == "hand_pin"
     item = _decision_payload(d)["plan"]["items"][0]
     assert item["original"] == machine, "an outcome repr in a record is never cut"
+    assert (item["test"], item["test_status"]) == (None, "declined")
+
+
+# ---------------------------------------------------------------- D1b §1: a witness's test, converge's writer
+
+
+@pytest.mark.parametrize(
+    ("state_pins", "original", "writer"),
+    [
+        ((("n", "2"),), "'v'", "state"),
+        ((("n", "2"),), "<raised ValueError: bad>", "state"),
+        (None, "<raised ValueError: bad>", "raises"),
+        (None, "'v'", "value"),
+    ],
+)
+def test_a_witness_is_written_by_the_writer_converge_chooses_in_its_own_order(
+    monkeypatch, state_pins, original, writer
+):
+    """Converge's own order (`_converge_impl`): a receiver-STATE witness first — its mutation changed only
+    the receiver, so the value writer's assertion pins nothing the mutant disturbs — then a witness whose
+    original raised, then the value."""
+    converge_module = importlib.import_module("Detective.converge")
+    for attr, label in (
+        ("_state_witness_property", "state"),
+        ("_raises_witness_property", "raises"),
+        ("_witness_property", "value"),
+    ):
+        monkeypatch.setattr(converge_module, attr, lambda *_a, _label=label, **_k: _label)
+    context = _WitnessContext("/root", (), None, None, None, None, None)
+    witness = Witness(args=(1,), original=original, mutant="m", state_pins=state_pins)
+    assert _witness_property_for("m.py::f", witness, context) == writer
+
+
+def _run_rendered(test: str, root, monkeypatch) -> None:
+    """Execute a record's rendered test against the real code. Compiling is not passing, and a test that
+    could never pass was the defect: the test must hold on the code it was written for."""
+    monkeypatch.syspath_prepend(str(root))
+    namespace: dict = {}
+    exec(compile(test, "<detective-test>", "exec"), namespace)
+    [run] = [fn for name, fn in namespace.items() if name.startswith("test_")]
+    run()
+
+
+def test_a_receiver_state_witness_item_carries_the_state_writers_test(tmp_path, monkeypatch):
+    """The defect: the value writer pinned `repr(result)` of a method that returns None either way, so the
+    record's test asserted `None · state={'n': 2}` and could never pass."""
+    (tmp_path / "decision_state.py").write_text(
+        "class Counter:\n    def __init__(self):\n        self.n = 0\n\n"
+        "    def bump(self, k):\n        self.n += k\n"
+    )
+    result = _gap_result(function="decision_state.py::Counter.bump", signature="bump(k)", param_names=("k",))
+    witness = Witness(
+        args=(2,),
+        original="None · state={'n': 2}",
+        mutant="None · state={'n': 0}",
+        state_pins=(("n", "2"),),
+    )
+    rep = SurvivorReport(verdicts=(_verdict(witness, "STATE_0000000c"),), unclassified=())
+    d = _converge_decision(result, rep, str(tmp_path), attempted_inputs=("(2,)",))
+    assert d.plan is not None and d.plan.kind == "repeated"
+    item = _decision_payload(d)["plan"]["items"][0]
+    assert item["test_status"] == "rendered"
+    test = item["test"]
+    compile(test, "<detective-test>", "exec")
+    assert "recv.bump(2)" in test and "assert recv.n == 2" in test, "it pins the state the mutant disturbs"
+    assert "repr(result)" not in test, "not the return value, which is None either way"
+    _run_rendered(test, tmp_path, monkeypatch)  # and it passes on the real class
+
+
+def _hand_pin_item(tmp_path, module: str, source: str, **kwargs) -> dict:
+    """The one item of a hand-pin plan built over ``source``, the way `_converge_decision` builds it."""
+    (tmp_path / f"{module}.py").write_text(source)
+    result = _hand_pin_result(f"{module}.py::check", "check(x)")
+    rep = SurvivorReport(
+        verdicts=(
+            _verdict(Witness(args=(-1,), original="<raised ValueError: bad>", mutant="-1"), "VALUE_0000000e"),
+        ),
+        unclassified=(),
+    )
+    d = _converge_decision(result, rep, str(tmp_path), **kwargs)
+    assert d.plan is not None and d.plan.kind == "hand_pin"
+    return _decision_payload(d)["plan"]["items"][0]
+
+
+_CHECK = "def check(x):\n    if x < 0:\n        raise ValueError('bad')\n    return x\n"
+
+
+def test_a_render_that_raises_is_named_and_never_reported_as_a_decline(tmp_path, monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("the writer exploded")
+
+    monkeypatch.setattr(importlib.import_module("Detective.synthesis.writer"), "_render_test", boom)
+    item = _hand_pin_item(tmp_path, "decision_render_fails", _CHECK)
+    assert (item["test"], item["test_status"]) == (None, "render_failed:RuntimeError")
+
+
+def test_a_target_that_no_longer_resolves_is_a_named_render_failure(tmp_path):
+    item = _hand_pin_item(tmp_path, "decision_gone", "def other(x):\n    return x\n")
     assert item["test"] is None
+    assert item["test_status"] == "render_failed:LookupError"
+
+
+def test_an_item_built_where_no_renderer_is_reached_is_declined(tmp_path):
+    item = _hand_pin_item(tmp_path, "decision_no_renderer", _CHECK, render_tests=False)
+    assert (item["test"], item["test_status"]) == (None, "declined")
+
+
+# ---------------------------------------------------------------- D1b §3: an internal ask's condition
+
+
+_INTERNAL_DIFF = (
+    "- def f(a):\n    risk = a * 2\n    if risk > 4:\n        return 1\n    return 0\n"
+    "+ def f(a):\n    risk = a * 2\n    if risk >= 4:\n        return 1\n    return 0"
+)
+
+
+def test_an_internal_item_carries_the_condition_expression_and_the_sentence_as_a_note():
+    verdict = MutantVerdict(
+        mutant_id="BOUNDARY_0000000d",
+        category="BOUNDARY",
+        diff_summary=_INTERNAL_DIFF,
+        killable=False,
+        witness=None,
+        searched=9,
+    )
+    result = _gap_result(function="p.py::f", signature="f(a)", param_names=("a",))
+    rep = SurvivorReport(verdicts=(verdict,), unclassified=())
+    d = _converge_decision(result, rep, render_tests=False)
+    assert d.plan is not None and d.plan.kind == "internal"
+    [item] = _decision_payload(d)["plan"]["items"]
+    assert (item["condition"], item["form"]) == ("risk == 4", "expression")
+    ast.parse(item["condition"], mode="eval")  # Python source: the harness mines value pools from it
+    assert "`risk == 4`" in item["note"], "the wording the page adds is the note"
+    assert item["note"] == d.plan.items[0], "and it is exactly the sentence the page prints"
+    assert item["mutants"] == [{"id": "BOUNDARY_0000000d", "category": "BOUNDARY", "diff": _INTERNAL_DIFF}]
+    out = _converge_action(result, rep, decision=d)
+    assert any(item["note"] in line for line in out), "the page still prints the sentence"
+
+
+def test_an_internal_condition_is_never_empty_and_says_which_form_it_is():
+    mutant = {"id": "M"}
+    assert _internal_record("a sentence", "risk == 4", mutant) == {
+        "condition": "risk == 4",
+        "form": "expression",
+        "note": "a sentence",
+        "mutants": [mutant],
+    }
+    # no expression held: the condition's text as Detective holds it, which is prose and says so
+    assert _internal_record("a sentence", "", mutant) == {
+        "condition": "a sentence",
+        "form": "prose",
+        "note": "",
+        "mutants": [mutant],
+    }
+    assert all(_internal_record("s", region, mutant)["condition"] for region in ("", "x == 1"))
+
+
+# ---------------------------------------------------------------- D1b §6: the repeat rule, extended to values
+
+
+@pytest.mark.parametrize("kind", ["lines", "boundary", "internal", "author", "sample"])
+@pytest.mark.parametrize(
+    ("supplied", "same", "expected"),
+    [
+        (True, True, "repeat"),
+        (True, False, "progress"),
+        (False, True, "not_applicable"),
+        (False, False, "not_applicable"),
+    ],
+)
+def test_the_five_kinds_repeat_when_supplied_values_left_the_ask_unchanged(kind, supplied, same, expected):
+    assert supplied_ask_disposition(kind, supplied, same) == expected
+
+
+@pytest.mark.parametrize("kind", ["witness", "hand_pin", "repeated", "test", "fixture", "", "other"])
+def test_a_kind_outside_the_five_carries_its_own_rule(kind):
+    for supplied in (True, False):
+        for same in (True, False):
+            assert supplied_ask_disposition(kind, supplied, same) == "not_applicable"
+
+
+@pytest.mark.parametrize(
+    ("code", "plan_kind", "disposition", "expected"),
+    [
+        ("close_the_gap", "lines", "repeat", ("hand_back", "supplied_did_not_reach")),
+        ("close_the_gap", "boundary", "repeat", ("hand_back", "supplied_did_not_reach")),
+        ("close_the_gap", "internal", "repeat", ("hand_back", "supplied_did_not_reach")),
+        ("close_the_gap", "author", "repeat", ("hand_back", "supplied_did_not_reach")),
+        ("provide_sample", "sample", "repeat", ("hand_back", "supplied_did_not_reach")),
+        ("close_the_gap", "lines", "progress", ("supply", "")),
+        ("close_the_gap", "lines", "not_applicable", ("supply", "")),
+        ("provide_sample", "sample", "progress", ("supply", "")),
+        ("provide_sample", "sample", "not_applicable", ("supply", "")),
+        ("close_the_gap", "witness", "not_applicable", ("run", "")),
+        ("close_the_gap", "repeated", "not_applicable", ("write_test", "")),
+        ("close_the_gap", "hand_pin", "not_applicable", ("write_test", "")),
+        ("close_the_gap", "test", "not_applicable", ("hand_back", "")),
+        ("close_the_gap", "fixture", "not_applicable", ("hand_back", "")),
+        # the disposition is consulted only where values are asked for
+        ("settled", "", "repeat", ("done", "")),
+        ("rerun_stale", "", "repeat", ("run", "")),
+        ("fix_load", "", "repeat", ("stop", "fix_load")),
+    ],
+)
+def test_converge_step_ends_a_loop_only_where_values_were_asked_for(code, plan_kind, disposition, expected):
+    assert converge_step(code, "", plan_kind, False, "", disposition) == expected
+
+
+def _lines_result(line: int = 34, guard: str = "value > 3") -> types.SimpleNamespace:
+    """A converge result stopped at a `lines` ask: one uncovered line, every killable mutant dead."""
+    return types.SimpleNamespace(
+        function=_FN,
+        functionally_complete=True,
+        line_complete=False,
+        missing_lines=(line,),
+        missing_line_guards=((line, guard),),
+        signature="quote(value)",
+        param_names=("value",),
+        environment_gated=(),
+        admits_certificate=True,
+        verification=None,
+        stale_target=False,
+    )
+
+
+_NO_SURVIVORS = SurvivorReport(verdicts=(), unclassified=())
+
+
+def _earlier_run(decision, target_src: str = "sha256:aaa", verb: str = "converge") -> dict:
+    """The ledger row an earlier run that made ``decision``'s ask left behind."""
+    return {
+        "verb": verb,
+        "target": _FN,
+        "plan": _plan_signature(decision.plan),
+        "state": {"target_src": target_src},
+    }
+
+
+def _row_labels(out: list[str]) -> list[str]:
+    """The labels of a block's report rows — the label column of each `  · Label   text` line."""
+    return [line[2:23].strip() for line in out if line.startswith("  ") and line[2:23].strip()]
+
+
+def test_a_lines_ask_answered_with_a_value_that_does_not_reach_ends_in_a_hand_back():
+    first = _converge_decision(_lines_result(), _NO_SURVIVORS, render_tests=False)
+    assert (first.code, first.kind, first.remedy) == ("close_the_gap", "supply", "")
+    supplied = ("(9,  1)",)
+    second = _converge_decision(
+        _lines_result(),
+        _NO_SURVIVORS,
+        attempted_inputs=supplied,
+        render_tests=False,
+        prior_ask=_earlier_run(first),
+        target_src="sha256:aaa",
+    )
+    assert (second.code, second.kind, second.remedy) == (
+        "close_the_gap",
+        "hand_back",
+        "supplied_did_not_reach",
+    )
+    assert (second.argv, second.then) == (None, ("converge", _FN))
+    assert _decision_payload(second)["plan"] == {
+        "kind": "lines",
+        "items": [{"line": 34, "guard": "value > 3"}],
+        "item_total": 1,
+        "obligation_total": 1,
+        "note": "",
+        "supplied": ["(9,  1)"],
+    }
+    out = _converge_action(_lines_result(), _NO_SURVIVORS, attempted_inputs=supplied, decision=second)
+    assert out[0].startswith("WRITE TEST:"), "the head D1 gives the other hand-backs"
+    assert _row_labels(out) == ["· Asked", "· Supplied", "· Why"]
+    assert "1. line 34 — reached only when: value > 3" in _first(out, "  · Asked")
+    assert _first(out, "  · Supplied").endswith("1. (9,  1)"), "a supplied input is printed as supplied"
+    assert _first(out, "  · Why").endswith("the same ask came back: supplying it again is a proven loop")
+    assert _command_in(_first(out, "THEN RUN:")) == list(second.then)
+
+
+def test_an_ask_that_did_not_repeat_is_progress_and_is_offered_as_today():
+    first = _converge_decision(_lines_result(), _NO_SURVIVORS, render_tests=False)
+    earlier = _earlier_run(first)
+    cases = {
+        "the ask changed": dict(result=_lines_result(35, "value > 4"), attempted=("(9,)",)),
+        "the source moved": dict(result=_lines_result(), attempted=("(9,)",), src="sha256:bbb"),
+        "nothing was supplied": dict(result=_lines_result(), attempted=()),
+        "no earlier entry": dict(result=_lines_result(), attempted=("(9,)",), prior=None),
+        "the earlier entry asked nothing": dict(
+            result=_lines_result(),
+            attempted=("(9,)",),
+            prior={"verb": "converge", "target": _FN, "state": {"target_src": "sha256:aaa"}},
+        ),
+        "the source could not be read": dict(result=_lines_result(), attempted=("(9,)",), src=""),
+    }
+    for why, case in cases.items():
+        d = _converge_decision(
+            case["result"],
+            _NO_SURVIVORS,
+            attempted_inputs=case["attempted"],
+            render_tests=False,
+            prior_ask=case.get("prior", earlier),
+            target_src=case.get("src", "sha256:aaa"),
+        )
+        assert (d.kind, d.remedy, d.supplied) == ("supply", "", ()), why
+        assert _decision_payload(d)["plan"]["kind"] == "lines", why
+        assert "supplied" not in _decision_payload(d)["plan"], why
+
+
+def test_a_sample_supplied_at_audits_setup_ask_counts_against_converges_first_ask():
+    """Audit takes no --input, so all it records is its ask; a `provide_sample` it made is the ask a
+    converge run's supplied sample is compared against."""
+    note = "no synthesized input reached the function"
+    audit = _audit_decision(_audit(note=note))
+    assert (audit.code, audit.plan.kind if audit.plan else None) == ("provide_sample", "sample")
+    result = _gap_result(functionally_complete=False)
+    rep = SurvivorReport(verdicts=(), unclassified=(), note=note)
+    answered = _converge_decision(
+        result,
+        rep,
+        attempted_inputs=("(1,)",),
+        render_tests=False,
+        prior_ask=_earlier_run(audit, verb="audit"),
+        target_src="sha256:aaa",
+    )
+    assert (answered.code, answered.kind, answered.remedy) == (
+        "provide_sample",
+        "hand_back",
+        "supplied_did_not_reach",
+    )
+    assert _decision_payload(answered)["plan"] == {
+        "kind": "sample",
+        "items": [],
+        "item_total": 0,
+        "obligation_total": 0,
+        "note": note,
+        "supplied": ["(1,)"],
+    }
+    out = _converge_action(result, rep, attempted_inputs=("(1,)",), decision=answered)
+    assert out[0].startswith("WRITE TEST:")
+    assert note in _first(out, "  · Asked"), "an ask with no items is stated by its note"
+    unanswered = _converge_decision(
+        result, rep, render_tests=False, prior_ask=_earlier_run(audit, verb="audit")
+    )
+    assert (unanswered.kind, unanswered.remedy) == ("supply", "")
+
+
+def test_a_plan_signature_is_over_the_typed_records_and_names_the_kind():
+    ask = plan_signature("lines", [{"line": 6, "guard": "key == 4242"}])
+    assert set(ask) == {"kind", "digest"} and ask["digest"].startswith("sha256:")
+    assert ask == plan_signature("lines", [{"guard": "key == 4242", "line": 6}]), "key order is not the ask"
+    assert ask != plan_signature("lines", [{"line": 7, "guard": "key == 4242"}])
+    assert ask != plan_signature("boundary", [{"line": 6, "guard": "key == 4242"}])
+    assert plan_signature("sample", []) != plan_signature("author", [])
+
+
+def test_the_earlier_ask_is_the_latest_audit_or_converge_entry_on_the_same_target():
+    rows = (
+        {"verb": "converge", "target": "a.py::f", "n": 1},
+        {"verb": "audit", "target": "a.py::f", "n": 2},
+        {"verb": "converge", "target": "b.py::g", "n": 3},
+        {"verb": "doctor", "target": "a.py::f", "n": 4},
+        {"verb": "flag", "target": "a.py::f", "n": 5},
+    )
+    assert latest_ask_row(rows, "a.py::f") == rows[1]
+    assert latest_ask_row(rows, "b.py::g") == rows[2]
+    assert latest_ask_row(rows, "c.py::h") is None
+    assert latest_ask_row(rows, None) is None and latest_ask_row(rows, "") is None
+    assert latest_ask_row((), "a.py::f") is None
+
+
+def test_an_ask_is_the_same_only_over_the_same_kind_digest_and_source():
+    ask = plan_signature("lines", [{"line": 6, "guard": ""}])
+    row = {"plan": ask, "state": {"target_src": "sha256:aa"}}
+    assert same_ask(row, ask, "sha256:aa") is True
+    assert same_ask(None, ask, "sha256:aa") is False, "no earlier entry: progress"
+    assert same_ask(row, ask, "sha256:bb") is False, "a changed source is progress, never a loop"
+    assert same_ask(row, plan_signature("lines", []), "sha256:aa") is False
+    assert same_ask(row, plan_signature("boundary", [{"line": 6, "guard": ""}]), "sha256:aa") is False
+    assert same_ask({"state": {"target_src": "sha256:aa"}}, ask, "sha256:aa") is False, "it asked nothing"
+    assert same_ask({"plan": ask, "state": {"target_src": ""}}, ask, "") is False, "unread is not unchanged"
+
+
+def _add_project(root) -> None:
+    (root / "m.py").write_text("def add(a, b):\n    return a + b\n")
+
+
+def _converge_args(root, **overrides) -> types.SimpleNamespace:
+    return _args(root, command="converge", target="m.py::add", json=True, **overrides)
+
+
+def test_the_handler_reads_the_earlier_ask_from_the_ledger_and_records_its_own(monkeypatch, tmp_path, capsys):
+    _add_project(tmp_path)
+    _converge_returns(monkeypatch, _unfinished())
+    reset_observations()
+
+    asked = _converge_args(tmp_path)
+    _run_converge(asked, "m.py", "add")
+    first = json.loads(capsys.readouterr().out)["decision"]
+    _record_invocation(asked, 0, "", time.monotonic())
+    assert (first["step"]["kind"], first["plan"]["kind"]) == ("supply", "lines")
+    recorded = read_recent(str(tmp_path))[-1]
+    assert recorded["plan"] == plan_signature("lines", first["plan"]["items"]), "the ask is in the ledger"
+
+    answered = _converge_args(tmp_path, input=["(1, 2)"])
+    _run_converge(answered, "m.py", "add")
+    second = json.loads(capsys.readouterr().out)["decision"]
+    _record_invocation(answered, 0, "", time.monotonic())
+    assert (second["step"]["kind"], second["step"]["remedy"]) == ("hand_back", "supplied_did_not_reach")
+    assert second["plan"]["supplied"] == ["(1, 2)"]
+    assert second["plan"]["items"] == first["plan"]["items"], "the ask as it came back"
+
+    # inputs converge recalls for the function are never this run's own: a run given none is no repeat
+    _run_converge(_converge_args(tmp_path), "m.py", "add")
+    assert json.loads(capsys.readouterr().out)["decision"]["step"]["kind"] == "supply"
+
+    # a source that moved makes the same ask new
+    (tmp_path / "m.py").write_text("def add(a, b):\n    return b + a\n")
+    _run_converge(_converge_args(tmp_path, input=["(1, 2)"]), "m.py", "add")
+    assert json.loads(capsys.readouterr().out)["decision"]["step"]["kind"] == "supply"
+    take_observations()
+
+
+def test_a_run_that_asked_nothing_records_no_plan(monkeypatch, tmp_path, capsys):
+    _add_project(tmp_path)
+    settled = ConvergeResult(
+        "m.py::add",
+        True,
+        False,
+        0,
+        0,
+        (),
+        None,
+        functionally_complete=True,
+        line_complete=True,
+        signature="add(a, b)",
+        param_names=("a", "b"),
+    )
+    _converge_returns(monkeypatch, settled)
+    reset_observations()
+    args = _converge_args(tmp_path)
+    _run_converge(args, "m.py", "add")
+    decision = json.loads(capsys.readouterr().out)["decision"]
+    assert (decision["code"], decision["plan"]) == ("settled", None)
+    _record_invocation(args, 0, "", time.monotonic())
+    assert "plan" not in read_recent(str(tmp_path))[-1], "no ask is no key, not an empty ask"
+
+
+def test_an_audit_records_the_ask_it_made(monkeypatch, tmp_path, capsys):
+    """Audit takes no --input; the ask it made is all it records."""
+    (tmp_path / "m.py").write_text("def f(x):\n    return x\n")
+    note = "no synthesized input reached the function"
+    monkeypatch.setattr(
+        importlib.import_module("Detective.audit"), "audit_suite", lambda *_a, **_k: _audit(note=note)
+    )
+    args = types.SimpleNamespace(
+        command="audit",
+        target="m.py::f",
+        project_root=str(tmp_path),
+        plan=False,
+        two_sign=False,
+        check=False,
+        check_strict=False,
+        remove=False,
+        json=True,
+    )
+    reset_observations()
+    _run_audit(args, "m.py", "f")
+    capsys.readouterr()
+    _record_invocation(args, 0, "", time.monotonic())
+    assert read_recent(str(tmp_path))[-1]["plan"] == plan_signature("sample", [])
+
+
+_ROUTE = (
+    "def route(token, n):\n    key = 0\n    for ch in token:\n"
+    "        key = (key * 131 + ord(ch)) % 65521\n    if key == 4242:\n        return n + 100\n    return n\n"
+)
+_ROUTE_SUITE = 'from mod import route\n\n\ndef test_route_default():\n    assert route("x", 1) == 1\n'
+
+
+@pytest.fixture(scope="module")
+def lines_loop(tmp_path_factory):
+    """One `lines` stop, answered by the real command: first with nothing, then with values that never
+    reach the uncovered line, then with one that does. A hashed key makes line 6 reachable only by a token
+    whose key is 4242 — a space and a `2` (32 * 131 + 50)."""
+    root = str(tmp_path_factory.mktemp("lines_loop"))
+    for name, text in (("mod.py", _ROUTE), ("test_mod.py", _ROUTE_SUITE), ("pyproject.toml", _PYPROJECT)):
+        with open(os.path.join(root, name), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def converge(*supplied: str, as_json: bool = True):
+        argv = ["converge", "mod.py::route", *(arg for raw in supplied for arg in ("--input", raw))]
+        proc = _cli(root, *argv, *(["--json"] if as_json else []))
+        return json.loads(proc.stdout) if as_json else proc.stdout
+
+    return {
+        "root": root,
+        "first": converge(),
+        "missed": converge("('a', 1)"),
+        "missed_again": converge("('b', 2)"),
+        "page": converge("('c', 3)", as_json=False),
+        "reached": converge("(' 2', 1)"),
+    }
+
+
+def test_a_lines_stop_answered_by_the_real_command_ends_when_the_value_does_not_reach(lines_loop):
+    first = lines_loop["first"]["decision"]
+    assert (first["step"]["kind"], first["plan"]["kind"]) == ("supply", "lines")
+    for name, supplied in (("missed", "('a', 1)"), ("missed_again", "('b', 2)")):
+        decision = lines_loop[name]["decision"]
+        assert (decision["step"]["kind"], decision["step"]["remedy"]) == (
+            "hand_back",
+            "supplied_did_not_reach",
+        ), name
+        assert decision["plan"]["items"] == first["plan"]["items"], "the ask as it came back"
+        assert decision["plan"]["supplied"] == [supplied], name
+        assert decision["step"]["then"] == ["converge", "mod.py::route"]
+
+
+def test_the_hand_back_page_states_the_ask_the_inputs_and_why(lines_loop):
+    page = lines_loop["page"].splitlines()
+    head = next(i for i, line in enumerate(page) if line.startswith("WRITE TEST:"))
+    block = page[head : page.index("", page.index("", head + 1) + 1)] if "" in page[head:] else page[head:]
+    assert _row_labels(block) == ["· Asked", "· Supplied", "· Why"]
+    assert "line 6" in _first(page, "  · Asked") and _first(page, "  · Supplied").endswith("1. ('c', 3)")
+    assert _first(page, "  · Why").endswith("the same ask came back: supplying it again is a proven loop")
+    assert _command_in(_first(page, "THEN RUN:")) == ["converge", "mod.py::route"]
+    assert page[-1].startswith("FINAL mod.py::route:")
+
+
+def test_a_value_that_reaches_the_line_is_progress(lines_loop):
+    first = lines_loop["first"]["decision"]
+    decision = lines_loop["reached"]["decision"]
+    assert decision["step"]["remedy"] != "supplied_did_not_reach"
+    assert decision["plan"] is None or decision["plan"]["items"] != first["plan"]["items"]
+
+
+def test_the_ledger_holds_each_runs_ask(lines_loop):
+    first = lines_loop["first"]["decision"]
+    rows = [row for row in read_recent(lines_loop["root"]) if row["verb"] == "converge"]
+    asked = plan_signature("lines", first["plan"]["items"])
+    assert [row.get("plan") for row in rows[:4]] == [asked] * 4, "first, missed, missed again, the page run"
+
+
+# ---------------------------------------------------------------- D1b §7: the record carries the FINAL line
+
+
+def _printed_final(text: str) -> str:
+    return next(line for line in reversed(text.splitlines()) if line.startswith("FINAL "))
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{}, {"stale_target": True}, {"budget_exhausted": True, "cut_phase": "classification"}],
+    ids=["incomplete", "stale", "cut"],
+)
+@pytest.mark.parametrize("full", [False, True], ids=["terse", "full"])
+def test_the_records_final_is_the_line_the_page_prints(monkeypatch, tmp_path, capsys, overrides, full):
+    result = _unfinished(**overrides)
+    _converge_returns(monkeypatch, result)
+    reset_observations()
+    _run_converge(_args(tmp_path, json=True), "m.py", "add")
+    recorded = json.loads(capsys.readouterr().out)["decision"]["final"]
+    _run_converge(_args(tmp_path, full=full), "m.py", "add")
+    printed = capsys.readouterr().out
+    take_observations()
+    assert recorded == _final_banner(result), "the record carries _final_banner's line"
+    assert recorded.startswith("FINAL m.py::add: ")
+    assert printed.splitlines()[-1] == recorded, "the page prints the record's line, last"
+
+
+def test_a_converges_final_is_the_printed_line_and_audit_and_regime_carry_none(walk):
+    assert walk["json"]["converge"][1]["decision"]["final"] == _printed_final(walk["page"]["converge"])
+    assert walk["json"]["audit"][1]["decision"]["final"] is None, "audit is setup and prints no FINAL"
+    assert walk["json"]["regime"][1]["decision"]["final"] is None
+    assert "FINAL " not in walk["page"]["audit"] and "FINAL " not in walk["page"]["regime"]
+
+
+# ---------------------------------------------------------------- D1b §11: audit's clean setup names converge
+
+
+_FIVE_CLEAN = {
+    "close_the_gap": dict(killable_gaps=("ARITHMETIC_00000001",)),
+    "remove_redundant": dict(redundant_tests=("test_m.py::test_duplicate",)),
+    "flag_equivalents": dict(candidate_equivalent=1, candidate_equivalent_ids=("ARITHMETIC_00000002",)),
+    "done_unclassified": dict(unclassified=1),
+    "done_complete": {},
+}
+
+
+@pytest.mark.parametrize("code", sorted(_FIVE_CLEAN))
+def test_a_clean_two_sign_audit_names_converge_as_its_next_command(code):
+    a = _audit(**_FIVE_CLEAN[code])
+    d = _audit_decision(a, two_sign=True)
+    out = _audit_action(a, decision=d)
+    assert (d.code, d.kind, d.remedy) == (code, "run", "")
+    assert (d.argv, d.then) == (("converge", "m.py::f"), None)
+    assert out[0] == "DO THIS:  detective converge 'm.py::f'"
+    assert _command_in(out[0]) == list(d.argv)
+    assert len(out) == 3 and out[1] == "", "the command, a blank, and one row"
+    assert _row_labels(out) == ["· Why"]
+    assert out[2].endswith(
+        "the setup is clean: the suite loads and no intent test fails; "
+        "converge writes and pins this function's suite"
+    )
+
+
+@pytest.mark.parametrize(
+    ("code", "kind", "argv"),
+    [
+        ("close_the_gap", "run", ("converge", "m.py::f")),
+        ("remove_redundant", "run", ("audit", "m.py::f", "--remove")),
+        ("flag_equivalents", "done", None),
+        ("done_unclassified", "done", None),
+        ("done_complete", "done", None),
+    ],
+)
+def test_an_audit_without_two_sign_is_unchanged(code, kind, argv):
+    a = _audit(**_FIVE_CLEAN[code])
+    d = _audit_decision(a)
+    assert (d.code, d.kind, d.argv, d.two_sign) == (code, kind, argv, False)
+    assert not any("setup is clean" in line for line in _audit_action(a, decision=d))
+
+
+def test_two_sign_changes_nothing_where_the_setup_is_not_clean():
+    cases = {
+        "fix_load": (_audit(load_failed=True, note="No module named 'x'"), False, ("stop", "fix_load")),
+        "provide_sample": (_audit(note="no synthesized input reached the function"), False, ("supply", "")),
+        "fix_failing_test": (
+            _audit(failing_tests=("test_m.py::test_f",)),
+            False,
+            ("decide", "fix_failing_test"),
+        ),
+        # `--remove` is executing: the line never sends it, and the page and the record are unchanged
+        "removing_now": (_audit(redundant_tests=("test_m.py::test_duplicate",)), True, ("done", "")),
+    }
+    for code, (a, removing, step) in cases.items():
+        two_sign = _audit_decision(a, removing, True)
+        plain = _audit_decision(a, removing, False)
+        assert (two_sign.code, (two_sign.kind, two_sign.remedy)) == (code, step), code
+        assert replace(two_sign, two_sign=False) == plain, f"{code}: only the flag differs"
+        assert _audit_action(a, removing, two_sign) == _audit_action(a, removing, plain), code
+
+
+def test_two_sign_keeps_the_residual_the_headline_and_the_redundancy_as_facts():
+    equivalents = _audit(candidate_equivalent=1, candidate_equivalent_ids=("ARITHMETIC_00000002",))
+    two_sign = _audit_decision(equivalents, two_sign=True)
+    plain = _audit_decision(equivalents)
+    assert two_sign.residual is not None
+    assert (two_sign.residual, two_sign.state) == (plain.residual, plain.state)
+    redundant = _audit(redundant_tests=("test_m.py::test_duplicate",))
+    assert _audit_decision(redundant, two_sign=True).code == "remove_redundant", "the redundancy is a fact"
+    assert redundant.redundant_tests == ("test_m.py::test_duplicate",)
+    assert all(
+        "--remove" not in line
+        for line in _audit_action(redundant, decision=_audit_decision(redundant, two_sign=True))
+    )
+
+
+@pytest.mark.parametrize(
+    ("code", "two_sign", "expected"),
+    [
+        ("fix_load", True, ("stop", "fix_load")),
+        ("fix_load", False, ("stop", "fix_load")),
+        ("provide_sample", True, ("supply", "")),
+        ("fix_failing_test", True, ("decide", "fix_failing_test")),
+        ("close_the_gap", False, ("run", "")),
+        ("close_the_gap", True, ("run", "")),
+        ("remove_redundant", False, ("run", "")),
+        ("remove_redundant", True, ("run", "")),
+        ("flag_equivalents", False, ("done", "")),
+        ("flag_equivalents", True, ("run", "")),
+        ("done_unclassified", False, ("done", "")),
+        ("done_unclassified", True, ("run", "")),
+        ("done_complete", False, ("done", "")),
+        ("done_complete", True, ("run", "")),
+        ("removing_now", False, ("done", "")),
+        ("removing_now", True, ("done", "")),
+        ("not_a_code", True, ("unknown", "")),
+    ],
+)
+def test_audit_step_makes_a_clean_two_sign_setup_a_run(code, two_sign, expected):
+    assert audit_step(code, two_sign) == expected
+
+
+def test_a_two_sign_setups_command_is_converge_and_never_remove():
+    fn = "m.py::f"
+    for code in _FIVE_CLEAN:
+        assert _audit_commands(code, fn, True) == (("converge", fn), None), code
+    assert _audit_commands("remove_redundant", fn, False) == (("audit", fn, "--remove"), None)
+    assert _audit_commands("flag_equivalents", fn, False) == (None, None)
+    assert _audit_commands("fix_load", fn, True) == (None, ("audit", fn))
+    assert _audit_commands("fix_failing_test", fn, True) == (None, ("audit", fn))
+    assert _audit_commands("provide_sample", fn, True) == (None, ("converge", fn))
+    assert _audit_commands("removing_now", fn, True) == (None, None)
+
+
+@pytest.fixture(scope="module")
+def two_sign_audits(tmp_path_factory):
+    """The real audit on the same fresh project, with and without `--two-sign`, and its page."""
+    machine = _project(tmp_path_factory.mktemp("two_sign_json"))
+    page = _project(tmp_path_factory.mktemp("two_sign_page"))
+    plain = _project(tmp_path_factory.mktemp("plain_json"))
+    return {
+        "json": json.loads(_cli(machine, "audit", "mod.py::magnitude", "--two-sign", "--json").stdout),
+        "page": _cli(page, "audit", "mod.py::magnitude", "--two-sign").stdout,
+        "plain": json.loads(_cli(plain, "audit", "mod.py::magnitude", "--json").stdout),
+    }
+
+
+def test_the_real_two_sign_audit_names_converge_in_its_record_and_on_its_page(two_sign_audits):
+    decision = two_sign_audits["json"]["decision"]
+    plain = two_sign_audits["plain"]["decision"]
+    assert decision["code"] == plain["code"] and decision["code"] in _FIVE_CLEAN, (
+        "the measurement is the same"
+    )
+    assert decision["step"] == {
+        "kind": "run",
+        "argv": ["converge", "mod.py::magnitude"],
+        "then": None,
+        "remedy": "",
+    }
+    assert "redundant_tests" in two_sign_audits["json"], "the redundancy stays in the payload"
+    page = two_sign_audits["page"].splitlines()
+    assert _command_in(_first(page, "DO THIS:")) == decision["step"]["argv"]
+    assert _first(page, "  · Why").endswith("converge writes and pins this function's suite")
+    # without --two-sign the same measurement is unchanged: converge only for a gap, `--remove` for
+    # redundancy, and nothing to run for the rest
+    unchanged = {
+        "close_the_gap": ["converge", "mod.py::magnitude"],
+        "remove_redundant": ["audit", "mod.py::magnitude", "--remove"],
+    }
+    assert plain["step"]["argv"] == unchanged.get(plain["code"])

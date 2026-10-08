@@ -117,7 +117,7 @@
   },
   "Detective/cli.py::audit_step": {
     "cut_reasons": [],
-    "function_digest": "61e84f0876fab2df",
+    "function_digest": "26baee973b09aa78",
     "refusal": "",
     "standing": "complete"
   },
@@ -134,7 +134,7 @@
   },
   "Detective/cli.py::converge_step": {
     "cut_reasons": [],
-    "function_digest": "7e70727cdbfc40b1",
+    "function_digest": "da218dcd47280915",
     "refusal": "",
     "standing": "complete"
   },
@@ -209,6 +209,12 @@
   },
   "Detective/cli.py::residual_input_route": {
     "function_digest": "677f51e538afeab7",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::supplied_ask_disposition": {
+    "cut_reasons": [],
+    "function_digest": "be992d7bbd872749",
     "refusal": "",
     "standing": "complete"
   },

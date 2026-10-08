@@ -162,6 +162,60 @@ def ledger_path(root: str) -> str:
     return os.path.join(os.path.abspath(root), LEDGER_REL)
 
 
+def plan_signature(kind: str, records: list[dict]) -> dict:
+    """The signature of the ASK a converge or audit run made — ``{"kind", "digest"}`` (D1b §6).
+
+    The next run compares its own ask against this one: the same kind over the same items, over the
+    same target source, answers "did the value you supplied change what I asked for?". The digest is
+    over the plan's TYPED records as `cli._input_plan` holds them — JSON with sorted keys — and not over
+    the rendered strings the page prints, so a change of wording can never read as a change of ask.
+    Both the records and the page's argv items stop at `cli._MAX_BATCH`, so the digest sees as much of
+    the ask as the page does and no more. Facts only: the comparison is the caller's decision.
+    """
+    return {"kind": kind, "digest": _sha(json.dumps(records, sort_keys=True, default=str))}
+
+
+def latest_ask_row(rows: tuple[dict, ...], target: str | None) -> dict | None:
+    """The latest audit or converge row on ``target`` — the earlier run whose ask a new run compares
+    against (D1b §6) — or None when there is none (no target, or no such row).
+
+    ``rows`` is `read_recent`'s answer, oldest first. Only an audit or a converge row can hold an ask,
+    and only one for THIS target: a different target is a different question. A row that holds no
+    ``plan`` (a refusal, an older row, a run that asked nothing) is still the latest row, and its
+    absence of an ask is the caller's to read — it is not skipped to reach an older one.
+    """
+    if not target:
+        return None
+    for row in reversed(rows):
+        if row.get("verb") in ("audit", "converge") and row.get("target") == target:
+            return row
+    return None
+
+
+def same_ask(row: dict | None, signature: dict, target_src: str) -> bool:
+    """Whether the earlier run ``row`` (`latest_ask_row`'s answer) made THIS run's ask over THIS source —
+    the ``same_ask`` fact `cli.supplied_ask_disposition` decides on (D1b §6). True only when the row's
+    ``plan`` has the same ``kind`` and ``digest`` as ``signature`` and its ``state.target_src`` equals
+    ``target_src``.
+
+    False — the ask is progress, offered as today — when there is no earlier run, when that run held no
+    ask (no ``plan``), and when the source moved: a changed source is progress, never a loop. An empty
+    ``target_src`` is a REPORTED absence (`file_digest` returns "" for a file it cannot read), and two
+    absences never compare equal: an unreadable source is unknown, not unchanged.
+    """
+    if row is None or not target_src:
+        return False
+    plan = row.get("plan")
+    state = row.get("state")
+    if not isinstance(plan, dict) or not isinstance(state, dict):
+        return False
+    return (
+        plan.get("kind") == signature.get("kind")
+        and plan.get("digest") == signature.get("digest")
+        and state.get("target_src") == target_src
+    )
+
+
 def file_digest(path: str) -> str:
     """Content digest of one file, or "" when it cannot be read (never raises).
 

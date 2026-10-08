@@ -91,6 +91,11 @@ entries, and a truncated final line costs one record instead of the file.
     "equivalents": "sha256:…"          // .detective/equivalents.json
   },
 
+  "plan": {                            // OPTIONAL — the ASK this run made (converge and audit only)
+    "kind": "lines",                   // the plan's kind: witness · lines · boundary · internal · author · sample · …
+    "digest": "sha256:…"               // over the plan's typed records — JSON, sorted keys
+  },
+
   "outcome": null                      // RESERVED — see §6
 }
 ```
@@ -106,6 +111,17 @@ entries, and a truncated final line costs one record instead of the file.
   bound. A spiral is detected from `args` + `state` (§5), not from comparing output bytes.
 - **`args` records only flags that affect the measurement.** `--json`, `--verbose` and the like
   are excluded: two runs differing only in rendering are the same invocation for process purposes.
+- **`plan` is the ask a converge or audit run made, so the next run can tell whether a value it was
+  given changed that ask** (the decision record's repeat rule, D1b §6). `kind` is the plan's kind and
+  `digest` a hash over the plan's TYPED records exactly as `cli._input_plan` holds them (JSON with
+  sorted keys; the records stop at `_MAX_BATCH`, as the page's items do) — never over the rendered
+  strings, so a change of wording is never a change of ask. A run compares its ask with the LATEST
+  audit or converge entry on the same `target` (`ledger.latest_ask_row`); it is the same ask only when
+  that entry's `plan.kind`, `plan.digest` and `state.target_src` all equal this run's
+  (`ledger.same_ask`). The key is present only when the run's decision held a plan: a run that asked
+  nothing records no ask, and an entry without one is never read as an empty ask. `audit` takes no
+  `--input`, so for it the ask is all that is recorded; a sample asked for at audit's setup counts
+  against converge's first ask. `v` stays 1: an added key that no reader depends on.
 
 ---
 

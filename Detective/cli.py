@@ -45,7 +45,7 @@ from .equivalence import crash_only_status
 
 # Top-level, not deferred like the `certify` imports: `ledger` pulls in nothing (no engine, no
 # stdlib beyond __future__), so `--help` and a bad target pay nothing for it.
-from .ledger import observe
+from .ledger import latest_ask_row, observe, plan_signature, same_ask
 
 
 def _trace_budget(args) -> float | None:
@@ -1145,6 +1145,52 @@ def _boundary_hint(diff_summary: str, param_names: tuple[str, ...] | None = None
     conditions silently dropped. Those render as an explicit internal-condition line — the
     certified abstention — instead of ``supply an input where …``. With ``param_names=None``
     the classification is unavailable and the historical rendering stands.
+
+    The sentence is rendered from `_boundary_finding`'s code and region (D1b §3): one derivation, so
+    the decision record can carry the region itself and never has to read it back out of this text.
+    """
+    finding = _boundary_finding(diff_summary, param_names)
+    if finding is None:
+        return None
+    return _boundary_hint_text(*finding)
+
+
+def _boundary_hint_text(code: str, region: str) -> str:
+    """The sentence `_boundary_hint` prints for one `_boundary_finding` — its three wordings, and no
+    other place says them."""
+    if code == "internal_derived":
+        return (
+            f"internal condition `{region}` decides this — not a direct input "
+            "constraint; Detective could not derive a verified call from the "
+            "parameters"
+        )
+    if code == "internal_flow":
+        return (
+            f"internal condition `{region}` sits behind enclosing control "
+            "flow — the relation alone is not path-complete; supply a call "
+            "that reaches this comparison and lands on the edge"
+        )
+    return f"distinguish at the boundary — supply an input where {region}"
+
+
+def _boundary_finding(
+    diff_summary: str, param_names: tuple[str, ...] | None = None
+) -> tuple[str, str] | None:
+    """``(code, region)`` for a BOUNDARY mutant, or None when no rule names the region — the derivation
+    `_boundary_hint` renders (D1b §3).
+
+    ``region`` is the relation the original and the mutated comparison disagree on, as Python source
+    (``risk == 4``), exactly as `_difference_region` derives it. ``code`` says what kind of ask it is:
+
+      "edge"              the comparison reads parameters only and is evaluated on every call: the
+                          region IS a direct input requirement
+      "internal_derived"  it reads a name that is not a parameter (a derived local): no direct input
+                          constraint is derivable
+      "internal_flow"     its operands are parameters but it sits behind enclosing control flow, so the
+                          relation alone is not path-complete
+
+    The two ``internal_*`` codes are the internal conditions `_is_internal_hint` recognises in the
+    rendered sentence; the code is the same fact without reading the sentence back.
     """
     # diff_summary is '- <whole original>\n+ <whole mutant>'; block-diff it (as _concise_diff
     # does) to isolate the lines that actually changed, then find the comparison whose operator
@@ -1177,23 +1223,15 @@ def _boundary_hint(diff_summary: str, param_names: tuple[str, ...] | None = None
                     if _scope == "none" or (
                         _scope == "known" and not _params_only(left, right, param_names or ())
                     ):
-                        return (
-                            f"internal condition `{region}` decides this — not a direct input "
-                            "constraint; Detective could not derive a verified call from the "
-                            "parameters"
-                        )
+                        return "internal_derived", region
                     # Review finding 3: operands being parameters does not make the
                     # region path-complete — `weight == 10` beneath `if enabled:` is a
                     # recipe that silently omits `enabled`. Until control-dependence is
                     # derived, a dominated comparison abstains; only one this analysis
                     # PROVES unconditionally evaluated keeps the actionable form.
                     if _scope == "known" and not _always_evaluated("\n".join(orig_lines), left, op, right):
-                        return (
-                            f"internal condition `{region}` sits behind enclosing control "
-                            "flow — the relation alone is not path-complete; supply a call "
-                            "that reaches this comparison and lands on the edge"
-                        )
-                    return f"distinguish at the boundary — supply an input where {region}"
+                        return "internal_flow", region
+                    return "edge", region
     return None
 
 
@@ -2115,11 +2153,13 @@ def _swap_budget_row(state: str, withheld: int) -> tuple[str, str] | None:
     return None
 
 
-def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> str:
+def _format_converge(result, show_tests: bool = False, verbose: bool = True, final: str | None = None) -> str:
     """Validation report: what converge measured and what it left standing.
 
     ``verbose`` passes through to the survivor block: True (the default, and what the written
     report uses) renders every mutant id and diff; False groups them by mutated statement.
+    ``final`` is the decision record's FINAL line (D1b §7), printed last as given; without one it is
+    rendered here, as it always was.
 
     The score line reports initial→final kill percentage (over the same fixed
     mutant set, since the function body is untouched) and the killed/total count.
@@ -2315,7 +2355,7 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True) -> 
     if show_tests:
         lines += _show_written(result.written_path)
     # The stable banner is ALWAYS the last line, so `tail`/scroll lands on the result.
-    lines.append(_final_banner(result))
+    lines.append(final if final is not None else _final_banner(result))
     return "\n".join(lines)
 
 
@@ -2357,10 +2397,13 @@ def _format_converge_terse(
 
     ``decision`` is the handler's record, passed through to `_converge_action`, which consumes it.
     The stale and cut endings below print before it is reached; their codes are in the record too
-    (`converge_record_code`), and the handler has already recorded them.
+    (`converge_record_code`), and the handler has already recorded them. The FINAL line is the
+    record's own (``decision.final``, D1b §7) wherever the record holds one, so the page prints the
+    string the record carries and does not render it a second time.
     """
     fn = result.function
     rep = result.survivor_report
+    final = decision.final if decision is not None and decision.final is not None else _final_banner(result)
     # A stale headline must not carry counts either — "26 behaviours · 0
     # pinned" is the invalid measurement wearing the headline's authority.
     stale = getattr(result, "stale_target", False)
@@ -2381,7 +2424,7 @@ def _format_converge_terse(
         lines.append("       below the edit was measured; this run's numbers describe a")
         lines.append("       function that no longer exists.")
         lines.append("")
-        lines.append(_final_banner(result))
+        lines.append(final)
         return "\n".join(lines)
 
     # A CUT run (issue #31) is the same class of story as stale: the measurement is PARTIAL,
@@ -2408,7 +2451,7 @@ def _format_converge_terse(
         lines.append("       target prints megabytes above, it is an integration function")
         lines.append("       that cannot be isolated in-process; that is the real finding.")
         lines.append("")
-        lines.append(_final_banner(result))
+        lines.append(final)
         return "\n".join(lines)
 
     if result.written_path:
@@ -2562,7 +2605,7 @@ def _format_converge_terse(
     lines.append("")
     lines += _converge_action(result, rep, root, report_path, session_reason, attempted_inputs, decision)
     lines.append("")
-    lines.append(_final_banner(result))
+    lines.append(final)
     return "\n".join(lines)
 
 
@@ -2978,12 +3021,40 @@ def converge_record_code(next_action: str, stale_target: bool, budget_exhausted:
     return next_action
 
 
+def supplied_ask_disposition(kind: str, supplied: bool, same_ask: bool) -> str:
+    """Whether the values a run supplied changed the ask they answered (D1b §6, pure — pinned).
+
+    Detective's repeat rule used to cover only its own suggested inputs: a supplied input that left the
+    same witness became `repeated`, a terminating write-test. A value supplied at a `lines`, `boundary`,
+    `internal`, `author` or `sample` stop that did not change the ask was never noticed, so the same
+    ask came back, each round costing a full converge, until something outside Detective gave up. The
+    rule extends to those five kinds, and Detective ends the loop itself:
+
+      "repeat"          values were supplied, the ask is of a kind this rule governs, and it is the same
+                        ask as the previous audit or converge run's over the same source: offering it
+                        again is a proven loop
+      "progress"        values were supplied and the ask changed — or there is no earlier ask to compare
+                        it with, or the source moved: the ask is offered as today
+      "not_applicable"  no value was supplied this run, or the ask is of a kind outside these five
+                        (a witness, a hand-pin, a test, a fixture: those carry their own rule)
+
+    ``supplied`` is whether THIS invocation was given its own ``--input``: the inputs a converge run
+    recalls for its function (`samples.merge`) are never counted, and alone do not make a run a repeat.
+    ``same_ask`` is the caller's comparison of kind, digest and target source against the earlier run;
+    with no earlier run it is False.
+    """
+    if not supplied or kind not in ("lines", "boundary", "internal", "author", "sample"):
+        return "not_applicable"
+    return "repeat" if same_ask else "progress"
+
+
 def converge_step(
     code: str,
     route: str,
     plan_kind: str,
     marker_declared: bool,
     session_reason: str,
+    disposition: str,
 ) -> tuple[str, str]:
     """The kind of move converge's printed block states, and the remedy it names (pure — pinned).
 
@@ -2998,6 +3069,9 @@ def converge_step(
                             or the real sample `provide_sample` asks for
       ("write_test", "")    the operator writes the test a hand_pin / repeated plan names
       ("hand_back", "")     objects or a fixture only a person's test can build (a test / fixture plan)
+      ("hand_back", "supplied_did_not_reach")
+                            the values the operator supplied left the ask unchanged (D1b §6): the same
+                            ask came back, so supplying it again is a proven loop
       ("stop", <remedy>)    something must be repaired first, and the remedy names what: the route of a
                             repair_measurement that runs nothing; the code itself for
                             fix_verification / fix_load / install_pytest; `empty_collection` for a
@@ -3008,8 +3082,9 @@ def converge_step(
 
     ``route`` is consulted only under repair_measurement, where every route that is not a stop is a
     re-measure, as on the page; ``plan_kind`` only under close_the_gap, where every kind that is not
-    witness / hand_pin / repeated / test / fixture is an authoring task, as on the page; and
-    ``marker_declared`` and ``session_reason`` only under fix_collection.
+    witness / hand_pin / repeated / test / fixture is an authoring task, as on the page; ``disposition``
+    (`supplied_ask_disposition`'s code) only under close_the_gap and provide_sample, the two codes that
+    ask for values; and ``marker_declared`` and ``session_reason`` only under fix_collection.
     """
     if code == "repair_measurement":
         if route in ("fix_collection", "fix_load", "fix_routing", "mutant_phase", "inspect_refusal"):
@@ -3022,6 +3097,8 @@ def converge_step(
             return "stop", "empty_collection"
         return "run", ""
     if code == "close_the_gap":
+        if disposition == "repeat":
+            return "hand_back", "supplied_did_not_reach"
         if plan_kind == "witness":
             return "run", ""
         if plan_kind in ("hand_pin", "repeated"):
@@ -3030,6 +3107,8 @@ def converge_step(
             return "hand_back", ""
         return "supply", ""
     if code == "provide_sample":
+        if disposition == "repeat":
+            return "hand_back", "supplied_did_not_reach"
         return "supply", ""
     if code == "rerun_stale":
         return "run", ""
@@ -3106,11 +3185,29 @@ def _marker_declared(root: str) -> bool:
         return False
 
 
-def _witness_render_context(func_key: str, project_root: str, receiver_factory: str | None):
-    """The arguments converge passes when it writes a witness property for ``func_key`` — ``(root,
-    kw_names, call_expr, import_stmt)`` — re-derived from the same inputs (the target file, the function,
-    the project root, the ``--receiver-factory``) by the same calls `_converge_impl` makes, because
-    `ConvergeResult` does not carry them. None when the target no longer resolves."""
+@dataclass(frozen=True)
+class _WitnessContext:
+    """What converge hands a witness-property builder for one target (`_converge_impl`): the project
+    root, the keyword names a rendered call may use, the call and the import that render the receiver-
+    aware form, and — for a receiver-STATE witness — the receiver's render, the method's attribute and
+    its owner class. Facts about the target, not about any one witness."""
+
+    root: str
+    kw_names: tuple[str, ...]
+    call_expr: str | None
+    import_stmt: str | None
+    receiver_render: str | None
+    method_attr: str | None
+    owner: str | None
+
+
+def _witness_render_context(
+    func_key: str, project_root: str, receiver_factory: str | None
+) -> _WitnessContext | None:
+    """The arguments converge passes when it writes a witness property for ``func_key`` — re-derived
+    from the same inputs (the target file, the function, the project root, the ``--receiver-factory``)
+    by the same calls `_converge_impl` makes (converge.py:2006-2016), because `ConvergeResult` does not
+    carry them. None when the target no longer resolves."""
     from .binding import parse_receiver_factory, resolve_execution
     from .converge import _kwargs_names
     from .engine import _load_original, _resolve
@@ -3125,56 +3222,102 @@ def _witness_render_context(func_key: str, project_root: str, receiver_factory: 
     factory = parse_receiver_factory(receiver_factory) if receiver_factory else None
     live = _load_original(full, qualname)
     binding = resolve_execution(node, qualname, live, factory=factory) if live is not None else None
-    return (
+    return _WitnessContext(
         root,
         _kwargs_names(node, qualname),
         binding.call_expr if binding is not None else None,
         binding.import_stmt if binding is not None else None,
+        binding.plan.render if (binding is not None and binding.plan is not None) else None,
+        binding.binding.attribute if binding is not None else None,
+        binding.binding.owner if binding is not None else None,
+    )
+
+
+def _witness_property_for(func_key: str, witness, context: _WitnessContext):
+    """The property converge writes for ``witness`` — the SAME writer, chosen in converge's own order
+    (`_converge_impl`, converge.py:2041-2064), with the arguments it passes:
+
+      a receiver-STATE witness (``state_pins``)   `_state_witness_property`
+      else a witness whose original RAISED         `_raises_witness_property`
+      else                                         `_witness_property`
+
+    The state form comes first because a state witness's mutation changed only the receiver: pinning its
+    return value, as the value writer does, asserts nothing the mutant disturbs. None when the writer
+    declines, exactly as converge would."""
+    from .converge import _raises_witness_property, _state_witness_property, _witness_property
+
+    if getattr(witness, "state_pins", None):
+        return _state_witness_property(
+            func_key,
+            witness,
+            context.root,
+            receiver_render=context.receiver_render,
+            method_attr=context.method_attr,
+            owner=context.owner,
+            factory_import=context.import_stmt,
+        )
+    if witness.original.startswith("<raised"):
+        return _raises_witness_property(
+            func_key,
+            witness,
+            context.root,
+            context.kw_names,
+            call_expr=context.call_expr,
+            import_stmt=context.import_stmt,
+        )
+    return _witness_property(
+        func_key,
+        witness,
+        context.root,
+        context.kw_names,
+        call_expr=context.call_expr,
+        import_stmt=context.import_stmt,
     )
 
 
 def _witness_test_renderer(
     func_key: str, project_root: str, receiver_factory: str | None
-) -> Callable[[Any], str | None]:
-    """Detective's OWN test for a hand_pin / repeated witness — a renderer the plan calls per verdict.
+) -> Callable[[Any], tuple[str | None, str]]:
+    """Detective's OWN test for a hand_pin / repeated witness — a renderer the plan calls per verdict,
+    answering ``(test, status)``.
 
     The page asks the operator to write these tests by hand; Detective writes them itself, in the CLI
-    process, where the witness's live values exist. The property is built the way converge builds a
-    witness property for this function — `_raises_witness_property` when the original raised, else
-    `_witness_property`, with converge's own arguments (`_witness_render_context`) — and rendered by
-    `synthesis.writer._render_test`, after the property's setup (its imports, and `pytest`, which the
-    rendered marker needs), so it compiles on its own. The test's name carries the mutant id, so two
-    items never collide.
+    process, where the witness's live values exist. The property is built by the writer converge
+    itself chooses for that witness, in converge's order (`_witness_property_for`), with converge's own
+    arguments (`_witness_render_context`), and rendered by `synthesis.writer._render_test`, after the
+    property's setup (its imports, and `pytest`, which the rendered marker needs), so it compiles on its
+    own. The test's name carries the mutant id, so two items never collide.
 
-    None when the property is None — Detective has declined, as converge would — and None when the
-    target no longer resolves or rendering raises: an advisory field must not cost the run its record.
+    The status says how the answer came to be (D1b §1), because three different facts must not share
+    a signifier: ``rendered`` (a test); ``declined`` (the writer returned None — Detective declines, as
+    converge would: ``test`` is None); ``render_failed:<exception type>`` (something raised — building the
+    context, the property or the rendering — or the target no longer resolves, which converge itself
+    raises as a LookupError: ``test`` is None). An advisory field must not cost the run its record, so a
+    failure is caught, and it is NAMED, never reported as a decline.
     """
-    context: list[Any] = []
+    context: list[_WitnessContext | None] = []
 
-    def render(verdict) -> str | None:
+    def render(verdict) -> tuple[str | None, str]:
         try:
             if not context:
                 context.append(_witness_render_context(func_key, project_root, receiver_factory))
-            if context[0] is None:
-                return None
-            root, kw_names, call_expr, import_stmt = context[0]
-            from .converge import _raises_witness_property, _witness_property
+            target = context[0]
+            if target is None:
+                raise LookupError(f"{func_key} no longer resolves in its file")
             from .synthesis.writer import _render_test
 
-            witness = verdict.witness
-            build = _raises_witness_property if witness.original.startswith("<raised") else _witness_property
-            prop = build(func_key, witness, root, kw_names, call_expr=call_expr, import_stmt=import_stmt)
+            prop = _witness_property_for(func_key, verdict.witness, target)
             if prop is None:
-                return None
+                return None, "declined"
             ident = "".join(ch if ch.isalnum() else "_" for ch in str(verdict.mutant_id).lower())
             name = f"{func_key.rsplit('::', 1)[-1].replace('.', '_')}_{ident}"
             setup = prop.setup_code
             if "import pytest" not in setup.split("\n"):
                 setup = f"{setup}\nimport pytest"
-            return f"{setup}\n\n\n{_render_test(name, 0, prop)}\n"
-        # BLE001: an advisory field never costs the run its decision record
-        except Exception:  # noqa: BLE001
-            return None
+            return f"{setup}\n\n\n{_render_test(name, 0, prop)}\n", "rendered"
+        # BLE001: an advisory field never costs the run its decision record; the failure is named
+        except Exception as exc:  # noqa: BLE001
+            return None, f"render_failed:{type(exc).__name__}"
 
     return render
 
@@ -3187,6 +3330,9 @@ def _converge_decision(
     attempted_inputs: tuple[str, ...] = (),
     receiver_factory: str | None = None,
     render_tests: bool = True,
+    prior_ask: dict | None = None,
+    target_src: str = "",
+    final: str | None = None,
 ) -> Decision:
     """Converge's decision record, computed ONCE from the result: the code the page routes on, the move
     it prints, the commands it names, the typed plan, the residual, and the decided state.
@@ -3196,6 +3342,12 @@ def _converge_decision(
     `_converge_action` — then hands the record to the page, which consumes it. ``render_tests`` writes
     Detective's own test into each hand_pin / repeated item (`_witness_test_renderer`); a renderer that
     derives its own record (a direct call with no handler) passes False, as its page never shows it.
+
+    ``prior_ask`` is the ledger row of the latest earlier audit or converge run on this target
+    (`ledger.latest_ask_row`), and ``target_src`` this target's source digest now: with the plan derived,
+    they decide whether this run's own ``attempted_inputs`` changed the ask (`supplied_ask_disposition`),
+    and a ``repeat`` makes the step the ``supplied_did_not_reach`` hand-back (D1b §6). ``final`` is the
+    FINAL line the page prints (`_final_banner`), carried on the record as given (D1b §7).
     """
     fn = result.function
     standing, next_action = _converge_routing(result, rep, session_reason)
@@ -3219,8 +3371,20 @@ def _converge_decision(
     elif code == "provide_sample":
         plan = InputPlan("sample", (), 0, 0)
         note = str(getattr(rep, "note", None) or "")
+    # THE REPEAT RULE, extended to supplied values (D1b §6): this run's OWN --input (`attempted_inputs`,
+    # never the inputs converge also recalls for the function) against whether the plan just derived is
+    # the ask the previous run on this target made, over the same source.
+    disposition = (
+        supplied_ask_disposition(
+            plan.kind,
+            bool(attempted_inputs),
+            same_ask(prior_ask, _plan_signature(plan), target_src),
+        )
+        if plan is not None
+        else "not_applicable"
+    )
     kind, remedy = converge_step(
-        code, route, plan.kind if plan is not None else "", marker_declared, session_reason
+        code, route, plan.kind if plan is not None else "", marker_declared, session_reason, disposition
     )
     argv, then = _converge_commands(code, route, kind, fn, root, attempted_inputs, plan)
     residual: tuple[str, tuple[str, ...]] | None = None
@@ -3258,6 +3422,8 @@ def _converge_decision(
         optional,
         state,
         marker_declared,
+        final,
+        attempted_inputs if remedy == "supplied_did_not_reach" else (),
     )
 
 
@@ -3306,6 +3472,32 @@ def _dead_suite_action(
     ]
 
 
+def _supplied_did_not_reach_action(d: Decision, plan: InputPlan, fn: str, report_path: str = "") -> list[str]:
+    """The block for the ``supplied_did_not_reach`` hand-back (D1b §6): the values supplied for an ask
+    left the ask unchanged, so asking again is a proven loop and the next move is a person's.
+
+    It takes the head D1's page gives the other hand-backs (``WRITE TEST:``), with three rows: ``· Asked``
+    (the ask as it came back — its items, or for an ask that has none, its note, or its kind),
+    ``· Supplied`` (this run's own ``--input`` strings, each exactly as given: nothing inside a supplied
+    input is reshaped), and ``· Why``. Like the other hand-backs it ends on the command that runs after
+    the person's move. The data is the decision's own (``plan``, ``supplied``); nothing is re-derived.
+    """
+    where = report_path or "the full report"
+    asked = [f"{i}. {item}" for i, item in enumerate(plan.items, start=1)] or [d.note or plan.kind]
+    out = [
+        "WRITE TEST:  the supplied --input did not change the ask below",
+        "",
+        *(_row("· Asked" if i == 0 else "", line) for i, line in enumerate(asked)),
+    ]
+    if plan.item_total > len(plan.items):
+        out.append(_row("", f"(+{plan.item_total - len(plan.items)} more in {where})"))
+    out.extend(_row("· Supplied" if i == 0 else "", f"{i + 1}. {raw}") for i, raw in enumerate(d.supplied))
+    out.append(_row("· Why", "the same ask came back: supplying it again is a proven loop"))
+    out.append("")
+    out.append(f"THEN RUN:  detective converge '{fn}'")
+    return out
+
+
 def _converge_action(
     result,
     rep,
@@ -3341,6 +3533,8 @@ def _converge_action(
     )
     blocked = _converge_blocked(result, rep)
     kind = d.code
+    if d.remedy == "supplied_did_not_reach" and d.plan is not None:
+        return _supplied_did_not_reach_action(d, d.plan, fn, report_path)
     if kind == "repair_measurement":
         # Route by the TYPED cut reasons (validity.CUT_REASONS), not a raw-boolean ladder with a
         # `--trace-budget 0` catch-all. That catch-all sent a COLLECTION-FAILURE cut (a reaching test
@@ -3832,17 +4026,30 @@ def _input_plan(kind: str, items: list[str], obligation_total: int, records: lis
     return InputPlan(kind, distinct[:_MAX_BATCH], len(distinct), obligation_total, typed[:_MAX_BATCH])
 
 
-def _pin_record(verdict, call_args: str, render_test: Callable[[Any], str | None] | None) -> dict:
+def _plan_signature(plan: InputPlan) -> dict:
+    """The signature of the ask a plan makes — ``{"kind", "digest"}`` over the plan's TYPED records, the
+    ones `_input_plan` holds and the decision record carries (`ledger.plan_signature`). The one place a
+    plan becomes a signature: the comparison against the earlier run (`_converge_decision`) and the entry
+    the ledger records for the next run (`_run_converge`, `_run_audit`) read the same value."""
+    return plan_signature(plan.kind, list(plan.records))
+
+
+def _pin_record(verdict, call_args: str, render_test: Callable[[Any], tuple[str | None, str]] | None) -> dict:
     """The typed item of a ``hand_pin`` / ``repeated`` plan: the call's args literal, both outcome reprs
     IN FULL (the page's item cuts them at 28 characters; a record never does), the mutant, and
-    Detective's own test for it — ``None`` when no renderer was given, or when Detective declined."""
+    Detective's own test for it with the status that says how it came to be (D1b §1): ``rendered`` (a
+    test), ``declined`` (the writer returned None, or no renderer is reached where the item is built:
+    ``test`` is None), or ``render_failed:<exception type>`` (rendering raised: ``test`` is None). A
+    failure is never recorded as a decline — the two are different facts with different remedies."""
     witness = verdict.witness
+    test, status = render_test(verdict) if render_test is not None else (None, "declined")
     return {
         "input": call_args,
         "original": witness.original,
         "mutant": witness.mutant,
         "mutant_id": verdict.mutant_id,
-        "test": render_test(verdict) if render_test is not None else None,
+        "test": test,
+        "test_status": status,
     }
 
 
@@ -3864,6 +4071,13 @@ class Decision:
     a DONE names; ``optional`` converge's NEXT commands; ``state`` the decided values the raw payload
     does not carry. ``marker_declared`` is an INPUT converge's step consumed and its page reads back
     (`_dead_suite_action`); it is not part of the record.
+
+    ``final`` is the exact FINAL line the page prints (`_final_banner`), carried so the label that
+    quotes a converge reads it and nothing re-renders it (D1b §7); audit's and regime's pages print none,
+    so theirs is None. ``supplied`` is this run's own ``--input`` strings, kept on the record ONLY when
+    the step is the ``supplied_did_not_reach`` hand-back (D1b §6), where the plan carries them beside the
+    ask they failed to change. ``two_sign`` is an INPUT, like ``marker_declared``: whether the audit ran
+    under ``--two-sign``, which its page reads back to name converge (D1b §11); not part of the record.
     """
 
     verb: str
@@ -3879,6 +4093,9 @@ class Decision:
     optional: tuple[tuple[str, ...], ...]
     state: dict
     marker_declared: bool = False
+    final: str | None = None
+    supplied: tuple[str, ...] = ()
+    two_sign: bool = False
 
 
 def _decision_payload(d: Decision) -> dict:
@@ -3886,7 +4103,9 @@ def _decision_payload(d: Decision) -> dict:
 
     ``plan`` is present exactly when the decision holds one, which is when the step is ``supply``,
     ``write_test`` or ``hand_back``, or ``run`` for a ``witness`` plan: converge's ``close_the_gap``
-    and the ``sample`` request of ``provide_sample`` are the only decisions that build one.
+    and the ``sample`` request of ``provide_sample`` are the only decisions that build one. On the
+    ``supplied_did_not_reach`` hand-back it is the ask as it came back, with ``supplied`` — this run's own
+    ``--input`` strings — beside it (D1b §6).
     """
     plan = None
     if d.plan is not None:
@@ -3897,6 +4116,8 @@ def _decision_payload(d: Decision) -> dict:
             "obligation_total": d.plan.obligation_total,
             "note": d.note,
         }
+        if d.remedy == "supplied_did_not_reach":
+            plan["supplied"] = list(d.supplied)
     return {
         "verb": d.verb,
         "code": d.code,
@@ -3913,6 +4134,7 @@ def _decision_payload(d: Decision) -> dict:
         ),
         "optional": [list(command) for command in d.optional],
         "state": d.state,
+        "final": d.final,
     }
 
 
@@ -3950,7 +4172,7 @@ def _derive_input_plan(
     proof,
     rep,
     attempted_inputs: tuple[str, ...] = (),
-    render_test: Callable[[Any], str | None] | None = None,
+    render_test: Callable[[Any], tuple[str | None, str]] | None = None,
 ) -> InputPlan:
     """What the engine DERIVED about the inputs it still needs — as typed action data.
 
@@ -3977,7 +4199,9 @@ def _derive_input_plan(
     Each branch also builds the plan's TYPED ``records`` beside its ``items`` — the call or relation
     the item states, with the mutants it was derived from — which is what the decision record carries
     under ``plan``. ``render_test``, when given, renders Detective's own test for a ``hand_pin`` /
-    ``repeated`` witness into that record's ``test``; without it the field is None.
+    ``repeated`` witness into that record's ``test`` and ``test_status``; without it the test is None and
+    its status ``declined``. An ``internal`` item's ``condition`` is the expression Detective derived
+    (``form`` ``expression``), with the sentence the page prints for it as the item's ``note`` (D1b §3).
     """
     witnesses = [v for v in (rep.killable if rep is not None else ()) if v.witness]
     # The parser, not a parallel type predicate, decides whether a witness is a COMMAND. This
@@ -4046,26 +4270,30 @@ def _derive_input_plan(
             [{"description": d, "mutant_ids": [v.mutant_id]} for v, d in zip(witnesses, descs, strict=True)],
         )
     # (relation or condition, the candidate-equivalent survivor it was derived from) — one row per
-    # survivor; `_input_plan` collapses repeats to the first, as the `not in` checks here used to.
+    # survivor; `_input_plan` collapses repeats to the first, as the `not in` checks here used to. An
+    # internal row also carries the region itself (D1b §3), so its record never has to read the
+    # expression back out of the sentence the page prints.
     hint_rows: list[tuple[str, dict]] = []
-    internal_rows: list[tuple[str, dict]] = []
+    internal_rows: list[tuple[str, str, dict]] = []
     # Skip crash-only survivors: an input already distinguishes them and no value assertion can
     # pin them, so any input we ask for here is one the caller can supply and still see NO
     # progress — the same forever-loop `find_witness` skips them to avoid.
     for v in (v for v in (rep.equivalent if rep is not None else ()) if not v.crash_only):
-        h = _boundary_hint(
+        finding = _boundary_finding(
             v.diff_summary,
             tuple(proof.param_names) if proof.param_names is not None else None,
         )
-        if not h:
+        if finding is None:
             continue
+        code, region = finding
+        h = _boundary_hint_text(code, region)
         mutant = {"id": v.mutant_id, "category": v.category, "diff": v.diff_summary}
-        if _is_internal_hint(h):
-            internal_rows.append((h, mutant))
-        else:
+        if code == "edge":
             hint_rows.append((_hint_relation(h), mutant))
+        else:
+            internal_rows.append((h, region, mutant))
     hints = list(dict.fromkeys(rel for rel, _ in hint_rows))
-    internal = list(dict.fromkeys(h for h, _ in internal_rows))
+    internal = list(dict.fromkeys(h for h, _, _ in internal_rows))
     # A DARK LINE OUTRANKS AN EQUIVALENT'S EDGE. `hints`/`internal` are read off
     # CANDIDATE-EQUIVALENT survivors — by construction nothing killable is left, so the only
     # progress still available is executing a line no test reaches. Asking for the edge first
@@ -4093,11 +4321,23 @@ def _derive_input_plan(
         # constraint is derivable, and saying so IS the result (certified abstention).
         return _input_plan(
             "internal",
-            [h for h, _ in internal_rows],
+            [h for h, _, _ in internal_rows],
             len(internal),
-            [{"condition": h, "mutants": [m]} for h, m in internal_rows],
+            [_internal_record(h, region, m) for h, region, m in internal_rows],
         )
     return _input_plan("author", [], 0, [])
+
+
+def _internal_record(sentence: str, region: str, mutant: dict) -> dict:
+    """The typed item of an ``internal`` plan (D1b §3). Its ``condition`` is never empty: the expression
+    Detective derived, as Python source with no wording added (``form`` ``expression``), and when
+    Detective holds none, the condition's text as Detective holds it (``form`` ``prose``). The wording the
+    page adds around the expression is the separate ``note``; a prose condition IS the wording, so its
+    note is empty. The harness keys an item by its ``condition`` and mines value pools only from an
+    expression, so the form is what tells it whether the text is code."""
+    if region:
+        return {"condition": region, "form": "expression", "note": sentence, "mutants": [mutant]}
+    return {"condition": sentence, "form": "prose", "note": "", "mutants": [mutant]}
 
 
 def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
@@ -4968,7 +5208,7 @@ def audit_next_action(
     return "done_complete"
 
 
-def audit_step(code: str) -> tuple[str, str]:
+def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
     """The kind of move audit's printed block states, and the remedy it names (pure — pinned).
 
     The same split as `converge_step`, for audit's ladder: the page states the move by its header and
@@ -4979,11 +5219,18 @@ def audit_step(code: str) -> tuple[str, str]:
       ("supply", "")                        provide_sample — a real sample, then converge
       ("decide", "fix_failing_test")        a failing test: whether the TEST or the CODE is wrong is a
                                             call only a person may make
-      ("run", "")                           close_the_gap (converge) and remove_redundant (--remove)
-      ("done", "")                          removing_now, flag_equivalents, done_unclassified,
-                                            done_complete — nothing to run
+      ("run", "")                           close_the_gap (converge) and remove_redundant (--remove);
+                                            under ``two_sign`` also flag_equivalents, done_unclassified
+                                            and done_complete (see below)
+      ("done", "")                          removing_now — and, without ``two_sign``, flag_equivalents,
+                                            done_unclassified and done_complete: nothing to run
       ("unknown", "")                       a code this decision does not know: named, never a move by
                                             fall-through
+
+    ``two_sign`` (D1b §11): audit is the line's SETUP and never an endpoint, so under ``--two-sign`` every
+    clean outcome — close_the_gap, remove_redundant, flag_equivalents, done_unclassified, done_complete —
+    names the next command, which is converge (`_audit_commands`): step ``run``. ``removing_now`` stays
+    ``done``: it needs ``--remove``, which the line never sends. Without ``two_sign`` nothing changes.
     """
     if code == "fix_load":
         return "stop", "fix_load"
@@ -4993,7 +5240,9 @@ def audit_step(code: str) -> tuple[str, str]:
         return "decide", "fix_failing_test"
     if code in ("close_the_gap", "remove_redundant"):
         return "run", ""
-    if code in ("removing_now", "flag_equivalents", "done_unclassified", "done_complete"):
+    if code in ("flag_equivalents", "done_unclassified", "done_complete"):
+        return ("run", "") if two_sign else ("done", "")
+    if code == "removing_now":
         return "done", ""
     return "unknown", ""
 
@@ -5047,11 +5296,19 @@ def _audit_residual(a) -> tuple[str, tuple[str, ...]]:
     return residual_done_basis(len(ids), len(crash_ids), str(getattr(a, "boundary_probe", "") or "")), ids
 
 
-def _audit_commands(code: str, fn: str) -> tuple[tuple[str, ...] | None, tuple[str, ...] | None]:
+def _audit_commands(
+    code: str, fn: str, two_sign: bool
+) -> tuple[tuple[str, ...] | None, tuple[str, ...] | None]:
     """``(argv, then)`` — the Detective commands audit's block names, as tokens after `detective`,
     assembled from the target the page prints them with. `fix_failing_test` prints a pytest command,
-    not a Detective one, so its only Detective command is the re-audit after the person's call."""
-    if code == "close_the_gap":
+    not a Detective one, so its only Detective command is the re-audit after the person's call.
+
+    Under ``two_sign`` (D1b §11) a clean setup's next command is converge: every outcome `audit_step`
+    gives step ``run`` there names it — ``remove_redundant`` too, whose redundancy stays a fact in the
+    record and whose command is never ``--remove``."""
+    if code == "close_the_gap" or (
+        two_sign and code in ("remove_redundant", "flag_equivalents", "done_unclassified", "done_complete")
+    ):
         return ("converge", fn), None
     if code == "remove_redundant":
         return ("audit", fn, "--remove"), None
@@ -5062,18 +5319,22 @@ def _audit_commands(code: str, fn: str) -> tuple[tuple[str, ...] | None, tuple[s
     return None, None
 
 
-def _audit_decision(a, removing: bool = False) -> Decision:
+def _audit_decision(a, removing: bool = False, two_sign: bool = False) -> Decision:
     """Audit's decision record, computed ONCE from the report where `_run_audit` holds it — the code the
     page routes on, the move it prints, its commands, a sample request's note, the equivalents
-    residual, and the headline code — and consumed by the page and by ``--json`` alike."""
+    residual, and the headline code — and consumed by the page and by ``--json`` alike. ``two_sign`` is
+    whether the audit ran under ``--two-sign``, where a clean setup names converge (D1b §11); the record
+    keeps it for the page, which reads it back."""
     code = _audit_code(a, removing)
-    kind, remedy = audit_step(code)
-    argv, then = _audit_commands(code, a.function)
+    kind, remedy = audit_step(code, two_sign)
+    argv, then = _audit_commands(code, a.function, two_sign)
     plan = InputPlan("sample", (), 0, 0) if code == "provide_sample" else None
     note = str(getattr(a, "note", "") or "") if plan is not None else ""
     residual = _audit_residual(a) if code == "flag_equivalents" else None
     state = {"headline": _audit_headline(a)}
-    return Decision("audit", code, "", kind, remedy, argv, then, plan, note, residual, (), state)
+    return Decision(
+        "audit", code, "", kind, remedy, argv, then, plan, note, residual, (), state, two_sign=two_sign
+    )
 
 
 def _audit_action(a, removing: bool = False, decision: Decision | None = None) -> list[str]:
@@ -5097,8 +5358,22 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
     ``decision`` is the record `_run_audit` computed once; its code is consumed here. Without one (a
     direct call) the code is derived by the same reading. Either way nothing is recorded: the handler
     records the outcome, once per invocation, and a renderer never observes.
+
+    Under ``--two-sign`` a clean setup names converge (D1b §11): where the record's step is ``run``, the
+    block is that command under ``DO THIS:`` with one ``· Why`` row, in place of the closing block the
+    code would otherwise print. Audit is the line's setup, never an endpoint.
     """
     kind = decision.code if decision is not None else _audit_code(a, removing)
+    if decision is not None and decision.two_sign and decision.kind == "run":
+        return [
+            f"DO THIS:  detective converge '{a.function}'",
+            "",
+            _row(
+                "· Why",
+                "the setup is clean: the suite loads and no intent test fails; "
+                "converge writes and pins this function's suite",
+            ),
+        ]
     if kind == "fix_load":
         reason = getattr(a, "note", "") or _MODULE_NOT_IMPORTED
         return [
@@ -6516,17 +6791,10 @@ def _record_invocation(args, exit_code, refusal: str, started: float) -> None:
         from . import ledger as _L
 
         root = os.path.abspath(getattr(args, "project_root", ".") or ".")
-        raw_target = getattr(args, "target", None) or getattr(args, "path", None) or ""
-        rel = str(raw_target).split("::", maxsplit=1)[0] if raw_target else ""
-        if not rel:
-            target_file = ""
-        elif os.path.isabs(rel):
-            target_file = rel
-        else:
-            target_file = os.path.join(root, rel)
+        target_file = _ledger_target_file(args, root)
         write_dir = os.path.join(root, "tests", "detective")
         verb = str(getattr(args, "command", "") or "")
-        target = str(raw_target) or None
+        target = _ledger_target(args)
         ledger_args = _ledger_args(args)
         state = {
             "target_src": _L.file_digest(target_file) if target_file else "",
@@ -6551,10 +6819,50 @@ def _record_invocation(args, exit_code, refusal: str, started: float) -> None:
             # verb records []. Full propagation is its own step (INVOCATION_LEDGER.md §6).
             "outcome": [list(o) for o in _L.take_observations()],
         }
+        # The signature of the ASK this run made, for the next run to compare against (D1b §6). Present
+        # only when the run's decision held a plan: a run that asked nothing records no ask, and the
+        # next run reads that absence as "no earlier ask", never as an empty one.
+        ask = getattr(args, "_plan", None)
+        if ask:
+            record["plan"] = ask
         _L.append(root, record)
     # BLE001: the ledger is advisory; a run's verdict must not depend on whether it was watched
     except Exception:  # noqa: BLE001
         pass
+
+
+def _ledger_target(args) -> str | None:
+    """The target an invocation is recorded under — the one spelling of which function or file a run was
+    about, shared by the entry `_record_invocation` appends and by the comparison that reads entries
+    back (`_prior_ask`), so the two cannot name one target two ways. None for a verb with no target."""
+    return str(getattr(args, "target", None) or getattr(args, "path", None) or "") or None
+
+
+def _ledger_target_file(args, root: str) -> str:
+    """The target's source file as the ledger digests it ("" when the invocation names no target)."""
+    rel = (_ledger_target(args) or "").split("::", maxsplit=1)[0]
+    if not rel:
+        return ""
+    return rel if os.path.isabs(rel) else os.path.join(root, rel)
+
+
+def _prior_ask(args) -> tuple[dict | None, str]:
+    """``(earlier run's ledger row, this target's source digest)`` — the two facts a run compares its ask
+    against (D1b §6). The row is the latest audit or converge entry on this target (`latest_ask_row`);
+    it is read before this run's own entry is appended, so it is always an EARLIER run. ``(None, "")``
+    when the invocation has no target or the ledger cannot be read: no earlier ask, which is progress.
+    Never raises — the ledger is advisory, and an unreadable one costs the repeat rule its memory and
+    nothing else."""
+    try:
+        from . import ledger as _L
+
+        root = os.path.abspath(getattr(args, "project_root", ".") or ".")
+        target_file = _ledger_target_file(args, root)
+        target_src = _L.file_digest(target_file) if target_file else ""
+        return latest_ask_row(_L.read_recent(root, limit=200), _ledger_target(args)), target_src
+    # BLE001: an unreadable ledger is no earlier ask; the repeat rule loses its memory, the run is unharmed
+    except Exception:  # noqa: BLE001
+        return None, ""
 
 
 def _ledger_env(root: str) -> dict:
@@ -7653,8 +7961,11 @@ def _run_audit(args, file, function) -> int:
     # THE DECISION, computed once from the report, and its outcome recorded here — once per invocation,
     # on every channel. Recorded from inside the page's renderer, it never reached the ledger from a
     # `--json` run. The page consumes the record; every JSON payload below carries it.
-    decision = _audit_decision(report, removing)
+    decision = _audit_decision(report, removing, getattr(args, "two_sign", False))
     observe("outcome", "audit", decision.code)
+    # This run's ask, for `_record_invocation` to write under `plan` (D1b §6): audit takes no --input, so
+    # all it records is the ask it made — a converge run's first ask is compared against it.
+    args._plan = _plan_signature(decision.plan) if decision.plan is not None else None
     payload["decision"] = _decision_payload(decision)
     if not (args.json and removing):
         # With --json --remove the payload is printed ONCE, after the removal, carrying its outcomes:
@@ -7861,6 +8172,10 @@ def _run_converge(args, file, function) -> int:
     # cannot raise, and recording changes no output, no branch and no exit code (INVOCATION_LEDGER.md).
     session_reason = getattr(args, "session_reason", "")
     attempted = tuple(getattr(args, "input", ()) or ())
+    # The repeat rule's memory (D1b §6): the earlier run's ask, read from the ledger before this run's own
+    # entry is appended. `attempted` is THIS run's own --input — `samples.merge` also feeds converge the
+    # inputs it remembers for the function, and those alone never make a run a repeat.
+    prior_ask, target_src = _prior_ask(args)
     decision = _converge_decision(
         result,
         result.survivor_report,
@@ -7868,8 +8183,13 @@ def _run_converge(args, file, function) -> int:
         session_reason,
         attempted,
         getattr(args, "receiver_factory", None),
+        prior_ask=prior_ask,
+        target_src=target_src,
+        final=_final_banner(result),
     )
     observe("outcome", "converge", decision.code)
+    # This run's ask, for `_record_invocation` to write under `plan` — the next run's earlier ask.
+    args._plan = _plan_signature(decision.plan) if decision.plan is not None else None
     if args.json:
         # 3 = "this run's numbers are partial — re-run": a stale target (#17), OR ANY ungateable
         # measurement (#60 — a deadline CUT, an uncontained worker, an ambiguous module identity, or an
@@ -7891,10 +8211,12 @@ def _run_converge(args, file, function) -> int:
     # separately rather than sharing one string.
     qn = result.function.split("::")[-1]
     report_path = _write_converge_report(
-        os.path.abspath(args.project_root), qn, _format_converge(result, show_tests=True, verbose=True)
+        os.path.abspath(args.project_root),
+        qn,
+        _format_converge(result, show_tests=True, verbose=True, final=decision.final),
     )
     if args.full:
-        print(_format_converge(result, show_tests=True, verbose=args.verbose))
+        print(_format_converge(result, show_tests=True, verbose=args.verbose, final=decision.final))
     else:
         print(
             _format_converge_terse(
