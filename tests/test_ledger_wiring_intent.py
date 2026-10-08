@@ -1,132 +1,155 @@
-"""Intent tests for wiring the observation channel into converge's render path.
+"""Intent tests for wiring the observation channel into converge — at the HANDLER, once per invocation.
 
-Design: `docs/INVOCATION_LEDGER.md` §6. The wiring exists so the routed next-action code — which
-`_converge_action` otherwise consumes and discards — can leave the run, because a spiral is an
-identical code re-emitted over unchanged state and no single invocation can see that.
+Design: `docs/INVOCATION_LEDGER.md` §6. The wiring exists so the routed next-action code can leave the
+run, because a spiral is an identical code re-emitted over unchanged state and no single invocation can
+see that.
 
-The founder's ruling (2026-09-08) was to build the gathering layer rather than thread the value
-up through five rendering layers: production threading is shallow, but `_converge_action` returns
-`list[str]` to ~12 pinned call sites across 5 intent files, and changing that shape would edit the
-intent record to carry a value none of it is about.
+The observation used to sit inside `_converge_action`, the page's renderer, so it fired only when that
+renderer ran: a `--json` run, a `--full` run, and the stale and cut endings the terse page prints before
+its action block recorded no outcome at all. It now sits where `_run_converge` holds the result and
+computes the decision record once; the renderers consume that record and never observe. These tests
+moved with it, and their intent did not change:
 
-The two defects these prevent, and only one of them is about the ledger:
-
-1. **An observation that changes the observed.** The whole warrant for putting a side effect in a
-   render path is that it is inert. If wiring alters one character of output, one branch or one
-   exit code, it has broken the thing it was added to watch. Pinned by comparing a fully rendered
-   action block against the same block produced with the channel drained between runs.
+1. **An observation that changes the observed.** The whole warrant for a side effect beside a render
+   path is that it is inert. If recording alters one character of output, one branch or one exit code,
+   it has broken the thing it was added to watch. Pinned by comparing a fully rendered page against the
+   same page produced with the channel drained, and crowded, between runs.
 2. **A silently unwired channel.** `observe` could be imported, called, and reach nothing — the
    `defined-but-unused` failure this repo checks references for. A test that only asserts "output
-   unchanged" passes just as well when the call was never made, so completeness is asserted
-   directly: the code is recorded, and it is the code converge actually routed on.
+   unchanged" passes just as well when the call was never made, so completeness is asserted directly:
+   the code is recorded, exactly once, and it is the code the page routed on.
 """
 
 from __future__ import annotations
 
+import importlib
 import types
 
-from Detective.cli import _converge_action
+import pytest
+
+from Detective.cli import _converge_action, _run_converge
+from Detective.converge import ConvergeResult
 from Detective.ledger import reset_observations, take_observations
 
 
-def _complete_result():
-    """Reaches the settled DONE branch — converge_next_action returns "settled"."""
-    return types.SimpleNamespace(
-        function="dsl.py::add",
-        functionally_complete=True,
-        verification=None,
-        line_complete=True,
-        missing_lines=(),
-        stale_target=False,
-        admits_certificate=True,
-        written_path="tests/detective/test_dsl_add_synth.py",
-        synthesized_only=False,
-        environment_gated=(),
-    )
+def _settled() -> ConvergeResult:
+    """Reaches the settled DONE branch — every axis discharged, gateable, nothing outstanding."""
+    return ConvergeResult("m.py::add", True, True, 0, 0, (), None, functionally_complete=True)
 
 
-def _gap_result():
-    """A real line gap with a gateable measurement — routes to "close_the_gap".
-
-    Shaped after the fixture in test_cli_journey_contract_intent.py: the gap renderer reads
-    `signature` / `param_names` to build its input template, so a namespace without them raises
-    before the routing decision is even reached.
-    """
-    return types.SimpleNamespace(
-        function="dsl.py::add",
+def _gap() -> ConvergeResult:
+    """A real line gap with a gateable measurement — routes to "close_the_gap"."""
+    return ConvergeResult(
+        "m.py::add",
+        False,
+        False,
+        2,
+        2,
+        (),
+        None,
         functionally_complete=False,
-        verification=None,
         line_complete=False,
-        final_survivors=2,
         missing_lines=(19, 21),
         signature="add(a, b)",
         param_names=("a", "b"),
-        stale_target=False,
-        admits_certificate=True,
-        written_path="tests/detective/test_dsl_add_synth.py",
-        synthesized_only=False,
-        environment_gated=(),
     )
 
 
-def _rep(equivalent=()):
+def _args(root) -> types.SimpleNamespace:
+    """The namespace `converge`'s parser builds, for a terse run with no supplied input."""
     return types.SimpleNamespace(
-        equivalent=list(equivalent),
-        killable=[],
-        unclassified=[],
-        inputs_expressible=True,
-        load_failed=False,
-        note="",
+        input=None,
+        project_root=str(root),
+        env=None,
+        write_dir="tests/detective",
+        max_iterations=3,
+        clock=None,
+        receiver_factory=None,
+        fast=False,
+        deadline=300.0,
+        include_shaped=False,
+        two_sign=False,
+        isolated=False,
+        json=False,
+        full=False,
+        verbose=False,
     )
 
 
-def test_the_routed_code_is_recorded_at_all():
-    """The channel is WIRED, not merely importable. A `defined-but-unused` observe() would pass
-    every output-comparison test in this file while recording nothing."""
+@pytest.fixture
+def handler(monkeypatch, tmp_path, capsys):
+    """Run `_run_converge` — the handler, where the record is computed and the outcome recorded — over a
+    fixed result, and hand back the page it printed. The MODULE is patched, not the package attribute:
+    `Detective.converge` on the package is the re-exported function, and `_run_converge` imports the
+    function from the module."""
+
+    def run(result: ConvergeResult) -> str:
+        monkeypatch.setattr(
+            importlib.import_module("Detective.converge"), "converge", lambda *_a, **_k: result
+        )
+        _run_converge(_args(tmp_path), "m.py", "add")
+        return capsys.readouterr().out
+
+    return run
+
+
+def test_the_routed_code_is_recorded_at_all(handler):
+    """The channel is WIRED, not merely importable. A `defined-but-unused` observe() would pass every
+    output-comparison test in this file while recording nothing."""
     reset_observations()
-    _converge_action(_complete_result(), _rep())
+    handler(_settled())
     gathered = take_observations()
-    assert gathered, "converge rendered an action block and recorded nothing"
+    assert gathered, "converge printed its page and recorded nothing"
     assert [(kind, verb) for kind, verb, _ in gathered] == [("outcome", "converge")]
 
 
-def test_the_recorded_code_is_the_one_converge_actually_routed_on():
-    """Recording a plausible-looking code that is not the routed one would be worse than
-    recording nothing: doctor would speak confidently from a fabrication."""
+def test_the_recorded_code_is_the_one_converge_actually_routed_on(handler):
+    """Recording a plausible-looking code that is not the routed one would be worse than recording
+    nothing: doctor would speak confidently from a fabrication."""
     reset_observations()
-    _converge_action(_complete_result(), _rep())
+    handler(_settled())
     assert [code for _, _, code in take_observations()] == ["settled"]
 
     reset_observations()
-    _converge_action(_gap_result(), _rep())
+    handler(_gap())
     assert [code for _, _, code in take_observations()] == ["close_the_gap"]
 
 
-def test_observing_changes_no_rendered_output():
-    """THE warrant for a side effect in a render path. Two runs over identical inputs must
-    produce byte-identical action blocks whether or not the channel was drained in between."""
+def test_observing_changes_no_rendered_output(handler):
+    """THE warrant for a side effect beside a render path. Two runs over identical inputs must print
+    byte-identical pages whether or not the channel was drained in between."""
     reset_observations()
-    first = _converge_action(_complete_result(), _rep())
+    first = handler(_settled())
     take_observations()  # drain, so the second run starts from a different channel state
-    second = _converge_action(_complete_result(), _rep())
+    second = handler(_settled())
     assert first == second
 
 
-def test_a_full_channel_does_not_alter_the_next_render():
-    """Observations accumulate within a process. A render that behaved differently on a non-empty
-    channel would make output depend on history — the one thing a verdict must never do."""
+def test_a_full_channel_does_not_alter_the_next_render(handler):
+    """Observations accumulate within a process. A page that read differently on a non-empty channel
+    would make output depend on history — the one thing a verdict must never do."""
     reset_observations()
-    clean = _converge_action(_gap_result(), _rep())
+    clean = handler(_gap())
     for _ in range(50):
-        _converge_action(_gap_result(), _rep())
-    crowded = _converge_action(_gap_result(), _rep())
+        handler(_gap())
+    crowded = handler(_gap())
     assert clean == crowded
     take_observations()
 
 
-def test_every_render_records_exactly_one_outcome():
-    """One invocation of the renderer, one routing decision. More than one would make
-    `outcome_disposition` read `ambiguous` and discard a good observation."""
+def test_every_invocation_records_exactly_one_outcome(handler):
+    """One invocation, one routing decision. More than one would make `outcome_disposition` read
+    `ambiguous` and discard a good observation."""
     reset_observations()
-    _converge_action(_gap_result(), _rep())
+    handler(_gap())
     assert len(take_observations()) == 1
+
+
+def test_the_renderer_records_nothing():
+    """The other half of the move. The page's renderer consumes the record and never observes — so a
+    renderer reached twice in one invocation cannot record twice, and a page is the same text whether or
+    not anything is watching."""
+    reset_observations()
+    out = _converge_action(_gap(), None)
+    assert out[0].startswith("AUTHOR INPUTS:")
+    assert take_observations() == ()

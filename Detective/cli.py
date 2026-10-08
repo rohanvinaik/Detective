@@ -2346,6 +2346,7 @@ def _format_converge_terse(
     root: str = ".",
     session_reason: str = "",
     attempted_inputs: tuple[str, ...] = (),
+    decision: Decision | None = None,
 ) -> str:
     """The converge report: what got written, what is left, the ONE next action — then the
     greppable ``FINAL`` banner, which stays LAST.
@@ -2353,6 +2354,10 @@ def _format_converge_terse(
     ``FINAL`` last is a downstream contract, not a layout choice: tooling tails this output to
     find the result, so the human action sits above it rather than after it. Everything
     verbose lives in the report file, which is always written regardless of `--full`.
+
+    ``decision`` is the handler's record, passed through to `_converge_action`, which consumes it.
+    The stale and cut endings below print before it is reached; their codes are in the record too
+    (`converge_record_code`), and the handler has already recorded them.
     """
     fn = result.function
     rep = result.survivor_report
@@ -2555,7 +2560,7 @@ def _format_converge_terse(
     if report_path:
         lines.append(_row(_FULL_REPORT_ROW, report_path))
     lines.append("")
-    lines += _converge_action(result, rep, root, report_path, session_reason, attempted_inputs)
+    lines += _converge_action(result, rep, root, report_path, session_reason, attempted_inputs, decision)
     lines.append("")
     lines.append(_final_banner(result))
     return "\n".join(lines)
@@ -2885,83 +2890,29 @@ def measurement_block_route(
     return ""
 
 
-def _dead_suite_action(kind: str, fn: str, root: str, session_reason: str) -> list[str]:
-    """The action block for a suite that could not run. Names the remedy, not the symptom."""
-    if kind == "install_pytest":
-        return [
-            "DO THIS:  install pytest in the interpreter that runs the suite, then re-run.",
-            "",
-            _row(_WHY_NOT_INPUT_ROW, "no input can help: nothing can execute a test here."),
-        ]
-    where = f" --project-root '{root}'" if root and root != "." else ""
-    named = {
-        "empty_collection": "pytest collected NO tests, so nothing can run the pins.",
-        "collection_errors": "pytest failed to collect, so the suite never started.",
-        "pytest_crashed": "pytest raised during collection, so the suite never started.",
-    }.get(session_reason, "the live suite did not run.")
-    # If migrate has ALREADY run (the marker is declared), re-prescribing it is the very spiral this
-    # block exists to prevent: it is a no-op and the reader loops. Name the real residual instead —
-    # pytest resolves the regime yet still collects nothing, which is a discovery/testpaths problem
-    # migrate does not touch. A regime read must never crash the action block.
-    try:
-        from .regime import resolve_regime
+def _converge_blocked(result, rep) -> bool:
+    """Whether a killable or unclassified survivor is still open on a converge result.
 
-        marker_declared = resolve_regime(root).marker_declared
-    # BLE001: the action block degrades to the migrate ask, never crashes
-    except Exception:  # noqa: BLE001
-        marker_declared = False
-    if marker_declared and session_reason == "empty_collection":
-        return [
-            f"STOP:  regime migrated (marker declared) but pytest still collects no tests for '{fn}'.",
-            "",
-            _row(_WHY_NOT_INPUT_ROW, named),
-            _row("", "Migrate already ran — re-running it is a no-op. The suite is empty for"),
-            _row("", "another reason: check testpaths / discovery patterns / that a test"),
-            _row("", "actually imports and reaches this target."),
-            _row("· Inspect", f"detective regime '{fn}'{where}"),
-        ]
-    return [
-        f"DO THIS:  detective regime --migrate '{fn}'{where}",
-        "",
-        _row(_WHY_NOT_INPUT_ROW, named),
-        _row("", "An --input closes a GAP; it cannot supply a suite. Following the"),
-        _row("", "input ask here re-runs to the identical result."),
-        _row(_THEN_ROW, f"detective converge '{fn}'{where}   # the gap ask lands once tests collect"),
-    ]
-
-
-def _converge_action(
-    result,
-    rep,
-    root: str = ".",
-    report_path: str = "",
-    session_reason: str = "",
-    attempted_inputs: tuple[str, ...] = (),
-) -> list[str]:
-    """Converge's ONE next action — the DERIVED input, same as decompose's residual and from
-    the same machinery (`_derived_input`). A witness is a call the engine RAN; a boundary hint
-    is a relation it PROVED; only with neither is the reader asked for the value, which is the
-    documented interface and not a fallback for work the tool skipped.
-
-    `flag` comes LAST and only when nothing else is outstanding. It is the one claim a human
-    makes against the engine, and offering it while a real gap is open invites someone to flag
-    their way to a green board.
-
-    `session_reason` defaults to empty — "the live suite ran" — so every existing caller and any
-    older Wesker that reports no reason keeps exactly the previous behaviour.
+    `functionally_complete` is the authoritative engine decision. A missing survivor report does not
+    turn residual survivors into DONE — that was the exact measurement/decision split the routing
+    exists to prevent, and it produced "DONE" above `FINAL ... Incomplete` on a live run.
     """
-    fn = result.function
-    # `functionally_complete` is the authoritative engine decision. A missing survivor report does
-    # not turn residual survivors into DONE — that was the exact measurement/decision split this
-    # function exists to prevent, and it produced "DONE" above `FINAL ... Incomplete` on a live run.
-    blocked = (not result.functionally_complete) or bool(
-        rep is not None and (rep.killable or rep.unclassified)
-    )
-    # A dead suite OUTRANKS the gap. See `converge_next_action`: the gap ask was reached by
-    # re-deriving "uncovered lines exist" while the measured cause sat unread one layer up.
-    # Read the certificate STANDING through `certificate_standing` — the same call `complete` and
-    # the MCP renderer make — so this surface cannot keep printing DONE over a stale target or a
-    # written suite that did not verify. getattr defaults keep a duck-typed / older result answering.
+    return (not result.functionally_complete) or bool(rep is not None and (rep.killable or rep.unclassified))
+
+
+def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
+    """``(standing, next_action)`` — the certificate standing and `converge_next_action`'s code, read off
+    a converge result once, for the decision record (`_converge_decision`).
+
+    A dead suite OUTRANKS the gap. See `converge_next_action`: the gap ask was reached by re-deriving
+    "uncovered lines exist" while the measured cause sat unread one layer up. The certificate STANDING
+    is read through `certificate_standing` — the same call `complete` and the MCP renderer make — so
+    the page cannot keep printing DONE over a stale target or a written suite that did not verify.
+    getattr defaults keep a duck-typed / older result answering.
+
+    `session_reason` defaults to empty — "the live suite ran" — so a caller and any older Wesker that
+    reports no reason keeps exactly the previous behaviour.
+    """
     from .converge import certificate_standing
 
     _ver = getattr(result, "verification", None)
@@ -2992,23 +2943,404 @@ def _converge_action(
         and _rep_expressible is None
         and bool(getattr(rep, "note", None))
     )
-    kind = converge_next_action(
+    return standing, converge_next_action(
         standing,
         session_reason,
-        bool(blocked),
+        _converge_blocked(result, rep),
         bool(result.missing_lines),
         wrote_runnable_suite=_wrote_runnable_suite,
         inputs_expressible=_rep_expressible,
         load_failed=_rep_load_failed,
         needs_sample=_needs_sample,
     )
-    # The routed code is otherwise consumed by the branch below and discarded, so nothing outside
-    # this run can ever learn what converge decided. The process axis needs exactly that fact
-    # across runs (a spiral is an identical code re-emitted over unchanged state), and an
-    # observation channel is how it leaves without threading a value through five rendering layers
-    # that are not about it. Advisory and never fatal: `observe` cannot raise, and this line
-    # changes no output, no branch and no exit code. See docs/INVOCATION_LEDGER.md.
-    observe("outcome", "converge", kind)
+
+
+def converge_record_code(next_action: str, stale_target: bool, budget_exhausted: bool) -> str:
+    """The code converge's page routes on, whichever ending it prints (pure — pinned).
+
+    `_format_converge_terse` prints two endings BEFORE `_converge_action` is reached — a stale target
+    and a deadline CUT — and the decision record has to carry the code those endings stand for, not the
+    one a run that reached the action block would have. The stale ending agrees with
+    `converge_next_action` by construction: `certificate_standing` returns `stale` first. The cut ending
+    need not. A cut no profile flagged — the wall ran out between passes, or during classification —
+    leaves the measurement's validity with no budget reason, its standing reads `incomplete`, and
+    `converge_next_action` routes to `close_the_gap` beneath a page that says "re-run with a larger
+    wall". Split out so the ending's code is DECIDED, in the page's own order, and pinned.
+
+      "rerun_stale"         the target changed under the run — the stale ending
+      "repair_measurement"  the aggregate deadline cut the run — the cut ending, routed by its reasons
+      <next_action>         every other run: `converge_next_action`'s code, passed through verbatim
+    """
+    if stale_target:
+        return "rerun_stale"
+    if budget_exhausted:
+        return "repair_measurement"
+    return next_action
+
+
+def converge_step(
+    code: str,
+    route: str,
+    plan_kind: str,
+    marker_declared: bool,
+    session_reason: str,
+) -> tuple[str, str]:
+    """The kind of move converge's printed block states, and the remedy it names (pure — pinned).
+
+    The page states the move by its header — ``DO THIS:``, ``AUTHOR INPUT(S):``, ``WRITE TEST:``,
+    ``STOP:``, ``DONE:`` — and a reader acts on that header, not on the code beneath it. The record must
+    name the same move as data, so the map from the codes the page routes on to the move it prints is
+    decided here once, from those codes alone, rather than read back out of rendered text:
+
+      ("run", "")           a Detective command to run now: a re-measure, a re-run, the migrate a dead
+                            suite needs, or a witness plan's inputs
+      ("supply", "")        the operator supplies values: an author / lines / boundary / internal plan,
+                            or the real sample `provide_sample` asks for
+      ("write_test", "")    the operator writes the test a hand_pin / repeated plan names
+      ("hand_back", "")     objects or a fixture only a person's test can build (a test / fixture plan)
+      ("stop", <remedy>)    something must be repaired first, and the remedy names what: the route of a
+                            repair_measurement that runs nothing; the code itself for
+                            fix_verification / fix_load / install_pytest; `empty_collection` for a
+                            migrated regime that still collects no test
+      ("done", "")          settled — nothing to run
+      ("unknown", "")       a code this decision does not know: named, never mapped by fall-through to
+                            a move nobody decided
+
+    ``route`` is consulted only under repair_measurement, where every route that is not a stop is a
+    re-measure, as on the page; ``plan_kind`` only under close_the_gap, where every kind that is not
+    witness / hand_pin / repeated / test / fixture is an authoring task, as on the page; and
+    ``marker_declared`` and ``session_reason`` only under fix_collection.
+    """
+    if code == "repair_measurement":
+        if route in ("fix_collection", "fix_load", "fix_routing", "mutant_phase", "inspect_refusal"):
+            return "stop", route
+        return "run", ""
+    if code in ("fix_verification", "fix_load", "install_pytest"):
+        return "stop", code
+    if code == "fix_collection":
+        if marker_declared and session_reason == "empty_collection":
+            return "stop", "empty_collection"
+        return "run", ""
+    if code == "close_the_gap":
+        if plan_kind == "witness":
+            return "run", ""
+        if plan_kind in ("hand_pin", "repeated"):
+            return "write_test", ""
+        if plan_kind in ("test", "fixture"):
+            return "hand_back", ""
+        return "supply", ""
+    if code == "provide_sample":
+        return "supply", ""
+    if code == "rerun_stale":
+        return "run", ""
+    if code == "settled":
+        return "done", ""
+    return "unknown", ""
+
+
+def _converge_commands(
+    code: str,
+    route: str,
+    kind: str,
+    fn: str,
+    root: str,
+    attempted_inputs: tuple[str, ...],
+    plan: InputPlan | None,
+) -> tuple[tuple[str, ...] | None, tuple[str, ...] | None]:
+    """``(argv, then)`` — the Detective commands converge's block names, as tokens after `detective`,
+    assembled from the values the page prints them from: the target, the supplied ``--input``s in order,
+    the ``--project-root`` the dead-suite block quotes, the witness plan's items. Each is
+    ``shlex.split`` of the printed command with `detective` removed; a placeholder never enters either.
+    The stale ending names no command of its own; its re-run is the one `rerun_stale` stands for.
+    """
+    rerun = ("converge", fn)
+    inputs = tuple(token for raw in attempted_inputs for token in ("--input", raw))
+    where = ("--project-root", root) if root and root != "." else ()
+    if code == "rerun_stale":
+        return rerun, None
+    if code == "repair_measurement":
+        if route in ("fix_collection", "fix_load", "fix_routing"):
+            return None, rerun
+        if route in ("mutant_phase", "inspect_refusal"):
+            return None, None
+        if route in ("reprofile", "isolate"):
+            return (*rerun, *inputs, "--isolated"), None
+        if route == "enumerate":
+            return (*rerun, *inputs), None
+        if route == "regime":
+            return ("regime", fn), None
+        if route == "deadline":
+            return (*rerun, *inputs, "--deadline", "0"), None
+        return (*rerun, *inputs, "--trace-budget", "0", "--trace-session-budget", "0"), None
+    if code in ("fix_verification", "fix_load", "provide_sample"):
+        return None, rerun
+    if code == "fix_collection":
+        if kind == "stop":
+            return None, None
+        return ("regime", "--migrate", fn, *where), (*rerun, *where)
+    if code == "close_the_gap":
+        if kind == "run" and plan is not None:
+            return (*rerun, *(token for item in plan.items for token in ("--input", item))), None
+        return None, rerun
+    return None, None
+
+
+def _settled_residual(rep, param_names: tuple[str, ...] | None) -> tuple[str, tuple[str, ...]]:
+    """``(basis, flaggable ids)`` for a settled converge whose report has equivalents — the values its
+    DONE block prints from: `residual_done_basis`'s code over the verdicts, and the survivors a `flag`
+    may be offered for (#71)."""
+    basis = residual_done_basis(*_residual_counts(rep), str(getattr(rep, "boundary_probe", "") or ""))
+    return basis, tuple(_flaggable_ids(rep, basis, param_names))
+
+
+def _marker_declared(root: str) -> bool:
+    """Whether the regime at ``root`` declares the `detective` marker — the fact a dead suite's block
+    turns on. A regime read must never crash the action block: a failure reads as not declared, which
+    degrades to the migrate ask."""
+    try:
+        from .regime import resolve_regime
+
+        return resolve_regime(root).marker_declared
+    # BLE001: the action block degrades to the migrate ask, never crashes
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _witness_render_context(func_key: str, project_root: str, receiver_factory: str | None):
+    """The arguments converge passes when it writes a witness property for ``func_key`` — ``(root,
+    kw_names, call_expr, import_stmt)`` — re-derived from the same inputs (the target file, the function,
+    the project root, the ``--receiver-factory``) by the same calls `_converge_impl` makes, because
+    `ConvergeResult` does not carry them. None when the target no longer resolves."""
+    from .binding import parse_receiver_factory, resolve_execution
+    from .converge import _kwargs_names
+    from .engine import _load_original, _resolve
+
+    root = os.path.abspath(project_root)
+    rel, function = func_key.rsplit("::", 1)
+    full = rel if os.path.isabs(rel) else os.path.join(root, rel)
+    with open(full, encoding="utf-8") as fh:
+        qualname, node = _resolve(ast.parse(fh.read(), filename=full), function)
+    if qualname is None or node is None:
+        return None
+    factory = parse_receiver_factory(receiver_factory) if receiver_factory else None
+    live = _load_original(full, qualname)
+    binding = resolve_execution(node, qualname, live, factory=factory) if live is not None else None
+    return (
+        root,
+        _kwargs_names(node, qualname),
+        binding.call_expr if binding is not None else None,
+        binding.import_stmt if binding is not None else None,
+    )
+
+
+def _witness_test_renderer(
+    func_key: str, project_root: str, receiver_factory: str | None
+) -> Callable[[Any], str | None]:
+    """Detective's OWN test for a hand_pin / repeated witness — a renderer the plan calls per verdict.
+
+    The page asks the operator to write these tests by hand; Detective writes them itself, in the CLI
+    process, where the witness's live values exist. The property is built the way converge builds a
+    witness property for this function — `_raises_witness_property` when the original raised, else
+    `_witness_property`, with converge's own arguments (`_witness_render_context`) — and rendered by
+    `synthesis.writer._render_test`, after the property's setup (its imports, and `pytest`, which the
+    rendered marker needs), so it compiles on its own. The test's name carries the mutant id, so two
+    items never collide.
+
+    None when the property is None — Detective has declined, as converge would — and None when the
+    target no longer resolves or rendering raises: an advisory field must not cost the run its record.
+    """
+    context: list[Any] = []
+
+    def render(verdict) -> str | None:
+        try:
+            if not context:
+                context.append(_witness_render_context(func_key, project_root, receiver_factory))
+            if context[0] is None:
+                return None
+            root, kw_names, call_expr, import_stmt = context[0]
+            from .converge import _raises_witness_property, _witness_property
+            from .synthesis.writer import _render_test
+
+            witness = verdict.witness
+            build = _raises_witness_property if witness.original.startswith("<raised") else _witness_property
+            prop = build(func_key, witness, root, kw_names, call_expr=call_expr, import_stmt=import_stmt)
+            if prop is None:
+                return None
+            ident = "".join(ch if ch.isalnum() else "_" for ch in str(verdict.mutant_id).lower())
+            name = f"{func_key.rsplit('::', 1)[-1].replace('.', '_')}_{ident}"
+            setup = prop.setup_code
+            if "import pytest" not in setup.split("\n"):
+                setup = f"{setup}\nimport pytest"
+            return f"{setup}\n\n\n{_render_test(name, 0, prop)}\n"
+        # BLE001: an advisory field never costs the run its decision record
+        except Exception:  # noqa: BLE001
+            return None
+
+    return render
+
+
+def _converge_decision(
+    result,
+    rep,
+    root: str = ".",
+    session_reason: str = "",
+    attempted_inputs: tuple[str, ...] = (),
+    receiver_factory: str | None = None,
+    render_tests: bool = True,
+) -> Decision:
+    """Converge's decision record, computed ONCE from the result: the code the page routes on, the move
+    it prints, the commands it names, the typed plan, the residual, and the decided state.
+
+    `_run_converge` calls this where it holds the result and records the outcome there — once, on every
+    channel: ``--json``, the terse page, ``--full``, and the stale and cut endings that return before
+    `_converge_action` — then hands the record to the page, which consumes it. ``render_tests`` writes
+    Detective's own test into each hand_pin / repeated item (`_witness_test_renderer`); a renderer that
+    derives its own record (a direct call with no handler) passes False, as its page never shows it.
+    """
+    fn = result.function
+    standing, next_action = _converge_routing(result, rep, session_reason)
+    budget_exhausted = bool(getattr(result, "budget_exhausted", False))
+    code = converge_record_code(next_action, bool(getattr(result, "stale_target", False)), budget_exhausted)
+    route = ""
+    if code == "repair_measurement":
+        # The TYPED cut reasons (validity.CUT_REASONS), through the same call the page's repair block
+        # names its remedy by — so the record and the page name one route.
+        route = repair_measurement_route(
+            tuple(getattr(result, "cut_reasons", ()) or ()),
+            bool(getattr(result, "collection_conflicts", ())),
+            budget_exhausted,
+        )
+    marker_declared = _marker_declared(root) if code == "fix_collection" else False
+    plan: InputPlan | None = None
+    note = ""
+    if code == "close_the_gap":
+        render = _witness_test_renderer(fn, root, receiver_factory) if render_tests else None
+        plan = _derive_input_plan(result, rep, attempted_inputs, render_test=render)
+    elif code == "provide_sample":
+        plan = InputPlan("sample", (), 0, 0)
+        note = str(getattr(rep, "note", None) or "")
+    kind, remedy = converge_step(
+        code, route, plan.kind if plan is not None else "", marker_declared, session_reason
+    )
+    argv, then = _converge_commands(code, route, kind, fn, root, attempted_inputs, plan)
+    residual: tuple[str, tuple[str, ...]] | None = None
+    optional: tuple[tuple[str, ...], ...] = ()
+    if code == "settled":
+        # The DONE block's NEXT style commands, as tokens. Its efficiency line is left out: it carries a
+        # `<receipt>` placeholder, and a placeholder is never a command.
+        file_part = fn.split("::")[0]
+        optional = (("plan", file_part), ("decompose", fn, "--apply"), ("survey", file_part))
+        if rep is not None and getattr(rep, "equivalent", ()):
+            residual = _settled_residual(rep, getattr(result, "param_names", None))
+    # Read off the verdicts rather than the report's partitions, as `_residual_counts` does: a duck-typed
+    # report (an older engine, a test stub) carries only `equivalent` and `killable`.
+    equivalent = list(getattr(rep, "equivalent", ()) or ()) if rep is not None else []
+    killable = list(getattr(rep, "killable", ()) or ()) if rep is not None else []
+    state = {
+        "standing": standing,
+        "killable": [getattr(v, "mutant_id", "") for v in killable],
+        "candidate_equivalent": [
+            getattr(v, "mutant_id", "") for v in equivalent if not getattr(v, "crash_only", False)
+        ],
+        "crash_only": [getattr(v, "mutant_id", "") for v in equivalent if getattr(v, "crash_only", False)],
+    }
+    return Decision(
+        "converge",
+        code,
+        route,
+        kind,
+        remedy,
+        argv,
+        then,
+        plan,
+        note,
+        residual,
+        optional,
+        state,
+        marker_declared,
+    )
+
+
+def _dead_suite_action(
+    kind: str, fn: str, root: str, session_reason: str, marker_declared: bool
+) -> list[str]:
+    """The action block for a suite that could not run. Names the remedy, not the symptom.
+
+    ``marker_declared`` is read ONCE, by the decision record (`_marker_declared`), and consumed here: the
+    record's step for this block turns on the same fact, so the page and the record cannot disagree
+    about which regime they read.
+    """
+    if kind == "install_pytest":
+        return [
+            "DO THIS:  install pytest in the interpreter that runs the suite, then re-run.",
+            "",
+            _row(_WHY_NOT_INPUT_ROW, "no input can help: nothing can execute a test here."),
+        ]
+    where = f" --project-root '{root}'" if root and root != "." else ""
+    named = {
+        "empty_collection": "pytest collected NO tests, so nothing can run the pins.",
+        "collection_errors": "pytest failed to collect, so the suite never started.",
+        "pytest_crashed": "pytest raised during collection, so the suite never started.",
+    }.get(session_reason, "the live suite did not run.")
+    # If migrate has ALREADY run (the marker is declared), re-prescribing it is the very spiral this
+    # block exists to prevent: it is a no-op and the reader loops. Name the real residual instead —
+    # pytest resolves the regime yet still collects nothing, which is a discovery/testpaths problem
+    # migrate does not touch.
+    if marker_declared and session_reason == "empty_collection":
+        return [
+            f"STOP:  regime migrated (marker declared) but pytest still collects no tests for '{fn}'.",
+            "",
+            _row(_WHY_NOT_INPUT_ROW, named),
+            _row("", "Migrate already ran — re-running it is a no-op. The suite is empty for"),
+            _row("", "another reason: check testpaths / discovery patterns / that a test"),
+            _row("", "actually imports and reaches this target."),
+            _row("· Inspect", f"detective regime '{fn}'{where}"),
+        ]
+    return [
+        f"DO THIS:  detective regime --migrate '{fn}'{where}",
+        "",
+        _row(_WHY_NOT_INPUT_ROW, named),
+        _row("", "An --input closes a GAP; it cannot supply a suite. Following the"),
+        _row("", "input ask here re-runs to the identical result."),
+        _row(_THEN_ROW, f"detective converge '{fn}'{where}   # the gap ask lands once tests collect"),
+    ]
+
+
+def _converge_action(
+    result,
+    rep,
+    root: str = ".",
+    report_path: str = "",
+    session_reason: str = "",
+    attempted_inputs: tuple[str, ...] = (),
+    decision: Decision | None = None,
+) -> list[str]:
+    """Converge's ONE next action — the DERIVED input, same as decompose's residual and from
+    the same machinery (`_derived_input`). A witness is a call the engine RAN; a boundary hint
+    is a relation it PROVED; only with neither is the reader asked for the value, which is the
+    documented interface and not a fallback for work the tool skipped.
+
+    `flag` comes LAST and only when nothing else is outstanding. It is the one claim a human
+    makes against the engine, and offering it while a real gap is open invites someone to flag
+    their way to a green board.
+
+    `session_reason` defaults to empty — "the live suite ran" — so every existing caller and any
+    older Wesker that reports no reason keeps exactly the previous behaviour.
+
+    ``decision`` is the record `_run_converge` computed once and recorded the outcome of; this block
+    CONSUMES its code, route, plan, marker read and residual and never re-derives them. Called without
+    one (a test, a caller with no handler), it derives the same record through the same function.
+    Either way it records nothing: a renderer never observes, so a page is the same text whether or
+    not anything is watching.
+    """
+    fn = result.function
+    d = (
+        decision
+        if decision is not None
+        else _converge_decision(result, rep, root, session_reason, attempted_inputs, render_tests=False)
+    )
+    blocked = _converge_blocked(result, rep)
+    kind = d.code
     if kind == "repair_measurement":
         # Route by the TYPED cut reasons (validity.CUT_REASONS), not a raw-boolean ladder with a
         # `--trace-budget 0` catch-all. That catch-all sent a COLLECTION-FAILURE cut (a reaching test
@@ -3018,11 +3350,7 @@ def _converge_action(
 
         flags = " ".join(_shell_input_flag(raw) for raw in attempted_inputs)
         reasons = tuple(getattr(result, "cut_reasons", ()) or ())
-        route = repair_measurement_route(
-            reasons,
-            bool(getattr(result, "collection_conflicts", ())),
-            bool(getattr(result, "budget_exhausted", False)),
-        )
+        route = d.route
         if route == "fix_collection":
             # No --trace-budget / --deadline fixes an import error: name the collection failure and
             # route to the fix (run under the venv that has the dep), never a budget re-run.
@@ -3183,7 +3511,7 @@ def _converge_action(
             _row(_THEN_ROW, f"detective converge '{fn}'"),
         ]
     if kind in ("install_pytest", "fix_collection"):
-        return _dead_suite_action(kind, fn, root, session_reason)
+        return _dead_suite_action(kind, fn, root, session_reason, d.marker_declared)
     if blocked or result.missing_lines:
         action = _derived_input(
             None,
@@ -3193,6 +3521,7 @@ def _converge_action(
             verb=f"detective converge '{fn}'",
             report=report_path,
             attempted_inputs=attempted_inputs,
+            plan=d.plan,
         )
         # An environment-gated line gap earns the honest decline FIRST: some uncovered lines sit
         # behind a read of the clock/filesystem/env, which no `--input` value reaches, so the ask
@@ -3234,9 +3563,13 @@ def _converge_action(
     if rep is not None and rep.equivalent:
         # #71: the residual is named for what the search established — boundary-probed or not, crash-
         # distinguished or not — never filed under undecidability by default, and `flag` is offered only
-        # for survivors no known or printed input distinguishes.
-        basis = residual_done_basis(*_residual_counts(rep), str(getattr(rep, "boundary_probe", "") or ""))
-        ids = _flaggable_ids(rep, basis, getattr(result, "param_names", None))
+        # for survivors no known or printed input distinguishes. The record's residual when it holds one
+        # (a settled code), the same derivation otherwise.
+        basis, ids = (
+            d.residual
+            if d.residual is not None
+            else _settled_residual(rep, getattr(result, "param_names", None))
+        )
         more = f"  ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
         flag_lines = [
             f"       If you can PROVE one equivalent: detective flag '{fn}' {first} --note \"why\"{more}"
@@ -3463,18 +3796,124 @@ def _witness_args(w) -> str:
 
 @dataclass(frozen=True)
 class InputPlan:
-    """One next-action decision, before any human or MCP surface renders it."""
+    """One next-action decision, before any human or MCP surface renders it.
+
+    ``records`` is the same plan as TYPED data — one JSON-ready mapping per distinct item, in the
+    order of ``items`` and under the same ``_MAX_BATCH`` bound — which the decision record carries
+    where the page prints the rendered strings. Built by `_input_plan` from the SAME branch that
+    builds ``items``, so the two cannot drift. Empty by default.
+    """
 
     kind: str
     items: tuple[str, ...]
     item_total: int
     obligation_total: int
+    records: tuple[dict, ...] = ()
 
 
-def _input_plan(kind: str, items: list[str], obligation_total: int) -> InputPlan:
-    """Keep distinct inputs separate from the obligations those inputs discharge."""
+def _input_plan(kind: str, items: list[str], obligation_total: int, records: list[dict]) -> InputPlan:
+    """Keep distinct inputs separate from the obligations those inputs discharge.
+
+    ``records`` runs parallel to ``items``, one per item as the branch produced it, repeats included.
+    A repeated item keeps its FIRST record, and every list that record carries (the mutant ids, the
+    mutants) is extended by the repeat's, so each distinct item's record names every obligation the
+    item stands for — the typed form of the count the page prints beside it.
+    """
     distinct = tuple(dict.fromkeys(items))
-    return InputPlan(kind, distinct[:_MAX_BATCH], len(distinct), obligation_total)
+    merged: dict[str, dict] = {}
+    for item, record in zip(items, records, strict=True):
+        if item not in merged:
+            merged[item] = dict(record)
+            continue
+        for key, value in record.items():
+            if isinstance(value, list):
+                merged[item][key] = [*merged[item][key], *value]
+    typed = tuple(merged[item] for item in distinct)
+    return InputPlan(kind, distinct[:_MAX_BATCH], len(distinct), obligation_total, typed[:_MAX_BATCH])
+
+
+def _pin_record(verdict, call_args: str, render_test: Callable[[Any], str | None] | None) -> dict:
+    """The typed item of a ``hand_pin`` / ``repeated`` plan: the call's args literal, both outcome reprs
+    IN FULL (the page's item cuts them at 28 characters; a record never does), the mutant, and
+    Detective's own test for it — ``None`` when no renderer was given, or when Detective declined."""
+    witness = verdict.witness
+    return {
+        "input": call_args,
+        "original": witness.original,
+        "mutant": witness.mutant,
+        "mutant_id": verdict.mutant_id,
+        "test": render_test(verdict) if render_test is not None else None,
+    }
+
+
+@dataclass(frozen=True)
+class Decision:
+    """One verb's decision as ONE typed record, computed once per invocation where the verb's handler
+    holds the result, and consumed by both the printed page and ``--json``.
+
+    Detective computed every one of these decisions already, in pinned pure functions, and handed
+    them only to the page: ``--json`` carried the raw result and never the decision, so a consumer of
+    the machine channel had to re-derive what the page routes on — a second reading of the same facts
+    (COMMUNICATING_DETERMINISM §9.8). And the outcome reached the ledger only from inside the page's
+    renderer, so a ``--json`` run, a ``--full`` run and the stale and cut endings recorded none.
+
+    ``code`` is the verb's next-action code — the same value the page routes on. ``kind`` and
+    ``remedy`` are the move the printed block states (the verb's ``*_step`` decision); ``argv`` and
+    ``then`` its Detective commands as tokens after ``detective``. ``plan`` is the typed input plan
+    (converge's, or a ``sample`` request with its ``note``); ``residual`` the basis and flaggable ids
+    a DONE names; ``optional`` converge's NEXT commands; ``state`` the decided values the raw payload
+    does not carry. ``marker_declared`` is an INPUT converge's step consumed and its page reads back
+    (`_dead_suite_action`); it is not part of the record.
+    """
+
+    verb: str
+    code: str
+    route: str
+    kind: str
+    remedy: str
+    argv: tuple[str, ...] | None
+    then: tuple[str, ...] | None
+    plan: InputPlan | None
+    note: str
+    residual: tuple[str, tuple[str, ...]] | None
+    optional: tuple[tuple[str, ...], ...]
+    state: dict
+    marker_declared: bool = False
+
+
+def _decision_payload(d: Decision) -> dict:
+    """The record a ``--json`` payload carries under ``decision`` — the same object the page consumed.
+
+    ``plan`` is present exactly when the decision holds one, which is when the step is ``supply``,
+    ``write_test`` or ``hand_back``, or ``run`` for a ``witness`` plan: converge's ``close_the_gap``
+    and the ``sample`` request of ``provide_sample`` are the only decisions that build one.
+    """
+    plan = None
+    if d.plan is not None:
+        plan = {
+            "kind": d.plan.kind,
+            "items": [dict(record) for record in d.plan.records],
+            "item_total": d.plan.item_total,
+            "obligation_total": d.plan.obligation_total,
+            "note": d.note,
+        }
+    return {
+        "verb": d.verb,
+        "code": d.code,
+        "route": d.route,
+        "step": {
+            "kind": d.kind,
+            "argv": list(d.argv) if d.argv is not None else None,
+            "then": list(d.then) if d.then is not None else None,
+            "remedy": d.remedy,
+        },
+        "plan": plan,
+        "residual": (
+            {"basis": d.residual[0], "flaggable_ids": list(d.residual[1])} if d.residual is not None else None
+        ),
+        "optional": [list(command) for command in d.optional],
+        "state": d.state,
+    }
 
 
 def _witness_input(witness) -> str | None:
@@ -3507,7 +3946,12 @@ def residual_input_route(inputs_expressible: bool, has_line_gaps: bool) -> str:
     return "author"
 
 
-def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> InputPlan:
+def _derive_input_plan(
+    proof,
+    rep,
+    attempted_inputs: tuple[str, ...] = (),
+    render_test: Callable[[Any], str | None] | None = None,
+) -> InputPlan:
     """What the engine DERIVED about the inputs it still needs — as typed action data.
 
     Returns ``(kind, items, total)``:
@@ -3529,6 +3973,11 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
     `--input "(...)"`, a tool caller passes `inputs=["(...)"]`. Sharing the rendered STRING put
     terminal syntax into an MCP response — telling a caller to use a flag that does not exist
     there. Sharing the derivation cannot do that, and it is the part that must never drift.
+
+    Each branch also builds the plan's TYPED ``records`` beside its ``items`` — the call or relation
+    the item states, with the mutants it was derived from — which is what the decision record carries
+    under ``plan``. ``render_test``, when given, renders Detective's own test for a ``hand_pin`` /
+    ``repeated`` witness into that record's ``test``; without it the field is None.
     """
     witnesses = [v for v in (rep.killable if rep is not None else ()) if v.witness]
     # The parser, not a parallel type predicate, decides whether a witness is a COMMAND. This
@@ -3551,7 +4000,12 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
     attempted = set(attempted_inputs)
     fresh_inputs = [(v, rendered) for v, rendered in input_closes if rendered not in attempted]
     if fresh_inputs:
-        return _input_plan("witness", [rendered for _, rendered in fresh_inputs], len(fresh_inputs))
+        return _input_plan(
+            "witness",
+            [rendered for _, rendered in fresh_inputs],
+            len(fresh_inputs),
+            [{"input": rendered, "mutant_ids": [v.mutant_id]} for v, rendered in fresh_inputs],
+        )
     # The exact input was accepted, executed, and returned as the same residual. Offering it again
     # is a proven loop, not guidance. Route to the existing terminating hand-pin action.
     repeated_inputs = [(v, rendered) for v, rendered in input_closes if rendered in attempted]
@@ -3560,23 +4014,41 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
             f"{rendered} — supplied already; real {v.witness.original[:28]} vs mutant {v.witness.mutant[:28]}"
             for v, rendered in repeated_inputs
         ]
-        return _input_plan("repeated", items, len(repeated_inputs))
+        return _input_plan(
+            "repeated",
+            items,
+            len(repeated_inputs),
+            [_pin_record(v, rendered, render_test) for v, rendered in repeated_inputs],
+        )
     hand_pin = [v for v, _ in commandable if _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)]
     if hand_pin:
         items = [
             f"({_witness_args(v.witness)}) — real {v.witness.original[:28]} vs mutant {v.witness.mutant[:28]}"
             for v in hand_pin
         ]
-        return _input_plan("hand_pin", items, len(hand_pin))
+        return _input_plan(
+            "hand_pin",
+            items,
+            len(hand_pin),
+            [_pin_record(v, f"({_witness_args(v.witness)})", render_test) for v in hand_pin],
+        )
     if witnesses:
-        descs: list[str] = []
-        for v in witnesses:
-            d = ", ".join(f"a {type(a).__name__}: {repr(a)[:70]}" for a in v.witness.args)
-            if d not in descs:
-                descs.append(d)
-        return _input_plan("test", descs, len(witnesses))
-    hints: list[str] = []
-    internal: list[str] = []
+        # One description per witness, repeats included: `_input_plan` keeps the first of each, in
+        # order, exactly as the `if d not in descs` dedupe here used to — and pairs every witness's
+        # mutant id with the description it shares.
+        descs = [
+            ", ".join(f"a {type(a).__name__}: {repr(a)[:70]}" for a in v.witness.args) for v in witnesses
+        ]
+        return _input_plan(
+            "test",
+            descs,
+            len(witnesses),
+            [{"description": d, "mutant_ids": [v.mutant_id]} for v, d in zip(witnesses, descs, strict=True)],
+        )
+    # (relation or condition, the candidate-equivalent survivor it was derived from) — one row per
+    # survivor; `_input_plan` collapses repeats to the first, as the `not in` checks here used to.
+    hint_rows: list[tuple[str, dict]] = []
+    internal_rows: list[tuple[str, dict]] = []
     # Skip crash-only survivors: an input already distinguishes them and no value assertion can
     # pin them, so any input we ask for here is one the caller can supply and still see NO
     # progress — the same forever-loop `find_witness` skips them to avoid.
@@ -3587,11 +4059,13 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
         )
         if not h:
             continue
+        mutant = {"id": v.mutant_id, "category": v.category, "diff": v.diff_summary}
         if _is_internal_hint(h):
-            if h not in internal:
-                internal.append(h)
-        elif (rel := _hint_relation(h)) not in hints:
-            hints.append(rel)
+            internal_rows.append((h, mutant))
+        else:
+            hint_rows.append((_hint_relation(h), mutant))
+    hints = list(dict.fromkeys(rel for rel, _ in hint_rows))
+    internal = list(dict.fromkeys(h for h, _ in internal_rows))
     # A DARK LINE OUTRANKS AN EQUIVALENT'S EDGE. `hints`/`internal` are read off
     # CANDIDATE-EQUIVALENT survivors — by construction nothing killable is left, so the only
     # progress still available is executing a line no test reaches. Asking for the edge first
@@ -3600,19 +4074,30 @@ def _derive_input_plan(proof, rep, attempted_inputs: tuple[str, ...] = ()) -> In
     # request. `missing_line_guards` is already computed for exactly this (converge.py) and was
     # reaching only the informational row; a mutant on a line that never runs can never die, so
     # coverage is a PRECONDITION for the kill axis, not a parallel one.
-    gaps = _line_gap_items(proof)
+    gaps = _line_gap_rows(proof)
     route = residual_input_route(getattr(proof, "inputs_expressible", None) is not False, bool(gaps))
     if route == "fixture":
-        return _input_plan("fixture", gaps, len(gaps))
+        return _input_plan("fixture", [g for g, _ in gaps], len(gaps), [r for _, r in gaps])
     if route == "lines":
-        return _input_plan("lines", gaps, len(gaps))
+        return _input_plan("lines", [g for g, _ in gaps], len(gaps), [r for _, r in gaps])
     if hints:
-        return _input_plan("boundary", hints, len(hints))
+        return _input_plan(
+            "boundary",
+            [rel for rel, _ in hint_rows],
+            len(hints),
+            # The relation as the page prints it after "where ".
+            [{"relation": rel.removeprefix("where "), "mutants": [m]} for rel, m in hint_rows],
+        )
     if internal:
         # Issue #8: the region exists but reads a derived local — no direct input
         # constraint is derivable, and saying so IS the result (certified abstention).
-        return _input_plan("internal", internal, len(internal))
-    return _input_plan("author", [], 0)
+        return _input_plan(
+            "internal",
+            [h for h, _ in internal_rows],
+            len(internal),
+            [{"condition": h, "mutants": [m]} for h, m in internal_rows],
+        )
+    return _input_plan("author", [], 0, [])
 
 
 def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
@@ -3621,17 +4106,21 @@ def _derive_inputs(proof, rep) -> tuple[str, list[str], int]:
     return plan.kind, list(plan.items), plan.obligation_total
 
 
-def _line_gap_items(proof) -> list[str]:
-    """Uncovered lines as REACH requirements — "line 30: service == 'overnight' and zone >= 5".
+def _line_gap_rows(proof) -> list[tuple[str, dict]]:
+    """Uncovered lines as REACH requirements — "line 30: service == 'overnight' and zone >= 5" —
+    each with its typed form, ``{"line": 30, "guard": "service == 'overnight' and zone >= 5"}``.
 
     Guards are per-line and may be absent (an unconditional line sits behind no branch); such a
-    line is still named, because "line 47" with no condition is actionable and silence is not.
-    Only the converge surface carries these fields, so a decompose `proof` yields nothing here
-    and the derivation is unchanged for it.
+    line is still named, because "line 47" with no condition is actionable and silence is not, and
+    its typed guard is "". Only the converge surface carries these fields, so a decompose `proof`
+    yields nothing here and the derivation is unchanged for it.
     """
     guards = dict(getattr(proof, "missing_line_guards", ()) or ())
     return [
-        f"line {ln} — reached only when: {guards[ln]}" if ln in guards else f"line {ln} — reach it"
+        (
+            f"line {ln} — reached only when: {guards[ln]}" if ln in guards else f"line {ln} — reach it",
+            {"line": ln, "guard": guards.get(ln, "")},
+        )
         for ln in (getattr(proof, "missing_lines", ()) or ())
     ]
 
@@ -3806,6 +4295,7 @@ def _derived_input(
     verb: str = "",
     report: str = "",
     attempted_inputs: tuple[str, ...] = (),
+    plan: InputPlan | None = None,
 ) -> list[str]:
     """The CLI's `DO THIS:` block — `derive_inputs`' data rendered as terminal syntax.
 
@@ -3821,11 +4311,14 @@ def _derived_input(
     a thing anyone pastes. DISTINCT witnesses still all appear; only duplicates collapse, and what
     they cover is stated. The remainder is always named — a bound that is not disclosed reads as
     "this is all of them".
+
+    ``plan``, when given, is the decision record's own plan (converge's), CONSUMED here rather than
+    derived a second time from the same facts; without it the plan is derived as it always was.
     """
     cmd = verb or f"detective decompose '{target}' --apply"
     sig = proof.signature or ""
     tmpl = _input_template(proof.param_names)
-    plan = _derive_input_plan(proof, rep, attempted_inputs)
+    plan = plan if plan is not None else _derive_input_plan(proof, rep, attempted_inputs)
     kind = plan.kind
     items = list(plan.items)
     where = report or "the full report"
@@ -4286,7 +4779,7 @@ def audit_headline_verdict(
     return "complete"
 
 
-def _format_audit(a, removing: bool = False) -> str:
+def _format_audit(a, removing: bool = False, decision: Decision | None = None) -> str:
     """Read-only audit of an existing suite, in the report shape: what is true, then the ONE
     next action, and audit itself never writes.
 
@@ -4297,16 +4790,13 @@ def _format_audit(a, removing: bool = False) -> str:
     The action names a REAL mutant id. It used to read ``flag <mutant_id>`` — a placeholder,
     with the ids sitting one field away in the classifier — so the one command the report
     offered could not be pasted, and the reader had to go hunting to do what it asked.
+
+    ``decision`` is the record `_run_audit` computed once; its headline code and next-action code
+    are consumed, not re-derived. Without one (a direct call) both are derived as they always were.
     """
     _crash_only = getattr(a, "crash_only_equivalent", 0)
     _unproven = a.candidate_equivalent - _crash_only
-    _shape = audit_headline_verdict(
-        a.complete,
-        a.complete_modulo_equivalent,
-        a.candidate_equivalent,
-        _crash_only,
-        a.total_mutants,
-    )
+    _shape = decision.state["headline"] if decision is not None else _audit_headline(a)
     if _shape == "complete_modulo_both":
         verdict = (
             f"complete, modulo {_unproven} unproven-equivalent "
@@ -4416,7 +4906,7 @@ def _format_audit(a, removing: bool = False) -> str:
         lines.append(_row("· redundant", f"{len(a.redundant_tests)} test(s) pointless for kills AND lines"))
         lines.append(_row("", _first_n(a.redundant_tests, 4)))
     lines.append("")
-    lines += _audit_action(a, removing)
+    lines += _audit_action(a, removing, decision)
     return "\n".join(lines)
 
 
@@ -4478,6 +4968,36 @@ def audit_next_action(
     return "done_complete"
 
 
+def audit_step(code: str) -> tuple[str, str]:
+    """The kind of move audit's printed block states, and the remedy it names (pure — pinned).
+
+    The same split as `converge_step`, for audit's ladder: the page states the move by its header and
+    the record must name it as data, decided once from the code the page routes on —
+    `audit_next_action`'s.
+
+      ("stop", "fix_load")                  the module would not import; repair, then re-audit
+      ("supply", "")                        provide_sample — a real sample, then converge
+      ("decide", "fix_failing_test")        a failing test: whether the TEST or the CODE is wrong is a
+                                            call only a person may make
+      ("run", "")                           close_the_gap (converge) and remove_redundant (--remove)
+      ("done", "")                          removing_now, flag_equivalents, done_unclassified,
+                                            done_complete — nothing to run
+      ("unknown", "")                       a code this decision does not know: named, never a move by
+                                            fall-through
+    """
+    if code == "fix_load":
+        return "stop", "fix_load"
+    if code == "provide_sample":
+        return "supply", ""
+    if code == "fix_failing_test":
+        return "decide", "fix_failing_test"
+    if code in ("close_the_gap", "remove_redundant"):
+        return "run", ""
+    if code in ("removing_now", "flag_equivalents", "done_unclassified", "done_complete"):
+        return "done", ""
+    return "unknown", ""
+
+
 def _audit_measurement_block(a) -> str:
     """Whether the measurement could RUN over the target at all, as `measurement_block_route`'s code.
 
@@ -4492,7 +5012,71 @@ def _audit_measurement_block(a) -> str:
     return measurement_block_route(load_failed, expressible, needs_sample)
 
 
-def _audit_action(a, removing: bool = False) -> list[str]:
+def _audit_code(a, removing: bool = False) -> str:
+    """`audit_next_action`'s code for one audit report — the one reading the page and the record share."""
+    return audit_next_action(
+        _audit_measurement_block(a),
+        bool(a.failing_tests),
+        len(a.killable_gaps),
+        len(a.missing_lines),
+        len(a.redundant_tests),
+        removing,
+        int(a.candidate_equivalent or 0),
+        bool(a.candidate_equivalent_ids),
+        int(a.unclassified or 0),
+    )
+
+
+def _audit_headline(a) -> str:
+    """`audit_headline_verdict`'s code for one audit report — the headline shape the page prints."""
+    return audit_headline_verdict(
+        a.complete,
+        a.complete_modulo_equivalent,
+        a.candidate_equivalent,
+        getattr(a, "crash_only_equivalent", 0),
+        a.total_mutants,
+    )
+
+
+def _audit_residual(a) -> tuple[str, tuple[str, ...]]:
+    """``(basis, ids)`` audit's closing equivalents row prints from (#71): the candidate-equivalent ids
+    that are not crash-only, and `residual_done_basis`'s code over them — the SAME basis and sentence
+    converge's DONE block renders, and `flag` is never offered for a crash-only mutant."""
+    crash_ids = set(getattr(a, "crash_only_ids", ()) or ())
+    ids = tuple(i for i in a.candidate_equivalent_ids if i not in crash_ids)
+    return residual_done_basis(len(ids), len(crash_ids), str(getattr(a, "boundary_probe", "") or "")), ids
+
+
+def _audit_commands(code: str, fn: str) -> tuple[tuple[str, ...] | None, tuple[str, ...] | None]:
+    """``(argv, then)`` — the Detective commands audit's block names, as tokens after `detective`,
+    assembled from the target the page prints them with. `fix_failing_test` prints a pytest command,
+    not a Detective one, so its only Detective command is the re-audit after the person's call."""
+    if code == "close_the_gap":
+        return ("converge", fn), None
+    if code == "remove_redundant":
+        return ("audit", fn, "--remove"), None
+    if code in ("fix_load", "fix_failing_test"):
+        return None, ("audit", fn)
+    if code == "provide_sample":
+        return None, ("converge", fn)
+    return None, None
+
+
+def _audit_decision(a, removing: bool = False) -> Decision:
+    """Audit's decision record, computed ONCE from the report where `_run_audit` holds it — the code the
+    page routes on, the move it prints, its commands, a sample request's note, the equivalents
+    residual, and the headline code — and consumed by the page and by ``--json`` alike."""
+    code = _audit_code(a, removing)
+    kind, remedy = audit_step(code)
+    argv, then = _audit_commands(code, a.function)
+    plan = InputPlan("sample", (), 0, 0) if code == "provide_sample" else None
+    note = str(getattr(a, "note", "") or "") if plan is not None else ""
+    residual = _audit_residual(a) if code == "flag_equivalents" else None
+    state = {"headline": _audit_headline(a)}
+    return Decision("audit", code, "", kind, remedy, argv, then, plan, note, residual, (), state)
+
+
+def _audit_action(a, removing: bool = False, decision: Decision | None = None) -> list[str]:
     """Audit's ONE next action, in the report's row style. Priority order — the order IS the
     judgement.
 
@@ -4509,23 +5093,12 @@ def _audit_action(a, removing: bool = False) -> list[str]:
     acting on sand. Then real gaps (converge writes them), then bloat, then the equivalents — last,
     because `flag` is the one claim a human makes against the engine and it must never be
     suggested while a real gap is open.
+
+    ``decision`` is the record `_run_audit` computed once; its code is consumed here. Without one (a
+    direct call) the code is derived by the same reading. Either way nothing is recorded: the handler
+    records the outcome, once per invocation, and a renderer never observes.
     """
-    kind = audit_next_action(
-        _audit_measurement_block(a),
-        bool(a.failing_tests),
-        len(a.killable_gaps),
-        len(a.missing_lines),
-        len(a.redundant_tests),
-        removing,
-        int(a.candidate_equivalent or 0),
-        bool(a.candidate_equivalent_ids),
-        int(a.unclassified or 0),
-    )
-    # The ledger's second outcome site (docs/INVOCATION_LEDGER.md §6). Records WHICH instruction
-    # audit gave, so a repeat reads "you ran `fix_load` three times" rather than "you ran this
-    # three times with nothing changing". Process-scoped and swallowed; it changes no output, no
-    # branch and no exit code.
-    observe("outcome", "audit", kind)
+    kind = decision.code if decision is not None else _audit_code(a, removing)
     if kind == "fix_load":
         reason = getattr(a, "note", "") or _MODULE_NOT_IMPORTED
         return [
@@ -4607,9 +5180,7 @@ def _audit_closing_action(a, kind: str) -> list[str]:
         # #71: the SAME basis and sentence converge's DONE block renders — the residual is named for
         # what the search established, and `flag` is offered for candidate-equivalents only (never a
         # crash-only mutant, which an input distinguishes).
-        crash_ids = set(getattr(a, "crash_only_ids", ()) or ())
-        ids = [i for i in a.candidate_equivalent_ids if i not in crash_ids]
-        basis = residual_done_basis(len(ids), len(crash_ids), str(getattr(a, "boundary_probe", "") or ""))
+        basis, ids = _audit_residual(a)
         why = residual_done_why(basis).split("\n")
         more = f"   ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
         return [
@@ -5451,6 +6022,7 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor_p.add_argument("--green", action="store_true", help="setup only (partial read — banner says so)")
     doctor_p.add_argument("--red", action="store_true", help="process only (partial read)")
     doctor_p.add_argument("--yellow", action="store_true", help="taste only (partial read)")
+    doctor_p.add_argument("--json", action="store_true", help="emit JSON")
 
     extract_p = sub.add_parser(
         "extract",
@@ -5627,16 +6199,42 @@ def _format_regime(regime, plan=None, applied: tuple[str, ...] = (), target: str
     return "\n".join(lines) + "\n"
 
 
+def regime_step(blocked: bool, needed: bool, conflict: bool) -> tuple[str, str]:
+    """The kind of move regime's printed block states, and the remedy it names (pure — pinned).
+
+    The same split as `converge_step`. regime's next-action CODE is `regime_outcome`'s, but the move
+    its page prints turns on facts that code does not carry — a blocked migration plan, a migration
+    still needed — so the move is decided here from those facts, in the page's own order, and the page
+    renders from this decision too: one derivation, two readers.
+
+      ("stop", "regime_blocked")   the migration plan is blocked: a decision only the operator can make
+      ("run", "")                  a migration is needed: `regime --migrate`
+      ("stop", "regime_conflict")  a conflict, and no migration that reaches it
+      ("done", "")                 a migration applied, or a clean regime — nothing to run
+    """
+    if blocked:
+        return "stop", "regime_blocked"
+    if needed:
+        return "run", ""
+    if conflict:
+        return "stop", "regime_conflict"
+    return "done", ""
+
+
 def _regime_action(regime, plan, applied, target: str | None = None) -> list[str]:
-    """The one thing to do next. Migration first — it is the only step that is ours to take."""
-    if plan is not None and plan.blocked:
+    """The one thing to do next. Migration first — it is the only step that is ours to take.
+
+    The move is `regime_step`'s — the decision the record's step is read from — and this renders it."""
+    blocked = tuple(plan.blocked) if plan is not None else ()
+    kind, remedy = regime_step(bool(blocked), bool(plan is not None and plan.needed), bool(regime.conflicts))
+    if remedy == "regime_blocked":
         # Say what migration CANNOT fix before offering to run it. A tool that tidies the config
         # and stays quiet about the target resolving to another checkout has made the repo look
         # healthier without making a single verdict truer.
         out = ["DO THIS:  migration cannot fix this — it needs a decision only you can make:", ""]
-        out += [_row("", f"· {why}") for why in plan.blocked]
+        out += [_row("", f"· {why}") for why in blocked]
         return out
-    if plan is not None and plan.needed:
+    if kind == "run":
         where = f" --project-root '{regime.root}'" if regime.root else ""
         # Carry the TARGET, because half of what this command can fix is only VISIBLE with one.
         # `resolve_regime` runs the shadow check per file, so a targetless re-run cannot see the
@@ -5652,7 +6250,7 @@ def _regime_action(regime, plan, applied, target: str | None = None) -> list[str
             _row("", "supplying it) into pyproject — then removes that conftest."),
             _row("· never touches", "a file you wrote."),
         ]
-    if regime.conflicts:
+    if remedy == "regime_conflict":
         return [
             "DO THIS:  resolve the conflict — every verdict here is untrustworthy until",
             "          you do. Run the command you wanted; it refuses with the exact fix.",
@@ -5671,6 +6269,22 @@ def _regime_action(regime, plan, applied, target: str | None = None) -> list[str
         "DONE:  this regime resolves cleanly — nothing to migrate. Run `detective audit`,",
         "       `converge`, or `decompose` on a target in it.",
     ]
+
+
+def _regime_decision(regime, plan, target: str | None, outcome: str) -> Decision:
+    """regime's decision record: `regime_outcome`'s code (the one its observation records), the move
+    `regime_step` decides from the plan and the conflicts — the decision the page renders from — the
+    migrate command as the page prints it, and the plan's blocked reasons and need."""
+    blocked = tuple(plan.blocked) if plan is not None else ()
+    needed = bool(plan.needed) if plan is not None else False
+    kind, remedy = regime_step(bool(blocked), needed, bool(regime.conflicts))
+    argv = None
+    if kind == "run":
+        aim = (target,) if target else ()
+        where = ("--project-root", regime.root) if regime.root else ()
+        argv = ("regime", "--migrate", *aim, *where)
+    state = {"blocked": list(blocked), "needed": needed}
+    return Decision("regime", outcome, "", kind, remedy, argv, None, None, "", None, (), state)
 
 
 def _format_shadowed(shadow, target: str, root: str) -> str:
@@ -7036,13 +7650,19 @@ def _run_audit(args, file, function) -> int:
     # `--check` returns below before anything is removed, so it never announces a removal (#103: the
     # "· Removing … safety-checked below" line used to print over a run that then removed nothing).
     removing = bool(args.remove and report.redundant_tests) and not check
+    # THE DECISION, computed once from the report, and its outcome recorded here — once per invocation,
+    # on every channel. Recorded from inside the page's renderer, it never reached the ledger from a
+    # `--json` run. The page consumes the record; every JSON payload below carries it.
+    decision = _audit_decision(report, removing)
+    observe("outcome", "audit", decision.code)
+    payload["decision"] = _decision_payload(decision)
     if not (args.json and removing):
         # With --json --remove the payload is printed ONCE, after the removal, carrying its outcomes:
         # printed first, a machine reader never saw what was deleted (#103).
         print(
             json.dumps(_with_exit(payload, gate_exit if check else 0), indent=2, default=str)
             if args.json
-            else _format_audit(report, removing=removing)
+            else _format_audit(report, removing=removing, decision=decision)
         )
     if check:
         if meas_incomplete and not spec_gap:
@@ -7233,6 +7853,23 @@ def _run_converge(args, file, function) -> int:
         progress=_stream_progress(function),
         notify=_notify_stderr,
     )
+    # THE DECISION, computed once, here, where the handler holds the result — and its outcome recorded
+    # here, once per invocation, whatever the channel: `--json`, the terse page, `--full`, and the stale
+    # and cut endings the terse page prints before its action block. Recorded from inside the page's
+    # renderer, it reached the ledger only from that renderer, so every other channel recorded none.
+    # The renderers below consume the record and never observe. Advisory and never fatal: `observe`
+    # cannot raise, and recording changes no output, no branch and no exit code (INVOCATION_LEDGER.md).
+    session_reason = getattr(args, "session_reason", "")
+    attempted = tuple(getattr(args, "input", ()) or ())
+    decision = _converge_decision(
+        result,
+        result.survivor_report,
+        args.project_root,
+        session_reason,
+        attempted,
+        getattr(args, "receiver_factory", None),
+    )
+    observe("outcome", "converge", decision.code)
     if args.json:
         # 3 = "this run's numbers are partial — re-run": a stale target (#17), OR ANY ungateable
         # measurement (#60 — a deadline CUT, an uncontained worker, an ambiguous module identity, or an
@@ -7240,7 +7877,7 @@ def _run_converge(args, file, function) -> int:
         # basis. Consumes the absorbing `admits_certificate`, never the narrow `budget_exhausted` proxy —
         # else an ungateable run that did not blow its budget silently exits 0, the seam this closes.
         return _emit_json(
-            asdict(result),
+            {**asdict(result), "decision": _decision_payload(decision)},
             3
             if result.stale_target
             or not result.admits_certificate
@@ -7261,11 +7898,7 @@ def _run_converge(args, file, function) -> int:
     else:
         print(
             _format_converge_terse(
-                result,
-                report_path,
-                args.project_root,
-                getattr(args, "session_reason", ""),
-                tuple(getattr(args, "input", ()) or ()),
+                result, report_path, args.project_root, session_reason, attempted, decision
             )
         )
     # 3, not 1: "the measurement is invalid, re-run" is a different failure from "the run errored",
@@ -7575,7 +8208,12 @@ def _run_flag(args, file, function) -> int:
         None,
     )
     if rec is None:
-        ids = ", ".join(r.get("mutant_id", "?") for r in result.value_survivor_records) or "none surviving"
+        survivors = [r.get("mutant_id", "?") for r in result.value_survivor_records]
+        if args.json:
+            return _emit_json(
+                {"verdict": "REFUSED", "reason": "no_surviving_mutant", "survivors": survivors}, 1
+            )
+        ids = ", ".join(survivors) or "none surviving"
         print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
         return 1
     _verdict = "fence" if args.fence else "equivalent"
@@ -7589,6 +8227,17 @@ def _run_flag(args, file, function) -> int:
         )
     except StoreRefused as exc:
         return _store_refused(args, args.target, exc)
+    if args.json:
+        return _emit_json(
+            {
+                "verdict": "RECORDED",
+                "function_key": result.function_key,
+                "mutant_id": args.mutant_id,
+                "flag": _verdict,
+                "note": args.note,
+            },
+            0,
+        )
     suffix = f" ({args.note})" if args.note else ""
     print(f"{result.function_key} — flag · {args.mutant_id}")
     print("")
@@ -8236,17 +8885,21 @@ def _run_regime(args) -> int:
     # W1. Every conflict KIND exits 2, so the ledger's `exit` cannot tell shadowed-target from
     # conftest-collision — and after a `--migrate` the conflict should be gone, which makes the same
     # code twice a migration that did not reach the cause rather than a re-read.
-    observe(
-        "outcome",
-        "regime",
-        regime_outcome(
-            str(regime.conflicts[0]) if regime.conflicts else "",
-            bool(applied),
-            bool(getattr(plan, "needed", False)),
-        ),
+    outcome = regime_outcome(
+        str(regime.conflicts[0]) if regime.conflicts else "",
+        bool(applied),
+        bool(getattr(plan, "needed", False)),
     )
+    observe("outcome", "regime", outcome)
     if args.json:
-        return _emit_json({"regime": _asdict(regime), "applied": list(applied)}, 2 if regime.conflicts else 0)
+        return _emit_json(
+            {
+                "regime": _asdict(regime),
+                "applied": list(applied),
+                "decision": _decision_payload(_regime_decision(regime, plan, args.target, outcome)),
+            },
+            2 if regime.conflicts else 0,
+        )
     print(_format_regime(regime, plan, applied, args.target))
     # A conflict is the answer, not a crash: exit 2 so a script can gate on it, the same
     # code every other command returns when it refuses for the same reason.
@@ -8269,21 +8922,27 @@ def _confirm_prune(root: str) -> bool:
     return reply.strip().lower() in ("y", "yes")
 
 
-def _doctor_yellow_section(target_file: str, function: str) -> tuple[str, list[str]]:
-    """(code, rendered lines) for the taste axis.
+def _doctor_yellow_section(target_file: str, function: str) -> tuple[str, list[str], list]:
+    """(code, rendered lines, findings) for the taste axis.
 
     §7.4: yellow costs a static pass, so it runs for a TARGET and degrades at directory scope —
     with the reason NAMED, the way `plan` reports `regime — unread`. A silent skip here would be
-    the same defect as an empty process section."""
+    the same defect as an empty process section. With no target the code stays `clear` for the
+    mix and the observation, as it always has; `doctor --json` reports the axis `not_read`
+    (`doctor_axis_code`), never clear."""
     if target_file:
         yellow_code, findings = _doctor_yellow(target_file, function)
-        return yellow_code, _render_doctor_yellow(yellow_code, findings, target_file)
-    return "clear", [
-        _row("YELLOW — taste", "not read"),
-        _row("· Why", "no target given. Taste costs a static pass per function, so it is"),
-        _row("", "read for a TARGET rather than swept over a repository — name one:"),
-        _row("", "detective doctor <file.py>   or   detective survey <path>"),
-    ]
+        return yellow_code, _render_doctor_yellow(yellow_code, findings, target_file), findings
+    return (
+        "clear",
+        [
+            _row("YELLOW — taste", "not read"),
+            _row("· Why", "no target given. Taste costs a static pass per function, so it is"),
+            _row("", "read for a TARGET rather than swept over a repository — name one:"),
+            _row("", "detective doctor <file.py>   or   detective survey <path>"),
+        ],
+        [],
+    )
 
 
 def _doctor_target(raw: str, root: str) -> tuple[str, str, str]:
@@ -8624,6 +9283,24 @@ def _render_doctor_mix(green_live: bool, red_live: bool, yellow_live: bool) -> l
     ]
 
 
+def doctor_axis_code(asked: bool, read: bool, code: str) -> str:
+    """What `doctor --json` reports for ONE axis: the axis's own code, or ``not_read`` (pure — pinned).
+
+    The page renders an unread axis in words — `not read`, or simply absent under a partial read —
+    but the code each axis is computed into starts as its CLEAN code (`clean` for green, `clear` for
+    red and yellow), and stays there when the axis is not asked for, or when taste is asked for with
+    no target to read. Serialized as it stands, an unread axis would read as a clean one: the one
+    thing this surface must never say. Split out so that line is decided, not left to a default.
+
+      "not_read"  the axis was not asked for (a partial read), or was asked for and could not be read
+      <code>      the axis was read: its own disposition, passed through verbatim — red's `unavailable`
+                  (no ledger to read) included, which is red's own name for a process it cannot see
+    """
+    if asked and read:
+        return code
+    return "not_read"
+
+
 def _run_doctor(args) -> int:
     """`detective doctor` — what is blocking correct USE of the tool (`docs/DOCTOR.md`).
 
@@ -8633,6 +9310,9 @@ def _run_doctor(args) -> int:
     code` IS a setup fault. Always-0 would make this command say nothing is wrong about a fault it
     just found — the blur the project exists to kill. It still never gates a certificate and is not
     in the completeness chain, so the fence holds (founder ruling 2026-09-09, reversing §7.2).
+
+    ``--json`` carries the same read as data, with the same exit code: each axis's code and its
+    facts or findings, the axes asked for, and the mix's product — an unread axis as `not_read`.
     """
     root = os.path.abspath(getattr(args, "project_root", ".") or ".")
     raw = getattr(args, "target", None) or ""
@@ -8649,32 +9329,35 @@ def _run_doctor(args) -> int:
     lines.append("")
 
     green_code = "clean"
+    green_facts: dict = {}
     if "green" in asked:
-        green_code, facts = _doctor_green(root, target_file, func_key)
-        lines += _render_doctor_green(green_code, facts)
+        green_code, green_facts = _doctor_green(root, target_file, func_key)
+        lines += _render_doctor_green(green_code, green_facts)
         lines.append("")
     green_live = green_code != "clean"
     # NOT-READ IS A REPORTED STATE, never an empty section. Swallowing at WRITE time is right;
     # swallowing at READ time is the thing this project exists to prevent — an empty process section
     # reads as "nothing wrong", which is the one thing it must not say.
     red_code = "clear"
+    red: dict = {}
     if "red" in asked:
         red_code, red = _doctor_red(root)
         lines += _render_doctor_red(red_code, red)
         lines.append("")
     yellow_code = "clear"
+    yellow_findings: list = []
     if "yellow" in asked:
-        yellow_code, yellow_lines = _doctor_yellow_section(target_file, function)
+        yellow_code, yellow_lines, yellow_findings = _doctor_yellow_section(target_file, function)
         lines += yellow_lines
         lines.append("")
     # THE SUPERADDITIVE PRODUCTS (§3) — the part of the herb scheme that is a mechanism rather than
     # a metaphor. Each combination yields a verdict neither component produces alone, and the mix is
     # three lists PLUS the statement of what must be re-derived after the repair and in what order.
-    lines += _render_doctor_mix(
-        green_live and "green" in asked,
-        red_code not in ("clear", "unavailable") and "red" in asked,
-        yellow_code not in ("clear", "nothing_to_read") and "yellow" in asked,
-    )
+    # The three live axes are read once, for the page's mix block and the JSON's `mix` alike.
+    mix_green = green_live and "green" in asked
+    mix_red = red_code not in ("clear", "unavailable") and "red" in asked
+    mix_yellow = yellow_code not in ("clear", "nothing_to_read") and "yellow" in asked
+    lines += _render_doctor_mix(mix_green, mix_red, mix_yellow)
     if len(asked) < 3:
         lines.append(_row("PARTIAL READ", f"only {', '.join(asked)} was read — an unread axis may"))
         lines.append(_row("", "invalidate what this reports. The full mix is the default."))
@@ -8684,6 +9367,23 @@ def _run_doctor(args) -> int:
     # times and it said `deps_elsewhere` every time" is precisely what red exists to name, and the
     # command that diagnoses the operator must not be the one verb exempt from being observed.
     observe("outcome", "doctor", f"{green_code}/{yellow_code}")
+    if getattr(args, "json", False):
+        from .doctor import mix_product
+
+        return _emit_json(
+            {
+                "target": raw,
+                "asked": list(asked),
+                "green": {"code": doctor_axis_code("green" in asked, True, green_code), "facts": green_facts},
+                "red": {"code": doctor_axis_code("red" in asked, True, red_code), "facts": red},
+                "yellow": {
+                    "code": doctor_axis_code("yellow" in asked, bool(target_file), yellow_code),
+                    "findings": [asdict(f) for f in yellow_findings],
+                },
+                "mix": mix_product(mix_green, mix_red, mix_yellow),
+            },
+            2 if live else 0,
+        )
     lines.append(
         "exit 2 — a setup fault is live; fix it before trusting any verdict from this repo"
         if live

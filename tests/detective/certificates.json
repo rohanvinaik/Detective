@@ -115,14 +115,38 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::audit_step": {
+    "cut_reasons": [],
+    "function_digest": "61e84f0876fab2df",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::converge_next_action": {
     "function_digest": "1f576a572e4f200a",
     "refusal": "",
     "standing": "ungateable"
   },
+  "Detective/cli.py::converge_record_code": {
+    "cut_reasons": [],
+    "function_digest": "3592e139f791d0db",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::converge_step": {
+    "cut_reasons": [],
+    "function_digest": "7e70727cdbfc40b1",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::diagnose_next_action": {
     "cut_reasons": [],
     "function_digest": "f080290e34eb30e4",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::doctor_axis_code": {
+    "cut_reasons": [],
+    "function_digest": "757c5ecf7c6b6c82",
     "refusal": "",
     "standing": "complete"
   },
@@ -156,6 +180,12 @@
   "Detective/cli.py::regime_outcome": {
     "cut_reasons": [],
     "function_digest": "aab92e14691dc641",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::regime_step": {
+    "cut_reasons": [],
+    "function_digest": "498ef060cd229041",
     "refusal": "",
     "standing": "complete"
   },
