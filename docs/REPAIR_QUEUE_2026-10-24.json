@@ -1271,10 +1271,11 @@
   ],
   "execution_plan": "openspec/changes/complete-paired-repair/tasks.md",
   "current_checkpoint": {
-    "Wesker_runtime": "8aa2b4e9d9c00680bd7035e74127143a06aaa4d2",
-    "Wesker_development_lock": "6de166d24318ae3cce27c60adfe00a77f8699ccb",
-    "Detective_runtime": "10962b0b5343a71e3ddcb70d70f1b2999f314203",
-    "version": "1.2.1",
-    "note": "The original basis and body hashes remain a historical inventory. Current subset acceptance is in the OpenSpec tasks and release/B02 receipts. No blanket issue acceptance or performance win is asserted."
+    "Wesker_runtime": "60df89b86f4b35a8df2b03c850ebdb988d0e99af",
+    "Wesker_development_lock": "60df89b86f4b35a8df2b03c850ebdb988d0e99af",
+    "Detective_candidate": null,
+    "state": "1.2.2_candidate_in_flight__exact_SHA_bound_by_release_CI",
+    "version": "1.2.2",
+    "note": "1.2.1 is published. Its release clearance was premature: the exact Detective tag failed the late-capture test. The corrected candidate must finish its own full CI before release/signing or PyPI handoff. Historical issue mappings remain unaccepted except for recorded subsets."
   }
 }

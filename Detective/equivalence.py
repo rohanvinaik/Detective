@@ -1772,6 +1772,7 @@ def _reached_lines(
             code=code,
             event=sys.monitoring.events.LINE,
             observer=observed,
+            deadline=deadline,
         )
         if not run.contained:
             raise ObservationIncomplete(

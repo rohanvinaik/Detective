@@ -1,5 +1,18 @@
 # Paired 1.2.1 release receipt
 
+## Publication correction
+
+The owner has now published both 1.2.1 packages to PyPI. The earlier upload clearance
+was premature: Detective's exact release commit `bc37d87` failed its macOS 3.14 CI
+job after the release was created. `test_the_aggregate_wall_also_bounds_the_current_test`
+retained an input observed after the aggregate deadline. A later documentation-only
+main commit passed, but that did not establish that the timing race was repaired.
+
+The 1.2.1 distributions and tag remain immutable. The paired 1.2.2 correction repairs
+deadline admission/setup budgeting and requires successful CI for the exact checked-out
+release commit before either workflow builds/signs artifacts. The upload commands below
+are historical; 1.2.1 has already been uploaded. See RELEASE_1_2_2.md for the new candidate.
+
 ## Released source and changes
 
 - [Wesker v1.2.1](https://github.com/rohanvinaik/Wesker/releases/tag/v1.2.1)
@@ -14,7 +27,7 @@
 
 Both GitHub release workflows built and attached the wheel/sdist and Sigstore
 bundles successfully. Creating those releases did not publish to PyPI. The owner
-published 1.2.0 earlier; **1.2.1 still requires the maintainer upload below**.
+subsequently uploaded the 1.2.1 pair; that publication cannot be replaced in place.
 
 ## Evidence and limits
 

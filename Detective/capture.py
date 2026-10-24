@@ -67,7 +67,7 @@ HARVEST_CUT = "cut"  # the aggregate wall has passed — stop, keep what was cap
 
 # Verdicts computed before this contract omitted None and accepted cut harvests.
 # The cache consumes this identity; a package release number cannot identify it.
-RETURN_OBSERVATION_POLICY = "owned-complete-types-v2"
+RETURN_OBSERVATION_POLICY = "owned-complete-types-v3-deadline"
 
 
 @dataclass(frozen=True)
@@ -186,12 +186,15 @@ def _run_for_effects(
     observer: Callable[..., None],
     selectors: Sequence[str] | None = None,
     include_children: bool = False,
+    deadline: float | None = None,
 ) -> _HarvestExecution:
     """Run one discovered test for its SIDE EFFECTS on the active monitoring hook.
 
     Each test owns a fresh token and subscription. The worker object is known
     before start, so ownership has neither an ident-binding race nor ident reuse.
     The parent retires and closes the subscription on every exit.
+    An absolute deadline includes setup/startup and rejects observations even
+    when a finished worker wins the race with its waiting parent.
     """
     interrupt_exc: BaseException | None = None
     observation_errors: list[MonitoringUnavailable] = []
@@ -199,6 +202,8 @@ def _run_for_effects(
     def _safe_run() -> None:
         nonlocal interrupt_exc
         try:
+            if deadline is not None and time.monotonic() >= deadline:
+                return
             test()
         except (KeyboardInterrupt, SystemExit) as exc:
             interrupt_exc = exc
@@ -222,11 +227,15 @@ def _run_for_effects(
         registered = registered_thread(tid)
         return registered is not None and registered not in alive_before
 
+    def observe_within_deadline(*args: Any, **kwargs: Any) -> None:
+        if deadline is None or time.monotonic() < deadline:
+            observer(*args, **kwargs)
+
     try:
         handle = subscribe(
             [code] if code is not None else [],
             event,
-            observer,
+            observe_within_deadline if deadline is not None else observer,
             run_token=token,
             thread_filter=owns_thread,
             selectors=selectors,
@@ -234,12 +243,25 @@ def _run_for_effects(
     except BaseException:
         retire_run_token(token)
         raise
+    timed_out, contained = True, True
+    joined = False
     try:
-        worker.start()
-        timed_out, contained = bounded_join(worker, timeout_s, unwind_s=0.05)
+        if deadline is None or time.monotonic() < deadline:
+            worker.start()
+            remaining = (
+                min(timeout_s, max(0.0, deadline - time.monotonic())) if deadline is not None else timeout_s
+            )
+            timed_out, contained = bounded_join(worker, remaining, unwind_s=0.05)
+            joined = True
     finally:
         retire_run_token(token)
-        handle.close()
+        try:
+            # Startup or remaining-budget calculation can be interrupted after
+            # the worker starts but before bounded_join takes ownership.
+            if not joined and worker.is_alive():
+                bounded_join(worker, 0.0, unwind_s=0.05)
+        finally:
+            handle.close()
     try:
         handle.check()
     except MonitoringObservationFailed as exc:
@@ -253,6 +275,7 @@ def _run_for_effects(
     incomplete_thread = include_children and any(
         thread not in alive_before and thread is not worker for thread in threading.enumerate()
     )
+    timed_out = timed_out or (deadline is not None and time.monotonic() >= deadline)
     return _HarvestExecution(timed_out, contained, incomplete_thread)
 
 
@@ -301,10 +324,14 @@ def capture_call_inputs(
             # become an exception thrown into the target under observation.
             snapshot_errors.append(("input_snapshot_failed", type(exc).__name__))
             return
+        if deadline is not None and time.monotonic() >= deadline:
+            return
         try:
             key = repr(args)
         except Exception as exc:  # noqa: BLE001
             snapshot_errors.append(("input_snapshot_unrepresentable", type(exc).__name__))
+            return
+        if deadline is not None and time.monotonic() >= deadline:
             return
         if key in seen:
             return
@@ -326,7 +353,12 @@ def capture_call_inputs(
                 else per_test_timeout
             )
             run = _run_for_effects(
-                t, timeout_s=timeout_s, code=code, event=sys.monitoring.events.PY_START, observer=_on_start
+                t,
+                timeout_s=timeout_s,
+                code=code,
+                event=sys.monitoring.events.PY_START,
+                observer=_on_start,
+                deadline=deadline,
             )
             if snapshot_errors:
                 reason, error_type = snapshot_errors[0]
@@ -347,6 +379,7 @@ def capture_call_inputs(
     elif any_timed_out:
         status = "cut"
 
+    deadline_passed = deadline is not None and time.monotonic() >= deadline
     return HarvestResult(
         tuple(captured[:max_samples]),
         contained=all_contained,
@@ -384,7 +417,9 @@ def capture_return_types(
     ) -> None:
         if frame_code is not code:
             return
-        names.add(type(retval).__name__)
+        name = type(retval).__name__
+        if deadline is None or time.monotonic() < deadline:
+            names.add(name)
 
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         for t in tests:
@@ -402,7 +437,12 @@ def capture_return_types(
                 else per_test_timeout
             )
             run = _run_for_effects(
-                t, timeout_s=timeout_s, code=code, event=sys.monitoring.events.PY_RETURN, observer=_on_return
+                t,
+                timeout_s=timeout_s,
+                code=code,
+                event=sys.monitoring.events.PY_RETURN,
+                observer=_on_return,
+                deadline=deadline,
             )
             if run.timed_out or not run.contained:
                 raise HarvestIncomplete(

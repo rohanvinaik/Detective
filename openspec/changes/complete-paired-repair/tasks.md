@@ -98,6 +98,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [ ] 13.6 Review the five theory-prior drifts and actual literature before updating reference hashes; prepare example source material without rewriting the owner's manifesto.
 - [ ] 13.7 Build production-derived benchmark/memory advisories and calibrate any threshold before making it a gate; keep unmeasured claims explicit.
 - [ ] 13.8 After the owner uploads 1.2.1, verify an ordinary clean PyPI install of both packages and run the public smoke workflow; do not infer publication from GitHub artifacts.
+- [ ] 13.9 Complete the paired 1.2.2 correction after 1.2.1's late-capture CI failure: exact Wesker push → Detective floor/lock/sync → frozen-candidate full CI → both GitHub build/sign jobs → one matched PyPI handoff packet (docs/RELEASE_1_2_2.md). The owner reports 1.2.1 already published; its earlier release clearance is retracted.
 
 ## 14. Scope and handoff maintenance
 

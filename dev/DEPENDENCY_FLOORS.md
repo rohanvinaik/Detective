@@ -305,3 +305,12 @@ target once: no warm-up side effects or guessed replacement count are introduced
 Detective 1.2.1 requires this correction in its plain runtime package requirement.
 The development lock selects the pushed Wesker revision independently. Publish
 Wesker 1.2.1 before detective-spec 1.2.1.
+
+## Wesker >= 1.2.2
+
+A maintainer-directed PAIRING floor. Detective 1.2.2 corrects observation admission
+and setup/startup budgeting at aggregate deadlines. Wesker 1.2.2 retains the 1.2.1
+engine implementation and adds the same exact-commit CI prerequisite to its release
+workflow. This floor names the coordinated tested/published pair, not a new import
+API or a claim that Wesker 1.2.1 caused the capture race. The development lock must
+select the exact pushed Wesker 1.2.2 commit before Detective's candidate CI runs.
