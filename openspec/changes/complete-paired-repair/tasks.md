@@ -28,6 +28,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [ ] 3.4 Close D#105's existing-test path-swapping reproduction using explicit test/regime write authority; preserve legitimate temp writes and never score containment interception as assertion detection.
 - [ ] 3.5 Re-run D#108/#127 original CLI reproductions, including slow copy/repr/rendering and cancellation, then accept only the demonstrated deadline and authored-input obligations.
 - [ ] 3.6 Verify nonfinite literal round trips, evaluated distinctions and NaN assertions through written tests and public reports; leave unrelated D#76 reporting work in B05.
+- [x] 3.7 Reject harvest observations/snapshots admitted after the absolute deadline, include setup/startup in the remaining budget, and reap startup/pre-join cancellation (Detective e5f7c98/bf3f87b, ten controlled regressions; exact 1.2.2 CI). This accepts the added boundary subset, not 3.4–3.6 or the full D#108 field reproduction.
 
 ## 4. B03 — Actual program and test identity
 
@@ -92,16 +93,17 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 
 - [x] 13.1 Repair the observed coverage/3.12 CI failures and pass both six-cell 3.12–3.14 Linux/macOS matrices (Wesker 40074238464; Detective 40074339034).
 - [x] 13.2 Align Sonar version/runtime metadata; retain pinned lint/format, packaging and workflow checks.
-- [x] 13.3 Complete paired 1.2.1 GitHub release/signing and installed-wheel acceptance, then hand off exact Wesker-first PyPI upload commands (docs/RELEASE_1_2_1.md); record owner publication independently.
+- [x] 13.3 Record the historical paired 1.2.1 artifact/signing and installed-wheel receipt, its subsequent PyPI publication, and the retraction of premature clearance after the exact Detective tag failed macOS 3.14 CI (docs/RELEASE_1_2_1.md). That receipt does not establish exact-tag CI acceptance.
 - [ ] 13.4 Triage remaining Sonar findings against the real trust boundary, with reasoned transitions or code fixes; separately repair the shared local Sonar setup without resetting its original database.
 - [ ] 13.5 Finish supply-chain/repository hygiene and supported optional-tool/bootstrap checks; maintain both dependencies-present and dependencies-absent reproductions.
 - [ ] 13.6 Review the five theory-prior drifts and actual literature before updating reference hashes; prepare example source material without rewriting the owner's manifesto.
 - [ ] 13.7 Build production-derived benchmark/memory advisories and calibrate any threshold before making it a gate; keep unmeasured claims explicit.
-- [ ] 13.8 After the owner uploads 1.2.1, verify an ordinary clean PyPI install of both packages and run the public smoke workflow; do not infer publication from GitHub artifacts.
-- [ ] 13.9 Complete the paired 1.2.2 correction after 1.2.1's late-capture CI failure: exact Wesker push → Detective floor/lock/sync → frozen-candidate full CI → both GitHub build/sign jobs → one matched PyPI handoff packet (docs/RELEASE_1_2_2.md). The owner reports 1.2.1 already published; its earlier release clearance is retracted.
+- [x] 13.8 Supersede the defective 1.2.1 install target with the corrected 1.2.2 pair: observe both on PyPI with all four hashes matching GitHub, install both from the ordinary index in a fresh managed 3.14.7 environment, and follow help → regime → converge to COMPLETE, 17/17 killed, three tests and isolated reproducibility confirmation (docs/RESUME_PAIRED_REPAIR_2026-10-24.md). This is fixture characterization, not universal proof.
+- [x] 13.9 Complete the paired 1.2.2 correction: Wesker 60df89b push → Detective exact floor/lock/sync → bf3f87b full frozen-candidate CI → both exact-CI guarded GitHub build/sign jobs → matched handoff packet → observed PyPI publication (docs/RELEASE_1_2_2.md). Preserve the immutable 1.2.1 files and retracted clearance.
 
 ## 14. Scope and handoff maintenance
 
 - [x] 14.1 Preserve all 89 snapshotted issue mappings and dependencies in a shared OpenSpec planning home; carry forward classification without claiming fresh acceptance of every issue.
 - [x] 14.2 Update GitHub tracking/release/affected issue records with exact accepted subsets and residual work; never close an umbrella issue from a green suite alone (W#32/#35/#36; D#88/#99/#105/#108/#127/#133).
 - [ ] 14.3 Keep Type (2) additions in their existing issues and record missing owner premises. Each accepted work wave updates this plan, queue and relevant issue receipt together.
+- [x] 14.4 Save a resumable checkpoint with the complete live 89-issue mapping, accepted/subset versus outstanding work, the preserved certificate worktree edit, publication receipts, owner premises, dependency order and a procedure for newly discovered defects (docs/RESUME_PAIRED_REPAIR_2026-10-24.md).

@@ -4,6 +4,12 @@ Owner-directed scope, 2026-10-24. Read this before starting another implementati
 
 ## Current execution plan
 
+The current restart entry point is
+[`RESUME_PAIRED_REPAIR_2026-10-24.md`](RESUME_PAIRED_REPAIR_2026-10-24.md).
+It supersedes this handoff's original repository/release status, while preserving
+the detailed work-package obligations below. Both 1.2.2 packages have now been
+observed on PyPI with matching signed-asset hashes and a fresh ordinary-index CLI smoke.
+
 At the owner's later request, the shared OpenSpec planning home is now
 [`complete-paired-repair`](../openspec/changes/complete-paired-repair/tasks.md).
 Its checked rows record accepted subsets and its unchecked rows preserve remaining

@@ -190,7 +190,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "1b7db2c01c1115fb02696b16be13e706c5b301074798334a0bbdb9741fd881ae"
+      "body_sha256": "1b7db2c01c1115fb02696b16be13e706c5b301074798334a0bbdb9741fd881ae",
+      "latest_body_sha256": "1b7db2c01c1115fb02696b16be13e706c5b301074798334a0bbdb9741fd881ae",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -202,7 +204,9 @@
         "B03"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "19c3bd6d71a0e3cf36c843e4401475fcd50e5a71d82f1a6376ae520e04770fcc"
+      "body_sha256": "19c3bd6d71a0e3cf36c843e4401475fcd50e5a71d82f1a6376ae520e04770fcc",
+      "latest_body_sha256": "19c3bd6d71a0e3cf36c843e4401475fcd50e5a71d82f1a6376ae520e04770fcc",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -214,7 +218,9 @@
         "B07"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "e13a5b073ebe586c0d6494ae96dada27a37e191be6b256bea07ffd63a5e2bf50"
+      "body_sha256": "e13a5b073ebe586c0d6494ae96dada27a37e191be6b256bea07ffd63a5e2bf50",
+      "latest_body_sha256": "e13a5b073ebe586c0d6494ae96dada27a37e191be6b256bea07ffd63a5e2bf50",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -226,7 +232,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "01c654b6dbcd82a48e9c08023806dcb46d31d4441af0a21f8b2f74d7647d6c15"
+      "body_sha256": "01c654b6dbcd82a48e9c08023806dcb46d31d4441af0a21f8b2f74d7647d6c15",
+      "latest_body_sha256": "01c654b6dbcd82a48e9c08023806dcb46d31d4441af0a21f8b2f74d7647d6c15",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -238,7 +246,9 @@
         "B04"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "a8e2d1356ec65bb43da84c304a4ef07f382586dde370ef20f866f11f2de567cd"
+      "body_sha256": "a8e2d1356ec65bb43da84c304a4ef07f382586dde370ef20f866f11f2de567cd",
+      "latest_body_sha256": "a8e2d1356ec65bb43da84c304a4ef07f382586dde370ef20f866f11f2de567cd",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -251,7 +261,9 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "6604795ce3b08cf199fcf9457e5c7b0d32604e47dbfa8f82a7148f0c5d3d8336",
-      "scope_note": "Repair presentation consumption; defer separately warranted static proof pruning."
+      "scope_note": "Repair presentation consumption; defer separately warranted static proof pruning.",
+      "latest_body_sha256": "6604795ce3b08cf199fcf9457e5c7b0d32604e47dbfa8f82a7148f0c5d3d8336",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -263,7 +275,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "4a0ff78451db96d607cdb29891dad9d4517f355134ba2d7c86e7a668cb010073"
+      "body_sha256": "4a0ff78451db96d607cdb29891dad9d4517f355134ba2d7c86e7a668cb010073",
+      "latest_body_sha256": "4a0ff78451db96d607cdb29891dad9d4517f355134ba2d7c86e7a668cb010073",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -275,7 +289,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "c8d4d848e9f14616dddbe43ec92377cc47c3f5b87578c6dc5a4ad5fc833541ab"
+      "body_sha256": "c8d4d848e9f14616dddbe43ec92377cc47c3f5b87578c6dc5a4ad5fc833541ab",
+      "latest_body_sha256": "c8d4d848e9f14616dddbe43ec92377cc47c3f5b87578c6dc5a4ad5fc833541ab",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -287,7 +303,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "85c5e374eeeb1c4b71b0d4d8dd8671429476f051d12e23077d5ce9507c2bf9df"
+      "body_sha256": "85c5e374eeeb1c4b71b0d4d8dd8671429476f051d12e23077d5ce9507c2bf9df",
+      "latest_body_sha256": "85c5e374eeeb1c4b71b0d4d8dd8671429476f051d12e23077d5ce9507c2bf9df",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -300,7 +318,9 @@
         "B04"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "9cd9867dad99b71be25f332f1d87259a951137c9fc6655c3e5e498d1936c8e6f"
+      "body_sha256": "9cd9867dad99b71be25f332f1d87259a951137c9fc6655c3e5e498d1936c8e6f",
+      "latest_body_sha256": "9cd9867dad99b71be25f332f1d87259a951137c9fc6655c3e5e498d1936c8e6f",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -312,7 +332,9 @@
         "B03"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "59a202f0acb8b4ba2272e551dbe57de90d8262af426ddf5235b9908d566d00e0"
+      "body_sha256": "59a202f0acb8b4ba2272e551dbe57de90d8262af426ddf5235b9908d566d00e0",
+      "latest_body_sha256": "59a202f0acb8b4ba2272e551dbe57de90d8262af426ddf5235b9908d566d00e0",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -324,7 +346,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "bd89557be863706a1a5f166b2fe436e2850e3a5f1bf9882ed876b040df07876a"
+      "body_sha256": "bd89557be863706a1a5f166b2fe436e2850e3a5f1bf9882ed876b040df07876a",
+      "latest_body_sha256": "bd89557be863706a1a5f166b2fe436e2850e3a5f1bf9882ed876b040df07876a",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -336,7 +360,9 @@
         "B10"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "04f1240f72d9e0a876758a97d53458fe13c31270c5f62bef38c62e24e754385e"
+      "body_sha256": "04f1240f72d9e0a876758a97d53458fe13c31270c5f62bef38c62e24e754385e",
+      "latest_body_sha256": "04f1240f72d9e0a876758a97d53458fe13c31270c5f62bef38c62e24e754385e",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -348,7 +374,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "06c4dffa2d707707af8f5b12d7e29ea319d1299567f062ffc80bc52cd141630c"
+      "body_sha256": "06c4dffa2d707707af8f5b12d7e29ea319d1299567f062ffc80bc52cd141630c",
+      "latest_body_sha256": "06c4dffa2d707707af8f5b12d7e29ea319d1299567f062ffc80bc52cd141630c",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -361,7 +389,9 @@
         "B12"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "2a4d04ffb3109a98141312f22cc7694b281db461adc9fb474ff647b2d605a414"
+      "body_sha256": "2a4d04ffb3109a98141312f22cc7694b281db461adc9fb474ff647b2d605a414",
+      "latest_body_sha256": "ba783d05b4c2da748530c7b7cb8db4530d48f24b41e53fb7f02655b359e28052",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -371,7 +401,9 @@
       "scope": "TRACKING",
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "0c3dad7114fc226d7312f9ab846ad6cd1e3d9f2eb280bb7c1247839b307ada88"
+      "body_sha256": "0c3dad7114fc226d7312f9ab846ad6cd1e3d9f2eb280bb7c1247839b307ada88",
+      "latest_body_sha256": "94620195066cfd12b095a079ab1b8b56c0269da7406baa734c1fdbcee71a3e91",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -384,7 +416,9 @@
         "B08"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "57cafc0fc400bfaab454241b2b59ca90a24dcffc8e3ca029113625930e321fc4"
+      "body_sha256": "57cafc0fc400bfaab454241b2b59ca90a24dcffc8e3ca029113625930e321fc4",
+      "latest_body_sha256": "57cafc0fc400bfaab454241b2b59ca90a24dcffc8e3ca029113625930e321fc4",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -396,7 +430,9 @@
         "B03"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "6828c93056fc778c75a3db341f34e4d303773d551f568257ef3b4548ab3833fc"
+      "body_sha256": "6828c93056fc778c75a3db341f34e4d303773d551f568257ef3b4548ab3833fc",
+      "latest_body_sha256": "6828c93056fc778c75a3db341f34e4d303773d551f568257ef3b4548ab3833fc",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -409,7 +445,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "3d5fefa027230450e9797907674a5255755123955eacbe3b0cc7d2b239ca8dc2"
+      "body_sha256": "3d5fefa027230450e9797907674a5255755123955eacbe3b0cc7d2b239ca8dc2",
+      "latest_body_sha256": "3d5fefa027230450e9797907674a5255755123955eacbe3b0cc7d2b239ca8dc2",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -421,7 +459,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "b4077196ded8b4f86efa76c76aa2185c9edea8dab8feeca6e69eca678990852e"
+      "body_sha256": "b4077196ded8b4f86efa76c76aa2185c9edea8dab8feeca6e69eca678990852e",
+      "latest_body_sha256": "b4077196ded8b4f86efa76c76aa2185c9edea8dab8feeca6e69eca678990852e",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -434,7 +474,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "b617e2207bf1dfaef700a6eb236890291b5b0d528d4410bbcd0203b538fc5b6a"
+      "body_sha256": "b617e2207bf1dfaef700a6eb236890291b5b0d528d4410bbcd0203b538fc5b6a",
+      "latest_body_sha256": "b617e2207bf1dfaef700a6eb236890291b5b0d528d4410bbcd0203b538fc5b6a",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -446,7 +488,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "128b10e17f527e0525dd39634c5f8ac86868a659ad27fc1d677ae8219ca713c1"
+      "body_sha256": "128b10e17f527e0525dd39634c5f8ac86868a659ad27fc1d677ae8219ca713c1",
+      "latest_body_sha256": "128b10e17f527e0525dd39634c5f8ac86868a659ad27fc1d677ae8219ca713c1",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -458,7 +502,9 @@
         "B12"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "be3792e988cc59984991d9bf793d84babaa500e4f7ef4c645b3bf81b494f90b9"
+      "body_sha256": "be3792e988cc59984991d9bf793d84babaa500e4f7ef4c645b3bf81b494f90b9",
+      "latest_body_sha256": "be3792e988cc59984991d9bf793d84babaa500e4f7ef4c645b3bf81b494f90b9",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -470,7 +516,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "e76ac1d8e5ae345ee388c2889f6404eb0b330b4a214d7af8dd90e70596954b90"
+      "body_sha256": "e76ac1d8e5ae345ee388c2889f6404eb0b330b4a214d7af8dd90e70596954b90",
+      "latest_body_sha256": "e76ac1d8e5ae345ee388c2889f6404eb0b330b4a214d7af8dd90e70596954b90",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -483,7 +531,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "4a2ee1d5138b32a4cc0da1f2e30fe08cacfffd9bbdaa93456c09e7c868e67049"
+      "body_sha256": "4a2ee1d5138b32a4cc0da1f2e30fe08cacfffd9bbdaa93456c09e7c868e67049",
+      "latest_body_sha256": "4a2ee1d5138b32a4cc0da1f2e30fe08cacfffd9bbdaa93456c09e7c868e67049",
+      "latest_state": "open"
     },
     {
       "repository": "Wesker",
@@ -496,7 +546,9 @@
         "B03"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "06a98f6484a11250b4accc3612b2f5c7df1cc99455cf407b3abc0d8064cb3cf3"
+      "body_sha256": "06a98f6484a11250b4accc3612b2f5c7df1cc99455cf407b3abc0d8064cb3cf3",
+      "latest_body_sha256": "06a98f6484a11250b4accc3612b2f5c7df1cc99455cf407b3abc0d8064cb3cf3",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -507,7 +559,9 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "2e6f6cd59f6cb2dbd82c725f29255eb2b3fa5b7896eca89fe3d5748a1aa078de",
-      "deferred_scope": "Object constructor/fixture models"
+      "deferred_scope": "Object constructor/fixture models",
+      "latest_body_sha256": "2e6f6cd59f6cb2dbd82c725f29255eb2b3fa5b7896eca89fe3d5748a1aa078de",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -518,7 +572,9 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "4cdb4cb2bfce88761ecf1e9b5fd7932144750511714c0791133fc0477be37c7e",
-      "deferred_scope": "Meaning-based ledger retention"
+      "deferred_scope": "Meaning-based ledger retention",
+      "latest_body_sha256": "4cdb4cb2bfce88761ecf1e9b5fd7932144750511714c0791133fc0477be37c7e",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -529,7 +585,9 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "f86d26023cfa0f5b8366f0d627a970ccbe7fa2e6575fedf4204385a8d2d7a534",
-      "deferred_scope": "New drop-to-synthesis machinery"
+      "deferred_scope": "New drop-to-synthesis machinery",
+      "latest_body_sha256": "f86d26023cfa0f5b8366f0d627a970ccbe7fa2e6575fedf4204385a8d2d7a534",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -541,7 +599,9 @@
         "B12"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "3271bd2d08a49979426da3552647f229c52e28db1a72f41fc60da6a73a278b78"
+      "body_sha256": "3271bd2d08a49979426da3552647f229c52e28db1a72f41fc60da6a73a278b78",
+      "latest_body_sha256": "3271bd2d08a49979426da3552647f229c52e28db1a72f41fc60da6a73a278b78",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -554,7 +614,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "3d73c8706712460d96719cf83a4607501c2df59d21133ed577a46e8cbf0d282e"
+      "body_sha256": "3d73c8706712460d96719cf83a4607501c2df59d21133ed577a46e8cbf0d282e",
+      "latest_body_sha256": "3d73c8706712460d96719cf83a4607501c2df59d21133ed577a46e8cbf0d282e",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -566,7 +628,9 @@
         "B03"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "8035a8cb4498d565735618864977aac498a853bea20969f07c239e3ae706e668"
+      "body_sha256": "8035a8cb4498d565735618864977aac498a853bea20969f07c239e3ae706e668",
+      "latest_body_sha256": "8035a8cb4498d565735618864977aac498a853bea20969f07c239e3ae706e668",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -578,7 +642,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "456031337c667bf4373f1a6edca0bf62b473789fce3b90eeaef1e4ae7afccd9c"
+      "body_sha256": "456031337c667bf4373f1a6edca0bf62b473789fce3b90eeaef1e4ae7afccd9c",
+      "latest_body_sha256": "456031337c667bf4373f1a6edca0bf62b473789fce3b90eeaef1e4ae7afccd9c",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -590,7 +656,9 @@
         "B12"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "286d8ae425755c9740a216f3b8d06e12063ef578efa6edc1d51e16c850bd5136"
+      "body_sha256": "286d8ae425755c9740a216f3b8d06e12063ef578efa6edc1d51e16c850bd5136",
+      "latest_body_sha256": "286d8ae425755c9740a216f3b8d06e12063ef578efa6edc1d51e16c850bd5136",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -603,7 +671,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "a7bcc9eb98da22ab662785510f3744a63d85321714d2a4816213b2c443bc7153"
+      "body_sha256": "a7bcc9eb98da22ab662785510f3744a63d85321714d2a4816213b2c443bc7153",
+      "latest_body_sha256": "a7bcc9eb98da22ab662785510f3744a63d85321714d2a4816213b2c443bc7153",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -615,7 +685,9 @@
         "B07"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "0bd1aa7fedfbc2df78be15efc6111861a9f48204203cd0bc9a93205feea00862"
+      "body_sha256": "0bd1aa7fedfbc2df78be15efc6111861a9f48204203cd0bc9a93205feea00862",
+      "latest_body_sha256": "0bd1aa7fedfbc2df78be15efc6111861a9f48204203cd0bc9a93205feea00862",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -627,7 +699,9 @@
         "B07"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "c01b3266537ca3ca69750a76de1842f857bc555425b5b304a284720461991670"
+      "body_sha256": "c01b3266537ca3ca69750a76de1842f857bc555425b5b304a284720461991670",
+      "latest_body_sha256": "c01b3266537ca3ca69750a76de1842f857bc555425b5b304a284720461991670",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -639,7 +713,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "1825a8dc081f0d1fee5ac43a057ef48424e0759a5ae25b2eea69720b03129143"
+      "body_sha256": "1825a8dc081f0d1fee5ac43a057ef48424e0759a5ae25b2eea69720b03129143",
+      "latest_body_sha256": "1825a8dc081f0d1fee5ac43a057ef48424e0759a5ae25b2eea69720b03129143",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -651,7 +727,9 @@
         "B10"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "d406f62b459933e14a325f9199f0c57c9cce4b42c89ebc12722e5ea888276c81"
+      "body_sha256": "d406f62b459933e14a325f9199f0c57c9cce4b42c89ebc12722e5ea888276c81",
+      "latest_body_sha256": "d406f62b459933e14a325f9199f0c57c9cce4b42c89ebc12722e5ea888276c81",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -664,7 +742,9 @@
         "B10"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "971b118003de834c5d45637f70f77cf1455fe827c6430472eff4e610f5331574"
+      "body_sha256": "971b118003de834c5d45637f70f77cf1455fe827c6430472eff4e610f5331574",
+      "latest_body_sha256": "971b118003de834c5d45637f70f77cf1455fe827c6430472eff4e610f5331574",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -676,7 +756,9 @@
         "B03"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "d0cb36fd0f94c4fcfefff100fdaff83396b0ccae9ac9d98ca8eab4559ffabfd7"
+      "body_sha256": "d0cb36fd0f94c4fcfefff100fdaff83396b0ccae9ac9d98ca8eab4559ffabfd7",
+      "latest_body_sha256": "d0cb36fd0f94c4fcfefff100fdaff83396b0ccae9ac9d98ca8eab4559ffabfd7",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -688,7 +770,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "df681938eaab537f3f59f946ba18545a2ecf66d2a7173936da5a7cba435009a1"
+      "body_sha256": "df681938eaab537f3f59f946ba18545a2ecf66d2a7173936da5a7cba435009a1",
+      "latest_body_sha256": "df681938eaab537f3f59f946ba18545a2ecf66d2a7173936da5a7cba435009a1",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -701,7 +785,9 @@
         "B12"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "1a0b868eb2f907e7b460a7725a0919e3dc874b482676b8169cb547f7c2b31c47"
+      "body_sha256": "1a0b868eb2f907e7b460a7725a0919e3dc874b482676b8169cb547f7c2b31c47",
+      "latest_body_sha256": "4fd2bc412dfb2c02a74adbc8e1f6db1221520c039f6b15d81e33881c654dc9a3",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -713,7 +799,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "31deeee4440e39a23dfdfbefafc3eb0f3797a6eee027bc3a3052181e0449abc1"
+      "body_sha256": "31deeee4440e39a23dfdfbefafc3eb0f3797a6eee027bc3a3052181e0449abc1",
+      "latest_body_sha256": "31deeee4440e39a23dfdfbefafc3eb0f3797a6eee027bc3a3052181e0449abc1",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -724,7 +812,9 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "5fb6fb187c5707fa1016fe105068440ba2ea62c9dc7469992ba8950f85784202",
-      "deferred_scope": "Effect archetypes and explicit world models"
+      "deferred_scope": "Effect archetypes and explicit world models",
+      "latest_body_sha256": "5fb6fb187c5707fa1016fe105068440ba2ea62c9dc7469992ba8950f85784202",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -737,7 +827,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "1697386feacb0899f9d434dee9d2d258ea2f7647fd1f79e7bf0b6b0e5a3f12ed"
+      "body_sha256": "1697386feacb0899f9d434dee9d2d258ea2f7647fd1f79e7bf0b6b0e5a3f12ed",
+      "latest_body_sha256": "1697386feacb0899f9d434dee9d2d258ea2f7647fd1f79e7bf0b6b0e5a3f12ed",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -751,7 +843,9 @@
         "B07"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "d86c26aca97a05272cb771fa78383e2f45c4b6073468d7b1f3556111012d9fb4"
+      "body_sha256": "d86c26aca97a05272cb771fa78383e2f45c4b6073468d7b1f3556111012d9fb4",
+      "latest_body_sha256": "d86c26aca97a05272cb771fa78383e2f45c4b6073468d7b1f3556111012d9fb4",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -763,7 +857,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "92272054b984bb311c30a85d10b91d0c14a4760cbff1e69b9130473e4094f374"
+      "body_sha256": "92272054b984bb311c30a85d10b91d0c14a4760cbff1e69b9130473e4094f374",
+      "latest_body_sha256": "92272054b984bb311c30a85d10b91d0c14a4760cbff1e69b9130473e4094f374",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -775,7 +871,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "302d75e494bf7d50077a19c645e60d196aeabd1fd1f1144cc91a127ef4fbfa36"
+      "body_sha256": "302d75e494bf7d50077a19c645e60d196aeabd1fd1f1144cc91a127ef4fbfa36",
+      "latest_body_sha256": "302d75e494bf7d50077a19c645e60d196aeabd1fd1f1144cc91a127ef4fbfa36",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -787,7 +885,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "0efba949e3db0c18e053557d8b61c4d6f438fc5aa73a145cbbe8dd425c84b27b"
+      "body_sha256": "0efba949e3db0c18e053557d8b61c4d6f438fc5aa73a145cbbe8dd425c84b27b",
+      "latest_body_sha256": "0efba949e3db0c18e053557d8b61c4d6f438fc5aa73a145cbbe8dd425c84b27b",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -799,7 +899,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "2080233cd4f27448749ba68b6891585ec459f1e40db16953cfa4c62e41802afe"
+      "body_sha256": "2080233cd4f27448749ba68b6891585ec459f1e40db16953cfa4c62e41802afe",
+      "latest_body_sha256": "2080233cd4f27448749ba68b6891585ec459f1e40db16953cfa4c62e41802afe",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -810,7 +912,9 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "c1ded01129fb92caa8c8c5d0115c9c8074d59b486a127928c34a2f36ab8930aa",
-      "deferred_scope": "New explain command"
+      "deferred_scope": "New explain command",
+      "latest_body_sha256": "c1ded01129fb92caa8c8c5d0115c9c8074d59b486a127928c34a2f36ab8930aa",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -822,7 +926,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "bdefd6b8346cd4da58c9f24209469e6e46a49eee5e25e41dcdd1e6d29ac31ab2"
+      "body_sha256": "bdefd6b8346cd4da58c9f24209469e6e46a49eee5e25e41dcdd1e6d29ac31ab2",
+      "latest_body_sha256": "bdefd6b8346cd4da58c9f24209469e6e46a49eee5e25e41dcdd1e6d29ac31ab2",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -832,7 +938,9 @@
       "scope": "TRACKING",
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "d767526353a62316adbfc3611ad195db4aff94577bc290d1ad0fcb2d096ca244"
+      "body_sha256": "d767526353a62316adbfc3611ad195db4aff94577bc290d1ad0fcb2d096ca244",
+      "latest_body_sha256": "aa24b76a366a8d7cde20e80dda031bb213a01e03fab313e5ee8d356144a73ad4",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -844,7 +952,9 @@
         "B07"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "3a8f82e934ad89df1901837d895627c3a0bd85bda47f2ca7b6c456b4905ceab8"
+      "body_sha256": "3a8f82e934ad89df1901837d895627c3a0bd85bda47f2ca7b6c456b4905ceab8",
+      "latest_body_sha256": "3a8f82e934ad89df1901837d895627c3a0bd85bda47f2ca7b6c456b4905ceab8",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -856,7 +966,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "9364170350e8987e4d9ad0cd49ed2b0008442340fa11a5929fc57655298bdebd"
+      "body_sha256": "9364170350e8987e4d9ad0cd49ed2b0008442340fa11a5929fc57655298bdebd",
+      "latest_body_sha256": "9364170350e8987e4d9ad0cd49ed2b0008442340fa11a5929fc57655298bdebd",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -870,7 +982,9 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "c9c0dd77c8d35f060a687516443f10f48cd74cbbf608fc93b8cc485400bd5d86",
-      "scope_note": "Repair existing identity, transaction and action/ledger paths; defer new scope to #135/#136."
+      "scope_note": "Repair existing identity, transaction and action/ledger paths; defer new scope to #135/#136.",
+      "latest_body_sha256": "c9c0dd77c8d35f060a687516443f10f48cd74cbbf608fc93b8cc485400bd5d86",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -883,7 +997,9 @@
         "B08"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "43fa3a9f7422c36d8334121ce3c56db00d71050101250b51178d430b85fd4d2b"
+      "body_sha256": "43fa3a9f7422c36d8334121ce3c56db00d71050101250b51178d430b85fd4d2b",
+      "latest_body_sha256": "43fa3a9f7422c36d8334121ce3c56db00d71050101250b51178d430b85fd4d2b",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -895,7 +1011,9 @@
         "B02"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "bb8fd985a1a7d7cf306e4647d96d10002c44a9e5f5992ac054454ee5bd80357a"
+      "body_sha256": "bb8fd985a1a7d7cf306e4647d96d10002c44a9e5f5992ac054454ee5bd80357a",
+      "latest_body_sha256": "bb8fd985a1a7d7cf306e4647d96d10002c44a9e5f5992ac054454ee5bd80357a",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -908,7 +1026,9 @@
         "B08"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "f1d0535a6bdcd6cbc66a57a95c9fd8a3f052981cf92d6cca084cf319cd1271a9"
+      "body_sha256": "f1d0535a6bdcd6cbc66a57a95c9fd8a3f052981cf92d6cca084cf319cd1271a9",
+      "latest_body_sha256": "f1d0535a6bdcd6cbc66a57a95c9fd8a3f052981cf92d6cca084cf319cd1271a9",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -920,7 +1040,9 @@
         "B02"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "d23d616a2f04086a1bc5e883cf837f6d31b13b54c6da0fd136e1b894203555b8"
+      "body_sha256": "d23d616a2f04086a1bc5e883cf837f6d31b13b54c6da0fd136e1b894203555b8",
+      "latest_body_sha256": "d23d616a2f04086a1bc5e883cf837f6d31b13b54c6da0fd136e1b894203555b8",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -931,7 +1053,9 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "6d06b38af498f3d230f42e507509ae503491cf6441fb95d662e6233d87f3df40",
-      "deferred_scope": "Broader content/constant-directed synthesis"
+      "deferred_scope": "Broader content/constant-directed synthesis",
+      "latest_body_sha256": "6d06b38af498f3d230f42e507509ae503491cf6441fb95d662e6233d87f3df40",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -944,7 +1068,9 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "c061f26afabd0fc5ec67a00a797149293031564cf62388635e19f769b987f4b8",
-      "scope_note": "Repair crash-only reporting/flag eligibility; defer expanded search capability with #109."
+      "scope_note": "Repair crash-only reporting/flag eligibility; defer expanded search capability with #109.",
+      "latest_body_sha256": "c061f26afabd0fc5ec67a00a797149293031564cf62388635e19f769b987f4b8",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -956,7 +1082,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "8901886cc83126d973ddf50878a0874f751aee8ac937acb068e9c9939abae88c"
+      "body_sha256": "8901886cc83126d973ddf50878a0874f751aee8ac937acb068e9c9939abae88c",
+      "latest_body_sha256": "8901886cc83126d973ddf50878a0874f751aee8ac937acb068e9c9939abae88c",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -969,7 +1097,9 @@
         "B08"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "e3159914c7d6efe60a09e4d625ae399bbc20761f208027aaac426bca165a776e"
+      "body_sha256": "e3159914c7d6efe60a09e4d625ae399bbc20761f208027aaac426bca165a776e",
+      "latest_body_sha256": "e3159914c7d6efe60a09e4d625ae399bbc20761f208027aaac426bca165a776e",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -981,7 +1111,9 @@
         "B03"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "8054a7f66b2bb8e78352e680fb119d97f36df9373e0d40933321b2fb3ede8887"
+      "body_sha256": "8054a7f66b2bb8e78352e680fb119d97f36df9373e0d40933321b2fb3ede8887",
+      "latest_body_sha256": "8054a7f66b2bb8e78352e680fb119d97f36df9373e0d40933321b2fb3ede8887",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -993,7 +1125,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "3907adac23a0ba29d4dc3e2810b4c321eb6f80869a1ec3134e9ea0df8f2ca0b6"
+      "body_sha256": "3907adac23a0ba29d4dc3e2810b4c321eb6f80869a1ec3134e9ea0df8f2ca0b6",
+      "latest_body_sha256": "3907adac23a0ba29d4dc3e2810b4c321eb6f80869a1ec3134e9ea0df8f2ca0b6",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1006,7 +1140,9 @@
         "B04"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "a69d20a7e2d435ec33c214187c083b5cd76d2729b9285cb11b769b104258c750"
+      "body_sha256": "a69d20a7e2d435ec33c214187c083b5cd76d2729b9285cb11b769b104258c750",
+      "latest_body_sha256": "a69d20a7e2d435ec33c214187c083b5cd76d2729b9285cb11b769b104258c750",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1018,7 +1154,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "0584a7e2e80890ff07f38b2384845608279b010c85b0a6ae5908655ec335350f"
+      "body_sha256": "0584a7e2e80890ff07f38b2384845608279b010c85b0a6ae5908655ec335350f",
+      "latest_body_sha256": "0584a7e2e80890ff07f38b2384845608279b010c85b0a6ae5908655ec335350f",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1030,7 +1168,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "36e203e3664eb2e43b723dacc8394790851b7d819919235e44dce4e3ac1cc374"
+      "body_sha256": "36e203e3664eb2e43b723dacc8394790851b7d819919235e44dce4e3ac1cc374",
+      "latest_body_sha256": "36e203e3664eb2e43b723dacc8394790851b7d819919235e44dce4e3ac1cc374",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1042,7 +1182,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "9686c2b834cc281ff51f7129112f90cf343a52ea53763c30b5d665bec2d08dcb"
+      "body_sha256": "9686c2b834cc281ff51f7129112f90cf343a52ea53763c30b5d665bec2d08dcb",
+      "latest_body_sha256": "9686c2b834cc281ff51f7129112f90cf343a52ea53763c30b5d665bec2d08dcb",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1054,7 +1196,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "126eb6d9c05661c6d38a63c84600a70ddef914442c47ee87c6e96c4ca9cb50a6"
+      "body_sha256": "126eb6d9c05661c6d38a63c84600a70ddef914442c47ee87c6e96c4ca9cb50a6",
+      "latest_body_sha256": "126eb6d9c05661c6d38a63c84600a70ddef914442c47ee87c6e96c4ca9cb50a6",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1066,7 +1210,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "bc351d17ca2689681f8265729b227efca49293d506115f04ccfb18f5c6b26de5"
+      "body_sha256": "bc351d17ca2689681f8265729b227efca49293d506115f04ccfb18f5c6b26de5",
+      "latest_body_sha256": "bc351d17ca2689681f8265729b227efca49293d506115f04ccfb18f5c6b26de5",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1078,7 +1224,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "b4f27b6c473c4be52877bc360eb1e5504611a0fe608d46dc65cd3eca8493e4fc"
+      "body_sha256": "b4f27b6c473c4be52877bc360eb1e5504611a0fe608d46dc65cd3eca8493e4fc",
+      "latest_body_sha256": "b4f27b6c473c4be52877bc360eb1e5504611a0fe608d46dc65cd3eca8493e4fc",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1090,7 +1238,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "253a5ccc3bc8734c402cd939eb282bf53480fe9509b927693db17e4feff3d932"
+      "body_sha256": "253a5ccc3bc8734c402cd939eb282bf53480fe9509b927693db17e4feff3d932",
+      "latest_body_sha256": "253a5ccc3bc8734c402cd939eb282bf53480fe9509b927693db17e4feff3d932",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1102,7 +1252,9 @@
         "B06"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "9cefa83f2038be0f0a719c58eac7bc77caa9280dc92d835bf8ec9add805222aa"
+      "body_sha256": "9cefa83f2038be0f0a719c58eac7bc77caa9280dc92d835bf8ec9add805222aa",
+      "latest_body_sha256": "9cefa83f2038be0f0a719c58eac7bc77caa9280dc92d835bf8ec9add805222aa",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1114,7 +1266,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "fea135029262cfb46079e0e22c893cd0dd3d5aef75a8954cc460cbc9b80ff321"
+      "body_sha256": "fea135029262cfb46079e0e22c893cd0dd3d5aef75a8954cc460cbc9b80ff321",
+      "latest_body_sha256": "fea135029262cfb46079e0e22c893cd0dd3d5aef75a8954cc460cbc9b80ff321",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1126,7 +1280,9 @@
         "B05"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "52198d91bc8ccd4e1a1e796fb97ce811396b297e93e97e75307d89495e7df741"
+      "body_sha256": "52198d91bc8ccd4e1a1e796fb97ce811396b297e93e97e75307d89495e7df741",
+      "latest_body_sha256": "52198d91bc8ccd4e1a1e796fb97ce811396b297e93e97e75307d89495e7df741",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1139,7 +1295,9 @@
         "B01"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "15a28fe01312e3dc4c3fa91108cead963c9758a694c34dd0f58d147bd8546dae"
+      "body_sha256": "15a28fe01312e3dc4c3fa91108cead963c9758a694c34dd0f58d147bd8546dae",
+      "latest_body_sha256": "15a28fe01312e3dc4c3fa91108cead963c9758a694c34dd0f58d147bd8546dae",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1152,7 +1310,9 @@
         "B02"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "05c002932d4eafbfd4e6403fecf6d8fddf968f5decfdee8bbe484e7a62060ed7"
+      "body_sha256": "05c002932d4eafbfd4e6403fecf6d8fddf968f5decfdee8bbe484e7a62060ed7",
+      "latest_body_sha256": "05c002932d4eafbfd4e6403fecf6d8fddf968f5decfdee8bbe484e7a62060ed7",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1165,7 +1325,9 @@
         "B04"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "a7c0aa168c6edd22970e16173eec56069ada4007a82f92dfcc81c27358e9a3b6"
+      "body_sha256": "a7c0aa168c6edd22970e16173eec56069ada4007a82f92dfcc81c27358e9a3b6",
+      "latest_body_sha256": "a7c0aa168c6edd22970e16173eec56069ada4007a82f92dfcc81c27358e9a3b6",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1177,7 +1339,9 @@
         "B03"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "7f6f84c920bab77fde75c19523603485a39737ad113bbd92d1b3dae472546a2b"
+      "body_sha256": "7f6f84c920bab77fde75c19523603485a39737ad113bbd92d1b3dae472546a2b",
+      "latest_body_sha256": "7f6f84c920bab77fde75c19523603485a39737ad113bbd92d1b3dae472546a2b",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1190,7 +1354,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "77d99af7eb94d5d96ab2848176c67882150bf23039ce52c62c372711aa53de17"
+      "body_sha256": "77d99af7eb94d5d96ab2848176c67882150bf23039ce52c62c372711aa53de17",
+      "latest_body_sha256": "77d99af7eb94d5d96ab2848176c67882150bf23039ce52c62c372711aa53de17",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1203,7 +1369,9 @@
         "B09"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "38e4a91c6c8ea301caa30f8a2bb3784a496cd19a44c3b2bf531253d12b8a1654"
+      "body_sha256": "38e4a91c6c8ea301caa30f8a2bb3784a496cd19a44c3b2bf531253d12b8a1654",
+      "latest_body_sha256": "38e4a91c6c8ea301caa30f8a2bb3784a496cd19a44c3b2bf531253d12b8a1654",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1215,7 +1383,9 @@
         "B12"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "e92ee2de666b42decef01cf21c3fffd2460bcd91ec1ccefec467bc10cdc425cf"
+      "body_sha256": "e92ee2de666b42decef01cf21c3fffd2460bcd91ec1ccefec467bc10cdc425cf",
+      "latest_body_sha256": "e92ee2de666b42decef01cf21c3fffd2460bcd91ec1ccefec467bc10cdc425cf",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1225,7 +1395,9 @@
       "scope": "TRACKING",
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "259ee9d3380546c9be1c5063adfe4ea99a8e45ed4bc5cda0cef247f8863842f4"
+      "body_sha256": "259ee9d3380546c9be1c5063adfe4ea99a8e45ed4bc5cda0cef247f8863842f4",
+      "latest_body_sha256": "d504a27802fe1925d5f63a0b03502ec22d62d3bfb8aeda47d2f2c1336149a5de",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1237,7 +1409,9 @@
         "B04"
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
-      "body_sha256": "54bdfb2757b7b5c900d4b553412a5996e0c5ee2827805deef224304cdc68e4c2"
+      "body_sha256": "54bdfb2757b7b5c900d4b553412a5996e0c5ee2827805deef224304cdc68e4c2",
+      "latest_body_sha256": "54bdfb2757b7b5c900d4b553412a5996e0c5ee2827805deef224304cdc68e4c2",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1248,7 +1422,9 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "5793983220bcb5dbd2433377d33b640125416dede0444641ae3b09e9d528e669",
-      "deferred_scope": "Certified negative residuals"
+      "deferred_scope": "Certified negative residuals",
+      "latest_body_sha256": "5793983220bcb5dbd2433377d33b640125416dede0444641ae3b09e9d528e669",
+      "latest_state": "open"
     },
     {
       "repository": "Detective",
@@ -1259,7 +1435,9 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "435fbb47ad9d49e106ba64e0a1231f410300bd7a7938f0e3e0239306a0d96db0",
-      "deferred_scope": "Sweep and additional supported row-editing forms"
+      "deferred_scope": "Sweep and additional supported row-editing forms",
+      "latest_body_sha256": "435fbb47ad9d49e106ba64e0a1231f410300bd7a7938f0e3e0239306a0d96db0",
+      "latest_state": "open"
     }
   ],
   "owner_decisions": [
@@ -1271,11 +1449,75 @@
   ],
   "execution_plan": "openspec/changes/complete-paired-repair/tasks.md",
   "current_checkpoint": {
+    "observed_at_utc": "2026-10-24T09:51:40.124859+00:00",
     "Wesker_runtime": "60df89b86f4b35a8df2b03c850ebdb988d0e99af",
     "Wesker_development_lock": "60df89b86f4b35a8df2b03c850ebdb988d0e99af",
-    "Detective_candidate": null,
-    "state": "1.2.2_candidate_in_flight__exact_SHA_bound_by_release_CI",
+    "Detective_runtime": "bf3f87b01bfe30246feb1a103de34463b5f5e32b",
+    "Detective_candidate": "bf3f87b01bfe30246feb1a103de34463b5f5e32b",
+    "state": "paired_1.2.2_published__wider_repair_acceptance_open",
     "version": "1.2.2",
-    "note": "1.2.1 is published. Its release clearance was premature: the exact Detective tag failed the late-capture test. The corrected candidate must finish its own full CI before release/signing or PyPI handoff. Historical issue mappings remain unaccepted except for recorded subsets."
+    "note": "The exact candidate matrices and guarded build/sign workflows passed before release creation. Both PyPI versions were subsequently observed with matching artifact hashes. Ordinary-index 3.14.7 smoke reached COMPLETE on the shipping fixture. These are bounded receipts, not acceptance of all historical issues.",
+    "CI": {
+      "Wesker": 40077116370,
+      "Detective": 40077952748
+    },
+    "release_workflows": {
+      "Wesker": 40078380799,
+      "Detective": 40078385460
+    },
+    "publication": {
+      "wesker": {
+        "version": "1.2.2",
+        "source": "https://pypi.org/pypi/wesker/1.2.2/json",
+        "artifacts": {
+          "wesker-1.2.2-py3-none-any.whl": "848403927e22e8ec32f0698756a56133c5c95079a216a66ae20dc4954a7f8411",
+          "wesker-1.2.2.tar.gz": "8a075f8eb59416a218441cb1ed616b1cb044196ac59866ef48ffb56bdc53218f"
+        }
+      },
+      "detective-spec": {
+        "version": "1.2.2",
+        "source": "https://pypi.org/pypi/detective-spec/1.2.2/json",
+        "artifacts": {
+          "detective_spec-1.2.2-py3-none-any.whl": "96299335c5fde3681aa603acc98193a092ec50b78a6e72c86005a3a9355fd1e7",
+          "detective_spec-1.2.2.tar.gz": "f0a19456df1b2d719f42f4413e7c4c8d7357f263b873256e2107033ddab759d7"
+        }
+      }
+    },
+    "ordinary_index_smoke": {
+      "python": "3.14.7",
+      "entry_sequence": [
+        "help",
+        "regime",
+        "converge shipping.py::shipping_fee"
+      ],
+      "outcome": "COMPLETE (operator universe)",
+      "killed": 17,
+      "total": 17,
+      "written_tests": 3,
+      "reproducibility": "fresh isolated confirmation",
+      "scope": "characterization of the shipping fixture",
+      "receipts": "/Users/rohanvinaik/Library/Logs/Detective/pause-2026-10-24/pypi-smoke"
+    },
+    "preserved_worktree_edit": {
+      "repository": "Detective",
+      "path": "tests/detective/certificates.json",
+      "sha256": "f485a94f52b950dbdb13c1ec8d98c04acd51ce7cad832ac5d9c289868f302c60",
+      "standing": "incomplete; not adopted into release"
+    }
+  },
+  "pause_checkpoint": {
+    "entry_point": "docs/RESUME_PAIRED_REPAIR_2026-10-24.md",
+    "snapshot_directory": "/Users/rohanvinaik/Library/Logs/Detective/pause-2026-10-24",
+    "snapshot_files": {
+      "Wesker-open-issues.json": "a5810d157890265643f80902248276aa8107e7fa2663df3e85655bdc86cd3907",
+      "Detective-open-issues.json": "d4bd8ec6a508670d7c5deaf03cc7488c2dbf7a608b4196341af669751751ddd6"
+    },
+    "issue_mapping": "all 89 live open issues mapped; no new or missing IDs",
+    "next_work": [
+      "B00 artifact/certificate acceptance",
+      "B01 remaining ownership/containment acceptance",
+      "B02 existing-test filesystem authority and original CLI reproductions"
+    ],
+    "new_findings": "Record theory warrant, current reproduction, scope, producer/consumers, dependency, acceptance and recovery; do not infer a closed world from this inventory."
   }
 }

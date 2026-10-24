@@ -47,3 +47,36 @@ and its development lock selects the exact pushed Wesker 1.2.2 commit.
 This document is part of the frozen candidate, not a claim that later CI or publication
 has already happened. Final run/commit/artifact identities belong in the GitHub release
 receipt once observed, without moving tags or replacing already-published artifacts.
+
+## Observed completion and publication
+
+The exact Wesker commit is `60df89b86f4b35a8df2b03c850ebdb988d0e99af`;
+Detective is `bf3f87b01bfe30246feb1a103de34463b5f5e32b`, locked to that Wesker
+revision. Both complete six-cell 3.12–3.14 Linux/macOS CI matrices passed before
+release creation: [Wesker 40077116370](https://github.com/rohanvinaik/Wesker/actions/runs/40077116370),
+[Detective 40077952748](https://github.com/rohanvinaik/Detective/actions/runs/40077952748).
+Packaging, workflow, CodeQL and SonarCloud checks passed. Both exact-CI guarded
+build/sign runs succeeded: [Wesker 40078380799](https://github.com/rohanvinaik/Wesker/actions/runs/40078380799)
+and [Detective 40078385460](https://github.com/rohanvinaik/Detective/actions/runs/40078385460).
+
+Both 1.2.2 distributions were subsequently observed on PyPI; their hashes match
+the GitHub release assets and clean-checkout candidate files:
+
+| File | SHA256 |
+| --- | --- |
+| wesker-1.2.2-py3-none-any.whl | 848403927e22e8ec32f0698756a56133c5c95079a216a66ae20dc4954a7f8411 |
+| wesker-1.2.2.tar.gz | 8a075f8eb59416a218441cb1ed616b1cb044196ac59866ef48ffb56bdc53218f |
+| detective_spec-1.2.2-py3-none-any.whl | 96299335c5fde3681aa603acc98193a092ec50b78a6e72c86005a3a9355fd1e7 |
+| detective_spec-1.2.2.tar.gz | f0a19456df1b2d719f42f4413e7c4c8d7357f263b873256e2107033ddab759d7 |
+
+A fresh managed Python 3.14.7 environment installed both ordinary-index packages,
+without local wheels, Git overrides or PYTHONPATH. Imports resolve site-packages.
+The help → regime → converge shipping fixture reached COMPLETE (operator universe),
+17/17 killed, three written tests and fresh isolated reproducibility confirmation.
+It is characterization, not review of intended behavior. Full local output/report:
+`~/Library/Logs/Detective/pause-2026-10-24/pypi-smoke/`.
+
+The earlier upload attempt from this session lacked a token and sent no files;
+the subsequent public-index observation establishes publication independently.
+No further upload is needed. The [restart entry point](RESUME_PAIRED_REPAIR_2026-10-24.md)
+preserves the remaining repair and certificate obligations.

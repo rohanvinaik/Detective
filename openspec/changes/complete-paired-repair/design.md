@@ -32,6 +32,12 @@ whole-project self-measurement, every Sonar finding, or a performance improvemen
 
 ## Package dependency graph
 
+The later paired 1.2.2 checkpoint and ordinary-index acceptance are recorded in
+[`RESUME_PAIRED_REPAIR_2026-10-24.md`](../../../docs/RESUME_PAIRED_REPAIR_2026-10-24.md).
+It preserves the exact release commits/CI/artifacts, the 1.2.1 clearance correction,
+and the ten added harvest-deadline/startup regressions. The 1.2.2 pair is published;
+its bounded acceptance does not complete B00–B12.
+
 | Package | Prerequisites | Deliverable / remaining acceptance |
 | --- | --- | --- |
 | B00 integrated basis | none | Exact pair, policy/source basis, reviewed generated artifacts; retain the nine status characterization tests until their own removal proof exists. |
