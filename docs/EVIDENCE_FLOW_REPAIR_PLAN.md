@@ -2,6 +2,11 @@
 
 Status: executing. Owner-authorized repair pass, 2026-10-23.
 
+Continuation, 2026-10-24: use `REPAIR_HANDOFF_2026-10-24.md` and its issue queue
+for the next builder. All earlier worktree changes are now committed and pushed;
+Detective's lock is aligned to the pushed Wesker checkpoint. Worktree descriptions
+and gate results below retain their historical basis rather than asserting a new run.
+
 ## Pass brief
 
 Restore the information contract across Wesker's measurements, Detective's decisions,

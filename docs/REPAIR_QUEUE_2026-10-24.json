@@ -1,0 +1,1259 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "authority": "REPAIR_HANDOFF_2026-10-24.md plus project theory and current owner instructions",
+  "basis": {
+    "Wesker": "5169b9b0f910dccb64b5037bd474b921e8639039",
+    "Detective_code": "09aa3a4",
+    "Detective_lock_update": "bd4efa6",
+    "note": "All existing changes committed/pushed; no fresh test or quality-gate result is asserted."
+  },
+  "snapshot_files": {
+    "Detective-created-issues.json": "0240a04c77b3687a0f19a12c2710beaa3265ad907411f7e67e0951491a113d38",
+    "Detective-open-issues.json": "a8e6d0b2444093cd0a0e94dd2d480232d2bce74a92fa982b1380f1195177d4d6",
+    "Wesker-open-issues.json": "a4ac911fe1dfa01e8ea71fdc14e855735066d2350864f86c836e8de3c8f92cac"
+  },
+  "counts": {
+    "Wesker": 26,
+    "Detective": 63,
+    "classification": {
+      "REPAIR": 75,
+      "MIXED": 3,
+      "TRACKING": 3,
+      "DEFERRED_ADDITION": 8
+    }
+  },
+  "work_packages": [
+    {
+      "id": "B00",
+      "title": "Accept integrated pair and proof artifacts",
+      "prerequisites": [],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B01",
+      "title": "Monitoring ownership, cancellation and containment",
+      "prerequisites": [
+        "B00"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B02",
+      "title": "Entry snapshots and bounded witness/effect phases",
+      "prerequisites": [
+        "B01"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B03",
+      "title": "Actual module, mutant and admitted-test identity",
+      "prerequisites": [
+        "B01"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B04",
+      "title": "Policy, universe, count and site census basis",
+      "prerequisites": [
+        "B02",
+        "B03"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B05",
+      "title": "CLI knowledge and action contract",
+      "prerequisites": [
+        "B02",
+        "B03",
+        "B04"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B06",
+      "title": "Already-declared output/exception operator basis",
+      "prerequisites": [
+        "B01",
+        "B02",
+        "B04"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B07",
+      "title": "Durable state, cache context and trial isolation",
+      "prerequisites": [
+        "B01",
+        "B03"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B08",
+      "title": "Existing removal safety and recovery",
+      "prerequisites": [
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B07"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B09",
+      "title": "Measured same-answer work elimination",
+      "prerequisites": [
+        "B01",
+        "B02",
+        "B03",
+        "B04"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B10",
+      "title": "Portable execution and independent CI scheduling",
+      "prerequisites": [
+        "B01",
+        "B03",
+        "B07",
+        "B09"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B11",
+      "title": "Advisory census, cleanup pilot and verified batches",
+      "prerequisites": [
+        "B00",
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B08"
+      ],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    },
+    {
+      "id": "B12",
+      "title": "Reproducible build, reference review and documentation",
+      "prerequisites": [],
+      "details": "REPAIR_HANDOFF_2026-10-24.md",
+      "state": "queued_or_partially_implemented__see_recorded_evidence"
+    }
+  ],
+  "conditional_dependencies": [
+    "B06 before a removal that relies on a repaired operator question; otherwise retain its semantic witness.",
+    "B07 before any new persistent/concurrent cache path in B09.",
+    "Census collection can precede B08; deletion cannot.",
+    "B12 setup/reference observations can run early; final acceptance requires the relevant preceding obligations."
+  ],
+  "issues": [
+    {
+      "repository": "Wesker",
+      "number": 17,
+      "title": "Return outcome-qualified per-TestId statement and branch/arc evidence",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/17",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "1b7db2c01c1115fb02696b16be13e706c5b301074798334a0bbdb9741fd881ae"
+    },
+    {
+      "repository": "Wesker",
+      "number": 18,
+      "title": "Require mutant installation and entry proof before scoring kills or survivors",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/18",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "19c3bd6d71a0e3cf36c843e4401475fcd50e5a71d82f1a6376ae520e04770fcc"
+    },
+    {
+      "repository": "Wesker",
+      "number": 20,
+      "title": "Key trace caching by execution context and keep replayed routing evidence out of proof",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/20",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B07"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "e13a5b073ebe586c0d6494ae96dada27a37e191be6b256bea07ffd63a5e2bf50"
+    },
+    {
+      "repository": "Wesker",
+      "number": 21,
+      "title": "Stream mutant plans and enforce memory budgets in killable workers",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/21",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "01c654b6dbcd82a48e9c08023806dcb46d31d4441af0a21f8b2f74d7647d6c15"
+    },
+    {
+      "repository": "Wesker",
+      "number": 22,
+      "title": "Emit a candidate-site operator census and separate reach, entry, detection, and contract kills",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/22",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B04"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "a8e2d1356ec65bb43da84c304a4ef07f382586dde370ef20f866f11f2de567cd"
+    },
+    {
+      "repository": "Wesker",
+      "number": 25,
+      "title": "Wire empirical mutant redundancy into reports; add proof-grade static subsumption separately",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/25",
+      "scope": "MIXED",
+      "work_packages": [
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "6604795ce3b08cf199fcf9457e5c7b0d32604e47dbfa8f82a7148f0c5d3d8336",
+      "scope_note": "Repair presentation consumption; defer separately warranted static proof pruning."
+    },
+    {
+      "repository": "Wesker",
+      "number": 27,
+      "title": "A timeout is not a kill — deterministic step budgets decide divergence; the wall clock only bounds liveness",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/27",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "4a0ff78451db96d607cdb29891dad9d4517f355134ba2d7c86e7a668cb010073"
+    },
+    {
+      "repository": "Wesker",
+      "number": 28,
+      "title": "A test that runs the engine, evaluated inside a held evaluation, deadlocks on the execution lock and orphans it — prevent the cycle, don't just detect it",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/28",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "c8d4d848e9f14616dddbe43ec92377cc47c3f5b87578c6dc5a4ad5fc833541ab"
+    },
+    {
+      "repository": "Wesker",
+      "number": 29,
+      "title": "The weekly whole-codebase self-measurement (Specification (full)) refuses on main — 6 functions had a test that could not be stopped",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/29",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "85c5e374eeeb1c4b71b0d4d8dd8671429476f051d12e23077d5ce9507c2bf9df"
+    },
+    {
+      "repository": "Wesker",
+      "number": 30,
+      "title": "Annotation sites in the mutant universe — decide the policy and land it at a release boundary",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/30",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B04"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "9cd9867dad99b71be25f332f1d87259a951137c9fc6655c3e5e498d1936c8e6f"
+    },
+    {
+      "repository": "Wesker",
+      "number": 31,
+      "title": "_tests_for's fallback can run pool tests that were never baseline-screened",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/31",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "59a202f0acb8b4ba2272e551dbe57de90d8262af426ddf5235b9908d566d00e0"
+    },
+    {
+      "repository": "Wesker",
+      "number": 32,
+      "title": "One owner of interpreter instrumentation — move every settrace/setprofile site onto Wesker/monitoring.py",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/32",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "bd89557be863706a1a5f166b2fe436e2850e3a5f1bf9882ed876b040df07876a"
+    },
+    {
+      "repository": "Wesker",
+      "number": 33,
+      "title": "A portable parallel executor — spawn-based workers behind a plain-data protocol",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/33",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B10"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "04f1240f72d9e0a876758a97d53458fe13c31270c5f62bef38c62e24e754385e"
+    },
+    {
+      "repository": "Wesker",
+      "number": 34,
+      "title": "The isolated worker still formats a full failure report for every killed mutant",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/34",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "06c4dffa2d707707af8f5b12d7e29ea319d1299567f062ffc80bc52cd141630c"
+    },
+    {
+      "repository": "Wesker",
+      "number": 35,
+      "title": "Release readiness — Wesker (gates, hygiene, changelog; the founder tags and publishes)",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/35",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B12"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "2a4d04ffb3109a98141312f22cc7694b281db461adc9fb474ff647b2d605a414"
+    },
+    {
+      "repository": "Wesker",
+      "number": 36,
+      "title": "Index — the fix round and the next release (Wesker side; the cross-repo index lives in Detective)",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/36",
+      "scope": "TRACKING",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "0c3dad7114fc226d7312f9ab846ad6cd1e3d9f2eb280bb7c1247839b307ada88"
+    },
+    {
+      "repository": "Wesker",
+      "number": 37,
+      "title": "The EXCEPTION operator never narrows a handler, so a test that pins a handler's breadth reads as redundant",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/37",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06",
+        "B08"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "57cafc0fc400bfaab454241b2b59ca90a24dcffc8e3ca029113625930e321fc4"
+    },
+    {
+      "repository": "Wesker",
+      "number": 38,
+      "title": "functoolz.py: TypeError crash when mutating Compose.__name__",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/38",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "6828c93056fc778c75a3db341f34e4d303773d551f568257ef3b4548ab3833fc"
+    },
+    {
+      "repository": "Wesker",
+      "number": 39,
+      "title": "itertoolz.py: OOM kill due to unbounded mutant + missing CLI flag for isolated execution",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/39",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "3d5fefa027230450e9797907674a5255755123955eacbe3b0cc7d2b239ca8dc2"
+    },
+    {
+      "repository": "Wesker",
+      "number": 40,
+      "title": "Precompute module-qualified patch targets once per function profiling pass instead of scanning sys.modules per mutant",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/40",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "b4077196ded8b4f86efa76c76aa2185c9edea8dab8feeca6e69eca678990852e"
+    },
+    {
+      "repository": "Wesker",
+      "number": 41,
+      "title": "Precompute original code key in Trivial Compiler Equivalence (TCE)",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/41",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "b617e2207bf1dfaef700a6eb236890291b5b0d528d4410bbcd0203b538fc5b6a"
+    },
+    {
+      "repository": "Wesker",
+      "number": 42,
+      "title": "Avoid per-mutant globals dictionary cloning in evaluate_mutant",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/42",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "128b10e17f527e0525dd39634c5f8ac86868a659ad27fc1d677ae8219ca713c1"
+    },
+    {
+      "repository": "Wesker",
+      "number": 43,
+      "title": "Continuous benchmarking (CodSpeed), memory regression tracking (pytest-memray), and CI gate parity",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/43",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B12"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "be3792e988cc59984991d9bf793d84babaa500e4f7ef4c645b3bf81b494f90b9"
+    },
+    {
+      "repository": "Wesker",
+      "number": 44,
+      "title": "Implement the 8 μ⁻ output perturbation generator families (Def. 11.8) for two-sign mutation",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/44",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "e76ac1d8e5ae345ee388c2889f6404eb0b330b4a214d7af8dd90e70596954b90"
+    },
+    {
+      "repository": "Wesker",
+      "number": 45,
+      "title": "Expose --isolated and --mem-limit-mb flags on Wesker CLI (addresses #39)",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/45",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "4a2ee1d5138b32a4cc0da1f2e30fe08cacfffd9bbdaa93456c09e7c868e67049"
+    },
+    {
+      "repository": "Wesker",
+      "number": 46,
+      "title": "Preserve __package__ in mutant execution namespace for relative-import targets",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/46",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B03"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "06a98f6484a11250b4accc3612b2f5c7df1cc99455cf407b3abc0d8064cb3cf3"
+    },
+    {
+      "repository": "Detective",
+      "number": 72,
+      "title": "Band 3b: the irreducible representation residual — non-introspectable objects (was #68b)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/72",
+      "scope": "DEFERRED_ADDITION",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "2e6f6cd59f6cb2dbd82c725f29255eb2b3fa5b7896eca89fe3d5748a1aa078de",
+      "deferred_scope": "Object constructor/fixture models"
+    },
+    {
+      "repository": "Detective",
+      "number": 73,
+      "title": "Invocation-ledger retention: meaningfulness-based, not size-capped",
+      "url": "https://github.com/rohanvinaik/Detective/issues/73",
+      "scope": "DEFERRED_ADDITION",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "4cdb4cb2bfce88761ecf1e9b5fd7932144750511714c0791133fc0477be37c7e",
+      "deferred_scope": "Meaning-based ledger retention"
+    },
+    {
+      "repository": "Detective",
+      "number": 74,
+      "title": "Phase C residual: drop-to-synthesis for undischargeable obligations",
+      "url": "https://github.com/rohanvinaik/Detective/issues/74",
+      "scope": "DEFERRED_ADDITION",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "f86d26023cfa0f5b8366f0d627a970ccbe7fa2e6575fedf4204385a8d2d7a534",
+      "deferred_scope": "New drop-to-synthesis machinery"
+    },
+    {
+      "repository": "Detective",
+      "number": 75,
+      "title": "Test infrastructure: a second venv carrying jax+funcy, for regression case 3",
+      "url": "https://github.com/rohanvinaik/Detective/issues/75",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B12"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "3271bd2d08a49979426da3552647f229c52e28db1a72f41fc60da6a73a278b78"
+    },
+    {
+      "repository": "Detective",
+      "number": 76,
+      "title": "converge loops on a suggested --input witness that cannot distinguish the printed mutant (NaN boundary); FINAL counts non-monotonic and self-contradictory",
+      "url": "https://github.com/rohanvinaik/Detective/issues/76",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B02",
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "3d73c8706712460d96719cf83a4607501c2df59d21133ed577a46e8cbf0d282e"
+    },
+    {
+      "repository": "Detective",
+      "number": 77,
+      "title": "UNGATEABLE (REACH) on plain functions with no decorator/registry capture; the prescribed caller-pin repair does not change the verdict; the test's import form looks like the real cause",
+      "url": "https://github.com/rohanvinaik/Detective/issues/77",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "8035a8cb4498d565735618864977aac498a853bea20969f07c239e3ae706e668"
+    },
+    {
+      "repository": "Detective",
+      "number": 78,
+      "title": "--input refuses a bare nan literal; the accepted spelling depends on the target module's namespace",
+      "url": "https://github.com/rohanvinaik/Detective/issues/78",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "456031337c667bf4373f1a6edca0bf62b473789fce3b90eeaef1e4ae7afccd9c"
+    },
+    {
+      "repository": "Detective",
+      "number": 79,
+      "title": "Worked example: a demanded witness kills an 8→9 VALUE mutant a hand-written table let through (below_bin, 1.1.1) — for the README",
+      "url": "https://github.com/rohanvinaik/Detective/issues/79",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B12"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "286d8ae425755c9740a216f3b8d06e12063ef578efa6edc1d51e16c850bd5136"
+    },
+    {
+      "repository": "Detective",
+      "number": 80,
+      "title": "Consume the new outcome vocabulary — a timeout is never detection; the witness search and the harvest get step budgets",
+      "url": "https://github.com/rohanvinaik/Detective/issues/80",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "a7bcc9eb98da22ab662785510f3744a63d85321714d2a4816213b2c443bc7153"
+    },
+    {
+      "repository": "Detective",
+      "number": 81,
+      "title": "Decompose trials that never touch the user's file — an import overlay in the verification subprocess",
+      "url": "https://github.com/rohanvinaik/Detective/issues/81",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B07"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "0bd1aa7fedfbc2df78be15efc6111861a9f48204203cd0bc9a93205feea00862"
+    },
+    {
+      "repository": "Detective",
+      "number": 82,
+      "title": ".detective/ on SQLite — transactions, a judgment history with provenance, and cascades",
+      "url": "https://github.com/rohanvinaik/Detective/issues/82",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B07"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "c01b3266537ca3ca69750a76de1842f857bc555425b5b304a284720461991670"
+    },
+    {
+      "repository": "Detective",
+      "number": 83,
+      "title": "Compute the mutant universe once per run — verify first, then propagate (never cache by source alone)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/83",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "1825a8dc081f0d1fee5ac43a057ef48424e0759a5ae25b2eea69720b03129143"
+    },
+    {
+      "repository": "Detective",
+      "number": 84,
+      "title": "Run the suite in parallel in CI (pytest-xdist)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/84",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B10"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "d406f62b459933e14a325f9199f0c57c9cce4b42c89ebc12722e5ea888276c81"
+    },
+    {
+      "repository": "Detective",
+      "number": 85,
+      "title": "test_cor106_bridge_intent flakes under a uv overlay interpreter (EP-H6)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/85",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B08",
+        "B10"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "971b118003de834c5d45637f70f77cf1455fe827c6430472eff4e610f5331574"
+    },
+    {
+      "repository": "Detective",
+      "number": 86,
+      "title": "A library-level profile leaves its project's modules and sys.path behind — a later project measures the wrong code",
+      "url": "https://github.com/rohanvinaik/Detective/issues/86",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "d0cb36fd0f94c4fcfefff100fdaff83396b0ccae9ac9d98ca8eab4559ffabfd7"
+    },
+    {
+      "repository": "Detective",
+      "number": 87,
+      "title": "Native code or JIT only where a profile shows a mechanical kernel",
+      "url": "https://github.com/rohanvinaik/Detective/issues/87",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "df681938eaab537f3f59f946ba18545a2ecf66d2a7173936da5a7cba435009a1"
+    },
+    {
+      "repository": "Detective",
+      "number": 88,
+      "title": "Release readiness — Detective (gates, hygiene, changelog, the Wesker pin; the founder tags and publishes)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/88",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B12"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "1a0b868eb2f907e7b460a7725a0919e3dc874b482676b8169cb547f7c2b31c47"
+    },
+    {
+      "repository": "Detective",
+      "number": 89,
+      "title": "Small report and CLI defects queued 2026-09-08 and never filed (OPEN_ITEMS W11)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/89",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "31deeee4440e39a23dfdfbefafc3eb0f3797a6eee027bc3a3052181e0449abc1"
+    },
+    {
+      "repository": "Detective",
+      "number": 90,
+      "title": "Effect contracts — pinning I/O-heavy and semantic code with user-selected archetypes and an explicit world",
+      "url": "https://github.com/rohanvinaik/Detective/issues/90",
+      "scope": "DEFERRED_ADDITION",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "5fb6fb187c5707fa1016fe105068440ba2ea62c9dc7469992ba8950f85784202",
+      "deferred_scope": "Effect archetypes and explicit world models"
+    },
+    {
+      "repository": "Detective",
+      "number": 91,
+      "title": "A routing failure silently authorises the whole collection",
+      "url": "https://github.com/rohanvinaik/Detective/issues/91",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "1697386feacb0899f9d434dee9d2d258ea2f7647fd1f79e7bf0b6b0e5a3f12ed"
+    },
+    {
+      "repository": "Detective",
+      "number": 92,
+      "title": "Warm --two-sign runs re-harvest return types over the whole collection — carry the observed codomain with the verdict",
+      "url": "https://github.com/rohanvinaik/Detective/issues/92",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B04",
+        "B07"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "d86c26aca97a05272cb771fa78383e2f45c4b6073468d7b1f3556111012d9fb4"
+    },
+    {
+      "repository": "Detective",
+      "number": 93,
+      "title": "Six consumer sites collapse a pinned decision's codes — give each a typed, named resolution",
+      "url": "https://github.com/rohanvinaik/Detective/issues/93",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "92272054b984bb311c30a85d10b91d0c14a4760cbff1e69b9130473e4094f374"
+    },
+    {
+      "repository": "Detective",
+      "number": 94,
+      "title": "A field-consumption guard — every computed field is read, or it goes",
+      "url": "https://github.com/rohanvinaik/Detective/issues/94",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "302d75e494bf7d50077a19c645e60d196aeabd1fd1f1144cc91a127ef4fbfa36"
+    },
+    {
+      "repository": "Detective",
+      "number": 95,
+      "title": "Absence is not a value — the 47 defaulted reads of fault flags become direct or three-valued reads",
+      "url": "https://github.com/rohanvinaik/Detective/issues/95",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "0efba949e3db0c18e053557d8b61c4d6f438fc5aa73a145cbbe8dd425c84b27b"
+    },
+    {
+      "repository": "Detective",
+      "number": 96,
+      "title": "Reads of process state make golden tests that describe the PROCESS — count them as environment reads",
+      "url": "https://github.com/rohanvinaik/Detective/issues/96",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "2080233cd4f27448749ba68b6891585ec459f1e40db16953cfa4c62e41802afe"
+    },
+    {
+      "repository": "Detective",
+      "number": 97,
+      "title": "Explain-on-request — re-run one mutant's killing test with full pytest reporting",
+      "url": "https://github.com/rohanvinaik/Detective/issues/97",
+      "scope": "DEFERRED_ADDITION",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "c1ded01129fb92caa8c8c5d0115c9c8074d59b486a127928c34a2f36ab8930aa",
+      "deferred_scope": "New explain command"
+    },
+    {
+      "repository": "Detective",
+      "number": 98,
+      "title": "regime / doctor disclose undeclared auto-loaded pytest plugins (never disable them)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/98",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "bdefd6b8346cd4da58c9f24209469e6e46a49eee5e25e41dcdd1e6d29ac31ab2"
+    },
+    {
+      "repository": "Detective",
+      "number": 99,
+      "title": "Index — the fix round and the next release (Detective + Wesker) — start here",
+      "url": "https://github.com/rohanvinaik/Detective/issues/99",
+      "scope": "TRACKING",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "d767526353a62316adbfc3611ad195db4aff94577bc290d1ad0fcb2d096ca244"
+    },
+    {
+      "repository": "Detective",
+      "number": 100,
+      "title": "Verdict-cache reuse: a two-sign or fast pass evicts its sibling rows; a written test re-fingerprints in the next session",
+      "url": "https://github.com/rohanvinaik/Detective/issues/100",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B07"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "3a8f82e934ad89df1901837d895627c3a0bd85bda47f2ca7b6c456b4905ceab8"
+    },
+    {
+      "repository": "Detective",
+      "number": 101,
+      "title": "A clock-gated residual is routed to an --input converge already ran, never to the --clock it names",
+      "url": "https://github.com/rohanvinaik/Detective/issues/101",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "9364170350e8987e4d9ad0cd49ed2b0008442340fa11a5929fc57655298bdebd"
+    },
+    {
+      "repository": "Detective",
+      "number": 102,
+      "title": "Index — native killability, knowable removal at sweep scale, and the operator's path (2026-10-02 build) — start here",
+      "url": "https://github.com/rohanvinaik/Detective/issues/102",
+      "scope": "MIXED",
+      "work_packages": [
+        "B05",
+        "B08"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "c9c0dd77c8d35f060a687516443f10f48cd74cbbf608fc93b8cc485400bd5d86",
+      "scope_note": "Repair existing identity, transaction and action/ledger paths; defer new scope to #135/#136."
+    },
+    {
+      "repository": "Detective",
+      "number": 104,
+      "title": "Re-measured in-process after a mid-file test edit, a target builds 2 of 11 mutants and its basis keeps the deleted test",
+      "url": "https://github.com/rohanvinaik/Detective/issues/104",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03",
+        "B08"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "43fa3a9f7422c36d8334121ce3c56db00d71050101250b51178d430b85fd4d2b"
+    },
+    {
+      "repository": "Detective",
+      "number": 105,
+      "title": "Mutants of a file-writing function write into the project root: nothing contains a profiled test's filesystem effects",
+      "url": "https://github.com/rohanvinaik/Detective/issues/105",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B02"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "bb8fd985a1a7d7cf306e4647d96d10002c44a9e5f5992ac054454ee5bd80357a"
+    },
+    {
+      "repository": "Detective",
+      "number": 107,
+      "title": "A test that reaches its target through a helper in its own module is not consulted cold: a fresh audit reports its lines uncovered, and the suite size depends on what ran before",
+      "url": "https://github.com/rohanvinaik/Detective/issues/107",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03",
+        "B08"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "f1d0535a6bdcd6cbc66a57a95c9fd8a3f052981cf92d6cca084cf319cd1271a9"
+    },
+    {
+      "repository": "Detective",
+      "number": 108,
+      "title": "A captured input aliases the target's mutable argument, so the original distinguishes itself; converge's witness-writing loop then renders and re-executes every bogus witness unbounded past --deadline",
+      "url": "https://github.com/rohanvinaik/Detective/issues/108",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B02"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "d23d616a2f04086a1bc5e883cf837f6d31b13b54c6da0fd136e1b894203555b8"
+    },
+    {
+      "repository": "Detective",
+      "number": 109,
+      "title": "Probe reach: six candidate-equivalents a single literal distinguishes — the empty collection, a well-formed element, a non-identity operand",
+      "url": "https://github.com/rohanvinaik/Detective/issues/109",
+      "scope": "DEFERRED_ADDITION",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "6d06b38af498f3d230f42e507509ae503491cf6441fb95d662e6233d87f3df40",
+      "deferred_scope": "Broader content/constant-directed synthesis"
+    },
+    {
+      "repository": "Detective",
+      "number": 110,
+      "title": "Candidate-equivalents killable by simple literals (dict values' signs, size/constant edges); audit offers flag on crash-only mutants",
+      "url": "https://github.com/rohanvinaik/Detective/issues/110",
+      "scope": "MIXED",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "c061f26afabd0fc5ec67a00a797149293031564cf62388635e19f769b987f4b8",
+      "scope_note": "Repair crash-only reporting/flag eligibility; defer expanded search capability with #109."
+    },
+    {
+      "repository": "Detective",
+      "number": 111,
+      "title": "doctor prescribes a converge target (a package or file) that converge refuses",
+      "url": "https://github.com/rohanvinaik/Detective/issues/111",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "8901886cc83126d973ddf50878a0874f751aee8ac937acb068e9c9939abae88c"
+    },
+    {
+      "repository": "Detective",
+      "number": 112,
+      "title": "audit --remove keeps tests for a function they never execute (RoleCodebook.get, an archived module)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/112",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03",
+        "B08"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "e3159914c7d6efe60a09e4d625ae399bbc20761f208027aaac426bca165a776e"
+    },
+    {
+      "repository": "Detective",
+      "number": 113,
+      "title": "converge/audit list 14 suite-killed mutants as unproven-equivalent (a target with nested closures)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/113",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "8054a7f66b2bb8e78352e680fb119d97f36df9373e0d40933321b2fb3ede8887"
+    },
+    {
+      "repository": "Detective",
+      "number": 114,
+      "title": "converge prints COMPLETE over a function whose only routed test fails on current code (audit names it FAILING NOW)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/114",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "3907adac23a0ba29d4dc3e2810b4c321eb6f80869a1ec3134e9ea0df8f2ca0b6"
+    },
+    {
+      "repository": "Detective",
+      "number": 115,
+      "title": "Printed next commands drop --two-sign, and FINAL does not name the policy",
+      "url": "https://github.com/rohanvinaik/Detective/issues/115",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B04"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "a69d20a7e2d435ec33c214187c083b5cd76d2729b9285cb11b769b104258c750"
+    },
+    {
+      "repository": "Detective",
+      "number": 116,
+      "title": "μ⁻ universal family: zero-of, type and stale are not generated (Def. 11.8 (i))",
+      "url": "https://github.com/rohanvinaik/Detective/issues/116",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "0584a7e2e80890ff07f38b2384845608279b010c85b0a6ae5908655ec335350f"
+    },
+    {
+      "repository": "Detective",
+      "number": 117,
+      "title": "μ⁻ boolean family: not, true and false are not generated (Def. 11.8 (ii))",
+      "url": "https://github.com/rohanvinaik/Detective/issues/117",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "36e203e3664eb2e43b723dacc8394790851b7d819919235e44dce4e3ac1cc374"
+    },
+    {
+      "repository": "Detective",
+      "number": 118,
+      "title": "μ⁻ numeric family: ±1, ±ε, scale, round, inf and 0 are not generated (Def. 11.8 (iii))",
+      "url": "https://github.com/rohanvinaik/Detective/issues/118",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "9686c2b834cc281ff51f7129112f90cf343a52ea53763c30b5d665bec2d08dcb"
+    },
+    {
+      "repository": "Detective",
+      "number": 119,
+      "title": "μ⁻ string family: trunc, case, ws and rev are not generated (Def. 11.8 (iv))",
+      "url": "https://github.com/rohanvinaik/Detective/issues/119",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "126eb6d9c05661c6d38a63c84600a70ddef914442c47ee87c6e96c4ca9cb50a6"
+    },
+    {
+      "repository": "Detective",
+      "number": 120,
+      "title": "μ⁻ container family: drop, dup, singleton, ctype and dict are not generated (Def. 11.8 (v))",
+      "url": "https://github.com/rohanvinaik/Detective/issues/120",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "bc351d17ca2689681f8265729b227efca49293d506115f04ccfb18f5c6b26de5"
+    },
+    {
+      "repository": "Detective",
+      "number": 121,
+      "title": "μ⁻ structured family: field and class are not generated (Def. 11.8 (vi))",
+      "url": "https://github.com/rohanvinaik/Detective/issues/121",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "b4f27b6c473c4be52877bc360eb1e5504611a0fe608d46dc65cd3eca8493e4fc"
+    },
+    {
+      "repository": "Detective",
+      "number": 122,
+      "title": "μ⁻ ordered family: adj, clamp and sortbreak are not generated (Def. 11.8 (vii))",
+      "url": "https://github.com/rohanvinaik/Detective/issues/122",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "253a5ccc3bc8734c402cd939eb282bf53480fe9509b927693db17e4feff3d932"
+    },
+    {
+      "repository": "Detective",
+      "number": 123,
+      "title": "μ⁻ effect family: raise, state-noop and state-extra are not generated (Def. 11.8 (viii))",
+      "url": "https://github.com/rohanvinaik/Detective/issues/123",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "9cefa83f2038be0f0a719c58eac7bc77caa9280dc92d835bf8ec9add805222aa"
+    },
+    {
+      "repository": "Detective",
+      "number": 124,
+      "title": "audit asks for a real sample instead of naming the failing tests, when the function raises on every input",
+      "url": "https://github.com/rohanvinaik/Detective/issues/124",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "fea135029262cfb46079e0e22c893cd0dd3d5aef75a8954cc460cbc9b80ff321"
+    },
+    {
+      "repository": "Detective",
+      "number": 125,
+      "title": "WRITE TEST prints observed outcomes cut to 28 characters and objects to 70, unmarked: the asked test cannot be written from the ask",
+      "url": "https://github.com/rohanvinaik/Detective/issues/125",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "52198d91bc8ccd4e1a1e796fb97ce811396b297e93e97e75307d89495e7df741"
+    },
+    {
+      "repository": "Detective",
+      "number": 126,
+      "title": "converge: survivors whose mutant makes a loop never end stay 'unclassified', and AUTHOR INPUTS repeats after every branch has a supplied call",
+      "url": "https://github.com/rohanvinaik/Detective/issues/126",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B01"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "15a28fe01312e3dc4c3fa91108cead963c9758a694c34dd0f58d147bd8546dae"
+    },
+    {
+      "repository": "Detective",
+      "number": 127,
+      "title": "converge: a mutant that writes into its argument alters the supplied --input for later runs, so the written pin records an input other than the one authored",
+      "url": "https://github.com/rohanvinaik/Detective/issues/127",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B02"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "05c002932d4eafbfd4e6403fecf6d8fddf968f5decfdee8bbe484e7a62060ed7"
+    },
+    {
+      "repository": "Detective",
+      "number": 128,
+      "title": "Two-sign converge prescribes an OUTPUT mutant ID that flag rejects as not surviving",
+      "url": "https://github.com/rohanvinaik/Detective/issues/128",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B04"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "a7c0aa168c6edd22970e16173eec56069ada4007a82f92dfcc81c27358e9a3b6"
+    },
+    {
+      "repository": "Detective",
+      "number": 129,
+      "title": "Clean regime binds a package target as a bare module and relative imports fail despite canonical import succeeding",
+      "url": "https://github.com/rohanvinaik/Detective/issues/129",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "7f6f84c920bab77fde75c19523603485a39737ad113bbd92d1b3dae472546a2b"
+    },
+    {
+      "repository": "Detective",
+      "number": 130,
+      "title": "Reuse worker threads and leverage step-budget in _outcome to eliminate thread-creation storm in witness search",
+      "url": "https://github.com/rohanvinaik/Detective/issues/130",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B01",
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "77d99af7eb94d5d96ab2848176c67882150bf23039ce52c62c372711aa53de17"
+    },
+    {
+      "repository": "Detective",
+      "number": 131,
+      "title": "Execute native ruff binary directly in _ruff_format instead of python -m ruff",
+      "url": "https://github.com/rohanvinaik/Detective/issues/131",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B00",
+        "B09"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "38e4a91c6c8ea301caa30f8a2bb3784a496cd19a44c3b2bf531253d12b8a1654"
+    },
+    {
+      "repository": "Detective",
+      "number": 132,
+      "title": "Continuous benchmarking (CodSpeed), memory regression tracking (pytest-memray), and CI gate parity",
+      "url": "https://github.com/rohanvinaik/Detective/issues/132",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B12"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "e92ee2de666b42decef01cf21c3fffd2460bcd91ec1ccefec467bc10cdc425cf"
+    },
+    {
+      "repository": "Detective",
+      "number": 133,
+      "title": "Comprehensive Cross-Repo Audit & Cascade Architecture (Detective ↔ Wesker)",
+      "url": "https://github.com/rohanvinaik/Detective/issues/133",
+      "scope": "TRACKING",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "259ee9d3380546c9be1c5063adfe4ea99a8e45ed4bc5cda0cef247f8863842f4"
+    },
+    {
+      "repository": "Detective",
+      "number": 134,
+      "title": "Repair: preserve the measured policy and count unit in convergence universe denominators",
+      "url": "https://github.com/rohanvinaik/Detective/issues/134",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B04"
+      ],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "54bdfb2757b7b5c900d4b553412a5996e0c5ee2827805deef224304cdc68e4c2"
+    },
+    {
+      "repository": "Detective",
+      "number": 135,
+      "title": "Future capability: certified negative residuals over explicit domain bases",
+      "url": "https://github.com/rohanvinaik/Detective/issues/135",
+      "scope": "DEFERRED_ADDITION",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "5793983220bcb5dbd2433377d33b640125416dede0444641ae3b09e9d528e669",
+      "deferred_scope": "Certified negative residuals"
+    },
+    {
+      "repository": "Detective",
+      "number": 136,
+      "title": "Future capability: sweep and parametrized-row editing over the verified removal primitive",
+      "url": "https://github.com/rohanvinaik/Detective/issues/136",
+      "scope": "DEFERRED_ADDITION",
+      "work_packages": [],
+      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "body_sha256": "435fbb47ad9d49e106ba64e0a1231f410300bd7a7938f0e3e0239306a0d96db0",
+      "deferred_scope": "Sweep and additional supported row-editing forms"
+    }
+  ],
+  "owner_decisions": [
+    "Code-kappa graph/domain basis",
+    "Broad-handler narrowing target rule",
+    "Missing structural/effect operator premises",
+    "Step-cap parameter warrant",
+    "Any change to the meaning of fresh reproducibility"
+  ]
+}
