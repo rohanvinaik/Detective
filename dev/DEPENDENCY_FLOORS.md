@@ -291,3 +291,17 @@ and the isolation/accounting repairs already present in the local pair. Both pac
 require Python 3.12 or newer. Detective's wheel requires `Wesker>=1.2.0` as a plain
 package spec; it must not resolve the older published implementation or embed the
 development Git source. Publish Wesker 1.2.0 before Detective 1.2.0.
+
+## Wesker >= 1.2.1
+
+A CORRECTNESS floor for opcode measurement beside coverage-style monitoring tools.
+Wesker 1.2.0 installed local INSTRUCTION masks before global PY_START discovery.
+When a co-resident tool returned DISABLE from a cold start event, the first counted
+call produced zero instructions; an identical second call produced a positive count.
+Detective's coverage-enabled CI reproduced four failures across Python 3.12–3.14.
+Wesker 1.2.1 installs discovery before the local masks. Counting still invokes the
+target once: no warm-up side effects or guessed replacement count are introduced.
+
+Detective 1.2.1 requires this correction in its plain runtime package requirement.
+The development lock selects the pushed Wesker revision independently. Publish
+Wesker 1.2.1 before detective-spec 1.2.1.
