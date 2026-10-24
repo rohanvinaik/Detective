@@ -92,11 +92,12 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 
 - [x] 13.1 Repair the observed coverage/3.12 CI failures and pass both six-cell 3.12–3.14 Linux/macOS matrices (Wesker 40074238464; Detective 40074339034).
 - [x] 13.2 Align Sonar version/runtime metadata; retain pinned lint/format, packaging and workflow checks.
-- [ ] 13.3 Complete paired 1.2.1 GitHub release/signing and installed-wheel acceptance, then hand off exact Wesker-first PyPI upload commands; record owner publication independently.
+- [x] 13.3 Complete paired 1.2.1 GitHub release/signing and installed-wheel acceptance, then hand off exact Wesker-first PyPI upload commands (docs/RELEASE_1_2_1.md); record owner publication independently.
 - [ ] 13.4 Triage remaining Sonar findings against the real trust boundary, with reasoned transitions or code fixes; separately repair the shared local Sonar setup without resetting its original database.
 - [ ] 13.5 Finish supply-chain/repository hygiene and supported optional-tool/bootstrap checks; maintain both dependencies-present and dependencies-absent reproductions.
 - [ ] 13.6 Review the five theory-prior drifts and actual literature before updating reference hashes; prepare example source material without rewriting the owner's manifesto.
 - [ ] 13.7 Build production-derived benchmark/memory advisories and calibrate any threshold before making it a gate; keep unmeasured claims explicit.
+- [ ] 13.8 After the owner uploads 1.2.1, verify an ordinary clean PyPI install of both packages and run the public smoke workflow; do not infer publication from GitHub artifacts.
 
 ## 14. Scope and handoff maintenance
 
