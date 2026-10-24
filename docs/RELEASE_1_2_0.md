@@ -40,3 +40,28 @@ Publish Wesker 1.2.0 first, then detective-spec 1.2.0. The existing release work
 build and attach signed GitHub release artifacts; they do not upload to PyPI.
 Use the wheel and sdist from each committed candidate. Installed-package checks
 must use both candidate wheels without PYTHONPATH before upload.
+
+## Candidate acceptance — 2026-10-24
+
+Runtime source: Wesker `9fa1824`, Detective `02d96d2`. The remaining record-only
+commit changes this document; it does not change the installed package modules.
+
+- Full local pair: Wesker 1,076 passed; Detective 3,861 passed, four skipped and
+  one expected failure. Pinned Ruff check and whole-tree format checks passed.
+- Wheel and sdist built successfully for both distributions from clean committed
+  worktrees. Both sdist tracked-file checks and all four Twine metadata checks passed.
+- Every tracked package file matched its wheel member byte-for-byte: 27 Wesker
+  files and 59 Detective files, with none missing or different.
+- Fresh managed Python 3.12.12 and 3.14.7 environments installed both candidate
+  wheels with ordinary runtime dependencies and no PYTHONPATH. Imports and console
+  startup resolve the installed 1.2.0 packages. Metadata requires `wesker>=1.2.0`
+  without a development Git reference.
+- On each interpreter, a fresh shipping-rule project followed help → clean regime
+  → converge. Both runs reached `COMPLETE (operator universe)`, 17/17 mutants killed,
+  three generated tests, and fresh isolated reproducibility confirmation.
+- Installed Wesker also profiled that suite with `--isolated --mem-limit-mb 256`:
+  17/17 killed and 12/12 dimensions covered.
+
+Complete local logs, disposable projects and artifact manifests are retained in
+the release receipt directory. The pre-existing certificate-ledger worktree edit
+was left untouched and was excluded by building from committed worktrees.
