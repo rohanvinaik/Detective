@@ -241,3 +241,66 @@ def test_verify_rewrite_budget_on_an_unannotated_function_is_unmeasurable(tmp_pa
     else:
         assert payload["budget"]["disposition"] == "inadmissible"
         assert code == verify_rewrite_exit(payload["verdict"])
+
+
+def test_count_opcodes_thread_attribution() -> None:
+    """B01/W#32: count_opcodes monitors only the calling thread, ignoring background threads."""
+    import threading
+
+    from Detective.budget import count_opcodes
+
+    def busy_worker(stop_ev):
+        while not stop_ev.is_set():
+            _ = 1 + 1
+
+    def target(n):
+        s = 0
+        for i in range(n):
+            s += i
+        return s
+
+    stop_event = threading.Event()
+    bg_thread = threading.Thread(target=busy_worker, args=(stop_event,))
+    bg_thread.start()
+    try:
+        c1 = count_opcodes(target, (100,))
+        c2 = count_opcodes(target, (100,))
+        assert c1 is not None and c2 is not None
+        # In a deterministic loop without background contamination, opcode counts match exactly
+        assert c1 == c2
+    finally:
+        stop_event.set()
+        bg_thread.join()
+
+
+def test_paired_budget_read_failed_outcome_markers_do_not_equal_zero_delta() -> None:
+    """B01/D#80: two failing/blocked outcomes are never evidence of zero behavior delta."""
+
+    def crash_a(xs: list[int]) -> int:
+        raise ValueError("failure A")
+
+    def crash_b(xs: list[int]) -> int:
+        raise ValueError("failure B")
+
+    read = paired_budget_read(crash_a, crash_b, ("list[int]",), gate_preserved=True, ladder=(16, 32, 64))
+    # Two raising functions must not be accepted as delta_zero=True
+    assert not read.delta_zero
+    assert read.disposition == "inadmissible"
+    assert "unresolved or raised outcome" in read.note or "old ≠ new" in read.note
+
+
+def test_paired_budget_read_distinguishes_arm_failure_from_counter_unavailable() -> None:
+    """B01/D#80: arm failure note is distinct from counter unavailable."""
+
+    def raising_arm(xs: list[int]) -> int:
+        raise RuntimeError("boom")
+
+    def working_arm(xs: list[int]) -> int:
+        return len(xs)
+
+    read = paired_budget_read(
+        raising_arm, working_arm, ("list[int]",), gate_preserved=True, ladder=(16, 32, 64)
+    )
+    assert not read.delta_zero
+    assert read.verdict == "unmeasurable"
+    assert "arm raised or could not be monitored" in read.note

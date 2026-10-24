@@ -232,7 +232,14 @@ def paired_budget_read(
     missed, and it is reported in ``note`` rather than averaged away. ``kinds=None`` (no honest
     ladder) and a counter that cannot run (no ``sys.monitoring``) both read UNMEASURABLE with the
     reason named; neither ever reads as a number."""
-    from .equivalence import _outcome
+    from .equivalence import (
+        _OUTCOME_DIVERGED,
+        _OUTCOME_TIMEOUT,
+        _OUTCOME_UNCOPYABLE,
+        _OUTCOME_WALL_UNDETERMINED,
+        _outcome,
+        _pair_disposition,
+    )
 
     if kinds is None:
         return PairedBudgetRead(
@@ -254,18 +261,39 @@ def paired_budget_read(
     delta_zero = gate_preserved
     disagreement = ""
     counter_missing = False
+    arm_failed = False
     for size in ladder:
         args_inc = tuple(ladder_value(kind, size) for kind in kinds)
         args_cand = tuple(ladder_value(kind, size) for kind in kinds)
-        if _outcome(incumbent, tuple(ladder_value(kind, size) for kind in kinds)) != _outcome(
-            candidate, tuple(ladder_value(kind, size) for kind in kinds)
+        out_inc = _outcome(incumbent, args_inc)
+        out_cand = _outcome(candidate, args_cand)
+        disp = _pair_disposition(out_inc, out_cand)
+        if (
+            disp != "same"
+            or out_inc
+            in (
+                _OUTCOME_TIMEOUT,
+                _OUTCOME_WALL_UNDETERMINED,
+                _OUTCOME_DIVERGED,
+                _OUTCOME_UNCOPYABLE,
+            )
+            or out_inc.startswith("<raised ")
         ):
+            # Never treat two failed-outcome markers or exceptions as evidence of zero behavior delta
             delta_zero = False
-            disagreement = disagreement or f"old ≠ new at ladder size {size}"
+            if disp != "same":
+                disagreement = disagreement or f"old ≠ new at ladder size {size}"
+            else:
+                disagreement = (
+                    disagreement or f"unresolved or raised outcome at ladder size {size}: {out_inc}"
+                )
         ci = count_opcodes(incumbent, args_inc)
         cc = count_opcodes(candidate, args_cand)
         if ci is None or cc is None:
-            counter_missing = True
+            if getattr(sys, "monitoring", None) is None:
+                counter_missing = True
+            else:
+                arm_failed = True
             continue
         sizes.append(size)
         inc_counts.append(ci)
@@ -275,12 +303,18 @@ def paired_budget_read(
     ratio = cand_counts[-1] / inc_counts[-1] if inc_counts and inc_counts[-1] > 0 else 0.0
     verdict = budget_verdict(inc_class, cand_class, ratio)
     note = disagreement
-    if counter_missing and not sizes:
-        note = (
-            "the opcode counter could not run (sys.monitoring needs Python ≥ 3.12, "
-            "or every tool slot is taken)"
-        )
-    elif counter_missing:
+    if not sizes:
+        if counter_missing:
+            note = (
+                note + "; " if note else ""
+            ) + "the opcode counter could not run (sys.monitoring unavailable)"
+        elif arm_failed:
+            note = (
+                note + "; " if note else ""
+            ) + "the arm raised or could not be monitored during ladder execution"
+        else:
+            note = (note + "; " if note else "") + "no ladder sizes could be counted"
+    elif len(sizes) < len(ladder):
         note = (note + "; " if note else "") + "some ladder sizes could not be counted"
     return PairedBudgetRead(
         tuple(sizes),
@@ -298,62 +332,58 @@ def paired_budget_read(
 
 def count_opcodes(fn: Callable, args: tuple) -> int | None:
     """The deterministic operation counter (impure instrument shell — unit-guarded, not pinned):
-    the number of Python-level instructions executed while ``fn(*args)`` runs, via
-    ``sys.monitoring`` INSTRUCTION events (the 3.12+ API; the legacy ``f_trace_opcodes`` path
-    stopped delivering opcode events on 3.14 — measured, which is why this instrument is built
-    on the modern surface). Deterministic for deterministic code on fixed inputs — the property
-    wall-clock never has — and comparable BETWEEN arms measured by the same interpreter, never
-    across Python versions (the instruction stream is an interpreter detail).
+    counts Python-level instructions executed by fn(*args) on the current thread, using
+    Wesker.monitoring's owned subscription broker (W#32/B01).
 
-    The read leaves out this function's own frame. Its few instructions between switching the
-    events on and off are the instrument, not the arm, and they were the read's cold spot: when a
-    co-resident tool's LINE callback returns DISABLE (coverage.py's default core on 3.14 does so
-    at each location's first hit), CPython skips INSTRUCTION events on the execution that disables
-    the location, and this frame is cold on the counter's first call in a process. Measured
-    2026-10-01 on 3.12, 3.13 and 3.14 (JUMP and BRANCH events are unaffected): under
-    ``pytest --cov`` on 3.14 one input read 1114 and then 1117. The arm's own code is exposed the
-    same way the first time it runs beside such a tool, so a caller that needs the guarantee there
-    runs the arm once before counting it, as ``paired_budget_read`` does. Subscribing to LINE
-    events as well is not a remedy: measured on 3.14.7, after one read and a disabler's arrival,
-    INSTRUCTION events from the arm's code stopped arriving at all.
+    Honest failure modes, all None (cannot-determine): an interpreter without sys.monitoring,
+    subscription unavailable (every tool slot taken), or the call raising — a crashed arm has
+    no budget read, and the caller's delta gate is already red.
+    """
+    code = getattr(fn, "__code__", None)
+    if code is None:
+        return None
 
-    Honest failure modes, all ``None`` (cannot-determine): an interpreter without
-    ``sys.monitoring`` (below the package's 3.12 floor the instrument ABSTAINS — never a crash,
-    never a fallback to a counter measured broken), no free monitoring tool slot (a
-    debugger/coverage/profiler may hold them all), or the call raising — a crashed arm has no
-    budget read, and the caller's delta gate is already red. The slot is released in ``finally``
-    so a surrounding session's own monitoring always survives the instrument."""
+    import threading
+    from types import CodeType
+
+    from Wesker.monitoring import (
+        ActiveSubscriptionsError,
+        MonitoringUnavailable,
+        allocate_run_token,
+        retire_run_token,
+        subscribe,
+    )
+
     mon = getattr(sys, "monitoring", None)
     if mon is None:
         return None
-    tool = None
-    for candidate in (5, 4, 3, 2):
-        try:
-            mon.use_tool_id(candidate, "detective-budget-counter")
-            tool = candidate
-            break
-        except ValueError:
-            continue
-    if tool is None:
-        return None
 
     count = 0
-    own_code = count_opcodes.__code__
+    token = allocate_run_token()
+    tid = threading.get_ident()
 
-    def on_instruction(code, _offset):
+    def on_instruction(_code: CodeType, _offset: int) -> None:
         nonlocal count
-        if code is not own_code:
-            count += 1
+        count += 1
 
-    mon.register_callback(tool, mon.events.INSTRUCTION, on_instruction)
-    mon.set_events(tool, mon.events.INSTRUCTION)
+    try:
+        handle = subscribe(
+            [code],
+            mon.events.INSTRUCTION,
+            on_instruction,
+            thread_id=tid,
+            run_token=token,
+        )
+    except (MonitoringUnavailable, ActiveSubscriptionsError, ValueError):
+        retire_run_token(token)
+        return None
+
     try:
         fn(*args)
-    # BLE001: a crashed arm reads None; the delta gate reports it
     except Exception:  # noqa: BLE001
+        # A crashed arm reads None
         return None
     finally:
-        mon.set_events(tool, 0)
-        mon.register_callback(tool, mon.events.INSTRUCTION, None)
-        mon.free_tool_id(tool)
+        retire_run_token(token)
+        handle.close()
     return count
