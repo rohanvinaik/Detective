@@ -31,13 +31,24 @@ def test_an_invalid_neighbor_cannot_authorize_a_test_removal(tmp_path):
     result = make_pr()
     result.is_gateable = False
     result.collection_errors = ("test_broken.py",)
+    result.kill_matrix = {"M": ["test_a"]}
+    result.line_coverage = {"test_a": [2]}
     candidates = {"test_a", "legacy:test_b.py::test_b"}
-    assert audit._removal_needs(result, candidates, str(tmp_path)) == candidates
+    evidence = audit._removal_needs(result, candidates, str(tmp_path))
+    assert evidence.state == "unverified"
+    assert evidence.needed == frozenset()
+    assert "collection_incomplete" in evidence.cut_reasons
 
 
-@pytest.mark.parametrize("fault", ["load", "measurement"])
+@pytest.mark.parametrize(
+    "fault", ["load", "measurement", "uncontained", "unavailable", "observer_fault", "advisory"]
+)
 def test_a_refused_empty_classification_cannot_preserve_a_rewrite(monkeypatch, tmp_path, fault):
     import importlib
+
+    from Wesker.monitoring import MonitoringObservationFailed, MonitoringUnavailable
+
+    from Detective.capture import ObservationIncomplete
 
     certify = importlib.import_module("Detective.certify")
 
@@ -63,17 +74,30 @@ def test_a_refused_empty_classification_cannot_preserve_a_rewrite(monkeypatch, t
     monkeypatch.setattr(
         certify, "run_pytest_verification", lambda *a, **k: SimpleNamespace(ok=True, status="passed")
     )
-    monkeypatch.setattr(
-        engine,
-        "classify_survivors",
-        lambda *a, **k: SurvivorReport(
+    error = {
+        "uncontained": ObservationIncomplete("outcome_uncontained", "live worker", contained=False),
+        "unavailable": MonitoringUnavailable("monitoring unavailable"),
+        "observer_fault": MonitoringObservationFailed("observer_fault: broken observer", 1),
+        "advisory": RuntimeError("ordinary advisory failure"),
+    }.get(fault)
+
+    def classification(*args, **kwargs):
+        if error is not None:
+            raise error
+        return SurvivorReport(
             verdicts=(),
             unclassified=(),
             load_failed=fault == "load",
             measurement_valid=fault != "measurement",
             note=fault,
-        ),
-    )
+        )
+
+    monkeypatch.setattr(engine, "classify_survivors", classification)
+    if isinstance(error, MonitoringUnavailable):
+        with pytest.raises(type(error)) as caught:
+            verify_rewrite(receipt, "rewrite_closure.py", "f", str(tmp_path))
+        assert caught.value is error
+        return
     result = verify_rewrite(receipt, "rewrite_closure.py", "f", str(tmp_path))
     assert result.verdict != "PRESERVED"
-    assert result.note == fault
+    assert result.note == ("classification: unavailable" if fault == "advisory" else fault)

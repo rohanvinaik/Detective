@@ -46,6 +46,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/audit.py::removal_measurement_state": {
+    "cut_reasons": [],
+    "function_digest": "af12de8d9666f62f",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/audit.py::removal_safety": {
     "cut_reasons": [],
     "function_digest": "167226588f041570",
@@ -122,9 +128,10 @@
     "standing": "complete"
   },
   "Detective/cli.py::converge_next_action": {
-    "function_digest": "1f576a572e4f200a",
+    "cut_reasons": [],
+    "function_digest": "bad180e08ac5d240",
     "refusal": "",
-    "standing": "ungateable"
+    "standing": "complete"
   },
   "Detective/cli.py::converge_record_code": {
     "cut_reasons": [],
@@ -191,7 +198,7 @@
   },
   "Detective/cli.py::repair_measurement_route": {
     "cut_reasons": [],
-    "function_digest": "4fb1b75b32494fae",
+    "function_digest": "9eb74b414f7b2f50",
     "refusal": "",
     "standing": "complete"
   },
@@ -585,7 +592,7 @@
   },
   "Detective/validity.py::measurement_cut_reasons": {
     "cut_reasons": [],
-    "function_digest": "5393cc61abdc83c3",
+    "function_digest": "880d72d101f3d785",
     "refusal": "",
     "standing": "complete"
   }

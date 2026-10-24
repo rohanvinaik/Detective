@@ -137,6 +137,7 @@ def contract_disposition(
     killable: bool,
     blocked: bool,
     flag_verdict: str,
+    diverged: bool = False,
 ) -> str:
     """The two-sign contract's per-survivor disposition (§18 Q8, pure — pinned).
 
@@ -152,6 +153,8 @@ def contract_disposition(
     code, never a bool (two conditions that mean different things must not fuse):
 
     * ``"killable"``     — a distinguishing witness exists; PROOF outranks any flag.
+    * ``"diverged"``     — deterministic step budget exceeded (#80/#126); unresolved under that
+      bound, so it cannot be flagged equivalent. This is not a proof of non-termination.
     * ``"unclassified"`` — no verdict to trust (the search was ``blocked``/timed out, or the
       mutant was un-buildable and no flag speaks for it): honest uncertainty.
     * ``"equivalent"``   — flagged valid, no witness: the survivor computes the intended
@@ -171,6 +174,8 @@ def contract_disposition(
         return "unclassified"
     if killable:
         return "killable"  # a real witness — proof outranks the flag
+    if diverged:
+        return "diverged"  # established budget exceedance, not an equivalence verdict
     if blocked:
         return "unclassified"  # the witness search timed out: honest uncertainty, not equivalence
     if flag_verdict == "equivalent":

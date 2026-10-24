@@ -164,7 +164,9 @@ def test_b0_kills_a_residual_the_default_pool_leaves_candidate_equivalent(tmp_pa
         gate_off.setattr(engine, "structural_retry_gate", lambda *a, **k: "skip")
         without = classify_survivors("graph.py", "sum_reachable", root)
     kills_without = sum(1 for v in without.killable if v.killable)
-    assert without.unclassified, "expected an un-discriminated residual before B0 (the F0 gap)"
+    assert without.unclassified or getattr(without, "step_budget_divergent", ()), (
+        "expected an un-discriminated residual before B0 (the F0 gap)"
+    )
 
     # With B0 (the real gate), the topology library proves strictly more kills, and at least one
     # winning witness IS a library topology — the cross-referential input the grid could not build.

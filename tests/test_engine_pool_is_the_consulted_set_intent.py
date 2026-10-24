@@ -70,9 +70,8 @@ def _repo(tmp_path):
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("RAN = []\n")
-    # `target`'s annotation holds the one mutation site no candidate can reach: the `|` on the `def`
-    # line. The future import keeps it a string on every supported interpreter, so the mutant is built
-    # and survives, exactly as in the measured converge. `orphan` has no test and no caller.
+    # The x == 42 branch supplies runtime mutation sites the candidate tests do not reach.
+    # Annotations are outside policy 8's runtime universe. `orphan` has no test and no caller.
     (pkg / "mod.py").write_text(
         "from __future__ import annotations\n"
         "\n"
@@ -80,6 +79,8 @@ def _repo(tmp_path):
         "def target(x: int | None) -> int:\n"
         "    if x is None:\n"
         "        return 0\n"
+        "    if x == 42:\n"
+        "        return 84\n"
         "    return x * 2\n"
         "\n"
         "\n"
@@ -116,8 +117,8 @@ def test_an_unscoped_mutant_never_runs_a_not_consulted_test(tmp_path):
     root, script = _repo(tmp_path)
     out = _session(script, root, "target", "one_sign")
     assert out["test_routing"]["not_consulted"] == 1  # `test_u`, disclosed
-    # The annotation mutant is built and no candidate can kill it — the case that reaches the fallback.
-    assert any(m.startswith("ARITHMETIC_") for m in out["survivors"]), out["survivors"]
+    # An unexercised branch mutant survives — the case that reaches the fallback.
+    assert out["survivors"], "expected surviving mutants on unexercised branch"
     assert out["ran"] == 0, "a not-consulted test was executed for this function"
 
 

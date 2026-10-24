@@ -29,7 +29,10 @@ def test_an_engine_that_reports_qualifying_evidence_gives_the_strong_basis():
 def test_an_engine_that_cannot_report_it_falls_back_and_says_so():
     """An older Wesker has no admissible view. Falling back is correct — refusing would break
     every user on a released engine — but doing it SILENTLY reproduces the defect while printing
-    the same verdict, which is the unnamed-capability assumption #60 forbids."""
+    the same verdict, which is the unnamed-capability assumption #60 forbids.
+
+    The absent sentinel is not a mapping either: absence must outrank the malformed check.
+    """
     assert line_proof_basis(has_admissible=False, engine_reports_it=False, is_mapping=False) == "observed"
 
 
@@ -50,13 +53,6 @@ def test_a_view_that_is_not_a_ledger_is_not_an_empty_ledger():
     as the reason is how a toolchain fault gets filed as a test problem."""
     assert line_proof_basis(has_admissible=False, engine_reports_it=True, is_mapping=False) == "malformed"
     assert line_proof_basis(has_admissible=True, engine_reports_it=True, is_mapping=False) == "malformed"
-
-
-def test_the_absent_case_outranks_the_malformed_case():
-    """The sentinel is not a mapping either, so `is_mapping` is False in the ABSENT case too.
-    If `malformed` were tested first, every older Wesker would be reported as a broken engine
-    rather than an old one — the check order carries the whole distinction."""
-    assert line_proof_basis(has_admissible=False, engine_reports_it=False, is_mapping=False) == "observed"
 
 
 def test_the_three_inputs_are_independent():
@@ -81,3 +77,10 @@ def test_only_the_missing_capability_case_is_named_observed():
     }
     assert bases == {"observed", "admissible", "none_admissible", "malformed"}
     assert line_proof_basis(has_admissible=True, engine_reports_it=False, is_mapping=True) == "observed"
+
+
+def test_the_absent_case_outranks_the_malformed_case():
+    """The sentinel is not a mapping either, so `is_mapping` is False in the ABSENT case too.
+    If `malformed` were tested first, every older Wesker would be reported as a broken engine
+    rather than an old one — the check order carries the whole distinction."""
+    assert line_proof_basis(has_admissible=False, engine_reports_it=False, is_mapping=False) == "observed"

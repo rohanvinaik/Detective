@@ -45,6 +45,12 @@ from Detective.consumption import (
 
 # Not reachable from the CLI, and correctly so. Each reason names what DOES consume it.
 BY_DESIGN: dict[str, str] = {
+    "capture.profile_hook_disposition": (
+        "Exported legacy compatibility API, retained as capture.py's docstring states. Its "
+        "consumer is tests/detective/test_Detective_capture_profile_hook_disposition_e9126334d6_synth.py. "
+        "The current sys.monitoring harvest must not consult or take the legacy profile slot, so this "
+        "decision deliberately has no current production caller. It is not a pin of current capture."
+    ),
     "consumption.consumption_disposition": (
         "This guard's own decision. `Detective/consumption.py` is deliberately not wired to any "
         "verb — it is a repo-discipline instrument, and its consumer is this test."

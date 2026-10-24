@@ -107,20 +107,20 @@ def test_a_passed_deadline_runs_no_test_and_keeps_what_was_captured() -> None:
     assert capture_call_inputs(_target, [t_a, t_b]) == [(1,), (2,)]  # no wall: unchanged behaviour
 
 
-def test_the_wall_is_checked_between_tests_not_inside_one() -> None:
+def test_the_aggregate_wall_also_bounds_the_current_test() -> None:
     ran: list[str] = []
     deadline = time.monotonic() + 0.05
 
     def t_slow():
         ran.append("slow")
-        time.sleep(0.1)  # crosses the wall INSIDE the test — the test completes, the next never starts
+        time.sleep(0.1)  # the remaining aggregate allowance bounds this test too
         _target(1)
 
     def t_next():
         ran.append("next")
         _target(2)
 
-    assert capture_call_inputs(_target, [t_slow, t_next], deadline=deadline) == [(1,)]
+    assert capture_call_inputs(_target, [t_slow, t_next], deadline=deadline) == []
     assert ran == ["slow"]
 
 

@@ -88,3 +88,40 @@ def test_a_failing_assertion_is_swallowed_and_the_harvest_continues():
         target(2)
 
     assert capture_call_inputs(target, [fails, reaches]) == [(1,), (2,)]
+
+
+def test_runaway_test_is_bounded_by_per_test_execution_boundary():
+    import time
+
+    def runaway():
+        target(1)
+        while True:
+            time.sleep(0.001)
+
+    def reaches():
+        target(2)
+
+    # runaway is stopped and the harvest still collects reaches
+    got = capture_call_inputs(
+        target,
+        [runaway, reaches],
+        per_test_timeout=0.1,
+        deadline=time.monotonic() + 2.0,
+    )
+    assert (1,) in got
+    assert (2,) in got
+
+
+def test_monitoring_unavailable_raises_capability_outcome(monkeypatch):
+    from Wesker.monitoring import MonitoringUnavailable
+
+    def _fail_tool_id():
+        raise MonitoringUnavailable("simulated tool id exhaustion")
+
+    monkeypatch.setattr("Detective.capture.tool_id", _fail_tool_id)
+
+    def dummy():
+        pass
+
+    with pytest.raises(MonitoringUnavailable):
+        capture_call_inputs(target, [dummy])

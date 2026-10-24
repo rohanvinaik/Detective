@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from Wesker.ci import walk_functions
+from Wesker.monitoring import MonitoringUnavailable
 
 from .engine import FunctionBasis, classify_survivors, function_basis, profile
 from .line_flags import classify_missing_lines, load_line_flags
@@ -122,6 +123,7 @@ class SuiteAudit:
     authored_fence: int = 0
     candidate_equivalent: int = 0  # survivors with no distinguishing input found (UNPROVEN — flag to confirm)
     unclassified: int = 0  # survivors the search could not classify (may be killable OR equivalent)
+    step_budget_divergent: int = 0  # survivors whose loop execution deterministically diverged (#80/#126)
     # The candidate-equivalents' actual ids. `flag` takes an id, so a count alone cannot
     # produce a runnable command: the report said "`flag <mutant_id>`" and left the reader to
     # go find one. The classifier already has them; keeping only `len()` is what made the
@@ -182,6 +184,8 @@ class SuiteAudit:
     load_failed: bool = False
     inputs_expressible: bool | None = None
     note: str = ""
+    # Preserve the engine's refusal through the report and its closing action.
+    cut_reasons: tuple[str, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -267,19 +271,21 @@ def audit_partition_sums(
     manual: int,
     fence: int,
     unclassified: int,
+    diverged: int = 0,
 ) -> bool:
     """Whether every mutant lands in EXACTLY one terminal value-bucket (issue #55, pure — pinned).
 
     The universe partitions by VALUE specification, mutually exclusive and exhaustive:
-    ``total == value_killed + killable + candidate_equivalent + manual + fence + unclassified``. Each
-    mutant is value-pinned, a killable-unkilled gap, value-equivalent (candidate), manually-flagged
-    equivalent, an authored FENCE (a must-not the suite does not enforce — Q8), or unclassifiable. When
-    this is False the headline % cannot be reconstructed from the classification beneath it — a Detective
-    ACCOUNTING bug, not a fact about the suite — so :func:`audit_suite` raises rather than print a number
-    that does not reconcile. ``crash_only_equivalent`` is a sub-count of ``candidate_equivalent`` and
-    never a term here; ``kill_pct`` counts crash kills too and is a different (detection) lens that does
-    not enter this partition."""
-    return total == value_killed + killable + candidate_equivalent + manual + fence + unclassified
+    ``total == value_killed + killable + candidate_equivalent + manual + fence + unclassified + diverged``.
+    Each mutant is value-pinned, a killable-unkilled gap, value-equivalent (candidate), manually-flagged
+    equivalent, an authored FENCE (a must-not the suite does not enforce — Q8), unclassifiable, or
+    step-budget-divergent (#80/#126). When this is False the headline % cannot be reconstructed from
+    the classification beneath it — a Detective ACCOUNTING bug, not a fact about the suite — so
+    :func:`audit_suite` raises rather than print a number that does not reconcile.
+    ``crash_only_equivalent`` is a sub-count of ``candidate_equivalent`` and never a term here;
+    ``kill_pct`` counts crash kills too and is a different (detection) lens that does not enter this
+    partition."""
+    return total == value_killed + killable + candidate_equivalent + manual + fence + unclassified + diverged
 
 
 def _gap_desc(verdict: Any, expressible: bool) -> str:
@@ -449,16 +455,27 @@ def audit_suite(
         crash_only_ids = tuple(v.mutant_id for v in report.equivalent if v.crash_only)
         boundary_probe = str(getattr(report, "boundary_probe", "") or "")
         unclassified = len(report.unclassified)
+        step_budget_divergent = len(getattr(report, "step_budget_divergent", ()))
         # An authored fence is an UNENFORCED must-not (Q8) — a gap like killable/unclassified, so it
         # blocks mutant-completeness exactly as they do; never treated as a discharged equivalent.
-        mutant_complete = not report.killable and not report.unclassified and not report.authored_fence
+        # Deterministic step budget divergence likewise blocks completeness (#80).
+        mutant_complete = (
+            not report.killable
+            and not report.unclassified
+            and not report.authored_fence
+            and not step_budget_divergent
+        )
         classified = True
-    # BLE001: classification is advisory and never fails the audit
+    except MonitoringUnavailable:
+        # An unobservable execution cannot authorize completeness or a removal proposal.
+        raise
+    # BLE001: ordinary classification failures retain the conservative survivor fallback
     except Exception:  # noqa: BLE001
         killable_gaps = tuple(
             f"{r.get('category', '?')} [{r.get('mutant_id', '?')}]" for r in result.value_survivor_records
         )
         mutant_complete = result.value_survived == 0
+        step_budget_divergent = 0
 
     total = result.total_mutants
     # REFUSE rather than report a headline that cannot be reconstructed from the classification (#55).
@@ -473,6 +490,7 @@ def audit_suite(
         manual_equivalent,
         fence,
         unclassified,
+        step_budget_divergent,
     ):
         # With the single-profile reuse above this cannot arise from two divergent measurements — it
         # is now a genuine defensive last resort for an internal accounting inconsistency. Typed (not a
@@ -482,7 +500,7 @@ def audit_suite(
             f"audit partition does not sum for {result.function_key}: total={total} "
             f"value_killed={result.value_killed} killable={len(killable_gaps)} "
             f"candidate_equivalent={candidate_equivalent} manual={manual_equivalent} "
-            f"fence={fence} unclassified={unclassified}"
+            f"fence={fence} unclassified={unclassified} diverged={step_budget_divergent}"
         )
     # The FunctionBasis this audit earned (#X4 tail, review-reconciled): the undischargeable residue
     # U_t is every VALUE-undischargeable survivor — candidate-equivalent, crash-only, AND manual-
@@ -546,6 +564,7 @@ def audit_suite(
         crash_only_ids=crash_only_ids,
         boundary_probe=boundary_probe,
         unclassified=unclassified,
+        step_budget_divergent=step_budget_divergent,
         value_killed=result.value_killed,
         total_mutants=total,
         intent_tests=_origins["intent"],
@@ -555,6 +574,7 @@ def audit_suite(
         load_failed=_load_failed,
         inputs_expressible=_report_expressible,
         note=_report_note,
+        cut_reasons=validity.cut_reasons,
     )
 
 
@@ -587,17 +607,57 @@ def _test_identity(test_id: str, root: str) -> str:
     return os.path.realpath(os.path.join(root, path)) + separator + case
 
 
-def _removal_needs(result, candidates: set[str], root: str) -> set[str]:
-    """Match candidate spellings to measured identities; retain on an invalid measurement."""
+def removal_measurement_state(admissible: bool, needed_count: int) -> str:
+    """Keep unknown removal evidence distinct from measured need (#112, pure — pinned)."""
+    if not admissible:
+        return "unverified"
+    if needed_count > 0:
+        return "needed"
+    return "redundant"
+
+
+@dataclass(frozen=True)
+class RemovalEvidence:
+    """One function's removal evidence; an empty needed set alone proves nothing."""
+
+    state: str
+    needed: frozenset[str] = frozenset()
+    cut_reasons: tuple[str, ...] = ()
+
+
+def _removal_needs(result, candidates: set[str], root: str) -> RemovalEvidence:
+    """Match candidate spellings to measured identities without inventing need on refusal."""
     from .validity import normalize_validity
 
-    if not normalize_validity(result).admits_certificate:
-        return set(candidates)
+    validity = normalize_validity(result)
+    if removal_measurement_state(validity.admits_certificate, 0) == "unverified":
+        return RemovalEvidence("unverified", cut_reasons=validity.cut_reasons)
     needed = set(_obligations_by_test(result.kill_matrix, result.line_coverage)) - redundant_2axis(
         result.kill_matrix, result.line_coverage
     )
     measured = {_test_identity(name, root) for name in needed}
-    return {candidate for candidate in candidates if _test_identity(candidate, root) in measured}
+    matched = frozenset(candidate for candidate in candidates if _test_identity(candidate, root) in measured)
+    return RemovalEvidence(removal_measurement_state(True, len(matched)), matched)
+
+
+def _record_removal_evidence(
+    evidence: RemovalEvidence,
+    subject: tuple[str, str],
+    wanted: set[str],
+    retained: dict[str, str],
+    gaps: dict[tuple[str, str], str],
+    causes: dict[tuple[str, str], tuple[str, ...]],
+    *,
+    display: str,
+) -> None:
+    """Consume sibling, neighbor and observed-reach evidence by the same rule (#112)."""
+    if evidence.state == "unverified":
+        gaps[subject] = "unmeasured"
+        causes[subject] = evidence.cut_reasons
+        return
+    for name in sorted(wanted & evidence.needed):
+        retained[name] = display
+    wanted.difference_update(evidence.needed)
 
 
 def removal_safety(needed_by: str, reach_status: str, unmeasured: int, over_budget: int) -> str:
@@ -664,15 +724,21 @@ def probe_reach_status(raised: bool, item_status: str) -> str:
 
 
 def candidate_reach(
-    project_root: str, file: str, function: str, candidates: Sequence[str]
+    project_root: str,
+    file: str,
+    function: str,
+    candidates: Sequence[str],
+    *,
+    per_test_timeout_s: float = 5.0,
 ) -> tuple[dict[str, tuple[str, frozenset[tuple[str, str]]]], dict[str, Any]]:
     """Every project function each candidate test EXECUTES, observed by running it once (#103).
 
     A test can kill a mutant only in a function it executes: a mutant changes one function, and a
     change to a function that never runs is unobservable. So a candidate's obligations lie exactly
     in its observed reach (tests deterministic, as everywhere the kill matrix is read). The probe runs
-    the SAME callable the profile ran, the live pytest item with its fixtures, under a call profiler
-    on every thread. It keeps the frames whose code is the project's own source:
+    the SAME callable the profile ran, the live pytest item with its fixtures, under an owned
+    monitoring subscription in a bounded worker and the threads started in its observation window.
+    It keeps the frames whose code is the project's own source:
     - under the root, and outside hidden, skipped and interpreter (site-packages) directories;
     - not a collected test file, and not a ``conftest.py``.
     A nested function counts as its outermost enclosing function, the unit Wesker mutates.
@@ -685,10 +751,11 @@ def candidate_reach(
     import contextlib
     import io
     import sys
-    import threading
 
     from Wesker.ci import callable_item_status, callable_origin, callable_test_id, discover_test_callables
+    from Wesker.monitoring import MonitoringObservationFailed
 
+    from .capture import ObservationIncomplete, _run_for_effects
     from .kappa import _SKIP_DIRS
 
     root = os.path.abspath(project_root)
@@ -735,31 +802,48 @@ def candidate_reach(
         matched[cid] = call
         seen: set[tuple[str, str]] = set()
 
-        def _profile(frame: Any, event: str, _arg: Any, _seen: set = seen) -> None:
-            if event == "call":
-                rel = _project_rel(frame.f_code.co_filename)
-                qual = frame.f_code.co_qualname.split(".<locals>.", 1)[0]
-                if rel and "<" not in qual:
-                    _seen.add((rel, qual))
+        def observed(code: Any, offset: int, _seen: set = seen, **kwargs: Any) -> None:
+            rel = _project_rel(code.co_filename)
+            qual = code.co_qualname.split(".<locals>.", 1)[0]
+            if rel and "<" not in qual:
+                _seen.add((rel, qual))
 
-        previous = sys.getprofile()
-        threading.setprofile_all_threads(_profile)
         raised = False
-        # Each run is wrapped in its own redirect, as `trace_suite` wraps every test it runs: a pytest
-        # item's protocol can leave `sys.stdout` replaced, and run bare the probe once swallowed every
-        # line printed after it, the removal report included, under exit 0 (#103, measured).
+
+        def trial(_call=call) -> None:
+            nonlocal raised
+            try:
+                _call()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001
+                raised = True
+
         try:
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                call()
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        # BLE001: pytest's `Failed`/`Skipped` derive from BaseException; such a run is not the measured one
-        except BaseException:  # noqa: BLE001
-            raised = True
-        finally:
-            threading.setprofile_all_threads(None)
-            sys.setprofile(previous)
-        reach[cid] = (probe_reach_status(raised, callable_item_status(call)), frozenset(seen))
+                run = _run_for_effects(
+                    trial,
+                    timeout_s=per_test_timeout_s,
+                    event=sys.monitoring.events.PY_START,
+                    observer=observed,
+                    selectors=[rroot],
+                    include_children=True,
+                )
+        except (ObservationIncomplete, MonitoringObservationFailed) as exc:
+            if isinstance(exc, ObservationIncomplete) and not exc.contained:
+                return {c: ("uncontained", frozenset()) for c in candidates}, matched
+            reach[cid] = (f"observation_failed:{exc.code}", frozenset())
+            continue
+        if not run.contained:
+            # Every later clearance would share the unbounded work left in this process.
+            return {c: ("uncontained", frozenset()) for c in candidates}, matched
+        elif run.timed_out:
+            status = "timed_out"
+        elif run.incomplete_thread:
+            status = "incomplete_thread"
+        else:
+            status = probe_reach_status(raised, callable_item_status(call))
+        reach[cid] = (status, frozenset(seen))
     return reach, matched
 
 
@@ -816,6 +900,8 @@ def module_safe_removals(
     project_root: str = ".",
     candidates: Sequence[str] = (),
     reach_budget: int = REACH_BUDGET,
+    *,
+    two_sign: bool = False,
 ) -> tuple[tuple[str, ...], dict[str, str], dict[str, tuple[str, str]]]:
     """Filter deletion candidates against every function they serve: the file's siblings, the target's
     one-hop neighbours, and every function each candidate is observed to execute.
@@ -866,15 +952,16 @@ def module_safe_removals(
     rel_target = os.path.relpath(full, root)
     retained: dict[str, str] = {}
     checked: set[tuple[str, str]] = set()
+    gaps: dict[tuple[str, str], str] = {}
+    causes: dict[tuple[str, str], tuple[str, ...]] = {}
     for qn, _node in walk_functions(tree):
         checked.add((rel_target, qn))
         if qn == function or not wanted:
             continue
-        result = profile(file, qn, root, isolated=True, use_cache=False)
-        needed = _removal_needs(result, wanted, root)
-        for name in sorted(wanted & needed):
-            retained[name] = qn
-        wanted -= needed
+        result = profile(file, qn, root, isolated=True, use_cache=False, two_sign=two_sign)
+        _record_removal_evidence(
+            _removal_needs(result, wanted, root), (rel_target, qn), wanted, retained, gaps, causes, display=qn
+        )
     # Cor. 10.6 — the cross-file BRIDGE check over the κ-neighborhood. A candidate redundant for
     # `function` AND every file-sibling can still be the sole killer of a mutant of an immediate
     # caller/callee in ANOTHER file (Def. 10.2). Detective's import-reachability discovery HIDES such a
@@ -909,22 +996,40 @@ def module_safe_removals(
                     # can only make a candidate look MORE needed, so the narrowing errs toward keeping.
                     nb_own = list(discover_test_callables(root, nb_file, [nb_qn], conservative=True))
                     nb_result = profile(
-                        nb_file, nb_qn, root, tests=nb_own + cand_callables, isolated=True, use_cache=False
+                        nb_file,
+                        nb_qn,
+                        root,
+                        tests=nb_own + cand_callables,
+                        isolated=True,
+                        use_cache=False,
+                        two_sign=two_sign,
                     )
-                    nb_needed = _removal_needs(nb_result, wanted, root)
-                    for name in sorted(wanted & nb_needed):
-                        retained[name] = nb_qn
-                    wanted -= nb_needed
+                    _record_removal_evidence(
+                        _removal_needs(nb_result, wanted, root),
+                        (nb_file, nb_qn),
+                        wanted,
+                        retained,
+                        gaps,
+                        causes,
+                        display=nb_qn,
+                    )
     reach: dict[str, tuple[str, frozenset[tuple[str, str]]]] = {}
-    gaps: dict[tuple[str, str], str] = {}
     if wanted:
         reach, live = candidate_reach(root, file, function, sorted(wanted))
-        gaps = _consult_reach(root, reach, live, wanted, checked, retained, reach_budget)
+        gaps.update(
+            _consult_reach(
+                root, reach, live, wanted, checked, retained, reach_budget, causes, two_sign=two_sign
+            )
+        )
     safe: list[str] = []
     unverified: dict[str, tuple[str, str]] = {}
     for cid in sorted(set(candidates)):
         status, reached = reach.get(cid, ("known", frozenset()))
-        unmeasured = sorted(f"{f}::{q}" for f, q in reached if gaps.get((f, q)) == "unmeasured")
+        unmeasured = sorted(
+            f"{f}::{q}" + (f" ({', '.join(causes[(f, q)])})" if causes.get((f, q)) else "")
+            for f, q in reached
+            if gaps.get((f, q)) == "unmeasured"
+        )
         over = sorted(f"{f}::{q}" for f, q in reached if gaps.get((f, q)) == "over_budget")
         verdict = removal_safety(retained.get(cid, ""), status, len(unmeasured), len(over))
         if verdict == "removable":
@@ -988,6 +1093,9 @@ def _consult_reach(
     checked: set[tuple[str, str]],
     retained: dict[str, str],
     budget: int,
+    causes: dict[tuple[str, str], tuple[str, ...]],
+    *,
+    two_sign: bool = False,
 ) -> dict[tuple[str, str], str]:
     """Profile what the remaining candidates execute that nothing has consulted yet, within ``budget``
     profiles (#103).
@@ -1005,14 +1113,13 @@ def _consult_reach(
     """
     from Wesker.ci import callable_test_id, discover_test_callables
 
-    from .validity import normalize_validity
-
-    unchecked = {cid: sorted(f"{f}::{q}" for f, q in reach[cid][1] - checked) for cid in sorted(wanted)}
+    eligible = {cid for cid in wanted if reach[cid][0] == "known"}
+    unchecked = {cid: sorted(f"{f}::{q}" for f, q in reach[cid][1] - checked) for cid in sorted(eligible)}
     plan = reach_consultation_plan(unchecked, budget)
     gaps: dict[tuple[str, str], str] = {}
-    pending = sorted({fn for cid in wanted if plan[cid] == "consult" for fn in reach[cid][1]} - checked)
+    pending = sorted({fn for cid in eligible if plan[cid] == "consult" for fn in reach[cid][1]} - checked)
     for rel_file, qual in pending:
-        if not any((rel_file, qual) in reach[cid][1] for cid in wanted):
+        if not any((rel_file, qual) in reach[cid][1] for cid in wanted & eligible):
             continue  # every candidate that reached it is already kept
         checked.add((rel_file, qual))
         routed = list(discover_test_callables(root, rel_file, [qual], conservative=True))
@@ -1020,15 +1127,19 @@ def _consult_reach(
         forced = [
             c for cid, c in sorted(live.items()) if cid in wanted and _test_identity(cid, root) not in seen
         ]
-        result = profile(rel_file, qual, root, tests=routed + forced, isolated=True, use_cache=False)
-        if not normalize_validity(result).admits_certificate:
-            gaps[(rel_file, qual)] = "unmeasured"
-            continue
-        needed = _removal_needs(result, wanted, root)
-        for name in sorted(wanted & needed):
-            retained[name] = f"{rel_file}::{qual}"
-        wanted -= needed
-    for cid in sorted(wanted):
+        result = profile(
+            rel_file, qual, root, tests=routed + forced, isolated=True, use_cache=False, two_sign=two_sign
+        )
+        _record_removal_evidence(
+            _removal_needs(result, wanted, root),
+            (rel_file, qual),
+            wanted,
+            retained,
+            gaps,
+            causes,
+            display=f"{rel_file}::{qual}",
+        )
+    for cid in sorted(wanted & eligible):
         if plan[cid] == "over_budget":
             for fn in reach[cid][1] - checked:
                 gaps.setdefault(fn, "over_budget")

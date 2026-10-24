@@ -215,7 +215,7 @@ def test_search_witness_reports_crash_only_when_only_the_mutant_raises():
     # witness (with the original's own value at it), because it is what converge writes the
     # reaching golden capture at -- throwing it away is what left the renderer asserting a
     # detection no test performed.
-    witness, crash_witness, blocked = _search_witness(_double, _raises_on_anything, [(3,)])
+    witness, crash_witness, blocked, *rest = _search_witness(_double, _raises_on_anything, [(3,)])
     assert witness is None
     assert crash_witness is not None
     assert crash_witness.args == (3,)
@@ -227,7 +227,7 @@ def test_search_witness_reports_crash_only_when_only_the_mutant_raises():
 def test_search_witness_not_crash_only_when_the_ORIGINAL_raises():
     # The mirror image: the original raises and the mutant returns. `pytest.raises` pins the
     # original's behaviour, so this IS a value-witness -- and must not be filed as crash-only.
-    witness, crash_witness, blocked = _search_witness(_raises_on_anything, _double, [(3,)])
+    witness, crash_witness, blocked, *rest = _search_witness(_raises_on_anything, _double, [(3,)])
     assert witness is not None
     assert crash_witness is None
     assert blocked is False
@@ -242,14 +242,14 @@ def test_search_witness_prefers_a_value_witness_over_an_earlier_crash_only_input
             raise ValueError("boom")
         return x + 1
 
-    witness, crash_witness, blocked = _search_witness(_double, mutant, [(3,), (0,)])
+    witness, crash_witness, blocked, *rest = _search_witness(_double, mutant, [(3,), (0,)])
     assert witness == Witness((0,), "0", "1")
     assert crash_witness is None
     assert blocked is False
 
 
 def test_search_witness_no_difference_at_all_is_neither_witness_nor_crash_only():
-    witness, crash_witness, blocked = _search_witness(_double, lambda x: x * 2, [(3,), (0,)])
+    witness, crash_witness, blocked, *rest = _search_witness(_double, lambda x: x * 2, [(3,), (0,)])
     assert witness is None
     assert crash_witness is None
     assert blocked is False
@@ -367,3 +367,43 @@ def test_unwrap_rebuilds_sets_of_carriers():
     inner = SourceExpr(7, "7")
     assert unwrap(frozenset({inner})) == frozenset({7})
     assert unwrap({inner}) == {7}
+
+
+# ── D#127 & Finding 4: Uncopyable inputs and disposition ordering ──
+def test_uncopyable_input_raises_error():
+    import pytest
+
+    from Detective.equivalence import (
+        _OUTCOME_DIVERGED,
+        _OUTCOME_TIMEOUT,
+        _OUTCOME_UNCOPYABLE,
+        UncopyableInputError,
+        _deep_args,
+        _deep_unwrapped,
+        _outcome,
+        _pair_disposition,
+    )
+
+    class Uncopyable:
+        def __deepcopy__(self, memo):
+            raise TypeError("cannot deepcopy this object")
+
+    obj = Uncopyable()
+    with pytest.raises(UncopyableInputError):
+        _deep_unwrapped((obj,))
+
+    with pytest.raises(UncopyableInputError):
+        _deep_args((obj,))
+
+    res = _outcome(lambda x: x, (obj,))
+    assert res == _OUTCOME_UNCOPYABLE
+
+    # _pair_disposition blocks on uncopyable inputs
+    assert _pair_disposition(_OUTCOME_UNCOPYABLE, "42") == "blocked"
+    assert _pair_disposition("42", _OUTCOME_UNCOPYABLE) == "blocked"
+
+    # Finding 4: original divergence / timeout is checked BEFORE mutant divergence
+    assert _pair_disposition(_OUTCOME_TIMEOUT, _OUTCOME_DIVERGED) == "blocked"
+    assert _pair_disposition(_OUTCOME_DIVERGED, _OUTCOME_DIVERGED) == "blocked"
+    assert _pair_disposition(_OUTCOME_UNCOPYABLE, _OUTCOME_DIVERGED) == "blocked"
+    assert _pair_disposition("42", _OUTCOME_DIVERGED) == "step-budget-divergent"

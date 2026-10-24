@@ -30,7 +30,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from types import CodeType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from Wesker.ci import discover_test_callables, walk_functions
 from Wesker.line_coverage import executable_lines as _executable_lines
@@ -944,6 +944,16 @@ def _session_baseline_scope_for(full: str) -> str:
     return session_baseline_scope(holder is not None, targets, os.path.realpath(full))
 
 
+class _ProfilingOptions(TypedDict, total=False):
+    widen_tests: list[Callable[..., Any]] | None
+    isolated: bool
+    observed_return_types: frozenset[str]
+
+
+class _CaptureOptions(TypedDict, total=False):
+    deadline: float
+
+
 def profile(
     file: str,
     function: str,
@@ -1230,32 +1240,36 @@ def profile(
         # pool. The finally below restores the holder. The result is cut `routing_failed` (validity).
         _pool, _widen_tests, _routing_counts = [], [], {}
         _seed_token = _session_baseline.set(None)
-    _prof_kwargs = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
+    _prof_kwargs: _ProfilingOptions = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
     if isolated:
         _prof_kwargs["isolated"] = True
-    if two_sign:
-        # μ⁻ Fork 2: observe the codomain — harvest the ORIGINAL's return types under the covering
-        # tests — so the two-sign profile emits the type-conditional output perturbations only where
-        # they apply (→negate on a numeric return, →empty on a sized one). Guarded on two_sign so the
-        # one-sign default never passes this newer kwarg to a pre-two-sign Wesker.
-        from .capture import capture_return_types
-
-        # Harvested over the pool, the same tests the profile may run — on the leaf-orphan route that
-        # is none at all, where this used to run the whole collection.
-        _prof_kwargs["observed_return_types"] = capture_return_types(
-            original, _pool if _pool is not None else [t for t in tests if id(t) not in _impossible_ids]
-        )
     from Wesker.ci import _PROJECT_ROOT
 
     _root_token = _PROJECT_ROOT.set(root)
     try:
+        _engine_budget_ms = budget_ms
+        if two_sign:
+            from .capture import capture_return_types
+
+            # The harvest shares the execution allowance. Its failure must also
+            # restore the seeded holder, so it belongs inside this finally scope.
+            _harvest_t0 = time.monotonic()
+            _capture_kwargs: _CaptureOptions = (
+                {"deadline": _harvest_t0 + max(0.0, budget_ms) / 1000.0} if budget_ms is not None else {}
+            )
+            _prof_kwargs["observed_return_types"] = capture_return_types(
+                original,
+                _pool if _pool is not None else [t for t in tests if id(t) not in _impossible_ids],
+                **_capture_kwargs,
+            )
+            _engine_budget_ms = remaining_budget_ms(budget_ms, (time.monotonic() - _harvest_t0) * 1000.0)
         result = run_function_profiling(  # type: ignore[arg-type]
             node,
             func_key,
             categories,
             _pool if _pool is not None else [t for t in tests if id(t) not in _impossible_ids],
             original,
-            budget_ms=budget_ms,
+            budget_ms=_engine_budget_ms,
             max_per_category=max_per_category,
             pass_index=pass_index,
             progress=progress,
@@ -3068,6 +3082,8 @@ def _consulted_codomain(
     exec_lines: set[int],
     extra_test_dirs: tuple[str, ...],
     include_shaped: bool,
+    *,
+    deadline: float | None = None,
 ) -> tuple[frozenset[str], str]:
     """The codomain observation when none travels with the result (#92, `codomain_source` →
     ``harvest_consulted``) — ``(observed, routing_error)`` — over exactly the tests `profile` would have
@@ -3102,10 +3118,11 @@ def _consulted_codomain(
     outcome = routing_outcome(attempted, raised)
     if outcome == ROUTING_FAILED:
         return frozenset(), error
+    capture_kwargs: _CaptureOptions = {"deadline": deadline} if deadline is not None else {}
     if outcome == ROUTED:
-        return capture_return_types(original, consulted), ""
+        return capture_return_types(original, consulted, **capture_kwargs), ""
     # UNROUTED: `profile` routed nothing either, so the discovered tests stood for its capture — and here.
-    return capture_return_types(original, tests), ""
+    return capture_return_types(original, tests, **capture_kwargs), ""
 
 
 CODOMAIN_NOT_NEEDED = "not_needed"
@@ -3382,9 +3399,10 @@ def classify_survivors(
     # measurement (`normalize_validity(routing_failed=...)`) rather than let a starved search stand as a
     # claim about the code.
     _harvest_routing_error = ""
+    _harvest_contained = True
 
     def _harvest() -> list[tuple]:
-        nonlocal _deferred_shaped_capture, _harvest_not_consulted, _harvest_routing_error
+        nonlocal _deferred_shaped_capture, _harvest_not_consulted, _harvest_routing_error, _harvest_contained
         func_names = [qn for qn, _ in walk_functions(tree)]
         discovered = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
@@ -3396,7 +3414,10 @@ def classify_survivors(
         _harvest_not_consulted = max(_harvest_not_consulted, skipped)
         pool, _hd = _admit_search_pool(pool, include_shaped)
         _deferred_shaped_capture = max(_deferred_shaped_capture, _hd)
-        return capture_call_inputs(original, pool, deadline=_cls_abs_deadline)
+        res = capture_call_inputs(original, pool, deadline=_cls_abs_deadline)
+        if hasattr(res, "contained") and not res.contained:
+            _harvest_contained = False
+        return list(res)
 
     def _first_exercising(candidates: list[tuple]) -> tuple | None:
         """The first input the ORIGINAL does not raise on — i.e. the one that actually
@@ -3440,6 +3461,7 @@ def classify_survivors(
             deferred_shaped=_deferred_shaped_capture,
             not_consulted=_harvest_not_consulted,
             routing_error=_harvest_routing_error,
+            measurement_valid=_harvest_contained,
         )
 
     pure = _is_pure(node, is_method="." in (qualname or ""))
@@ -3472,6 +3494,7 @@ def classify_survivors(
                 set(_executable_lines(node)),
                 extra_test_dirs,
                 include_shaped,
+                deadline=_cls_abs_deadline,
             )
             # A codomain harvest that could not route observed nothing (#91): the same named failure as
             # the input harvest's, carried on the report so the caller cuts the run.
@@ -3498,9 +3521,9 @@ def classify_survivors(
         _fence: list[str] = []
 
         def _route(disp: str, rec: dict, verdict: MutantVerdict | None) -> None:
-            # contract_disposition's named code → the terminal bucket. `killable`/`candidate` only
+            # contract_disposition's named code → the terminal bucket. `killable`/`candidate`/`diverged`
             # arise on the buildable path, where `verdict` is never None (the guard is type-honesty).
-            if disp in ("killable", "candidate") and verdict is not None:
+            if disp in ("killable", "candidate", "diverged") and verdict is not None:
                 _verdicts.append(verdict)
             elif disp == "equivalent":
                 _manual.append(rec.get("diff_summary", ""))
@@ -3536,16 +3559,22 @@ def classify_survivors(
                 mutant_fn,
                 pool,
                 # A crash-survivor record is a reshaped KILL record and carries `killed_by`; a
-                # true survivor carries none. That single field is whether "your suite already
-                # detects this by crash" is TRUE of this mutant — carried so the renderer can
-                # say it per mutant instead of assuming it for the bucket.
-                suite_detected=bool(rec.get("killed_by")),
+                # true survivor carries none. Only crash/exception detection counts — a timeout or
+                # divergence does not show crash detection (#80).
+                suite_detected=rec.get("killed_by") in ("crash", "exception"),
                 deadline=_cls_abs_deadline,
             )
             # A real witness is PROOF of killability and outranks the flag (contract_disposition
             # returns "killable"); a flag on a no-witness survivor is honored by its verdict —
-            # "equivalent" suppressed, "fence" reported as an unenforced must-not, "blocked" → unclassified.
-            _route(contract_disposition(True, verdict.killable, verdict.blocked, _fv(rec)), rec, verdict)
+            # "equivalent" suppressed, "fence" reported as an unenforced must-not, "diverged" → verdict,
+            # "blocked" → unclassified.
+            _route(
+                contract_disposition(
+                    True, verdict.killable, verdict.blocked, _fv(rec), diverged=verdict.diverged
+                ),
+                rec,
+                verdict,
+            )
         return _verdicts, _unclassified, _manual, _fence
 
     verdicts, unclassified, manual_equivalent, fence = _classify_pool(inputs)
@@ -3837,4 +3866,5 @@ def classify_survivors(
         boundary_probe=boundary_probe,
         boundary_probes=len(probes_tried),
         routing_error=_harvest_routing_error,
+        measurement_valid=_harvest_contained,
     )

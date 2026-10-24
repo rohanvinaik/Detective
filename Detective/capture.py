@@ -5,7 +5,7 @@ deterministic synthesis can fabricate.
 Detective never *guesses* a structured input (that would undercut the abstention,
 which is a feature: a fabricated input can only ever produce a spurious verdict).
 Instead, when synthesis provably can't build a valid input, it reuses one the
-covering tests genuinely pass: a ``sys.setprofile`` hook records the bound
+covering tests genuinely pass: a ``sys.monitoring`` hook records the bound
 positional arguments at every entry to the target's code object while the
 discovered test callables run, and those real tuples feed the witness search.
 Discovery proposes; the soundness gate in ``classify_survivors`` disposes (an
@@ -19,13 +19,126 @@ from __future__ import annotations
 import contextlib
 import io
 import sys
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
+
+from Wesker.interrupt import Abandoned, JoinedWorker, bounded_join
+from Wesker.monitoring import (
+    MonitoringObservationFailed,
+    MonitoringUnavailable,
+    StepBudgetExceeded,
+    allocate_run_token,
+    is_budget_active,
+    registered_thread,
+    retire_run_token,
+    step_budget,
+    subscribe,
+    tool_id,
+)
+
+__all__ = [
+    "HARVEST",
+    "HARVEST_CUT",
+    "HARVEST_ENOUGH",
+    "HOOK_FOREIGN_UNRESTORABLE",
+    "HOOK_INSTALL",
+    "HOOK_INSTALL_AND_RESTORE",
+    "HarvestResult",
+    "HarvestIncomplete",
+    "ObservationIncomplete",
+    "MonitoringUnavailable",
+    "StepBudgetExceeded",
+    "capture_call_inputs",
+    "capture_return_types",
+    "harvest_disposition",
+    "is_budget_active",
+    "profile_hook_disposition",
+    "step_budget",
+]
+
 
 HARVEST = "harvest"  # run the next test
 HARVEST_ENOUGH = "enough"  # the pool is full — a completed harvest, whatever the wall says
 HARVEST_CUT = "cut"  # the aggregate wall has passed — stop, keep what was captured
+
+# Verdicts computed before this contract omitted None and accepted cut harvests.
+# The cache consumes this identity; a package release number cannot identify it.
+RETURN_OBSERVATION_POLICY = "owned-complete-types-v2"
+
+
+@dataclass(frozen=True)
+class HarvestResult(Sequence[tuple]):
+    """Typed result of an input or return type harvest (W#32).
+
+    Behaves as a sequence of sample tuples for backwards compatibility while
+    exposing explicit containment standing, execution status, and codomain types.
+    """
+
+    samples: tuple[tuple, ...] = ()
+    codomain: frozenset[str] = frozenset()
+    contained: bool = True
+    status: str = "empty"  # "complete", "enough", "empty", "cut", "sample_limit", "uncontained"
+    deadline_passed: bool = False
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, index: Any) -> Any:
+        return self.samples[index]
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, HarvestResult):
+            return (
+                self.samples == other.samples
+                and self.codomain == other.codomain
+                and self.contained == other.contained
+                and self.status == other.status
+                and self.deadline_passed == other.deadline_passed
+            )
+        if isinstance(other, (list, tuple)):
+            return list(self.samples) == list(other)
+        return False
+
+    def __add__(self, other: Any) -> list:
+        if isinstance(other, (list, tuple)):
+            return list(self.samples) + list(other)
+        return NotImplemented
+
+    def __radd__(self, other: Any) -> list:
+        if isinstance(other, (list, tuple)):
+            return list(other) + list(self.samples)
+        return NotImplemented
+
+
+class ObservationIncomplete(MonitoringUnavailable):
+    """Execution supplied no admissible observation; its named reason reaches the CLI gate."""
+
+    def __init__(self, code: str, detail: str, *, contained: bool = True):
+        self.code = code
+        self.contained = contained
+        super().__init__(f"{code}: {detail}")
+
+
+class HarvestIncomplete(ObservationIncomplete):
+    """A codomain harvest did not finish admissibly; partial types are diagnostic only."""
+
+    def __init__(self, result: HarvestResult):
+        self.result = result
+        super().__init__(
+            f"harvest_{result.status}",
+            "codomain observation did not complete admissibly",
+            contained=result.contained,
+        )
+
+
+@dataclass(frozen=True)
+class _HarvestExecution:
+    timed_out: bool
+    contained: bool
+    incomplete_thread: bool = False
 
 
 def harvest_disposition(have_enough: bool, deadline_passed: bool) -> str:
@@ -40,8 +153,7 @@ def harvest_disposition(have_enough: bool, deadline_passed: bool) -> str:
     Checked BETWEEN tests, never inside one. The wall is a BACKSTOP on the sequence; the BOUND on the
     sequence is applicability (`engine._applicable_harvest_pool`): only tests with a static path to
     the target are handed here at all, because only a test that reaches the function can capture its
-    inputs. Before this, the harvest ran every collected test with no check anywhere — a 51-minute
-    silent witness pass on a four-parameter function (2026-09-05), the wall it was under long gone.
+    inputs.
     """
     if have_enough:
         return HARVEST_ENOUGH
@@ -56,19 +168,7 @@ HOOK_FOREIGN_UNRESTORABLE = "foreign_unrestorable"
 
 
 def profile_hook_disposition(prev_is_none: bool, prev_is_callable: bool) -> str:
-    """May a harvest take the process profile hook, given what holds it now (EP-B2, pure — pinned)?
-
-      install              — nothing holds it: install the harvest's hook, put ``None`` back after.
-      install_and_restore  — a Python callable holds it (another tool's hook): install ours for the
-                             harvest and hand theirs back after, as the harvest always has.
-      foreign_unrestorable — something that is NOT a Python callable holds it: a C-level profiler's
-                             state object (pyinstrument's ``ProfilerState``). ``sys.setprofile`` cannot
-                             reinstall it, so taking the hook would crash the restore — measured, a
-                             ``TypeError`` that ended the whole converge — or, if avoided, silently
-                             switch the other tool off for the rest of the process. Decline instead.
-
-    ``sys.getprofile()`` is the only question the shell asks; the decision is over two literals.
-    """
+    """Legacy profile hook disposition (pure — pinned). Kept for interface stability."""
     if prev_is_none:
         return HOOK_INSTALL
     if prev_is_callable:
@@ -76,28 +176,78 @@ def profile_hook_disposition(prev_is_none: bool, prev_is_callable: bool) -> str:
     return HOOK_FOREIGN_UNRESTORABLE
 
 
-def _decline_foreign_profiler(which: str) -> None:
-    """Say why a harvest captured nothing, so "a foreign profiler holds the hook" never reads like
-    "no test reaches this function" — two states with different remedies (EP-B2)."""
-    sys.stderr.write(
-        f"  ⚠ {which} was skipped: a C-level profiler holds the process profile hook, and Python "
-        "cannot hand it back afterwards. Run without the profiler for inputs captured from tests.\n"
-    )
+def _run_for_effects(
+    test: Callable[..., Any],
+    timeout_s: float = 5.0,
+    *,
+    code: Any = None,
+    event: int,
+    observer: Callable[..., None],
+    selectors: Sequence[str] | None = None,
+    include_children: bool = False,
+) -> _HarvestExecution:
+    """Run one discovered test for its SIDE EFFECTS on the active monitoring hook.
 
-
-def _run_for_effects(test: Callable[..., Any]) -> None:
-    """Run one discovered test for its SIDE EFFECTS on the active profile hook — the harvest wants
-    the calls it makes, never its verdict. A failing, erroring or skipped test is swallowed
-    (pytest's ``Skipped``/``Failed`` derive from ``BaseException``, so ``Exception`` is too narrow);
-    the operator's interrupt is the one thing that is never swallowed.
+    Each test owns a fresh token and subscription. The worker object is known
+    before start, so ownership has neither an ident-binding race nor ident reuse.
+    The parent retires and closes the subscription on every exit.
     """
+    interrupt_exc: BaseException | None = None
+
+    def _safe_run() -> None:
+        nonlocal interrupt_exc
+        try:
+            test()
+        except (KeyboardInterrupt, SystemExit) as exc:
+            interrupt_exc = exc
+        except Abandoned:
+            pass
+        # BLE001: the harvest swallows a test's verdict and never the operator's interrupt
+        except BaseException:  # noqa: BLE001
+            pass
+
+    alive_before = set(threading.enumerate()) if include_children else set()
+    worker = JoinedWorker(target=_safe_run, daemon=True)
+    token = allocate_run_token()
+
+    def owns_thread(tid: int) -> bool:
+        if worker.ident == tid:
+            return True
+        if not include_children:
+            return False
+        registered = registered_thread(tid)
+        return registered is not None and registered not in alive_before
+
     try:
-        test()
-    except (KeyboardInterrupt, SystemExit):
+        handle = subscribe(
+            [code] if code is not None else [],
+            event,
+            observer,
+            run_token=token,
+            thread_filter=owns_thread,
+            selectors=selectors,
+        )
+    except BaseException:
+        retire_run_token(token)
         raise
-    # BLE001: the harvest swallows a test's verdict and never the operator's interrupt
-    except BaseException:  # noqa: BLE001
-        pass
+    try:
+        worker.start()
+        timed_out, contained = bounded_join(worker, timeout_s, unwind_s=0.05)
+    finally:
+        retire_run_token(token)
+        handle.close()
+    try:
+        handle.check()
+    except MonitoringObservationFailed as exc:
+        raise ObservationIncomplete(exc.code, str(exc), contained=contained) from exc
+    if interrupt_exc is not None:
+        raise interrupt_exc
+    if worker.refusal:
+        raise ObservationIncomplete("execution_refused", worker.refusal, contained=contained)
+    incomplete_thread = include_children and any(
+        thread not in alive_before and thread is not worker for thread in threading.enumerate()
+    )
+    return _HarvestExecution(timed_out, contained, incomplete_thread)
 
 
 def capture_call_inputs(
@@ -106,39 +256,36 @@ def capture_call_inputs(
     *,
     max_samples: int = 12,
     deadline: float | None = None,
-) -> list[tuple]:
+    per_test_timeout: float = 5.0,
+) -> HarvestResult:
     """Real positional-argument tuples observed at every call to ``original`` while
     ``tests`` run, deduplicated by value and capped at ``max_samples``.
 
-    Keyed on the function's *code object* via ``sys.setprofile``, so a call is
-    captured regardless of how the test imported the target (``import mod`` then
-    ``mod.fn(...)`` vs ``from mod import fn``): the frame's bound parameters at
-    entry are the ground truth, not a re-derived reference. Only the positional
-    parameters (``co_varnames[:co_argcount]``, which includes ``self`` for a
-    method) are read, matching how the witness search splats a tuple.
-
-    Empty when the tests never reach the function — in which case the caller keeps
-    abstaining, the honest Zone-3 'provide a sample'. A failing or erroring test is
-    swallowed: we want the *inputs* it passes, not its pass/fail verdict.
-
-    ``deadline`` (absolute monotonic seconds, the caller's aggregate wall) is checked BETWEEN tests
-    by :func:`harvest_disposition`: once it has passed no further test is run and what was captured
-    is returned. It is the backstop; the caller bounds ``tests`` to the applicable set first.
+    Keyed on the function's *code object* via owned ``sys.monitoring`` subscription on ``PY_START``.
+    Receives authentic target frame from the broker without stack guessing.
+    Binds thread ownership inside the worker and freezes evidence via retired run tokens.
     """
     code = getattr(original, "__code__", None)
     if code is None or not tests:
-        return []
+        return HarvestResult((), status="empty", contained=True)
+
     names = code.co_varnames[: code.co_argcount]
+    tool_id()
     captured: list[tuple] = []
     seen: set[str] = set()
+    all_contained = True
+    any_timed_out = False
 
-    def _hook(frame: Any, event: str, _arg: Any) -> None:
-        # Fires for every Python call while active; cheap-reject everything that is
-        # not an entry to the exact target code object.
-        if event != "call" or frame.f_code is not code:
+    def _on_start(
+        frame_code: Any,
+        _offset: int,
+        frame: Any = None,
+        run_token: int | None = None,
+    ) -> None:
+        if frame_code is not code or frame is None or len(captured) >= max_samples:
             return
-        loc = frame.f_locals
         try:
+            loc = frame.f_locals
             args = tuple(loc[n] for n in names)
             key = repr(args)
         # BLE001: an unrepr-able/odd arg is simply not harvested
@@ -149,28 +296,41 @@ def capture_call_inputs(
         seen.add(key)
         captured.append(args)
 
-    prev = sys.getprofile()
-    if profile_hook_disposition(prev is None, callable(prev)) == HOOK_FOREIGN_UNRESTORABLE:
-        _decline_foreign_profiler("the input harvest")
-        return []
-    # Isolate the discovered tests' own stdout/stderr the way Wesker's runner does,
-    # so a consumer test's prints/banners never pollute Detective's report.
+    status = "empty"
+    deadline_passed = False
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        sys.setprofile(_hook)
-        try:
-            for t in tests:
-                if (
-                    harvest_disposition(
-                        len(captured) >= max_samples,
-                        deadline is not None and time.monotonic() >= deadline,
-                    )
-                    != HARVEST
-                ):
-                    break
-                _run_for_effects(t)
-        finally:
-            sys.setprofile(prev)
-    return captured[:max_samples]
+        for t in tests:
+            deadline_passed = deadline is not None and time.monotonic() >= deadline
+            action = harvest_disposition(len(captured) >= max_samples, deadline_passed)
+            if action != HARVEST:
+                status = action
+                break
+            timeout_s = (
+                min(per_test_timeout, max(0.0, deadline - time.monotonic()))
+                if deadline is not None
+                else per_test_timeout
+            )
+            run = _run_for_effects(
+                t, timeout_s=timeout_s, code=code, event=sys.monitoring.events.PY_START, observer=_on_start
+            )
+            any_timed_out = any_timed_out or run.timed_out
+            if not run.contained:
+                all_contained = False
+                break
+        if status == "empty" and captured:
+            status = "enough" if len(captured) >= max_samples else "complete"
+
+    if not all_contained:
+        status = "uncontained"
+    elif any_timed_out:
+        status = "cut"
+
+    return HarvestResult(
+        tuple(captured[:max_samples]),
+        contained=all_contained,
+        status=status,
+        deadline_passed=deadline_passed,
+    )
 
 
 def capture_return_types(
@@ -178,44 +338,58 @@ def capture_return_types(
     tests: list[Callable[..., Any]],
     *,
     max_samples: int = 24,
+    per_test_timeout: float = 5.0,
+    deadline: float | None = None,
 ) -> frozenset[str]:
     """The set of type NAMES of values the target RETURNS while ``tests`` run — the observed
     codomain for μ⁻ Fork 2 (the two-sign contract's type-conditional output perturbations).
 
-    Sibling of :func:`capture_call_inputs`: the same ``sys.setprofile`` hook keyed on the target's
-    code object, but harvesting on the ``return`` event, where the hook's ``arg`` is the returned
-    object. Keying on the exact ``type(x).__name__`` is deliberate — a ``bool`` return reads as
-    ``"bool"``, not ``"int"``, so a numeric perturbation (``-x``) is never emitted for it (the
-    silent-coercion hole Fork 1 could not close, closed here by observation).
-
-    Empty when no live target was loaded (``original`` is None, or has no code object), when the
-    tests never reach the function, or when it only ever returns ``None`` — the honest
-    'codomain unobserved', in which case only the always-applicable Fork-1 perturbations apply and
-    the type-conditional dimensions are simply not generated.
+    Keyed on the target's code object via owned ``sys.monitoring`` subscription on ``PY_RETURN``.
     """
     code = getattr(original, "__code__", None)
     if code is None or not tests:
         return frozenset()
+
     names: set[str] = set()
+    tool_id()
 
-    def _hook(frame: Any, event: str, arg: Any) -> None:
-        # `arg` is the returned value on a 'return' event; a raise or a bare `return` gives None,
-        # which carries no codomain type to condition on (existence is Fork 1's return_none).
-        if event != "return" or frame.f_code is not code or arg is None:
+    def _on_return(
+        frame_code: Any,
+        _offset: int,
+        retval: Any,
+        frame: Any = None,
+        run_token: int | None = None,
+    ) -> None:
+        if frame_code is not code:
             return
-        names.add(type(arg).__name__)
+        names.add(type(retval).__name__)
 
-    prev = sys.getprofile()
-    if profile_hook_disposition(prev is None, callable(prev)) == HOOK_FOREIGN_UNRESTORABLE:
-        _decline_foreign_profiler("the return-type harvest")
-        return frozenset()
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        sys.setprofile(_hook)
-        try:
-            for t in tests:
-                if len(names) >= max_samples:
-                    break
-                _run_for_effects(t)
-        finally:
-            sys.setprofile(prev)
+        for t in tests:
+            deadline_passed = deadline is not None and time.monotonic() >= deadline
+            action = harvest_disposition(len(names) >= max_samples, deadline_passed)
+            if action == HARVEST_ENOUGH:
+                raise HarvestIncomplete(HarvestResult(codomain=frozenset(names), status="sample_limit"))
+            if action == HARVEST_CUT:
+                raise HarvestIncomplete(
+                    HarvestResult(codomain=frozenset(names), status="cut", deadline_passed=True)
+                )
+            timeout_s = (
+                min(per_test_timeout, max(0.0, deadline - time.monotonic()))
+                if deadline is not None
+                else per_test_timeout
+            )
+            run = _run_for_effects(
+                t, timeout_s=timeout_s, code=code, event=sys.monitoring.events.PY_RETURN, observer=_on_return
+            )
+            if run.timed_out or not run.contained:
+                raise HarvestIncomplete(
+                    HarvestResult(
+                        codomain=frozenset(names),
+                        contained=run.contained,
+                        status="uncontained" if not run.contained else "cut",
+                        deadline_passed=deadline is not None and time.monotonic() >= deadline,
+                    )
+                )
+
     return frozenset(names)

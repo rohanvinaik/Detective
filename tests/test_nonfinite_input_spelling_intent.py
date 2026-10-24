@@ -308,8 +308,9 @@ def test_converge_accepts_a_bare_nan_input_writes_a_runnable_test_and_recalls_it
     written = list((project / "tests" / "detective").glob("test_fractions__fraction_or_default_*_synth.py"))
     assert len(written) == 1, out
     body = written[0].read_text()
-    # The killing test at the supplied NaN input was WRITTEN, in a spelling that runs.
-    assert 'den=float("nan")' in body or "den=float('nan')" in body, body
+    # The supplied NaN must survive serialization in a runnable spelling, whether
+    # the minimized suite retains it as a golden tuple or as a keyword witness.
+    assert 'float("nan")' in body or "float('nan')" in body, body
     assert "=nan" not in body.replace(" ", ""), body
     # ...and it passes under real pytest.
     shutil.rmtree(project / ".pytest_cache", ignore_errors=True)

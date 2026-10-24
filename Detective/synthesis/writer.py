@@ -76,21 +76,37 @@ def _ruff_format(source: str) -> str:
     returned, because an ugly-but-valid test is a better outcome than no test. That case
     is a bug in what we emitted, and the file itself is the evidence.
     """
+    import os
+    import shutil
     import subprocess
     import sys
+
+    # Prefer executing environment's ruff binary over ambient PATH (#131),
+    # falling back to PATH and then to python -m ruff.
+    venv_candidate = os.path.join(os.path.dirname(sys.executable), "ruff")
+    if os.path.isfile(venv_candidate) and os.access(venv_candidate, os.X_OK):
+        ruff_bin = venv_candidate
+    else:
+        ruff_bin = shutil.which("ruff")
+
+    cmd = (
+        [ruff_bin, "format", "--stdin-filename", "test_detective_generated.py", "-"]
+        if ruff_bin
+        else [
+            sys.executable,
+            "-m",
+            "ruff",
+            "format",
+            "--stdin-filename",
+            "test_detective_generated.py",
+            "-",
+        ]
+    )
 
     try:
         # S603: fixed argv with no shell and input via stdin
         proc = subprocess.run(  # noqa: S603
-            [
-                sys.executable,
-                "-m",
-                "ruff",
-                "format",
-                "--stdin-filename",
-                "test_detective_generated.py",
-                "-",
-            ],
+            cmd,
             input=source,
             capture_output=True,
             text=True,

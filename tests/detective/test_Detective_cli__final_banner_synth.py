@@ -61,7 +61,7 @@ def test__final_banner_value_0():
     )
     assert (
         result
-        == "FINAL m.py::f: ✓ COMPLETE (operator universe) · line axis unqualified (engine reports no admissible coverage) · 10/10 killed · 1 test(s) → tests/test_f_synth.py"
+        == "FINAL m.py::f: ✓ COMPLETE (operator universe) · line axis unqualified (engine reports no admissible coverage) · 10/10 killed · 1 test(s) → tests/test_f_synth.py · policy unversioned"
     )
 
 
@@ -130,7 +130,10 @@ def test__final_banner_value_1():
             capability_identity=None,
         )
     )
-    assert result == "FINAL m.py::f: Incomplete: 1 killable · 8/10 killed · 1 test(s) → tests/test_f_synth.py"
+    assert (
+        result
+        == "FINAL m.py::f: Incomplete: 1 killable · 8/10 killed · 1 test(s) → tests/test_f_synth.py · policy unversioned"
+    )
 
 
 @pytest.mark.detective
@@ -225,7 +228,7 @@ def test__final_banner_value_3():
     )
     assert (
         result
-        == "FINAL calc.py::add: ⚠ STALE — target changed during run; measurement invalid, re-run required"
+        == "FINAL calc.py::add: ⚠ STALE — target changed during run; measurement invalid, re-run required · policy 5.751e8e9f4f11"
     )
 
 
@@ -275,7 +278,10 @@ def test__final_banner_value_4():
             capability_identity=None,
         )
     )
-    assert result == "FINAL m.py::f: Incomplete: 2-line gap · 8/10 killed · 1 test(s) → tests/test_f_synth.py"
+    assert (
+        result
+        == "FINAL m.py::f: Incomplete: 2-line gap · 8/10 killed · 1 test(s) → tests/test_f_synth.py · policy unversioned"
+    )
 
 
 @pytest.mark.detective
@@ -357,7 +363,7 @@ def test__final_banner_value_5():
     )
     assert (
         result
-        == "FINAL calc.py::add: Incomplete: 2 killable · 1-line gap · synthesized — no pre-existing test reached it · 0/2 killed"
+        == "FINAL calc.py::add: Incomplete: 2 killable · 1-line gap · synthesized — no pre-existing test reached it · 0/2 killed · policy 5.751e8e9f4f11"
     )
 
 
@@ -407,7 +413,7 @@ def test__final_banner_value_6():
             capability_identity=None,
         )
     )
-    assert result == "FINAL x.py::f: Incomplete · 2/4 killed"
+    assert result == "FINAL x.py::f: Incomplete · 2/4 killed · policy unversioned"
 
 
 @pytest.mark.detective
@@ -458,7 +464,7 @@ def test__final_banner_value_7():
     )
     assert (
         result
-        == "FINAL m.py::f: ✓ COMPLETE (operator universe) · line axis unqualified (engine reports no admissible coverage) · 10/10 killed · minimal cover 3 test(s)"
+        == "FINAL m.py::f: ✓ COMPLETE (operator universe) · line axis unqualified (engine reports no admissible coverage) · 10/10 killed · minimal cover 3 test(s) · policy unversioned"
     )
 
 
@@ -510,5 +516,5 @@ def test__final_banner_value_8():
     )
     assert (
         result
-        == "FINAL x.py::f: ✓ COMPLETE (operator universe) · line axis unqualified (engine reports no admissible coverage) · 4/4 killed"
+        == "FINAL x.py::f: ✓ COMPLETE (operator universe) · line axis unqualified (engine reports no admissible coverage) · 4/4 killed · policy unversioned"
     )

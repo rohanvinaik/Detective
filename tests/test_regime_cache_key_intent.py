@@ -65,7 +65,22 @@ def test_a_two_sign_run_keys_apart_from_a_one_sign_run():
     assert cache_key(*args, "", two_sign=False) == cache_key(*args)
     # A two-sign run is a DIFFERENT (larger) universe — keyed apart, never served across.
     assert cache_key(*args, "", two_sign=True) != cache_key(*args, "", two_sign=False)
-    assert cache_key(*args, "", two_sign=True) == cache_key(*args) + ":two_sign"
+    from Detective.capture import RETURN_OBSERVATION_POLICY
+
+    assert cache_key(*args, "", two_sign=True).endswith(":two_sign")
+    assert RETURN_OBSERVATION_POLICY in cache_key(*args, "", two_sign=True)
+
+
+def test_changed_codomain_observation_contract_invalidates_its_cached_verdict(monkeypatch):
+    """Old incomplete type evidence must miss after the harvest contract is repaired."""
+    from Detective import capture
+
+    args = ("mod.py::g", "def g(): ...", [_t], 3, 0, (None, None))
+    one = cache_key(*args)
+    two = cache_key(*args, two_sign=True)
+    monkeypatch.setattr(capture, "RETURN_OBSERVATION_POLICY", "different-observation-contract")
+    assert cache_key(*args) == one
+    assert cache_key(*args, two_sign=True) != two
 
 
 def test_wesker_policy_id_names_the_two_sign_policy():

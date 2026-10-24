@@ -1700,7 +1700,8 @@ def _format_survivor_report(
     # Two classes, because they take different actions and only one of them is a request.
     crash_only = [v for v in rep.equivalent if v.crash_only]
     unproven = [v for v in rep.equivalent if not v.crash_only]
-    if unproven and not rep.killable and not rep.unclassified:
+    divergent = list(getattr(rep, "step_budget_divergent", ()))
+    if unproven and not rep.killable and not rep.unclassified and not divergent:
         lines.append(
             "  ✓ every killable mutant killed — remaining survivors have no distinguishing "
             "input (candidate-equivalent, NOT proven)"
@@ -1754,6 +1755,13 @@ def _format_survivor_report(
         head += " An input distinguishes each, so none is an equivalence candidate — nothing to `flag`:"
         lines.append(head)
         lines += _survivor_lines(crash_only, verbose, param_names)
+    if divergent:
+        cats = ", ".join(sorted({v.category for v in divergent}))
+        lines.append(
+            f"  ⚠ step-budget-divergent ({len(divergent)}: {cats}) — loop iterations exceeded "
+            "step budget; deterministic divergence (NOT candidate-equivalent, nothing to `flag`):"
+        )
+        lines += _survivor_lines(divergent, verbose, param_names)
     # #67 detector: when the target has the nested / worklist-driven shape whose distinguishing
     # inputs deterministic synthesis does not reach, a leftover survivor may be killable with a
     # harder (nested / cross-referential) input rather than equivalent — so caution against a
@@ -1920,6 +1928,12 @@ def _plain_terms(result) -> str:
 
 
 def _final_banner(result) -> str:
+    """Name the measured policy beside every final standing, including invalid runs."""
+    policy = getattr(result, "policy_id", None) or "unversioned"
+    return f"{_final_banner_status(result)} · policy {policy}"
+
+
+def _final_banner_status(result) -> str:
     """A stable, greppable, ALWAYS-LAST line — so `tail`/scroll-to-bottom always lands
     on the result, never in a generated-test body. Survives truncation by construction."""
     # A verdict computed against a file that changed under the run is NOT a
@@ -2153,7 +2167,14 @@ def _swap_budget_row(state: str, withheld: int) -> tuple[str, str] | None:
     return None
 
 
-def _format_converge(result, show_tests: bool = False, verbose: bool = True, final: str | None = None) -> str:
+def _format_converge(
+    result,
+    show_tests: bool = False,
+    verbose: bool = True,
+    final: str | None = None,
+    *,
+    two_sign: bool = False,
+) -> str:
     """Validation report: what converge measured and what it left standing.
 
     ``verbose`` passes through to the survivor block: True (the default, and what the written
@@ -2295,8 +2316,16 @@ def _format_converge(result, show_tests: bool = False, verbose: bool = True, fin
             else "▶ NOT boundary-probed — probe these with --input first (edges, the None of an Optional); "
             "only if you can then PROVE one equivalent, record it"
         )
+        flag = (
+            "flag",
+            result.function,
+            _ids[0],
+            *(("--two-sign",) if two_sign else ()),
+            "--note",
+            "why-equivalent",
+        )
         lines.append(
-            f"  {_lead}: `detective flag '{result.function}' {_ids[0]} --note \"why-equivalent\"`"
+            f"  {_lead}: `{_command_text(flag)}`"
             + (f"   (repeat for: {', '.join(_ids[1:])})" if len(_ids) > 1 else "")
         )
     # Second completeness axis + minimality (from the baseline line-coverage pass).
@@ -2473,6 +2502,13 @@ def _format_converge_terse(
         lines.append(_row("✗ still killable", f"{len(rep.killable)} — a witness exists for each"))
     if rep is not None and rep.unclassified:
         lines.append(_row("⚠ unclassified", f"{len(rep.unclassified)} — the search could not run on them"))
+    if rep is not None and getattr(rep, "step_budget_divergent", ()):
+        lines.append(
+            _row(
+                "⚠ divergent",
+                f"{len(rep.step_budget_divergent)} — loop iterations exceeded step budget",
+            )
+        )
     if rep is None and not result.functionally_complete:
         lines.append(
             _row("✗ unresolved", f"{result.final_survivors} — classification produced no survivor report")
@@ -2663,6 +2699,7 @@ def converge_next_action(
     inputs_expressible: bool | None = None,
     load_failed: bool = False,
     needs_sample: bool = False,
+    has_diverged: bool = False,
 ) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
@@ -2725,8 +2762,10 @@ def converge_next_action(
         return "repair_measurement"
     if standing == "unverified":
         return "fix_verification"
-    if not (has_killable or has_line_gap):
+    if not (has_killable or has_line_gap or has_diverged):
         return "settled"
+    if has_diverged and not (has_killable or has_line_gap):
+        return "step_budget_divergent"
     if session_reason == "pytest_missing":
         return "install_pytest"
     # A measurement that could not RUN over the target has its own escape (module would not import
@@ -2850,6 +2889,8 @@ def repair_measurement_route(
         return "reprofile"
     if "uncontained_worker" in cut_reasons:
         return "isolate"
+    if "step_budget_exceeded" in cut_reasons or "mutant_wall_undetermined" in cut_reasons:
+        return "execution_budget"
     if "budget_exhausted" in cut_reasons or budget_exhausted:
         return "deadline"
     if "sampled_universe" in cut_reasons:
@@ -2940,7 +2981,11 @@ def _converge_blocked(result, rep) -> bool:
     turn residual survivors into DONE — that was the exact measurement/decision split the routing
     exists to prevent, and it produced "DONE" above `FINAL ... Incomplete` on a live run.
     """
-    return (not result.functionally_complete) or bool(rep is not None and (rep.killable or rep.unclassified))
+    if rep is not None and getattr(rep, "step_budget_divergent", ()):
+        # Only the divergent residual has its own hand-back. An ordinary incomplete
+        # result may still need a sample, an internal-condition input, or a fence repair.
+        return bool(rep.killable or rep.unclassified or getattr(rep, "authored_fence", ()))
+    return not result.functionally_complete
 
 
 def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
@@ -2986,6 +3031,7 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         and _rep_expressible is None
         and bool(getattr(rep, "note", None))
     )
+    _has_diverged = bool(rep is not None and getattr(rep, "step_budget_divergent", ()))
     return standing, converge_next_action(
         standing,
         session_reason,
@@ -2995,6 +3041,7 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         inputs_expressible=_rep_expressible,
         load_failed=_rep_load_failed,
         needs_sample=_needs_sample,
+        has_diverged=_has_diverged,
     )
 
 
@@ -3087,7 +3134,14 @@ def converge_step(
     ask for values; and ``marker_declared`` and ``session_reason`` only under fix_collection.
     """
     if code == "repair_measurement":
-        if route in ("fix_collection", "fix_load", "fix_routing", "mutant_phase", "inspect_refusal"):
+        if route in (
+            "fix_collection",
+            "fix_load",
+            "fix_routing",
+            "mutant_phase",
+            "inspect_refusal",
+            "execution_budget",
+        ):
             return "stop", route
         return "run", ""
     if code in ("fix_verification", "fix_load", "install_pytest"):
@@ -3112,9 +3166,23 @@ def converge_step(
         return "supply", ""
     if code == "rerun_stale":
         return "run", ""
+    if code == "step_budget_divergent":
+        return "hand_back", "divergent"
     if code == "settled":
         return "done", ""
     return "unknown", ""
+
+
+def _command_text(argv: tuple[str, ...] | None) -> str:
+    """Render the decision's argv; always quote the target for familiar CLI output."""
+    import shlex
+
+    if not argv:
+        raise ValueError("decision_argv_missing")
+    parts = [shlex.quote(token) for token in argv]
+    if len(argv) > 1 and not argv[1].startswith("-"):
+        parts[1] = "'" + argv[1].replace("'", "'\"'\"'") + "'"
+    return "detective " + " ".join(parts)
 
 
 def _converge_commands(
@@ -3125,6 +3193,7 @@ def _converge_commands(
     root: str,
     attempted_inputs: tuple[str, ...],
     plan: InputPlan | None,
+    two_sign: bool = False,
 ) -> tuple[tuple[str, ...] | None, tuple[str, ...] | None]:
     """``(argv, then)`` — the Detective commands converge's block names, as tokens after `detective`,
     assembled from the values the page prints them from: the target, the supplied ``--input``s in order,
@@ -3132,7 +3201,7 @@ def _converge_commands(
     ``shlex.split`` of the printed command with `detective` removed; a placeholder never enters either.
     The stale ending names no command of its own; its re-run is the one `rerun_stale` stands for.
     """
-    rerun = ("converge", fn)
+    rerun = ("converge", fn, *(("--two-sign",) if two_sign else ()))
     inputs = tuple(token for raw in attempted_inputs for token in ("--input", raw))
     where = ("--project-root", root) if root and root != "." else ()
     if code == "rerun_stale":
@@ -3140,7 +3209,7 @@ def _converge_commands(
     if code == "repair_measurement":
         if route in ("fix_collection", "fix_load", "fix_routing"):
             return None, rerun
-        if route in ("mutant_phase", "inspect_refusal"):
+        if route in ("mutant_phase", "inspect_refusal", "execution_budget"):
             return None, None
         if route in ("reprofile", "isolate"):
             return (*rerun, *inputs, "--isolated"), None
@@ -3333,6 +3402,7 @@ def _converge_decision(
     prior_ask: dict | None = None,
     target_src: str = "",
     final: str | None = None,
+    two_sign: bool = False,
 ) -> Decision:
     """Converge's decision record, computed ONCE from the result: the code the page routes on, the move
     it prints, the commands it names, the typed plan, the residual, and the decided state.
@@ -3386,16 +3456,24 @@ def _converge_decision(
     kind, remedy = converge_step(
         code, route, plan.kind if plan is not None else "", marker_declared, session_reason, disposition
     )
-    argv, then = _converge_commands(code, route, kind, fn, root, attempted_inputs, plan)
+    argv, then = _converge_commands(code, route, kind, fn, root, attempted_inputs, plan, two_sign)
     residual: tuple[str, tuple[str, ...]] | None = None
     optional: tuple[tuple[str, ...], ...] = ()
     if code == "settled":
         # The DONE block's NEXT style commands, as tokens. Its efficiency line is left out: it carries a
         # `<receipt>` placeholder, and a placeholder is never a command.
         file_part = fn.split("::")[0]
-        optional = (("plan", file_part), ("decompose", fn, "--apply"), ("survey", file_part))
+        optional = (
+            ("plan", file_part),
+            ("decompose", fn, "--apply", *(("--two-sign",) if two_sign else ())),
+            ("survey", file_part),
+        )
         if rep is not None and getattr(rep, "equivalent", ()):
             residual = _settled_residual(rep, getattr(result, "param_names", None))
+    diverged = list(getattr(rep, "step_budget_divergent", ()) or ()) if rep is not None else []
+    if code == "step_budget_divergent":
+        diverged_ids = tuple(getattr(v, "mutant_id", "") for v in diverged)
+        residual = ("step_budget_divergent", diverged_ids)
     # Read off the verdicts rather than the report's partitions, as `_residual_counts` does: a duck-typed
     # report (an older engine, a test stub) carries only `equivalent` and `killable`.
     equivalent = list(getattr(rep, "equivalent", ()) or ()) if rep is not None else []
@@ -3407,6 +3485,7 @@ def _converge_decision(
             getattr(v, "mutant_id", "") for v in equivalent if not getattr(v, "crash_only", False)
         ],
         "crash_only": [getattr(v, "mutant_id", "") for v in equivalent if getattr(v, "crash_only", False)],
+        "step_budget_divergent": [getattr(v, "mutant_id", "") for v in diverged],
     }
     return Decision(
         "converge",
@@ -3424,11 +3503,17 @@ def _converge_decision(
         marker_declared,
         final,
         attempted_inputs if remedy == "supplied_did_not_reach" else (),
+        two_sign=two_sign,
     )
 
 
 def _dead_suite_action(
-    kind: str, fn: str, root: str, session_reason: str, marker_declared: bool
+    kind: str,
+    fn: str,
+    root: str,
+    session_reason: str,
+    marker_declared: bool,
+    then: tuple[str, ...] | None = None,
 ) -> list[str]:
     """The action block for a suite that could not run. Names the remedy, not the symptom.
 
@@ -3443,6 +3528,7 @@ def _dead_suite_action(
             _row(_WHY_NOT_INPUT_ROW, "no input can help: nothing can execute a test here."),
         ]
     where = f" --project-root '{root}'" if root and root != "." else ""
+    rerun = then or ("converge", fn, *(("--project-root", root) if where else ()))
     named = {
         "empty_collection": "pytest collected NO tests, so nothing can run the pins.",
         "collection_errors": "pytest failed to collect, so the suite never started.",
@@ -3468,7 +3554,7 @@ def _dead_suite_action(
         _row(_WHY_NOT_INPUT_ROW, named),
         _row("", "An --input closes a GAP; it cannot supply a suite. Following the"),
         _row("", "input ask here re-runs to the identical result."),
-        _row(_THEN_ROW, f"detective converge '{fn}'{where}   # the gap ask lands once tests collect"),
+        _row(_THEN_ROW, f"{_command_text(rerun)}   # the gap ask lands once tests collect"),
     ]
 
 
@@ -3494,7 +3580,7 @@ def _supplied_did_not_reach_action(d: Decision, plan: InputPlan, fn: str, report
     out.extend(_row("· Supplied" if i == 0 else "", f"{i + 1}. {raw}") for i, raw in enumerate(d.supplied))
     out.append(_row("· Why", "the same ask came back: supplying it again is a proven loop"))
     out.append("")
-    out.append(f"THEN RUN:  detective converge '{fn}'")
+    out.append(f"THEN RUN:  {_command_text(d.then or ('converge', fn))}")
     return out
 
 
@@ -3532,6 +3618,8 @@ def _converge_action(
         else _converge_decision(result, rep, root, session_reason, attempted_inputs, render_tests=False)
     )
     blocked = _converge_blocked(result, rep)
+    policy = ("--two-sign",) if d.two_sign else ()
+    rerun = _command_text(("converge", fn, *policy))
     kind = d.code
     if d.remedy == "supplied_did_not_reach" and d.plan is not None:
         return _supplied_did_not_reach_action(d, d.plan, fn, report_path)
@@ -3542,9 +3630,15 @@ def _converge_action(
         # byte-identically forever (Finding F). The typed reasons carry a ready remedy sentence.
         from .validity import cut_reason_sentence
 
-        flags = " ".join(_shell_input_flag(raw) for raw in attempted_inputs)
         reasons = tuple(getattr(result, "cut_reasons", ()) or ())
         route = d.route
+        if route == "execution_budget":
+            return [
+                "INCOMPLETE:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                "",
+                _row("· Unresolved", "the execution bound did not establish a suite verdict."),
+                _row("· Resolve", "inspect the execution and its allowance before re-measuring."),
+            ]
         if route == "fix_collection":
             # No --trace-budget / --deadline fixes an import error: name the collection failure and
             # route to the fix (run under the venv that has the dep), never a budget re-run.
@@ -3556,7 +3650,7 @@ def _converge_action(
                 _row("", "and no --trace-budget or --deadline fixes an import error."),
                 _row(_FIX_ROW, "resolve the collection error (run under the venv that has the missing"),
                 _row(
-                    "", f"dependency; detective regime names the one in use), then: detective converge '{fn}'"
+                    "", f"dependency; detective regime names the one in use), then: {_command_text(d.then)}"
                 ),
                 *_also_live_rows(reasons, route),
             ]
@@ -3564,7 +3658,7 @@ def _converge_action(
             return [
                 _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
-                _row("· Re-measure", f"detective converge '{fn}' {flags} --isolated".replace("  ", " ")),
+                _row("· Re-measure", _command_text(d.argv)),
                 _row("", "retain the original input, receiver, clock/environment and policy options."),
                 _row("· Why", "isolated evaluation repairs measurement; equivalence flags cannot do that."),
             ]
@@ -3572,7 +3666,7 @@ def _converge_action(
             return [
                 _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
-                _row("· Re-measure", f"detective converge '{fn}' {flags}".rstrip()),
+                _row("· Re-measure", _command_text(d.argv)),
                 _row("", "enumerate the complete mutation policy; remove sampling/--fast options."),
             ]
         if route == "fix_load":
@@ -3590,7 +3684,7 @@ def _converge_action(
                 _row("", _BLINDNESS_NOT_RESULT),
                 _row("", "neither regime --migrate nor a larger budget can fix an import."),
                 _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
-                _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
+                _row("", f"(detective regime names the one in use), then: {_command_text(d.then)}"),
                 *_also_live_rows(reasons, route),
             ]
         if route == "fix_routing":
@@ -3608,7 +3702,7 @@ def _converge_action(
                 _row("", "the bound forbids. No --input, --deadline or regime migration moves it."),
                 _row(_FIX_ROW, "an ImportError: run under an interpreter whose Wesker meets Detective's"),
                 _row("", "declared floor. Anything else: report it with the error above. Then:"),
-                _row("", f"detective converge '{fn}'"),
+                _row("", _command_text(d.then)),
                 *_also_live_rows(reasons, route),
             ]
         if route == "mutant_phase":
@@ -3643,15 +3737,13 @@ def _converge_action(
                 _row("", "re-run only once that cause is resolved — more budget is not a generic fix."),
             ]
         if route == "regime":
-            command = f"detective regime '{fn}'"
+            command = _command_text(d.argv)
             why = "the live session resolved the target to conflicting module origins"
         elif route == "deadline":
-            command = f"detective converge '{fn}' {flags} --deadline 0".replace("  ", " ")
+            command = _command_text(d.argv)
             why = "the aggregate command deadline expired before proof completed"
         else:  # trace_budget — a genuine trace cut (coverage truncated / sampled / uncontained)
-            command = (
-                f"detective converge '{fn}' {flags} --trace-budget 0 --trace-session-budget 0"
-            ).replace("  ", " ")
+            command = _command_text(d.argv)
             why = "the profile was cut before the mutant universe was measured"
         return [
             f"DO THIS:  {command}",
@@ -3666,7 +3758,7 @@ def _converge_action(
             "",
             _row(_WHY_FIRST_ROW, "The kill-count and line numbers below describe a source that no"),
             _row("", "longer exists — meaningless, not small. Re-run on the settled file:"),
-            _row("· Re-run", f"detective converge '{fn}'"),
+            _row("· Re-run", _command_text(d.argv)),
         ]
     if kind == "fix_verification":
         _status = getattr(getattr(result, "verification", None), "status", "unverified")
@@ -3675,7 +3767,7 @@ def _converge_action(
             "",
             _row(_WHY_FIRST_ROW, "A perfect mutation score over a suite that does not run green is"),
             _row("", "not a certificate. Fix the proof basis, then re-run:"),
-            _row("· Re-run", f"detective converge '{fn}'"),
+            _row("· Re-run", _command_text(d.then)),
         ]
     if kind == "fix_load":
         # The module would not IMPORT — name WHY (the survivor report carries the exception), so the
@@ -3689,7 +3781,7 @@ def _converge_action(
             _row("", _BLINDNESS_NOT_RESULT),
             _row("", "`regime --migrate` cannot fix a missing import."),
             _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
-            _row("", f"(detective regime names the one in use), then: detective converge '{fn}'"),
+            _row("", f"(detective regime names the one in use), then: {_command_text(d.then)}"),
         ]
     if kind == "provide_sample":
         # The module loaded and the search ran in-process, but no input reached the function — so
@@ -3702,17 +3794,26 @@ def _converge_action(
             _row("· Why not migrate", "the module loaded and the search RAN in-process — the suite is"),
             _row("", "empty only because no input reached the function, which"),
             _row("", "`regime --migrate` cannot change. A real sample can."),
-            _row(_THEN_ROW, f"detective converge '{fn}'"),
+            _row(_THEN_ROW, _command_text(d.then)),
         ]
     if kind in ("install_pytest", "fix_collection"):
-        return _dead_suite_action(kind, fn, root, session_reason, d.marker_declared)
+        return _dead_suite_action(kind, fn, root, session_reason, d.marker_declared, d.then)
+    if kind == "step_budget_divergent":
+        n_div = len(d.state.get("step_budget_divergent", []))
+        return [
+            f"INCOMPLETE:  {n_div} mutant(s) diverged deterministically (step budget exceeded).",
+            "",
+            _row("· Divergent", f"{n_div} mutant(s) diverged deterministically (step budget exceeded)."),
+            _row("", "The mutant(s) remove loop termination or diverge from original execution."),
+            _row("", "Deterministic divergence is NOT an equivalence gap — nothing to `flag`."),
+        ]
     if blocked or result.missing_lines:
         action = _derived_input(
             None,
             result,
             rep,
             fn,
-            verb=f"detective converge '{fn}'",
+            verb=rerun,
             report=report_path,
             attempted_inputs=attempted_inputs,
             plan=d.plan,
@@ -3745,14 +3846,12 @@ def _converge_action(
     # "optional". It names the WHOLE second beat (the fuller `plan` map, `decompose`, `survey`),
     # CONDITIONAL on this moment and never shown before correctness is done. The `flag` pointer in the
     # equivalent branch stays (it is correct WHEN unproven-equivalents exist); the handoff is additive.
-    _file = fn.split("::")[0]
     style_handoff = [
         "",
         "       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):",
-        f"         detective plan '{_file}'          # the fuller style map for these regions",
-        f"         detective decompose '{fn}' --apply  # split it where behaviour is proven preserved",
-        f"         detective survey '{_file}'         # pure decisions trapped behind an impure boundary",
-        f"         (efficiency, once you have a rewrite: detective verify-rewrite <receipt> '{fn}' --budget)",
+        *(f"         {_command_text(argv)}" for argv in d.optional),
+        "         (efficiency: verify-rewrite --budget against a receipt from policy "
+        f"{getattr(result, 'policy_id', None) or 'unversioned'})",
     ]
     if rep is not None and rep.equivalent:
         # #71: the residual is named for what the search established — boundary-probed or not, crash-
@@ -3766,7 +3865,8 @@ def _converge_action(
         )
         more = f"  ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
         flag_lines = [
-            f"       If you can PROVE one equivalent: detective flag '{fn}' {first} --note \"why\"{more}"
+            "       If you can PROVE one equivalent: "
+            f'{_command_text(("flag", fn, first, *policy))} --note "why"{more}'
             for first in ids[:1]
         ]
         return [
@@ -4076,8 +4176,8 @@ class Decision:
     quotes a converge reads it and nothing re-renders it (D1b §7); audit's and regime's pages print none,
     so theirs is None. ``supplied`` is this run's own ``--input`` strings, kept on the record ONLY when
     the step is the ``supplied_did_not_reach`` hand-back (D1b §6), where the plan carries them beside the
-    ask they failed to change. ``two_sign`` is an INPUT, like ``marker_declared``: whether the audit ran
-    under ``--two-sign``, which its page reads back to name converge (D1b §11); not part of the record.
+    ask they failed to change. ``two_sign`` identifies the run's mutation-policy choice: it travels in
+    the serialized record and in every subsequent measurement/preservation command (D1b §11).
     """
 
     verb: str
@@ -4135,6 +4235,7 @@ def _decision_payload(d: Decision) -> dict:
         "optional": [list(command) for command in d.optional],
         "state": d.state,
         "final": d.final,
+        "two_sign": d.two_sign,
     }
 
 
@@ -4509,7 +4610,7 @@ def _flaggable_ids(rep, basis: str, param_names: tuple[str, ...] | None) -> list
         return []
     ids: list[str] = []
     for v in getattr(rep, "equivalent", ()) or ():
-        if getattr(v, "crash_only", False):
+        if getattr(v, "crash_only", False) or getattr(v, "diverged", False):
             continue
         if basis == "unprobed" and getattr(v, "category", "") == "BOUNDARY":
             hint = _boundary_hint(getattr(v, "diff_summary", ""), param_names)
@@ -5140,6 +5241,13 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         )
     if a.unclassified:
         lines.append(_row("⚠ unclassified", f"{a.unclassified} — the search could not run on them"))
+    if getattr(a, "step_budget_divergent", 0):
+        lines.append(
+            _row(
+                "⚠ divergent",
+                f"{a.step_budget_divergent} — loop iterations exceeded step budget",
+            )
+        )
     if a.manual_equivalent:
         lines.append(_row("✓ flagged equivalent", f"{a.manual_equivalent} (your oracle — not gaps)"))
     if a.redundant_tests:
@@ -5160,6 +5268,7 @@ def audit_next_action(
     candidate_equivalent: int,
     has_equivalent_ids: bool,
     unclassified: int,
+    diverged: int = 0,
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -5193,7 +5302,7 @@ def audit_next_action(
     outranks everything (Finding E); a failing suite outranks the numbers it invalidates; real gaps
     outrank bloat; and the human's equivalence judgement comes last.
     """
-    if block in ("fix_load", "provide_sample"):
+    if block in ("fix_load", "provide_sample", "repair_measurement"):
         return block
     if has_failing_tests:
         return "fix_failing_test"
@@ -5203,6 +5312,8 @@ def audit_next_action(
         return "removing_now" if removing else "remove_redundant"
     if candidate_equivalent > 0 and has_equivalent_ids:
         return "flag_equivalents"
+    if diverged > 0:
+        return "done_divergent"
     if unclassified > 0:
         return "done_unclassified"
     return "done_complete"
@@ -5232,14 +5343,16 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
     names the next command, which is converge (`_audit_commands`): step ``run``. ``removing_now`` stays
     ``done``: it needs ``--remove``, which the line never sends. Without ``two_sign`` nothing changes.
     """
-    if code == "fix_load":
-        return "stop", "fix_load"
+    if code in ("fix_load", "repair_measurement"):
+        return "stop", code
     if code == "provide_sample":
         return "supply", ""
     if code == "fix_failing_test":
         return "decide", "fix_failing_test"
     if code in ("close_the_gap", "remove_redundant"):
         return "run", ""
+    if code == "done_divergent":
+        return "hand_back", "divergent"
     if code in ("flag_equivalents", "done_unclassified", "done_complete"):
         return ("run", "") if two_sign else ("done", "")
     if code == "removing_now":
@@ -5256,6 +5369,8 @@ def _audit_measurement_block(a) -> str:
     unloadable module to a converge that also could not run (Finding E).
     """
     load_failed = bool(getattr(a, "load_failed", False))
+    if getattr(a, "cut_reasons", ()) and not load_failed:
+        return "repair_measurement"
     expressible = getattr(a, "inputs_expressible", None)
     needs_sample = expressible is None and not load_failed and bool(getattr(a, "note", ""))
     return measurement_block_route(load_failed, expressible, needs_sample)
@@ -5273,6 +5388,7 @@ def _audit_code(a, removing: bool = False) -> str:
         int(a.candidate_equivalent or 0),
         bool(a.candidate_equivalent_ids),
         int(a.unclassified or 0),
+        diverged=int(getattr(a, "step_budget_divergent", 0) or 0),
     )
 
 
@@ -5306,16 +5422,17 @@ def _audit_commands(
     Under ``two_sign`` (D1b §11) a clean setup's next command is converge: every outcome `audit_step`
     gives step ``run`` there names it — ``remove_redundant`` too, whose redundancy stays a fact in the
     record and whose command is never ``--remove``."""
+    policy = ("--two-sign",) if two_sign else ()
     if code == "close_the_gap" or (
         two_sign and code in ("remove_redundant", "flag_equivalents", "done_unclassified", "done_complete")
     ):
-        return ("converge", fn), None
+        return ("converge", fn, *policy), None
     if code == "remove_redundant":
         return ("audit", fn, "--remove"), None
     if code in ("fix_load", "fix_failing_test"):
-        return None, ("audit", fn)
+        return None, ("audit", fn, *policy)
     if code == "provide_sample":
-        return None, ("converge", fn)
+        return None, ("converge", fn, *policy)
     return None, None
 
 
@@ -5332,8 +5449,9 @@ def _audit_decision(a, removing: bool = False, two_sign: bool = False) -> Decisi
     note = str(getattr(a, "note", "") or "") if plan is not None else ""
     residual = _audit_residual(a) if code == "flag_equivalents" else None
     state = {"headline": _audit_headline(a)}
+    route = repair_measurement_route(tuple(a.cut_reasons)) if code == "repair_measurement" else ""
     return Decision(
-        "audit", code, "", kind, remedy, argv, then, plan, note, residual, (), state, two_sign=two_sign
+        "audit", code, route, kind, remedy, argv, then, plan, note, residual, (), state, two_sign=two_sign
     )
 
 
@@ -5363,10 +5481,17 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
     block is that command under ``DO THIS:`` with one ``· Why`` row, in place of the closing block the
     code would otherwise print. Audit is the line's setup, never an endpoint.
     """
-    kind = decision.code if decision is not None else _audit_code(a, removing)
+    decision = decision if decision is not None else _audit_decision(a, removing)
+    kind = decision.code
+    if kind == "repair_measurement":
+        return [
+            "INCOMPLETE:  " + "; ".join(cut_reason_sentence(r) for r in a.cut_reasons),
+            "",
+            _row("· Resolve", "the reported measurement causes before acting on suite gaps or redundancy."),
+        ]
     if decision is not None and decision.two_sign and decision.kind == "run":
         return [
-            f"DO THIS:  detective converge '{a.function}'",
+            f"DO THIS:  {_command_text(decision.argv)}",
             "",
             _row(
                 "· Why",
@@ -5383,7 +5508,7 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             _row("", _BLINDNESS_NOT_RESULT),
             _row("", "`regime --migrate` cannot fix a missing import."),
             _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
-            _row("", f"(detective regime names the one in use), then: detective audit '{a.function}'"),
+            _row("", f"(detective regime names the one in use), then: {_command_text(decision.then)}"),
         ]
     if kind == "provide_sample":
         note = getattr(a, "note", "") or "no synthesized input reached the function"
@@ -5393,7 +5518,7 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             _row("· Why not migrate", "the module loaded and the search RAN in-process — the suite is"),
             _row("", "empty only because no input reached the function, which"),
             _row("", "`regime --migrate` cannot change. A real sample can."),
-            _row(_THEN_ROW, f"detective converge '{a.function}'"),
+            _row(_THEN_ROW, _command_text(decision.then)),
         ]
     if kind == "fix_failing_test":
         # The one branch with no single command, and legitimately so: the next move is a
@@ -5405,7 +5530,7 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             "",
             _row("· Then decide", "is the TEST's expectation wrong, or is the CODE broken?"),
             _row("", "Detective will not touch it — that call is yours alone."),
-            _row("· After fixing", f"detective audit '{a.function}'"),
+            _row("· After fixing", _command_text(decision.then)),
         ]
     if kind == "close_the_gap":
         gaps = len(a.killable_gaps)
@@ -5419,15 +5544,15 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             if p
         )
         return [
-            f"DO THIS:  detective converge '{a.function}'",
+            f"DO THIS:  {_command_text(decision.argv)}",
             "",
             _row("· Why", f"{why} — real gaps, not equivalents."),
             _row("· Writes", "the missing tests, and wires them into pytest."),
         ]
-    return _audit_closing_action(a, kind)
+    return _audit_closing_action(a, kind, decision.two_sign)
 
 
-def _audit_closing_action(a, kind: str) -> list[str]:
+def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
     """The endings that follow a clean measurement — removal, the equivalents, and done.
 
     Split from `_audit_action`'s earlier arms because these are the CLOSING half of the priority
@@ -5435,6 +5560,7 @@ def _audit_closing_action(a, kind: str) -> list[str]:
     none. `flag` is deliberately last: it is the one claim a human makes against the engine, and it
     must never be offered while a real gap is still open.
     """
+    policy = ("--two-sign",) if two_sign else ()
     if kind == "removing_now":
         return [
             _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
@@ -5442,7 +5568,7 @@ def _audit_closing_action(a, kind: str) -> list[str]:
         ]
     if kind == "remove_redundant":
         return [
-            f"DO THIS:  detective audit '{a.function}' --remove",
+            f"DO THIS:  {_command_text(('audit', a.function, '--remove', *policy))}",
             "",
             _row("· Why", f"{len(a.redundant_tests)} test(s) kill no mutant AND cover no line"),
             _row("", "OF THIS FUNCTION that another test does not already. --remove"),
@@ -5464,10 +5590,24 @@ def _audit_closing_action(a, kind: str) -> list[str]:
             _row("· What remains", f"{a.candidate_equivalent} survivor(s) no VALUE assertion pins."),
             *(_row("", line) for line in why),
             *(
-                [_row("· If you can PROVE", f"detective flag '{a.function}' {ids[0]} --note \"why\"{more}")]
+                [
+                    _row(
+                        "· If you can PROVE",
+                        f'{_command_text(("flag", a.function, ids[0], *policy))} --note "why"{more}',
+                    )
+                ]
                 if ids
                 else []
             ),
+        ]
+    if kind == "done_divergent":
+        n_div = getattr(a, "step_budget_divergent", 0)
+        return [
+            f"INCOMPLETE:  {n_div} survivor(s) diverged deterministically (step budget exceeded).",
+            "",
+            _row("· Divergent", f"{n_div} survivor(s) diverged deterministically (step budget exceeded)."),
+            _row("", "The mutant(s) remove loop termination or diverge from original execution."),
+            _row("", "Deterministic divergence is NOT an equivalence gap — nothing to `flag`."),
         ]
     if kind == "done_unclassified":
         return [
@@ -6103,6 +6243,11 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     flag_p.add_argument("target", help="file.py::function")
+    flag_p.add_argument(
+        "--two-sign",
+        action="store_true",
+        help="resolve the surviving mutant under the same two-sign policy as audit/converge",
+    )
     flag_p.add_argument(
         "mutant_id",
         nargs="?",
@@ -6889,7 +7034,10 @@ def main(argv: list[str] | None = None) -> int:
     stays clean for piping."""
     # Local, like every other `certify` import here: the CLI defers that module so `--help`
     # and a bad target never pay for the engine's import graph.
+    from Wesker.monitoring import MonitoringObservationFailed, MonitoringUnavailable
+
     from .audit import AuditAccountingError
+    from .capture import HarvestIncomplete, ObservationIncomplete
     from .certify import GeneratedSuiteCollision
 
     args = _build_parser().parse_args(argv)
@@ -6910,6 +7058,36 @@ def main(argv: list[str] | None = None) -> int:
     try:
         try:
             code = _run_live(args)
+        except (ObservationIncomplete, MonitoringObservationFailed) as exc:
+            _refusal = exc.code
+            payload: dict[str, object] = {
+                "verdict": "INVALID_MEASUREMENT",
+                "reason": exc.code,
+                "detail": str(exc),
+            }
+            if isinstance(exc, ObservationIncomplete):
+                payload["observation"] = {"contained": exc.contained}
+            if isinstance(exc, HarvestIncomplete):
+                payload["observation"] = {
+                    "partial_return_types": sorted(exc.result.codomain),
+                    "contained": exc.result.contained,
+                    "status": exc.result.status,
+                    "deadline_passed": exc.result.deadline_passed,
+                }
+            _exit = 3
+            if getattr(args, "json", False):
+                return _emit_json(payload, 3)
+            else:
+                print(f"INCOMPLETE:  {exc}")
+            return 3
+        except MonitoringUnavailable as exc:
+            _refusal = "monitoring_unavailable"
+            _exit = 2
+            if getattr(args, "json", False):
+                return _emit_json({"verdict": "REFUSED", "reason": _refusal, "detail": str(exc)}, 2)
+            else:
+                print(f"STOP:  monitoring_unavailable: {exc}")
+            return 2
         except GeneratedSuiteCollision as exc:
             # A destination occupied by a file this target does not own (#61). It reached the
             # terminal as a traceback, which is the one shape a caller cannot distinguish from a
@@ -7863,7 +8041,7 @@ def _run_decompose(args, file, function) -> int:
                 _RULE,
                 "PROOF RUN — the converge this decomposition was validated against",
                 _RULE,
-                _format_converge(result.proof, show_tests=True),
+                _format_converge(result.proof, show_tests=True, two_sign=getattr(args, "two_sign", False)),
             ]
         )
     rel = _write_converge_report(args.project_root, function, detail, prefix="decompose")
@@ -8044,7 +8222,9 @@ def _audit_remove(
         for row in rows:
             row["why"] = removal_outcome_why(row["code"], row["subject"])
         return {**record, "outcomes": rows, "removed": [], "files_changed": [], "after": None}
-    safe, retained, unverified = module_safe_removals(file, function, project_root, candidates, budget)
+    safe, retained, unverified = module_safe_removals(
+        file, function, project_root, candidates, budget, two_sign=two_sign
+    )
     result = apply_removals(file, project_root, list(safe))
     rows = [
         *({"test": t, "code": "retained_for", "subject": fn} for t, fn in sorted(retained.items())),
@@ -8186,6 +8366,7 @@ def _run_converge(args, file, function) -> int:
         prior_ask=prior_ask,
         target_src=target_src,
         final=_final_banner(result),
+        two_sign=args.two_sign,
     )
     observe("outcome", "converge", decision.code)
     # This run's ask, for `_record_invocation` to write under `plan` — the next run's earlier ask.
@@ -8213,10 +8394,20 @@ def _run_converge(args, file, function) -> int:
     report_path = _write_converge_report(
         os.path.abspath(args.project_root),
         qn,
-        _format_converge(result, show_tests=True, verbose=True, final=decision.final),
+        _format_converge(
+            result, show_tests=True, verbose=True, final=decision.final, two_sign=decision.two_sign
+        ),
     )
     if args.full:
-        print(_format_converge(result, show_tests=True, verbose=args.verbose, final=decision.final))
+        print(
+            _format_converge(
+                result,
+                show_tests=True,
+                verbose=args.verbose,
+                final=decision.final,
+                two_sign=decision.two_sign,
+            )
+        )
     else:
         print(
             _format_converge_terse(
@@ -8521,7 +8712,8 @@ def _run_flag(args, file, function) -> int:
             )
         sys.stderr.write(msg + "\n")
         return 2
-    result = profile(file, function, args.project_root)
+    two_sign = getattr(args, "two_sign", False)
+    result = profile(file, function, args.project_root, two_sign=two_sign)
     # Match against value-survivors — the SAME set audit/classify report from — so a
     # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-
     # survivor). Using survivor_records here would miss those and read "none surviving".
@@ -8537,6 +8729,30 @@ def _run_flag(args, file, function) -> int:
             )
         ids = ", ".join(survivors) or "none surviving"
         print(f"no surviving mutant '{args.mutant_id}' for {function} — survivors: {ids}")
+        return 1
+    _killed_by = rec.get("killed_by") or rec.get("disposition")
+    if not args.fence and _killed_by in (
+        "diverged",
+        "step-budget-divergent",
+        "undetermined",
+        "wall-undetermined",
+        "timeout",
+    ):
+        msg = (
+            f"detective: cannot flag mutant '{args.mutant_id}' as equivalent — "
+            f"mutant outcome is {_killed_by} (deterministic divergence or timeout is not equivalence)"
+        )
+        if args.json:
+            return _emit_json(
+                {
+                    "verdict": "REFUSED",
+                    "reason": "not_equivalent_candidate",
+                    "target": args.target,
+                    "detail": msg,
+                },
+                1,
+            )
+        sys.stderr.write(msg + "\n")
         return 1
     _verdict = "fence" if args.fence else "equivalent"
     try:
@@ -8573,7 +8789,8 @@ def _run_flag(args, file, function) -> int:
         print("")
         print("DONE:  future audit/converge runs report it as an UNENFORCED must-not — a gap")
         print("       that fails `audit --check` and blocks ✓COMPLETE until a test kills it.")
-        print(f"       Next: detective converge '{result.function_key}'   # write the test it needs")
+        next_argv = ("converge", result.function_key, *(("--two-sign",) if two_sign else ()))
+        print(f"       Next: {_command_text(next_argv)}   # write the test it needs")
         return 0
     # A flag is a CLAIM, and the one place a human overrides the engine. Say what it does
     # and what still outranks it: a real distinguishing witness. Otherwise it reads as a
@@ -8585,7 +8802,8 @@ def _run_flag(args, file, function) -> int:
     print("       is found, which outranks your flag. Proof beats judgement.")
     # `function_key`, not `function`: the bare name does not resolve as a target, so the
     # one command this line offers would fail for anyone who pasted it.
-    print(f"       Next: detective audit '{result.function_key}'   # it is no longer a gap")
+    next_argv = ("audit", result.function_key, *(("--two-sign",) if two_sign else ()))
+    print(f"       Next: {_command_text(next_argv)}   # it is no longer a gap")
     return 0
 
 

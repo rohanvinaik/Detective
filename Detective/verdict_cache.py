@@ -175,8 +175,13 @@ def cache_key(
     moves. A verdict must be keyed on everything that could have produced it.
     """
     budgets = ",".join("∞" if b is None else f"{b:g}" for b in trace_budgets)
+    engine = engine_fingerprint()
+    if two_sign:
+        from .capture import RETURN_OBSERVATION_POLICY
+
+        engine += f"+o{RETURN_OBSERVATION_POLICY}"
     base = (
-        f"{func_key}:{engine_fingerprint()}:{_sha(func_source)}:{tests_fingerprint(tests)}"
+        f"{func_key}:{engine}:{_sha(func_source)}:{tests_fingerprint(tests)}"
         f":{max_per_category}:{pass_index}:{budgets}"
     )
     # A shaped-DEFERRED run measures a strictly smaller speculative pool (widen + capture) than a full

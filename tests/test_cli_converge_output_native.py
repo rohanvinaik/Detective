@@ -72,7 +72,8 @@ def test_banner_complete_clean():
     assert "10/10 killed" in b
     assert "1 test(s)" in b  # what we WROTE (wiring.passed) …
     assert "3 test(s)" not in b  # … never the minimal cover, which counts the consumer's tests
-    assert b.endswith("→ tests/test_f_synth.py")
+    assert "→ tests/test_f_synth.py" in b
+    assert b.endswith(" · policy unversioned")
 
 
 def test_banner_complete_modulo_unproven_equivalent():

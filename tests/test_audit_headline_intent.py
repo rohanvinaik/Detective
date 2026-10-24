@@ -48,6 +48,7 @@ def test_a_mixed_population_names_both():
 
 
 def test_no_survivors_is_plainly_complete():
+    """The default universe keeps existing callers complete until emptiness is established."""
     assert audit_headline_verdict(True, False, 0, 0) == "complete"
 
 

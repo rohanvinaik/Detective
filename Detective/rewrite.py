@@ -27,6 +27,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from Wesker.monitoring import MonitoringUnavailable
+
 _RECEIPT_SCHEMA = "detective-rewrite-receipt/1"
 
 
@@ -727,6 +729,9 @@ def verify_rewrite(
     abstentions: list[str] = []
     try:
         report = classify_survivors(file, function, project_root, deadline_s=120.0)
+    except MonitoringUnavailable:
+        # Withhold the rewrite verdict and retain the observation's own refusal cause.
+        raise
     except Exception:  # noqa: BLE001
         report = None
 

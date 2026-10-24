@@ -1,14 +1,8 @@
-"""A harvest never takes a profile hook it cannot give back (EP-B2 — docs/ENGINEERING_PASS_2026-09-26.md).
+"""W#32: monitoring harvests coexist with a foreign legacy profiler without taking its hook.
 
-The capture harvests save ``sys.getprofile()``, install their own hook, and restore the saved one. A
-C-level profiler (pyinstrument) leaves a NON-callable state object in that slot, and
-``sys.setprofile`` refuses it on the way back: measured, ``TypeError: 'ProfilerState' object is not
-callable`` ended a whole ``detective converge`` run under pyinstrument. Pinned here from intent: with an
-unrestorable hook present, each harvest declines — returns nothing, never calls ``sys.setprofile``, and
-says why on stderr, so "a profiler holds the hook" never reads like "no test reaches this function".
-
-A non-callable hook can only be installed from C, so the slot is stood in for by patching
-``sys.getprofile``; the end-to-end check under a real pyinstrument run is recorded in the commit.
+The previous setprofile implementation had to refuse a C profiler state it could
+not restore. Monitoring owns a separate tool ID. Keep the no-hook-theft obligation
+and require real harvesting under both foreign C-state and Python-hook cases.
 """
 
 from __future__ import annotations
@@ -34,22 +28,24 @@ def _never_install(*_a, **_k):
     raise AssertionError("the harvest must not take a hook it cannot hand back")
 
 
-def test_the_input_harvest_declines_an_unrestorable_hook(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "getprofile", lambda: _ProfilerState())
+def test_the_input_harvest_coexists_with_an_unrestorable_hook(monkeypatch):
+    state = _ProfilerState()
+    monkeypatch.setattr(sys, "getprofile", lambda: state)
     monkeypatch.setattr(sys, "setprofile", _never_install)
-    assert capture.capture_call_inputs(_target, [_reaches]) == []
-    assert "profiler holds the process profile hook" in capsys.readouterr().err
+    assert capture.capture_call_inputs(_target, [_reaches]) == [(1,)]
+    assert sys.getprofile() is state
 
 
-def test_the_return_type_harvest_declines_an_unrestorable_hook(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "getprofile", lambda: _ProfilerState())
+def test_the_return_type_harvest_coexists_with_an_unrestorable_hook(monkeypatch):
+    state = _ProfilerState()
+    monkeypatch.setattr(sys, "getprofile", lambda: state)
     monkeypatch.setattr(sys, "setprofile", _never_install)
-    assert capture.capture_return_types(_target, [_reaches]) == frozenset()
-    assert "the return-type harvest was skipped" in capsys.readouterr().err
+    assert capture.capture_return_types(_target, [_reaches]) == frozenset({"int"})
+    assert sys.getprofile() is state
 
 
 def test_a_python_hook_is_still_borrowed_and_handed_back():
-    """The ordinary path is unchanged: a callable hook is displaced for the harvest and restored."""
+    """A callable foreign hook remains installed throughout the monitoring harvest."""
     seen: list[str] = []
 
     def theirs(_frame, event, _arg):

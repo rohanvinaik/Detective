@@ -31,6 +31,7 @@ from typing import Any
 from Wesker.ci import relevant_test_files, walk_functions
 from Wesker.engine import ProfilingResult, estimate_universe_size, greedy_coverage_guarantee
 from Wesker.filter import filter_categories
+from Wesker.monitoring import MonitoringUnavailable
 
 from ._contain import budget_is_exhausted, contained_stdout, remaining_budget_ms
 from .binding import ReceiverFactory, parse_receiver_factory, resolve_execution, wrap_callable
@@ -2379,19 +2380,24 @@ def _converge_impl(
                 include_shaped=include_shaped,
                 two_sign=two_sign,
             )
-        # BLE001: classification is advisory; never fail the run
+        except MonitoringUnavailable:
+            # Observation refusals invalidate this run; the CLI owns their named outcomes.
+            raise
+        # BLE001: ordinary classification failures remain advisory
         except Exception:  # noqa: BLE001
             survivor_report = None
     # Functionally complete = every KILLABLE mutant killed. Equivalent survivors do
     # not count against it (no test can kill them); an uncertain survivor does, since
     # we can't prove it unkillable. An AUTHORED FENCE also counts against it (Q8): the
     # human declared this survival a must-not, and the suite does not enforce it — an
-    # unpinned negative DOF is a gap, never silently COMPLETE.
+    # unpinned negative DOF is a gap, never silently COMPLETE. Step budget divergence
+    # likewise blocks completeness (#80).
     functionally_complete = final == 0 or (
         survivor_report is not None
         and not survivor_report.killable
         and not survivor_report.unclassified
         and not survivor_report.authored_fence
+        and not getattr(survivor_report, "step_budget_divergent", ())
     )
     # A CUT run measured only PART of the universe (issue #31): its "every killable mutant
     # killed" is a claim about mutants that never ran. The wall makes the measurement
@@ -2462,7 +2468,10 @@ def _converge_impl(
                 use_cache=False,
                 isolated=True,
             )
-        # BLE001: a failed required observation is a refusal
+        except MonitoringUnavailable:
+            # Preserve the cause instead of collapsing it into generic verification failure.
+            raise
+        # BLE001: an ordinary failed required observation is a refusal
         except Exception:  # noqa: BLE001
             _validity = replace(_validity, cut_reasons=(*_validity.cut_reasons, "verification_failed"))
             functionally_complete = False

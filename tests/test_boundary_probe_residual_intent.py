@@ -209,7 +209,7 @@ def test_the_none_half_of_an_optional_is_reached():
     mutant = _mutant(node, original, lambda n: _replace_compare(n, "cap is None", "False"))
     probes = _boundary_probe_inputs(node, {})
     assert probes[0][1] is None  # the None is probed FIRST
-    witness, crash_witness, _blocked = _search_witness(original, mutant, probes)
+    witness, crash_witness, _blocked, *rest = _search_witness(original, mutant, probes)
     # `(…, None)` distinguishes it at once: the mutant compares `iterations > None` and raises.
     assert witness is None and crash_witness is not None and crash_witness.args[1] is None
 
@@ -230,7 +230,7 @@ def test_a_value_mutant_moving_a_float_edge_is_killed_inside_the_region():
         node, original, lambda n: _replace_compare(n, "spread_parent_um <= 0", "spread_parent_um <= -1")
     )
     # The grid only crash-distinguishes it (ZeroDivisionError at 0)…
-    grid_witness, grid_crash, _ = _search_witness(original, mutant, _grid_pool(node, ns))
+    grid_witness, grid_crash, _, *rest = _search_witness(original, mutant, _grid_pool(node, ns))
     assert grid_witness is None and grid_crash is not None
     # …the probes find the VALUE witness strictly inside (-1, 0).
     witness = find_witness(original, mutant, _boundary_probe_inputs(node, ns))

@@ -32,7 +32,8 @@ import pytest
 from Wesker import interrupt
 from Wesker.interrupt import Abandoned
 
-from Detective import equivalence
+from Detective import capture, equivalence
+from Detective.capture import ObservationIncomplete
 from Detective.equivalence import _OUTCOME_TIMEOUT, _outcome, _reached_lines
 
 
@@ -64,9 +65,10 @@ class _CutInsideTheJoin:
 
 @pytest.fixture
 def fake_worker(monkeypatch):
-    """The classifier's `threading.Thread` becomes the fake, for the duration of one test."""
+    """Both execution owners use the fake; cancellation must clean up at either boundary."""
     _CutInsideTheJoin.instances.clear()
-    monkeypatch.setattr(equivalence.threading, "Thread", _CutInsideTheJoin)
+    monkeypatch.setattr(equivalence, "JoinedWorker", _CutInsideTheJoin, raising=False)
+    monkeypatch.setattr(capture, "JoinedWorker", _CutInsideTheJoin)
     return _CutInsideTheJoin.instances
 
 
@@ -117,8 +119,50 @@ def _spin_forever(_x: int) -> int:
 def test_outcome_still_reports_a_timeout_on_the_ordinary_path(recorded_abandon):
     _STOP.clear()
     try:
-        assert _outcome(_spin_forever, (1,), 0.2) == _OUTCOME_TIMEOUT
+        assert _outcome(_spin_forever, (1,), 0.2, cap=None) == _OUTCOME_TIMEOUT
         assert [t.name.endswith("(_run)") for t in recorded_abandon] == [True]
     finally:
         _STOP.set()  # whatever was asserted, no runaway outlives this test
         time.sleep(0.05)
+
+
+def test_outcome_monitoring_failure_is_not_a_target_exception(monkeypatch):
+    from Wesker.monitoring import MonitoringUnavailable
+
+    def unavailable(*args, **kwargs):
+        raise MonitoringUnavailable("no monitoring tool available")
+
+    monkeypatch.setattr(equivalence, "step_budget", unavailable)
+    with pytest.raises(ObservationIncomplete, match="outcome_observation_failed"):
+        _outcome(_identity, (1,))
+
+
+def test_outcome_refuses_an_uncontained_worker(monkeypatch):
+    release = threading.Event()
+    finished = threading.Event()
+
+    def waiting():
+        try:
+            release.wait(2)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(interrupt, "abandon", lambda worker: False)
+    try:
+        with pytest.raises(ObservationIncomplete, match="outcome_uncontained") as caught:
+            _outcome(waiting, (), 0.01)
+        assert caught.value.contained is False
+    finally:
+        release.set()
+        assert finished.wait(2)
+
+
+def test_outcome_consumes_the_nested_measurement_refusal():
+    owner = threading.get_ident()
+
+    def refused():
+        interrupt.mark_refusal("nested_measurement", owner)
+        return 42  # swallowing a refusal cannot turn it into an observed value
+
+    with pytest.raises(ObservationIncomplete, match="execution_refused.*nested_measurement"):
+        _outcome(refused, ())

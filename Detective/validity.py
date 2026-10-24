@@ -36,7 +36,8 @@ import dataclasses
 #    reason vocabulary is exactly what this number exists to signal.
 # 4: `routing_failed` joins the vocabulary (#91). Additive, but the vocabulary is exhaustive on
 #    purpose, so a reader that switches over it must learn the new member rather than meet it.
-MEASUREMENT_VALIDITY_SCHEMA = 4
+# 5: execution bounds have distinct reasons: step exhaustion and unresolved wall time.
+MEASUREMENT_VALIDITY_SCHEMA = 5
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
@@ -46,6 +47,8 @@ CUT_REASONS: tuple[str, ...] = (
     "routing_failed",
     "budget_exhausted",
     "uncontained_worker",
+    "step_budget_exceeded",
+    "mutant_wall_undetermined",
     "coverage_truncated",
     "sampled_universe",
     "collection_incomplete",
@@ -80,6 +83,8 @@ def measurement_cut_reasons(
     not_entered: bool = False,
     target_load_failed: bool = False,
     routing_failed: bool = False,
+    step_budget_exceeded: bool = False,
+    mutant_wall_undetermined: bool = False,
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -133,6 +138,10 @@ def measurement_cut_reasons(
         reasons.append("budget_exhausted")
     if containment == "uncontained":
         reasons.append("uncontained_worker")
+    if step_budget_exceeded:
+        reasons.append("step_budget_exceeded")
+    if mutant_wall_undetermined:
+        reasons.append("mutant_wall_undetermined")
     if coverage_depth == "cut":
         reasons.append("coverage_truncated")
     elif coverage_depth == "sampled":
@@ -187,6 +196,12 @@ def cut_reason_sentence(reason: str) -> str:
         "budget_exhausted": "the aggregate deadline was exhausted, so the universe was never fully measured",
         "uncontained_worker": "a timed-out worker could not be stopped, so later phases"
         " shared a process with it",
+        "step_budget_exceeded": "one or more mutants exceeded an explicit deterministic step budget;"
+        " this is budget-relative evidence, not proof of nontermination or equivalence — inspect the"
+        " execution and its declared bound before re-measuring",
+        "mutant_wall_undetermined": "one or more mutants reached a wall-clock execution bound without"
+        " a verdict; this is neither a kill nor survival evidence — inspect the execution and its"
+        " allowance before re-measuring",
         "coverage_truncated": "the profile was cut before the universe was measured",
         "sampled_universe": "the universe was sampled, not enumerated",
         "collection_incomplete": "one or more test files failed to collect (an import error), so the"
@@ -373,6 +388,8 @@ def normalize_validity(
         target_load_failed=bool(load_failed),
         # `engine.ROUTING_FAILED` — the outcome code is this module's cut reason by the same name.
         routing_failed=bool(routing_failed) or getattr(result, "routing_outcome", "") == "routing_failed",
+        step_budget_exceeded=_unscored_by(result, "diverged"),
+        mutant_wall_undetermined=_unscored_by(result, "undetermined"),
     )
     return MeasurementValidity(
         gateable=gateable,

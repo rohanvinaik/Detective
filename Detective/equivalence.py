@@ -32,13 +32,37 @@ import itertools
 import math
 import re
 import sys
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from Wesker.interrupt import JoinedWorker
 from Wesker.interrupt import bounded_join as _bounded_join
+
+# Step budget from Wesker.monitoring for deterministic loop divergence detection
+try:
+    from Wesker.monitoring import (
+        StepBudgetExceeded,
+        is_budget_active,
+        step_budget,
+        step_cap,
+    )
+except ImportError:  # pragma: no cover
+    import contextlib
+
+    class StepBudgetExceeded(BaseException):
+        pass
+
+    def is_budget_active() -> bool:
+        return False
+
+    def step_budget(codes: Any, cap: int | None) -> Any:
+        return contextlib.nullcontext()
+
+    def step_cap(original_iterations: int, factor: int, floor: int) -> int:
+        return 5000
+
 
 # What the tracers below may swallow. `Abandoned` derives from BaseException in Wesker BY DESIGN,
 # so a test's own `except Exception` cannot swallow the stop — which is why tracing has to reach
@@ -1369,6 +1393,26 @@ _VOLATILE_IN_MESSAGE = re.compile(r"0x[0-9a-fA-F]{4,}")
 _CLASSIFY_TIMEOUT_S = 5.0
 _CLASSIFY_UNWIND_S = 0.25
 _OUTCOME_TIMEOUT = "<classifier-timeout>"
+_OUTCOME_WALL_UNDETERMINED = _OUTCOME_TIMEOUT
+_OUTCOME_DIVERGED = "<step-budget-divergent>"
+_OUTCOME_UNCOPYABLE = "<uncopyable-input>"
+
+
+class UncopyableInputError(ValueError):
+    """Raised when candidate inputs cannot be defensively deepcopied (#127)."""
+
+
+def _extract_code(fn: Any) -> Any:
+    """Extract the underlying code object, unwrapping wrappers (ReceiverBound, entry probe, etc.)."""
+    cur = fn
+    while hasattr(cur, "__wrapped__"):
+        cur = cur.__wrapped__
+    if hasattr(cur, "_fn"):
+        cur = cur._fn
+    while hasattr(cur, "__wrapped__"):
+        cur = cur.__wrapped__
+    return getattr(cur, "__code__", None)
+
 
 # Elements observed before an iterator outcome is TRUNCATED (its suffix left unknown).
 _ITER_PREFIX_MAX = 64
@@ -1451,12 +1495,26 @@ def _observe_receiver_state(receiver: Any) -> str:
 def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
     """How one input distinguishes a mutant, from the ORIGINAL's and the MUTANT's outcomes.
 
+    ``step-budget-divergent`` — mutant exceeded deterministic loop budget relative to original.
     ``blocked`` — a classifier timeout on either side (#42): the input could not be classified, so
     the mutant is left UNCLASSIFIED, never silently ``equivalent``. ``same`` — no observable
     difference. ``crash-only`` — the mutant NEWLY raises where the original returns (a crash-kill,
     which value-specification accounting does not credit). ``witness`` — a value-killable difference.
     """
-    if original_outcome == _OUTCOME_TIMEOUT or mutant_outcome == _OUTCOME_TIMEOUT:
+    if original_outcome in (
+        _OUTCOME_TIMEOUT,
+        _OUTCOME_WALL_UNDETERMINED,
+        _OUTCOME_DIVERGED,
+        _OUTCOME_UNCOPYABLE,
+    ):
+        return "blocked"
+    if mutant_outcome == _OUTCOME_DIVERGED:
+        return "step-budget-divergent"
+    if mutant_outcome in (
+        _OUTCOME_TIMEOUT,
+        _OUTCOME_WALL_UNDETERMINED,
+        _OUTCOME_UNCOPYABLE,
+    ):
         return "blocked"
     # An equal TRUNCATED iterator prefix is UNKNOWN, not equivalent: a suffix past the observed bound
     # could still differ, so declaring it 'same' would be a false certificate on a long or infinite
@@ -1488,12 +1546,34 @@ def _outcome_budget_s(deadline: float | None) -> float:
     return max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - _t.monotonic()))
 
 
+def _deep_unwrapped(args: tuple | list) -> list:
+    """Live candidate argument values, defensively deepcopied to prevent in-place mutation
+
+    of input values from altering subsequent mutant evaluations or corrupting candidate inputs (#127).
+    """
+    unwrapped = [unwrap(a) for a in args]
+    try:
+        return copy.deepcopy(unwrapped)
+    except Exception as exc:
+        raise UncopyableInputError(f"Candidate inputs cannot be safely copied: {exc}") from exc
+
+
+def _deep_args(args: tuple) -> tuple:
+    """Defensively deepcopy candidate argument tuple for safe retention in Witness (#127)."""
+    try:
+        return copy.deepcopy(args)
+    except Exception as exc:
+        raise UncopyableInputError(f"Candidate inputs cannot be safely copied: {exc}") from exc
+
+
 def _outcome(
     fn: Callable[..., Any],
     args: tuple,
     timeout_s: float = _CLASSIFY_TIMEOUT_S,
     *,
     observe_state: bool = False,
+    cap: int | None = None,
+    step_count: list[int] | None = None,
 ) -> str:
     """The repr of ``fn(*args)``, or a raised-marker — so a mutant that starts
     raising (or stops raising) counts as an observable difference, not a crash.
@@ -1506,6 +1586,11 @@ def _outcome(
 
     ``timeout_s`` bounds this single call (default the per-call cap); the witness search passes the
     remaining aggregate wall so one classification cannot overrun the command deadline by a full cap.
+
+    ``cap`` is the deterministic loop iteration budget (EP-B3 / EP-H1): when set, loop back-edges
+    in ``fn``'s code object are monitored via ``sys.monitoring``. Exceeding it returns
+    ``_OUTCOME_DIVERGED`` in ~1ms without waiting out the wall-clock timeout.
+    ``step_count``, when supplied, receives the executed loop iteration count.
 
     The marker carries the exception's MESSAGE as well as its type, because the type alone is
     not the behaviour. Given `if key not in slots: raise KeyError(f"unknown slot {key}")`, both
@@ -1528,49 +1613,61 @@ def _outcome(
     re-classified killable off this same witness, rebuilt identically, forever.
     """
     box: dict[str, str] = {}
-    # Speculative execution: Detective is running the target on inputs IT chose, only to compare
-    # return values. A transitive write here would litter the consumer's tree (issue #30), so block
-    # writes for the duration — a blocked write unwinds into the `<raised …>` marker below, which is
-    # identical for original and mutant, so a writing function yields no false value-witness. The
-    # consumer's own tests (run elsewhere, no sink set) are unaffected. Lazy import breaks the
-    # characterization→equivalence module cycle.
+    observation_errors: list[Exception] = []
+    interrupts: list[BaseException] = []
+    from Wesker.monitoring import MonitoringUnavailable
+
+    from .capture import ObservationIncomplete
     from .synthesis.characterization import _CaptureWriteBlocked, block_fs_writes
+
+    try:
+        call_args = _deep_unwrapped(args)
+    except UncopyableInputError:
+        return _OUTCOME_UNCOPYABLE
+    code = _extract_code(fn)
 
     def _run() -> None:
         try:
             with block_fs_writes():
-                obs = _observe(fn(*(unwrap(a) for a in args)))
+                if code is not None and not is_budget_active():
+                    with step_budget([code], cap=cap) as sc:
+                        obs = _observe(fn(*call_args))
+                        if step_count is not None:
+                            step_count.append(sc.iterations)
+                else:
+                    obs = _observe(fn(*call_args))
                 box["v"] = _with_receiver_state(fn, obs) if observe_state else obs
+        except StepBudgetExceeded:
+            box["v"] = _OUTCOME_DIVERGED
+        except MonitoringUnavailable as exc:
+            observation_errors.append(exc)
         except _CaptureWriteBlocked as exc:
-            # A speculative write was PREVENTED (#30). The guard now sits above `Exception` so the
-            # target's own `except Exception` can never swallow it — but that means OUR handler below
-            # no longer catches it either, and without this clause it would fall through to the #42
-            # abandon-unwind and read as a timeout. Render it as the deterministic observable outcome
-            # it is (identical for original and mutant, so a writing function yields no false witness),
-            # exactly as the generic raised-outcome branch would have.
             box["v"] = _raised_marker(exc)
-        # BLE001: a raised exception IS an observable outcome
         except Exception as exc:  # noqa: BLE001
             box["v"] = _raised_marker(exc)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        # BLE001: the abandon unwind (#42); exit the worker quietly
+        except (KeyboardInterrupt, SystemExit) as exc:
+            interrupts.append(exc)
         except BaseException:  # noqa: BLE001
             pass
 
-    thread = threading.Thread(target=_run, daemon=True)
+    thread = JoinedWorker(target=_run, daemon=True)
     thread.start()
-    # A non-terminating mutant re-executed here used to hang the classifier FOREVER. Stop the
-    # runaway (abandon unwinds pure-Python loops) and report a distinct timeout outcome, which
-    # `_pair_disposition` maps to 'blocked' — an unclassified mutant, never a value-witness (#42).
-    # `bounded_join` stops it on EVERY exit from the wait — including THIS thread being abandoned
-    # while parked in the join, which is what the traced baseline does to a test that runs the
-    # classifier (2026-09-06: a `join; if alive: abandon` here orphaned the runaway, which then
-    # hogged the GIL for the rest of the process).
-    timed_out, _contained = _bounded_join(thread, timeout_s, unwind_s=_CLASSIFY_UNWIND_S)
+    timed_out, contained = _bounded_join(thread, timeout_s, unwind_s=_CLASSIFY_UNWIND_S)
+    if not contained:
+        raise ObservationIncomplete(
+            "outcome_uncontained", "witness execution left a live worker", contained=False
+        )
+    if interrupts:
+        raise interrupts[0]
+    if thread.refusal:
+        raise ObservationIncomplete("execution_refused", thread.refusal)
+    if observation_errors:
+        raise ObservationIncomplete("outcome_observation_failed", str(observation_errors[0])) from (
+            observation_errors[0]
+        )
     if timed_out:
-        return _OUTCOME_TIMEOUT
-    return box.get("v", _OUTCOME_TIMEOUT)
+        return _OUTCOME_WALL_UNDETERMINED
+    return box.get("v", _OUTCOME_WALL_UNDETERMINED)
 
 
 def _reached_lines(
@@ -1580,63 +1677,59 @@ def _reached_lines(
     target_lines: frozenset[int],
     budget_s: float,
 ) -> frozenset[int]:
-    """Which of ``target_lines`` (line numbers in ``filename``) the ORIGINAL executes across the pool.
+    """Target lines the ORIGINAL was observed executing over independent trial inputs.
 
-    The Reachability half of RIP (Def. 1.4, Reachability-Infection-Propagation): a surviving mutant
-    whose mutated line is NOT in the returned set was never EXECUTED by any tried input, so it is not
-    an equivalence -- a reaching input exists that the search did not construct. Runs the ORIGINAL
-    (never the mutant, which could diverge or crash from the mutation) under a line tracer,
-    write-blocked and time-bounded exactly like :func:`_outcome`, early-exiting the moment every target
-    line is hit.
-
-    A best-effort SIGNAL, never a verdict: on a timeout, an unbindable input, or an unknown filename it
-    returns only what it reached, so an un-traced line reads as "unreached" and therefore only ADDS a
-    caveat -- it can never suppress one. That is the same principled-abstention direction as ``blocked``
-    and ``undefined``: a measurement that did not run banks nothing toward a flag-safe verdict.
+    This is the Reachability part of RIP, an additive diagnostic rather than an
+    equivalence verdict. A contained timeout keeps its partial positive observations;
+    absent lines only add a caveat. An uncopyable input or uncontained worker refuses
+    the observation explicitly instead of corrupting the pool or continuing in a
+    process with unbounded trial work. Owned monitoring preserves foreign hooks.
     """
     if not target_lines or filename is None:
         return frozenset()
+    from .capture import ObservationIncomplete, _run_for_effects
     from .synthesis.characterization import block_fs_writes
 
+    code = _extract_code(call)
+    if code is None:
+        return frozenset()
     hit: set[int] = set()
     want = set(target_lines)
     deadline = time.monotonic() + budget_s
 
-    def _run(args: tuple) -> None:
-        def _local(frame, event, _arg):
-            if event == "line" and frame.f_lineno in want:
-                hit.add(frame.f_lineno)
-                want.discard(frame.f_lineno)
-            return _local
-
-        def _global(frame, event, arg):
-            # Trace only frames from the target's own file; the mutation lives in the target
-            # function, and line numbers are unique per file, so this is exact and cheap.
-            return _local(frame, event, arg) if frame.f_code.co_filename == filename else None
-
-        try:
-            sys.settrace(_global)
-            with block_fs_writes():
-                call(*(unwrap(a) for a in args))
-        # BLE001: a raise still traced the lines it reached; reachability is additive. `Abandoned`
-        # is named because Wesker derives it from BaseException on purpose (so a test's own
-        # `except Exception` cannot swallow the stop) — a traced call may be abandoned mid-flight
-        # and its reached lines still count. Naming the pair rather than BaseException lets a real
-        # KeyboardInterrupt/SystemExit end the run instead of being absorbed here (S5754).
-        except _TRACE_SWALLOWS:  # noqa: BLE001
-            pass
-        finally:
-            sys.settrace(None)
+    def observed(frame_code, lineno, **kwargs):
+        if frame_code.co_filename == filename and lineno in want:
+            hit.add(lineno)
+            want.discard(lineno)
 
     for args in candidate_inputs:
         if not want or time.monotonic() >= deadline:
             break
         if not _binds(call, args):
             continue
+        try:
+            call_args = _deep_unwrapped(args)
+        except UncopyableInputError as exc:
+            raise ObservationIncomplete("reach_uncopyable_input", str(exc)) from exc
+
+        def trial(_args=call_args):
+            with block_fs_writes():
+                call(*_args)
+
         per_call = max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - time.monotonic()))
-        thread = threading.Thread(target=_run, args=(args,), daemon=True)
-        thread.start()
-        _bounded_join(thread, per_call, unwind_s=_CLASSIFY_UNWIND_S)  # stopped on every exit, see _outcome
+        run = _run_for_effects(
+            trial,
+            timeout_s=per_call,
+            code=code,
+            event=sys.monitoring.events.LINE,
+            observer=observed,
+        )
+        if not run.contained:
+            raise ObservationIncomplete(
+                "reach_uncontained",
+                "reach worker did not stop",
+                contained=False,
+            )
     return frozenset(hit)
 
 
@@ -1648,7 +1741,8 @@ def _outcome_value(fn: Callable[..., Any], args: tuple) -> Any:
     hash-seed flaky. Called once, when a witness is actually constructed, not for every
     candidate input."""
     try:
-        return fn(*(unwrap(a) for a in args))
+        call_args = _deep_unwrapped(args)
+        return fn(*call_args)
     # BLE001: a raise carries no value; `_outcome` already marked it
     except Exception:  # noqa: BLE001
         return None
@@ -1688,7 +1782,8 @@ def _receiver_state_after(fn: Callable[..., Any], args: tuple) -> dict[str, Any]
     Runs the call once (like :func:`_outcome_value`), then reads the receiver ``ReceiverBound`` kept.
     None when the call raised or built no receiver (nothing clean to pin)."""
     try:
-        fn(*(unwrap(a) for a in args))
+        call_args = _deep_unwrapped(args)
+        fn(*call_args)
     # BLE001: a raise leaves no clean post-state to pin
     except Exception:  # noqa: BLE001
         return None
@@ -1780,9 +1875,10 @@ def _search_witness(
     candidate_inputs: list[tuple],
     *,
     deadline: float | None = None,
-) -> tuple[Witness | None, Witness | None, bool]:
-    """``(witness, crash_witness, blocked)`` — the search `find_witness` runs, plus the two facts it
-    used to throw away: a crash-only distinguishing input, and whether classification TIMED OUT (#42).
+) -> tuple[Witness | None, Witness | None, bool, bool]:
+    """``(witness, crash_witness, blocked, diverged)`` — the search `find_witness` runs, plus the
+    three facts it used to throw away: a crash-only distinguishing input, whether classification
+    TIMED OUT (#42), and whether loop execution deterministically diverged from the step budget (#80/#126).
 
     ``crash_witness`` is set when NO value-witness exists but some input DID distinguish the mutant
     by newly raising. That is a real and reportable distinction: such a mutant is not "equivalent —
@@ -1795,6 +1891,7 @@ def _search_witness(
     """
     crash_witness: Witness | None = None
     blocked = False
+    diverged = False
     for args in candidate_inputs:
         # The aggregate wall (issue #31) is checked PER INPUT, not just per mutant: a
         # non-terminating mutant pays #42's 5s classifier timeout on EVERY candidate, so a
@@ -1826,9 +1923,27 @@ def _search_witness(
             continue
         # Each classification is bounded by the REMAINING aggregate wall, recomputed per call, so a
         # single non-terminating _outcome cannot overrun the command deadline by a full 5s cap (#31).
-        original_outcome = _outcome(original, args, _outcome_budget_s(deadline))
-        mutant_outcome = _outcome(mutant, args, _outcome_budget_s(deadline))
+        # We count original iterations and bound the mutant by a deterministic factor-and-floor step budget.
+        orig_steps: list[int] = []
+        original_outcome = _outcome(
+            original,
+            args,
+            _outcome_budget_s(deadline),
+            cap=None,
+            step_count=orig_steps,
+        )
+        orig_it = orig_steps[0] if orig_steps else None
+        mut_cap = step_cap(orig_it, factor=10, floor=100) if orig_it is not None else None
+        mutant_outcome = _outcome(
+            mutant,
+            args,
+            _outcome_budget_s(deadline),
+            cap=mut_cap,
+        )
         disposition = _pair_disposition(original_outcome, mutant_outcome)
+        if disposition == "step-budget-divergent":
+            diverged = True
+            continue
         if disposition == "blocked":
             # #42: classification TIMED OUT on this input — record it and move on. The mutant is
             # unclassified (honest uncertainty), never candidate-equivalent (a false claim that no
@@ -1844,9 +1959,19 @@ def _search_witness(
             # least crash-detects the mutant). Keep the FIRST such input; a value-witness
             # found later still outranks it.
             if crash_witness is None:
+                try:
+                    safe_args = _deep_args(args)
+                except UncopyableInputError:
+                    blocked = True
+                    continue
                 crash_witness = Witness(
-                    tuple(args), original_outcome, mutant_outcome, _outcome_value(original, args)
+                    safe_args, original_outcome, mutant_outcome, _outcome_value(original, args)
                 )
+            continue
+        try:
+            safe_args = _deep_args(args)
+        except UncopyableInputError:
+            blocked = True
             continue
         return (
             # Capture the MUTANT's live value too (symmetric to the original), so an object /
@@ -1855,7 +1980,7 @@ def _search_witness(
             # once at construction — the same one-extra-call the original already pays here, and
             # only when a value-witness is actually built, never per candidate input.
             Witness(
-                tuple(args),
+                safe_args,
                 original_outcome,
                 mutant_outcome,
                 _outcome_value(original, args),
@@ -1863,6 +1988,7 @@ def _search_witness(
             ),
             None,
             blocked,
+            diverged,
         )
     # FALLBACK — receiver STATE (#25, "fallback only"): the value search found no witness, so retry
     # observing the receiver's post-call state. Extracted whole so this function's job (the value
@@ -1870,7 +1996,7 @@ def _search_witness(
     state_witness, state_blocked = _state_fallback_witness(
         original, mutant, candidate_inputs, deadline=deadline
     )
-    return state_witness, crash_witness, blocked or state_blocked
+    return state_witness, crash_witness, (blocked or state_blocked) and not diverged, diverged
 
 
 def _state_fallback_witness(
@@ -1904,7 +2030,11 @@ def _state_fallback_witness(
             continue
         state_pins = _state_witness_pins(original, mutant, args)
         if state_pins:
-            return Witness(tuple(args), original_outcome, mutant_outcome, state_pins=state_pins), False
+            try:
+                safe_args = _deep_args(args)
+            except UncopyableInputError:
+                continue
+            return Witness(safe_args, original_outcome, mutant_outcome, state_pins=state_pins), False
     return None, False
 
 
@@ -1939,12 +2069,20 @@ class MutantVerdict:
     # reachability pass reads as reached, so the signal only ever ADDS a caveat, never removes one.
     # Meaningful only for a candidate-equivalent — a killable/crash-only survivor carries its own input.
     reached: bool = True
+    # Mutant loop execution deterministically diverged from the step budget (#80/#126).
+    # Never true when killable. Distinct from blocked (wall timeout): this records an established
+    # exceedance of the declared step bound, not a proof of infinite execution.
+    diverged: bool = False
 
     @property
     def label(self) -> str:
         """One-word disposition for reports."""
         if self.killable:
             return "killable"
+        if self.diverged:
+            return "step-budget-divergent"
+        if self.blocked:
+            return "wall-undetermined"
         # Not "equivalent-candidate": an input DOES distinguish this one, by crash. Saying no
         # input does is simply false, and it is what sent callers hunting for an input that
         # cannot exist. `find_witness` names the real class; report ITS word, not a rounder one.
@@ -2079,7 +2217,7 @@ class SurvivorReport:
     def equivalent(self) -> tuple[MutantVerdict, ...]:
         """Every non-killable verdict — the UNION of candidate-equivalent and crash-only. Kept for
         back-compat; renderers that must not fuse the two consume the named partitions below (#36)."""
-        return tuple(v for v in self.verdicts if not v.killable)
+        return tuple(v for v in self.verdicts if not v.killable and not v.diverged and not v.blocked)
 
     @property
     def candidate_equivalent(self) -> tuple[MutantVerdict, ...]:
@@ -2087,14 +2225,30 @@ class SurvivorReport:
         population (issue #36). Excludes crash-only, which a concrete input DOES distinguish; calling
         those 'unproven-equivalent' is the false claim that sent readers hunting for an input that
         already exists."""
-        return tuple(v for v in self.verdicts if not v.killable and not v.crash_only)
+        return tuple(
+            v
+            for v in self.verdicts
+            if not v.killable and not v.crash_only and not v.diverged and not v.blocked
+        )
 
     @property
     def crash_only(self) -> tuple[MutantVerdict, ...]:
         """Non-killable by VALUE but distinguished by a crash input (original returns, mutant raises)
         — a value-specification residual with a known distinguishing input, NOT an equivalence
         claim (issue #36). A different class from candidate-equivalent, and never fused with it."""
-        return tuple(v for v in self.verdicts if not v.killable and v.crash_only)
+        return tuple(
+            v for v in self.verdicts if not v.killable and v.crash_only and not v.diverged and not v.blocked
+        )
+
+    @property
+    def step_budget_divergent(self) -> tuple[MutantVerdict, ...]:
+        """Survivors whose loop execution deterministically diverged from the step budget (#80/#126)."""
+        return tuple(v for v in self.verdicts if v.diverged)
+
+    @property
+    def wall_undetermined(self) -> tuple[MutantVerdict, ...]:
+        """Survivors whose evaluation timed out on wall-clock bound without diverging."""
+        return tuple(v for v in self.verdicts if v.blocked)
 
 
 def classify_survivor(
@@ -2118,7 +2272,9 @@ def classify_survivor(
     ``deadline`` (absolute monotonic seconds) is the aggregate command wall (issue #31): the
     witness search stops when it passes, and the verdict comes back ``blocked`` — never a
     false candidate-equivalent from a search the budget cut short."""
-    witness, crash_witness, blocked = _search_witness(original, mutant, candidate_inputs, deadline=deadline)
+    witness, crash_witness, blocked, diverged = _search_witness(
+        original, mutant, candidate_inputs, deadline=deadline
+    )
     return MutantVerdict(
         mutant_id=mutant_id,
         category=category,
@@ -2129,5 +2285,6 @@ def classify_survivor(
         crash_only=crash_witness is not None,
         crash_witness=crash_witness,
         suite_detected=suite_detected,
-        blocked=blocked and witness is None,
+        blocked=blocked and witness is None and not diverged,
+        diverged=diverged and witness is None,
     )

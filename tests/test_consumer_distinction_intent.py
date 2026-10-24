@@ -58,13 +58,6 @@ BY_DESIGN: dict[str, str] = {
         "returns None for a `reachable` disposition, so `reachable` never reaches this call. The else "
         "stands for `no_primitive_seam` alone, as its comment says."
     ),
-    "capture.harvest_disposition @ capture.capture_call_inputs": (
-        "Both stop the harvest and keep what was captured, which is the decision's own rule ('a partial "
-        "harvest is honest, an overrun is not'); the function returns inputs, not how it ended. The wall "
-        "is the classifier's `_cls_abs_deadline`, which the classifier reads again for itself "
-        "(`_cls_exhausted()`, and the witness search's `deadline=`), so the cut is visible to the "
-        "classification that consumes the harvest."
-    ),
     "promotion_ledger.ledger_disposition @ promotion_ledger.corpus_fixpoint": (
         "A first-admissible search: every code but `promote` means 'not this entry this round', and the "
         "loop emits nothing per entry. The decision's docstring gives the split's purpose as pinning the "
@@ -76,17 +69,6 @@ BY_DESIGN: dict[str, str] = {
         "never dropped for missing attribution)'. This is the one call site of the foreign_only / "
         "unwitnessed split, and it keeps those two apart. For review: the decision's own docstring says "
         "`unwitnessed` is 'never invented into the receipt'."
-    ),
-    "capture.profile_hook_disposition @ capture.capture_call_inputs": (
-        "`install` and `install_and_restore` take the same action: `sys.setprofile(prev)` in the "
-        "`finally` reinstates None and a Python callable alike, so the split names which state is handed "
-        "back and no remedy differs. `foreign_unrestorable` is the one code with a different remedy, and "
-        "it is the one compared (EP-B2)."
-    ),
-    "capture.profile_hook_disposition @ capture.capture_return_types": (
-        "The same reading as the input harvest: `sys.setprofile(prev)` restores None and a Python "
-        "callable alike, and `foreign_unrestorable`, the only code whose remedy differs, is the one "
-        "compared (EP-B2)."
     ),
     "reachability.reach_disposition @ reachability.reachable_test_paths": (
         "A filter whose question is the decision's own first line, 'may a collected test execute the "

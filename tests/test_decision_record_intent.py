@@ -174,6 +174,7 @@ def test_the_record_carries_the_decided_state_each_verb_holds(walk):
         "killable",
         "candidate_equivalent",
         "crash_only",
+        "step_budget_divergent",
     }
     assert set(walk["json"]["audit"][1]["decision"]["state"]) == {"headline"}
     assert set(walk["json"]["regime"][1]["decision"]["state"]) == {"blocked", "needed"}
@@ -1221,8 +1222,8 @@ def test_a_clean_two_sign_audit_names_converge_as_its_next_command(code):
     d = _audit_decision(a, two_sign=True)
     out = _audit_action(a, decision=d)
     assert (d.code, d.kind, d.remedy) == (code, "run", "")
-    assert (d.argv, d.then) == (("converge", "m.py::f"), None)
-    assert out[0] == "DO THIS:  detective converge 'm.py::f'"
+    assert (d.argv, d.then) == (("converge", "m.py::f", "--two-sign"), None)
+    assert out[0] == "DO THIS:  detective converge 'm.py::f' --two-sign"
     assert _command_in(out[0]) == list(d.argv)
     assert len(out) == 3 and out[1] == "", "the command, a blank, and one row"
     assert _row_labels(out) == ["· Why"]
@@ -1265,8 +1266,15 @@ def test_two_sign_changes_nothing_where_the_setup_is_not_clean():
         two_sign = _audit_decision(a, removing, True)
         plain = _audit_decision(a, removing, False)
         assert (two_sign.code, (two_sign.kind, two_sign.remedy)) == (code, step), code
-        assert replace(two_sign, two_sign=False) == plain, f"{code}: only the flag differs"
-        assert _audit_action(a, removing, two_sign) == _audit_action(a, removing, plain), code
+        assert replace(two_sign, two_sign=False, then=plain.then) == plain, code
+        if plain.then is not None:
+            assert two_sign.then == (*plain.then, "--two-sign"), code
+        else:
+            assert two_sign.then is None, code
+        # Same remedy and evidence; the command following the repair retains its policy.
+        assert [line.replace(" --two-sign", "") for line in _audit_action(a, removing, two_sign)] == (
+            _audit_action(a, removing, plain)
+        ), code
 
 
 def test_two_sign_keeps_the_residual_the_headline_and_the_redundancy_as_facts():
@@ -1313,12 +1321,12 @@ def test_audit_step_makes_a_clean_two_sign_setup_a_run(code, two_sign, expected)
 def test_a_two_sign_setups_command_is_converge_and_never_remove():
     fn = "m.py::f"
     for code in _FIVE_CLEAN:
-        assert _audit_commands(code, fn, True) == (("converge", fn), None), code
+        assert _audit_commands(code, fn, True) == (("converge", fn, "--two-sign"), None), code
     assert _audit_commands("remove_redundant", fn, False) == (("audit", fn, "--remove"), None)
     assert _audit_commands("flag_equivalents", fn, False) == (None, None)
-    assert _audit_commands("fix_load", fn, True) == (None, ("audit", fn))
-    assert _audit_commands("fix_failing_test", fn, True) == (None, ("audit", fn))
-    assert _audit_commands("provide_sample", fn, True) == (None, ("converge", fn))
+    assert _audit_commands("fix_load", fn, True) == (None, ("audit", fn, "--two-sign"))
+    assert _audit_commands("fix_failing_test", fn, True) == (None, ("audit", fn, "--two-sign"))
+    assert _audit_commands("provide_sample", fn, True) == (None, ("converge", fn, "--two-sign"))
     assert _audit_commands("removing_now", fn, True) == (None, None)
 
 
@@ -1343,7 +1351,7 @@ def test_the_real_two_sign_audit_names_converge_in_its_record_and_on_its_page(tw
     )
     assert decision["step"] == {
         "kind": "run",
-        "argv": ["converge", "mod.py::magnitude"],
+        "argv": ["converge", "mod.py::magnitude", "--two-sign"],
         "then": None,
         "remedy": "",
     }

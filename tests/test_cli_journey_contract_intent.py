@@ -8,18 +8,26 @@ template was printed as a command even though Detective's own parser rejected it
 from __future__ import annotations
 
 import shlex
+from dataclasses import replace
 from types import SimpleNamespace
 
+from Detective.audit import SuiteAudit
 from Detective.cli import (
+    _audit_action,
+    _audit_decision,
     _build_parser,
     _converge_action,
+    _converge_decision,
     _derive_input_plan,
     _derived_input,
+    _final_banner,
+    _format_converge,
     _reachable_paths,
     _regime_action,
     execution_disposition,
     main,
 )
+from Detective.converge import ConvergeResult
 from Detective.equivalence import MutantVerdict, SurvivorReport, Witness
 from Detective.regime import resolve_regime
 
@@ -210,3 +218,123 @@ def test_migration_reports_the_new_state_instead_of_saying_nothing_happened():
 
     assert "migration applied" in " ".join(out)
     assert "nothing to migrate" not in " ".join(out)
+
+
+def test_two_sign_audit_prescribes_the_same_policy_in_text_and_argv():
+    audit = SuiteAudit(
+        function="m.py::scale",
+        test_count=1,
+        kill_pct=8 / 9,
+        mutant_complete=False,
+        line_complete=True,
+        redundant_tests=(),
+        failing_tests=(),
+        killable_gaps=("OUTPUT_missing",),
+        missing_lines=(),
+        minimal_test_count=1,
+        total_mutants=9,
+        value_killed=8,
+    )
+    decision = _audit_decision(audit, two_sign=True)
+    out = _audit_action(audit, decision=decision)
+    argv = shlex.split(out[0].removeprefix("DO THIS:  "))[1:]
+    assert tuple(argv) == decision.argv
+    assert _build_parser().parse_args(argv).two_sign is True
+
+
+def test_two_sign_converge_preserves_policy_through_rerun_and_style_handoff():
+    result = ConvergeResult(
+        function="m.py::scale",
+        converged=True,
+        at_ceiling=True,
+        initial_survivors=0,
+        final_survivors=0,
+        iterations=(),
+        written_path=None,
+        functionally_complete=True,
+    )
+    rep = SurvivorReport(verdicts=(), unclassified=())
+    for case in (result, replace(result, stale_target=True)):
+        decision = _converge_decision(case, rep, two_sign=True, render_tests=False)
+        out = "\n".join(_converge_action(case, rep, decision=decision))
+        commands = (decision.argv,) if case.stale_target else decision.optional
+        for argv in commands:
+            parsed = _build_parser().parse_args(argv)
+            if parsed.command in ("converge", "decompose"):
+                assert parsed.two_sign is True
+                assert "--two-sign" in out
+
+
+def test_final_names_the_measured_policy():
+    result = ConvergeResult(
+        function="m.py::scale",
+        converged=True,
+        at_ceiling=True,
+        initial_survivors=0,
+        final_survivors=0,
+        iterations=(),
+        written_path=None,
+        functionally_complete=True,
+        policy_id="8.example-two-sign",
+    )
+    assert "policy 8.example-two-sign" in _final_banner(result)
+
+
+def test_archived_flag_command_retains_the_measured_two_sign_policy():
+    verdict = MutantVerdict(
+        mutant_id="OUTPUT_empty",
+        category="OUTPUT",
+        diff_summary="return '' -> return type('')()",
+        killable=False,
+        witness=None,
+        searched=1,
+    )
+    result = ConvergeResult(
+        function="empty.py::empty",
+        converged=True,
+        at_ceiling=True,
+        initial_survivors=1,
+        final_survivors=1,
+        iterations=(),
+        written_path=None,
+        survivor_report=SurvivorReport(verdicts=(verdict,), unclassified=()),
+    )
+    report = _format_converge(result, two_sign=True)
+    commands = [part for part in report.split("`") if part.startswith("detective flag ")]
+    assert len(commands) == 1
+    parsed = _build_parser().parse_args(shlex.split(commands[0])[1:])
+    assert parsed.two_sign is True
+    assert parsed.mutant_id == "OUTPUT_empty"
+
+
+def test_flag_can_address_output_survivors_in_the_two_sign_universe(monkeypatch, tmp_path):
+    from Detective import cli, engine, equivalents
+
+    args = _build_parser().parse_args(
+        [
+            "flag",
+            "m.py::scale",
+            "OUTPUT_missing",
+            "--two-sign",
+            "--note",
+            "authored proof",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+    seen = {}
+
+    def measured(*a, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(
+            function_key="m.py::scale",
+            value_survivor_records=[
+                {"mutant_id": "OUTPUT_missing", "diff_summary": "return None -> type(None)()"}
+            ],
+        )
+
+    monkeypatch.setattr(engine, "profile", measured)
+    monkeypatch.setattr(equivalents, "add_flag", lambda *a, **kw: None)
+    assert cli._run_flag(args, "m.py", "scale") == 0
+    assert seen["two_sign"] is True

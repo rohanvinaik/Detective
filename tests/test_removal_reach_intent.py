@@ -31,8 +31,11 @@ import json
 import subprocess
 import sys
 import textwrap
+import threading
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from Detective.audit import (
     module_safe_removals,
@@ -90,7 +93,18 @@ def test_an_unobserved_reach_is_never_read_as_an_empty_one():
     of what the measured run did. Each keeps the test, under its own code, since the remedies differ."""
     assert removal_safety("", "not_collected", 0, 0) == "reach_unobserved"
     assert removal_safety("   ", "not_collected", 0, 0) == "reach_unobserved"
-    for status in ("raised", "skipped", "failed", "error", "xfailed", "something_new"):
+    for status in (
+        "raised",
+        "skipped",
+        "failed",
+        "error",
+        "xfailed",
+        "something_new",
+        "timed_out",
+        "uncontained",
+        "incomplete_thread",
+        "observation_failed",
+    ):
         assert removal_safety("", status, 0, 0) == "reach_not_reproduced"
 
 
@@ -387,6 +401,18 @@ def test_a_rerun_that_did_not_pass_or_was_never_collected_keeps_the_candidate_un
     }
 
 
+def test_unknown_reach_does_not_spend_profiles_that_cannot_authorize_removal(tmp_path):
+    _lone_function_module(tmp_path)
+    reach = {"test_stopped": ("uncontained", frozenset({("far.py", "g")}))}
+    with (
+        patch("Detective.audit.candidate_reach", return_value=(reach, {})),
+        patch("Detective.audit.profile", side_effect=AssertionError("unknown reach cannot clear deletion")),
+    ):
+        safe, retained, unverified = module_safe_removals("m.py", "f", str(tmp_path), list(reach))
+    assert safe == () and retained == {}
+    assert unverified == {"test_stopped": ("reach_not_reproduced", "uncontained")}
+
+
 def test_the_probe_reads_a_live_rerun_that_skipped_or_failed_as_not_reproduced(tmp_path, monkeypatch):
     """Through Wesker's live session. The item wrapper returns NORMALLY for a skip, having run only what
     preceded it, and re-raises pytest's `Failed` (a BaseException, not an Exception) for pytest.fail.
@@ -423,6 +449,63 @@ def test_the_probe_reads_a_live_rerun_that_skipped_or_failed_as_not_reproduced(t
     assert reach[ids[0]] == ("known", frozenset({(f"{mod}.py", "f")}))
     assert reach[ids[1]][0] == "skipped"
     assert reach[ids[2]][0] == "failed"
+
+
+@pytest.mark.parametrize("mode", ["joined", "outliving", "blocked"])
+def test_reach_probe_owns_threads_and_never_borrows_legacy_hooks(tmp_path, monkeypatch, mode):
+    from Wesker import ci, interrupt
+
+    from Detective.audit import candidate_reach
+
+    target = _write(tmp_path / "unit.py", "def f(x):\n    return x + 1\n")
+    ns = {}
+    exec(compile(target.read_text(), str(target), "exec"), ns)  # noqa: S102
+    release = threading.Event()
+    workers = []
+
+    def candidate():
+        if mode == "blocked":
+            release.wait(2)
+            return
+
+        def child():
+            if mode == "outliving":
+                release.wait(2)
+            assert ns["f"](1) == 2
+
+        worker = threading.Thread(target=child, daemon=True)
+        workers.append(worker)
+        worker.start()
+        if mode == "joined":
+            worker.join(2)
+
+    monkeypatch.setattr(ci, "discover_test_callables", lambda *a, **kw: [candidate])
+
+    def hook_theft(*args):
+        pytest.fail("reach probe modified a foreign legacy profile slot")
+
+    monkeypatch.setattr(threading, "setprofile_all_threads", hook_theft)
+    if mode == "blocked":
+        monkeypatch.setattr(interrupt, "abandon", lambda worker: False)
+    cid = ci.callable_test_id(candidate, str(tmp_path))
+    try:
+        reach, _ = candidate_reach(
+            str(tmp_path),
+            "unit.py",
+            "f",
+            [cid],
+            per_test_timeout_s=0.01 if mode == "blocked" else 2,
+        )
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(2)
+    expected = {"joined": "known", "outliving": "incomplete_thread", "blocked": "uncontained"}
+    assert reach[cid][0] == expected[mode]
+    if mode == "joined":
+        assert reach[cid][1] == frozenset({("unit.py", "f")})
+    else:
+        assert removal_safety("", reach[cid][0], 0, 0) == "reach_not_reproduced"
 
 
 def test_an_unresolved_target_measurement_deletes_nothing_and_never_consults_further(tmp_path):

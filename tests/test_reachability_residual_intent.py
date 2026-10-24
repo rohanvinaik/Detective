@@ -20,6 +20,11 @@ now minted ONLY when the mutation was REACHED over EXPRESSIBLE inputs.
 
 from __future__ import annotations
 
+import threading
+
+import pytest
+from Wesker.monitoring import MonitoringUnavailable
+
 import Detective.engine as engine
 from Detective.engine import classify_survivors
 from Detective.equivalence import _reached_lines, residual_disposition
@@ -48,6 +53,45 @@ def test_reached_lines_is_additive_on_a_missing_file_or_empty_target():
     g = _toy("def g(x):\n    return x\n")["g"]
     assert _reached_lines(g, [(0,)], None, frozenset({2}), 2.0) == frozenset()
     assert _reached_lines(g, [(0,)], g.__code__.co_filename, frozenset(), 2.0) == frozenset()
+
+
+def test_reach_probe_preserves_input_values_and_aliases():
+    f = _toy("def f(a, b):\n    if a is b:\n        a.append(99)\n    return len(a)\n")["f"]
+    shared = []
+    reached = _reached_lines(f, [(shared, shared)], f.__code__.co_filename, frozenset({3}), 2.0)
+    assert reached == frozenset({3}), "copying must preserve aliases within a call"
+    assert shared == [], "speculative reach must not rewrite the retained input pool"
+
+
+def test_reach_probe_refuses_uncopyable_inputs():
+    class Uncopyable:
+        def __deepcopy__(self, memo):
+            raise ValueError("no independent copy")
+
+    f = _toy("def f(value):\n    return value\n")["f"]
+    with pytest.raises(MonitoringUnavailable, match="reach_uncopyable_input"):
+        _reached_lines(f, [(Uncopyable(),)], f.__code__.co_filename, frozenset({2}), 2.0)
+
+
+def test_reach_probe_refuses_an_uncontained_worker(monkeypatch):
+    from Wesker import interrupt
+
+    release = threading.Event()
+    finished = threading.Event()
+
+    def waiting():
+        try:
+            release.wait(2)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(interrupt, "abandon", lambda worker: False)
+    try:
+        with pytest.raises(MonitoringUnavailable, match="reach_uncontained"):
+            _reached_lines(waiting, [()], __file__, frozenset({1}), 0.01)
+    finally:
+        release.set()
+        assert finished.wait(2)
 
 
 # ── end-to-end: an unreached candidate-equivalent is marked, and never flag-safe ────
