@@ -14,7 +14,8 @@ The cleanup contract and evidence-flow plan govern subsequent batches.
 | Patch owners and globals | Retain live discovery/rebinding correctness and authoritative package metadata. These still scan/copy per evaluation; W#40/W#42 optimization acceptance remains open. |
 | Detective divergence decisions | Retain the dedicated residual, non-flaggable standing and incomplete handoff. Ordinary incomplete inputs/fences still need their own remedies. |
 | Defensive input copies | Retain copying of the complete argument graph and explicit uncopyable outcomes. Reach probing now uses that boundary too. |
-| Removal measurement validity | Retain validity-qualified neighbor profiles and known-reach admission. This is only preflight evidence; two-sign propagation and exact-batch closure remain unfinished. |
+| Removal measurement validity | Retain validity-qualified neighbor profiles and known-reach admission. Two-sign mode now reaches all preflight profiles and the CLI preflight call. Exact-batch preservation of the required closure remains unfinished. |
+| Required observation refusals | Retain named failures through converge classification/verification, audit and rewrite. The public CLI distinguishes unavailable capability from invalid observation and withholds unsupported verdicts and prescriptions. Ordinary advisory failure keeps its existing fallback. |
 | Native Ruff resolution | Retain active-environment binary resolution before ambient PATH. Formatter failure still returns source, as the existing API declares. |
 | Generated certificates/goldens | Do not treat edited counters/digests or hand-adjusted characterizations as fresh proof. Keep them separate until regenerated and their source/policy basis is checked. |
 
@@ -49,9 +50,10 @@ passing it is regression evidence, not a fresh pin receipt.
    ownership and the supported Python version matrix.
 2. Audit direct re-execution in `_outcome_value` and `_receiver_state_after`;
    consolidate only when outcome, state, budget and containment remain distinct.
-3. Carry the exact policy through every affected removal profile, then implement
-   reversible staged-batch verification of the required closure. Unknown impact
-   retains the test. Local line/kill equality cannot discharge this obligation.
+3. Complete reversible staged-batch verification of the required closure. The
+   selected two-sign mode reaches each preflight profile; this does not establish
+   kappa-weighted closure or fresh verification after an exact batch edit. Unknown
+   impact retains the test. Local line/kill equality cannot discharge this obligation.
 4. Fix the two-sign DOF denominator at its source. Audit remaining command context
    (receiver, environment and clock), rather than inferring continuity from a flag.
 5. Review five changed local theory priors against their dependent claims before

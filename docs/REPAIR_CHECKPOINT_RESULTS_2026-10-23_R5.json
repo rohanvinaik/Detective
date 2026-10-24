@@ -1,0 +1,18 @@
+{
+  "exit_code": 0,
+  "source_unchanged": true,
+  "source_files": 453,
+  "source_unchanged_at_checkpoint": true,
+  "receipt_directory": "/var/folders/y3/9hy3l65d7xvdl89kh19dnlf40000gp/T/wesker-detective-repair-nlvck5pa",
+  "source_manifest_sha256": "e95440a22428f8590ec54501148a6704a5e05a12b0fc98177c12481baa44bd6d",
+  "logs": {
+    "r5-proof-consumers-before.log": "6d7a7d0449c75a90b00fb1e5b6c53385d67796c0364f2791eb2f73c34e8ea168",
+    "r5-proof-consumers-cli.log": "921b33640b797b26e48765ede0d0cb71c093861500b864679e2ff410b8f0c29f",
+    "detective-r5-proof-suite.log": "cc1fda4b762a000dab922ed6d9566cbbe0df3580b9fb34d9425945813c3682b4",
+    "r5-proof-ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "r5-proof-format.log": "7b61f2fe8db45c77d6103715501aaf63dfc9194f5377e50983054674754f59c6",
+    "r5-proof-ty.log": "81a35936c55367617a7dd956d89efe3408263fcf51208f05f1d88f7aafc30e4b"
+  },
+  "basis": "local working tree; Detective source repairs remain uncommitted pending the separate generated-characterization review",
+  "scope": "R5 named required-observation refusals; no deletion batch or broader issue acceptance"
+}

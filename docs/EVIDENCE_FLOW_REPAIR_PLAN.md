@@ -67,6 +67,42 @@ Wesker owns interpreter instrumentation; Detective consumes that service. Do not
 introduce a second monitoring owner or a framework merely to draw this graph.
 Use references to verify the implemented graph and real runs to verify execution.
 
+## Communication preservation
+
+`docs/theory/COMMUNICATING_DETERMINISM.md` was reread in full during this pass.
+Its criterion is stronger than literal truth: the encoding must preserve distinctions
+between epistemic states whose remedies differ (§3). A reader must not be led from a
+true number to an invented cause or an unsupported next action. This applies to the
+cleanup itself as well as to the tool being repaired.
+
+Review each retained obligation across three layers: qualified observation, warranted
+conclusion, and emitted sign/action. Every decision needs a consumer; every consumer
+must distinguish its codes or explicitly name and justify a deliberate collapse.
+Reflection-based serialization is not evidence that a decision is consumed (§3.2, §11).
+
+- Unavailable capability, incomplete observation, unresolved survivor, and an observed
+  gap are different states. Preserve the cause through human output, JSON, certificates
+  and the invocation ledger wherever each channel applies. Do not emit a certificate or
+  completed verdict under a warning when its required observation was refused.
+- A next command asserts that a particular future invocation can change what is known
+  (§5). Missing measurements do not by themselves warrant authoring tests, supplying
+  inputs, flagging equivalence, or repeating the same command. A named refusal can be
+  the complete product of a run, with no next action established (§4).
+- Zero contribution from an advisory lens is not opposition. Unmeasured and measured-
+  clean inputs remain distinguishable; no quality scalar replaces the specified
+  independent-lens concurrence (§7).
+- Bound-relative step exceedance does not prove infinite execution. A finite-policy
+  completeness result does not establish program intent or completeness outside that
+  policy/domain/regime. Favorable counts cannot supply these missing warrants.
+- Rare refusal branches are part of the communication alphabet (§4), not deletion
+  candidates merely because ordinary runs seldom use them. A test-removal receipt must
+  retain their distinct obligations and the consumers that carry them to the reader.
+- The CLI's theorem-like rendering and the historical model-facing surface's behavioral
+  prompt answer to different criteria (§6). Preserve documented anti-affordances and
+  deliberate prompt prohibitions; do not transfer that license to CLI claims or quietly
+  soften it during consolidation. The paper does not claim mechanized sentence
+  correctness or a proven complete epistemic state space (§11).
+
 ## Ordered repair tracks
 
 | Track | Question and existing evidence | Mechanism and consumers | Acceptance and stop condition |
@@ -168,6 +204,23 @@ retain their separate repository gates.
   All three new outcome cases failed before repair; the related focused scope
   passed 73 tests afterward. Live-value and receiver-state rendering helpers
   still execute another call directly; audit those before accepting this track.
+- R5 consumer follow-through: final converge classification, required isolated
+  verification, audit classification and rewrite classification swallowed named
+  monitoring failures as ordinary advisory exceptions. Six reproduced consumer
+  cases failed before repair. These failures now reach the existing CLI boundary:
+  capability unavailable -> REFUSED / 2; failed observation -> INVALID_MEASUREMENT
+  / 3, retaining its cause. The focused library/human/JSON and rewrite scope passed
+  45 tests (`r5-proof-consumers-cli`), including the ordinary rewrite-advisory
+  fallback. No input, equivalence or completion prescription is emitted on these
+  refusal paths. This is one preservation edge, not acceptance of every R5 path.
+- R6 policy preflight: `module_safe_removals`, `_consult_reach` and `_audit_remove`
+  now forward the selected two-sign mode into sibling, neighboring-function and
+  observed-reach profiles. Nine failing cases preceded the repair; the affected
+  focused scope passed 66 tests. The subsequent Detective suite passed 3,796 tests
+  at that recorded source basis (`detective-r6-suite`), before the later R5
+  consumer edits. Kappa-weighted closure, fresh affected post-edit verification
+  and reversible exact-batch application remain open; no deletion is authorized
+  by policy propagation alone.
 - R7: the reference checker now parses Boolean evidence flags with inline
   comments as Booleans, rejects malformed/missing flags and missing sections,
   and reports a named malformed-manifest exit. The real checker still reports
@@ -203,3 +256,12 @@ COMPLETE with 10/10 mutants killed and fresh isolated reproducibility confirmed.
 Its two generated value cases were read; the original handwritten intent cases
 remain the independent requirements. This is one decision's pin, not a proof of
 the monitoring lifecycle or a suite-removal preservation receipt.
+
+The later R5 consumer checkpoint is separate:
+`REPAIR_CHECKPOINT_RESULTS_2026-10-23_R5.json` binds its logs and source manifest.
+Detective passed 3,827 tests, with four skips and one expected failure, against local
+Wesker under pytest-cov. The package/test sources remained unchanged during the run
+and at checkpoint creation. Ruff check and whole-tree format passed; ty reported
+seven warnings and no errors. These results cover the recorded dirty working tree,
+not a claim that its source changes are already in a commit. Generated-banner
+characterization review and the remaining direct re-execution paths are still open.
