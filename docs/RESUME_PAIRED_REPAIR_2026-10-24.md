@@ -8,6 +8,10 @@ lock, issues and runtime state before acting. The shared execution checklist is
 edges. The [original handoff](REPAIR_HANDOFF_2026-10-24.md) supplies detailed obligations;
 its original checkpoint/future-tense implementation paragraphs are historical.
 
+Development repair supplement: [W#47 single invocation](REPAIR_W47_SINGLE_INVOCATION_2026-10-24.md)
+records the later test-execution repair, current development lock and observation
+policy identity. The published baseline below remains a historical release receipt.
+
 ## Published baseline
 
 | Item | Observed basis |

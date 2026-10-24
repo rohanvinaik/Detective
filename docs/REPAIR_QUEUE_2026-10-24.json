@@ -1647,5 +1647,32 @@
         137
       ]
     }
-  }
+  },
+  "completed_repair_supplements": [
+    {
+      "repository": "Wesker",
+      "number": 47,
+      "url": "https://github.com/rohanvinaik/Wesker/issues/47",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03",
+        "B04"
+      ],
+      "acceptance_state": "bounded_repair_verified",
+      "engine_commit": "ca215e4227268726513817d63be7a41958b9cc9c",
+      "consumer_lock_revision": "ca215e4227268726513817d63be7a41958b9cc9c",
+      "receipt": "docs/REPAIR_W47_SINGLE_INVOCATION_2026-10-24.md",
+      "whole_package_acceptance": false,
+      "one_sign_policy": "8.68a525594c46",
+      "two_sign_policy": "8+neg.40ae45e28e39",
+      "verification": {
+        "Wesker_passed": 1093,
+        "Detective_passed": 3872,
+        "Detective_skipped": 3,
+        "Detective_xfailed": 1,
+        "installed_dependency_cases_passed": 29,
+        "wesker_exact_ci_run": 40124600315
+      }
+    }
+  ]
 }
