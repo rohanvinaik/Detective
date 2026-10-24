@@ -519,13 +519,17 @@ class ConvergeResult:
     # set (env / files) into a digest. None when no capability was supplied.
     capability_identity: str | None = None
     # Accounting separation: mutation killing vs value pinning (Spec 3, 4).
-    initial_killed: int = 0
-    initial_mutation_survivors: int = 0
-    final_mutation_survivors: int = 0
-    initial_value_killed: int = 0
-    initial_value_survivors: int = 0
-    final_value_survivors: int = 0
-    scored_mutants: int = 0
+    initial_total_mutants: int | None = None
+    initial_scored_mutants: int | None = None
+    final_total_mutants: int | None = None
+    final_scored_mutants: int | None = None
+    initial_killed: int | None = None
+    initial_mutation_survivors: int | None = None
+    final_mutation_survivors: int | None = None
+    initial_value_killed: int | None = None
+    initial_value_survivors: int | None = None
+    final_value_survivors: int | None = None
+    scored_mutants: int | None = None
     # The FunctionBasis this converge REBUILT with the real classified count (review: converge is now a
     # basis producer, not just profile()'s advisory equivalent=0 object). U_t folds every VALUE-
     # undischargeable survivor (candidate-equivalent + crash-only + manual-equivalent), so `action`
@@ -1860,6 +1864,8 @@ def _converge_impl(
     # once — see the zero-survivor branch below for why it exists at all.
     _inputs_honoured = False
     initial: int | None = None
+    initial_total_mutants: int | None = None
+    initial_scored_mutants: int | None = None
     initial_killed_mutants: int | None = None
     initial_mut_survivors: int | None = None
     initial_val_killed: int | None = None
@@ -1914,6 +1920,8 @@ def _converge_impl(
         survivors = result.value_survived
         if initial is None:
             initial = survivors
+            initial_total_mutants = result.total_mutants
+            initial_scored_mutants = getattr(result, "scored_mutants", result.total_mutants)
             initial_killed_mutants = result.total_killed
             initial_mut_survivors = result.total_survived
             initial_val_killed = result.value_killed
@@ -2673,11 +2681,15 @@ def _converge_impl(
         minimal_test_count=len(minimal),
         universe_size=universe_size,
         fast=fast,
-        initial_killed=initial_killed_mutants if initial_killed_mutants is not None else 0,
-        initial_mutation_survivors=initial_mut_survivors if initial_mut_survivors is not None else 0,
+        initial_total_mutants=initial_total_mutants,
+        initial_scored_mutants=initial_scored_mutants,
+        final_total_mutants=final_result.total_mutants,
+        final_scored_mutants=final_result.total_mutants,
+        initial_killed=initial_killed_mutants,
+        initial_mutation_survivors=initial_mut_survivors,
         final_mutation_survivors=final_result.total_survived,
-        initial_value_killed=initial_val_killed if initial_val_killed is not None else 0,
-        initial_value_survivors=initial or 0,
+        initial_value_killed=initial_val_killed,
+        initial_value_survivors=initial,
         final_value_survivors=final,
         scored_mutants=final_result.total_mutants,
         coverage_guarantee=greedy_coverage_guarantee(node, _cats, max_per_cat, len(iterations)),

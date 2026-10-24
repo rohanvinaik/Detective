@@ -77,6 +77,14 @@ CUT_REASONS: tuple[str, ...] = (
     "engine_refused_unspecified",
 )
 
+_HAZARD_TO_CUT_REASON = {
+    "signal_main_thread": "refuse_signal",
+    "spawns_subprocess": "refuse_subprocess",
+    "starts_background_thread": "refuse_thread",
+    "custom_collector": "refuse_collector",
+    "stateful_fixture": "refuse_fixture",
+}
+
 
 def measurement_cut_reasons(
     reported_gateable: bool,
@@ -94,6 +102,7 @@ def measurement_cut_reasons(
     step_budget_exceeded: bool = False,
     mutant_wall_undetermined: bool = False,
     fast_mode: str = "",
+    shape_hazards: tuple[dict, ...] | list[dict] = (),
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -161,16 +170,17 @@ def measurement_cut_reasons(
         reasons.append("collection_incomplete")
     if identity_ambiguous:
         reasons.append("ambiguous_module_identity")
-    if fast_mode == "refuse_signal":
-        reasons.append("refuse_signal")
-    elif fast_mode == "refuse_subprocess":
-        reasons.append("refuse_subprocess")
-    elif fast_mode == "refuse_thread":
-        reasons.append("refuse_thread")
-    elif fast_mode == "refuse_collector":
-        reasons.append("refuse_collector")
-    elif fast_mode == "refuse_fixture":
-        reasons.append("refuse_fixture")
+    hazard_reasons: set[str] = set()
+    if fast_mode.startswith("refuse_"):
+        hazard_reasons.add(fast_mode)
+    for rec in shape_hazards:
+        if isinstance(rec, dict):
+            h = rec.get("hazard")
+            if h in _HAZARD_TO_CUT_REASON:
+                hazard_reasons.add(_HAZARD_TO_CUT_REASON[h])
+    for hr in ("refuse_signal", "refuse_subprocess", "refuse_thread", "refuse_collector", "refuse_fixture"):
+        if hr in hazard_reasons:
+            reasons.append(hr)
     # THREE reasons, not one. They were collapsed into `mutant_evaluation_failed` and rendered
     # "the harness failed" — which is true of construction and FALSE of the other two: an
     # un-installed mutant means the harness built it fine and the patch could not bind it, and an
@@ -432,6 +442,7 @@ def normalize_validity(
         step_budget_exceeded=_unscored_by(result, "diverged"),
         mutant_wall_undetermined=_unscored_by(result, "undetermined"),
         fast_mode=fast_mode,
+        shape_hazards=shape_hazards,
     )
     return MeasurementValidity(
         gateable=gateable,

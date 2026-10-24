@@ -384,3 +384,85 @@ def test_multiple_simultaneous_blockers_preserved():
         "refuse_signal",
     }
     assert "engine_refused_unspecified" not in validity.cut_reasons
+
+
+def test_multiple_simultaneous_shape_hazards_preserved():
+    """Finding 2: simultaneous shape hazards both become named blockers."""
+    validity = normalize_validity(
+        _Result(
+            is_gateable=False,
+            budget_exhausted=False,
+            coverage_depth="profiled",
+            collection_conflicts=(),
+            all_contained=True,
+            execution_mode="in_process",
+            fast_mode="refuse_signal",
+            shape_hazards=(
+                {
+                    "hazard": "signal_main_thread",
+                    "test_id": "tests/test_foo.py::test_sig",
+                    "execution_mode": "in_process",
+                    "provenance": "detected",
+                },
+                {
+                    "hazard": "starts_background_thread",
+                    "test_id": "tests/test_foo.py::test_thread",
+                    "execution_mode": "in_process",
+                    "provenance": "declared_override",
+                },
+            ),
+        )
+    )
+    assert "refuse_signal" in validity.cut_reasons
+    assert "refuse_thread" in validity.cut_reasons
+    assert len(validity.shape_hazards) == 2
+
+
+def test_banner_warranted_floor_vs_diagnostic_counts():
+    """Finding 4: unknown refusals and shape hazards do not claim counts are a floor."""
+    from Detective.cli import _final_banner_status
+
+    class DummyResult:
+        def __init__(self, cut_reasons):
+            self.function = "mod.py::fn"
+            self.cut_reasons = cut_reasons
+            self.admits_certificate = False
+            self.measurement_gateable = False
+
+    # Clean partiality has warranted floor
+    clean_partial = DummyResult(("budget_exhausted",))
+    assert "counts are a floor, not a verdict" in _final_banner_status(clean_partial)
+
+    # Shape hazard refusal has diagnostic counts, no certified bound
+    hazard = DummyResult(("refuse_signal",))
+    assert "diagnostic counts; no certified bound or verdict established" in _final_banner_status(hazard)
+    assert "counts are a floor" not in _final_banner_status(hazard)
+
+    # Unknown engine refusal has diagnostic counts
+    unknown = DummyResult(("engine_refused_unspecified",))
+    assert "diagnostic counts; no certified bound or verdict established" in _final_banner_status(unknown)
+
+
+def test_isolate_action_identifies_affected_tests():
+    """Finding 2: route isolate discloses affected test IDs in human diagnostics."""
+    from Detective.cli import _converge_action
+
+    class DummyResult:
+        def __init__(self):
+            self.function = "mod.py::fn"
+            self.cut_reasons = ("refuse_signal", "refuse_thread")
+            self.admits_certificate = False
+            self.measurement_gateable = False
+            self.functionally_complete = False
+            self.line_complete = True
+            self.missing_lines = ()
+            self.shape_hazards = (
+                {"hazard": "signal_main_thread", "test_id": "test_m.py::test_sig"},
+                {"hazard": "starts_background_thread", "test_id": "test_m.py::test_bg"},
+            )
+
+    res = DummyResult()
+    action = _converge_action(res, None)
+    rendered = "\n".join(action)
+    assert "signal_main_thread: test_m.py::test_sig" in rendered
+    assert "starts_background_thread: test_m.py::test_bg" in rendered

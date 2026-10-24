@@ -1976,15 +1976,24 @@ def _final_banner_status(result) -> str:
         # MCP and receipts render the identical vocabulary.
         _reasons = tuple(getattr(result, "cut_reasons", ()) or ())
         if _reasons:
+            from .validity import CUT_REASONS
+
             _why = "; ".join(cut_reason_sentence(r) for r in _reasons)
-            if "engine_refused_unspecified" in _reasons or any(
-                r.startswith("an unrecognised") for r in _reasons
-            ):
-                return (
-                    f"FINAL {result.function}: ⚠ UNGATEABLE — {_why}; "
-                    "diagnostic counts; no certified bound or verdict established"
-                )
-            return f"FINAL {result.function}: ⚠ UNGATEABLE — {_why}; counts are a floor, not a verdict"
+            _floor_bound_reasons = {
+                "budget_exhausted",
+                "step_budget_exceeded",
+                "coverage_truncated",
+                "sampled_universe",
+            }
+            _floor_warranted = all(r in _floor_bound_reasons for r in _reasons) and not any(
+                r == "engine_refused_unspecified" or r not in CUT_REASONS for r in _reasons
+            )
+            if _floor_warranted:
+                return f"FINAL {result.function}: ⚠ UNGATEABLE — {_why}; counts are a floor, not a verdict"
+            return (
+                f"FINAL {result.function}: ⚠ UNGATEABLE — {_why}; "
+                "diagnostic counts; no certified bound or verdict established"
+            )
         _conflicts = tuple(getattr(result, "collection_conflicts", ()) or ())
         if _conflicts:
             return (
@@ -2195,34 +2204,80 @@ def _format_converge(
     an oracle — the exact specification work a human or LLM must still supply.
     """
     total = result.total_mutants
-    scored = getattr(result, "scored_mutants", total) or total
+    scored = getattr(result, "scored_mutants", None)
+    if scored is None:
+        scored = getattr(result, "final_scored_mutants", None) or total
+
     final_mut_surv = getattr(result, "final_mutation_survivors", None)
     if final_mut_surv is None:
         final_mut_surv = total - result.killed
-    initial_killed = getattr(result, "initial_killed", None)
-    if initial_killed is None:
-        initial_killed = total - getattr(result, "initial_mutation_survivors", result.initial_survivors)
-    initial_mut_surv = total - initial_killed
 
-    initial_val_surv = getattr(result, "initial_value_survivors", result.initial_survivors)
-    final_val_surv = getattr(result, "final_value_survivors", result.final_survivors)
+    initial_total = getattr(result, "initial_total_mutants", None)
+    initial_killed = getattr(result, "initial_killed", None)
+    initial_mut_surv = getattr(result, "initial_mutation_survivors", None)
+    if initial_mut_surv is None:
+        initial_mut_surv = result.initial_survivors
+    if initial_total is None and initial_killed is not None and initial_mut_surv is not None:
+        initial_total = initial_killed + initial_mut_surv
+
+    initial_scored = getattr(result, "initial_scored_mutants", None)
+    initial_val_surv = getattr(result, "initial_value_survivors", None)
+    if initial_val_surv is None:
+        initial_val_surv = result.initial_survivors
     initial_val_killed = getattr(result, "initial_value_killed", None)
+    if initial_scored is None and initial_val_killed is not None and initial_val_surv is not None:
+        initial_scored = initial_val_killed + initial_val_surv
+    final_val_surv = getattr(result, "final_value_survivors", None)
+    if final_val_surv is None:
+        final_val_surv = result.final_survivors
     final_val_killed = getattr(result, "value_killed", 0)
-    if initial_val_killed is None:
-        initial_val_killed = max(0, scored - initial_val_surv)
 
     # Lead with the plain verdict a user actually wants — COMPLETE means both axes
     # hold (kills every killable mutant AND covers every line). "converged" is loop
     # state, not a completeness claim, so it no longer headlines.
     verdict = _completeness_verdict(result)
+
+    if initial_total is not None and initial_killed is not None:
+        if initial_total == total:
+            mut_score_text = (
+                f"score {_score(initial_killed, initial_total)} → {_score(result.killed, total)} "
+                f"({result.killed}/{total} killed)"
+            )
+        else:
+            mut_score_text = (
+                f"score {_score(initial_killed, initial_total)} ({initial_killed}/{initial_total}) → "
+                f"{_score(result.killed, total)} ({result.killed}/{total} killed)"
+            )
+        mut_line = f"  mutants: {initial_mut_surv} → {final_mut_surv} survivors; {mut_score_text}"
+    else:
+        mut_line = (
+            f"  mutants: {initial_mut_surv} → {final_mut_surv} survivors; "
+            f"final score {_score(result.killed, total)} ({result.killed}/{total} killed)"
+        )
+
+    if initial_scored is not None and initial_val_killed is not None:
+        if initial_scored == scored:
+            val_score_text = (
+                f"score {_score(initial_val_killed, initial_scored)} → {_score(final_val_killed, scored)} "
+                f"({final_val_killed}/{scored} pinned)"
+            )
+        else:
+            val_score_text = (
+                f"score {_score(initial_val_killed, initial_scored)} "
+                f"({initial_val_killed}/{initial_scored}) → "
+                f"{_score(final_val_killed, scored)} ({final_val_killed}/{scored} pinned)"
+            )
+        val_line = f"  value: {initial_val_surv} → {final_val_surv} unspecified; {val_score_text}"
+    else:
+        val_line = (
+            f"  value: {initial_val_surv} → {final_val_surv} unspecified; "
+            f"final score {_score(final_val_killed, scored)} ({final_val_killed}/{scored} pinned)"
+        )
+
     lines = [
         f"{result.function}: {verdict}",
-        f"  mutants: {initial_mut_surv} → {final_mut_surv} survivors; "
-        f"score {_score(initial_killed, total)} → {_score(result.killed, total)} "
-        f"({result.killed}/{total} killed)",
-        f"  value: {initial_val_surv} → {final_val_surv} unspecified; "
-        f"score {_score(initial_val_killed, scored)} → {_score(final_val_killed, scored)} "
-        f"({final_val_killed}/{scored} pinned)",
+        mut_line,
+        val_line,
         f"  every-killable-killed={result.functionally_complete}  line-complete={result.line_complete}",
     ]
     # STATS FLEX: make "mutant-complete" concrete. universe_size is the count of
@@ -2278,7 +2333,7 @@ def _format_converge(
         # not unchanged).
         policy = f" · policy {result.policy_id}" if getattr(result, "policy_id", None) else ""
         lines.append(
-            f"  DOF: {universe} behavioral degrees of freedom · {mode} · "
+            f"  universe: {universe} operator mutants · {mode} · "
             f"{result.value_killed}/{scored} = {_score(result.value_killed, scored)} "
             f"of scored mutants value-pinned · {tail}{policy}"
         )
@@ -2943,6 +2998,15 @@ _ROUTE_ADDRESSES: dict[str, tuple[str, ...]] = {
     "regime": ("ambiguous_module_identity",),
     "deadline": ("budget_exhausted",),
     "trace_budget": ("coverage_truncated",),
+    "isolate": (
+        "uncontained_worker",
+        "containment_unknown",
+        "refuse_signal",
+        "refuse_subprocess",
+        "refuse_thread",
+        "refuse_collector",
+        "refuse_fixture",
+    ),
 }
 
 
@@ -3688,12 +3752,25 @@ def _converge_action(
                 *_also_live_rows(reasons, route),
             ]
         if route in ("reprofile", "isolate"):
+            hazard_rows: list[str] = []
+            shape_hazards = getattr(result, "shape_hazards", ()) or ()
+            if shape_hazards:
+                hazard_tests: dict[str, list[str]] = {}
+                for rec in shape_hazards:
+                    if isinstance(rec, dict):
+                        h = rec.get("hazard", "hazard")
+                        tid = rec.get("test_id") or "unattributed"
+                        hazard_tests.setdefault(h, []).append(tid)
+                for h, tids in hazard_tests.items():
+                    hazard_rows.append(_row("· Affected", f"{h}: {', '.join(tids)}"))
             return [
                 _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
                 _row("· Re-measure", _command_text(d.argv)),
                 _row("", "retain the original input, receiver, clock/environment and policy options."),
                 _row("· Why", "isolated evaluation repairs measurement; equivalence flags cannot do that."),
+                *hazard_rows,
+                *_also_live_rows(reasons, route),
             ]
         if route == "enumerate":
             return [
@@ -3754,7 +3831,13 @@ def _converge_action(
                 _row("· Resolve", "the reason above names the repair; re-run once it is resolved."),
             ]
         if route == "inspect_refusal":
-            unexplained = "engine_refused_unspecified" in reasons or not reasons
+            from .validity import CUT_REASONS
+
+            unexplained = (
+                "engine_refused_unspecified" in reasons
+                or not reasons
+                or any(r not in CUT_REASONS for r in reasons)
+            )
             if unexplained:
                 return [
                     _STOP_PREFIX
@@ -3779,6 +3862,7 @@ def _converge_action(
                 # row's job is what remains true of every cut, not a second, vaguer diagnosis (S7).
                 _row("· Resolve", "the reason above names the repair. Keep the proof basis fixed and"),
                 _row("", "re-run only once that cause is resolved — more budget is not a generic fix."),
+                *_also_live_rows(reasons, route),
             ]
         if route == "regime":
             command = _command_text(d.argv)

@@ -330,19 +330,29 @@ def paired_budget_read(
     )
 
 
-def count_opcodes(fn: Callable, args: tuple) -> int | None:
+def count_opcodes(
+    fn: Callable,
+    args: tuple,
+    *,
+    include_helpers: bool = True,
+) -> int | None:
     """The deterministic operation counter (impure instrument shell — unit-guarded, not pinned):
     counts Python-level instructions executed by fn(*args) on the current thread, using
     Wesker.monitoring's owned subscription broker (W#32/B01).
 
+    Boundary: counts Python instructions executed by fn and any helper called within fn's defining
+    module/file (when include_helpers=True and a file origin exists), using bounded path selectors.
+    Work inside C (builtins, C-extensions) executes no Python opcodes and is outside the counter.
+
     Honest failure modes, all None (cannot-determine): an interpreter without sys.monitoring,
-    subscription unavailable (every tool slot taken), or the call raising — a crashed arm has
-    no budget read, and the caller's delta gate is already red.
+    subscription unavailable (every tool slot taken), observer failure, or the arm raising — a crashed
+    arm has no budget read, and the caller's delta gate is already red.
     """
     code = getattr(fn, "__code__", None)
     if code is None:
         return None
 
+    import os
     import threading
     from types import CodeType
 
@@ -366,6 +376,12 @@ def count_opcodes(fn: Callable, args: tuple) -> int | None:
         nonlocal count
         count += 1
 
+    selectors: list[str] | None = None
+    if include_helpers:
+        filename = getattr(code, "co_filename", None)
+        if filename and os.path.exists(filename):
+            selectors = [filename]
+
     try:
         handle = subscribe(
             [code],
@@ -373,17 +389,26 @@ def count_opcodes(fn: Callable, args: tuple) -> int | None:
             on_instruction,
             thread_id=tid,
             run_token=token,
+            selectors=selectors,
         )
     except (MonitoringUnavailable, ActiveSubscriptionsError, ValueError):
         retire_run_token(token)
         return None
 
+    arm_exception = None
     try:
         fn(*args)
-    except Exception:  # noqa: BLE001
-        # A crashed arm reads None
-        return None
+    except Exception as exc:  # noqa: BLE001
+        arm_exception = exc
     finally:
         retire_run_token(token)
         handle.close()
+
+    if arm_exception is not None:
+        return None
+
+    state = getattr(handle.sub, "observation", None)
+    if state is not None and state.failure:
+        return None
+
     return count

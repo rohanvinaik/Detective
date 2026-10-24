@@ -304,3 +304,42 @@ def test_paired_budget_read_distinguishes_arm_failure_from_counter_unavailable()
     assert not read.delta_zero
     assert read.verdict == "unmeasurable"
     assert "arm raised or could not be monitored" in read.note
+
+
+def test_count_opcodes_helper_call_boundary() -> None:
+    """B01/EXP-DS-003: count_opcodes includes helper instructions when include_helpers=True."""
+    from Detective.budget import count_opcodes
+
+    def helper(x: int) -> int:
+        y = x * 2
+        z = y + 1
+        return z
+
+    def caller_with_helper(n: int) -> int:
+        total = 0
+        for i in range(n):
+            total += helper(i)
+        return total
+
+    def caller_standalone(n: int) -> int:
+        total = 0
+        for i in range(n):
+            total += i
+        return total
+
+    c_standalone = count_opcodes(caller_standalone, (10,), include_helpers=False)
+    c_helpers = count_opcodes(caller_with_helper, (10,), include_helpers=True)
+    if HAS_MONITORING:
+        assert c_standalone is not None
+        assert c_helpers is not None
+        assert c_helpers > c_standalone
+
+
+def test_count_opcodes_crashed_arm_returns_none() -> None:
+    """B01/EXP-DS-003: arm exception returns None rather than an invalid count."""
+    from Detective.budget import count_opcodes
+
+    def crashing_arm() -> None:
+        raise ValueError("error in target")
+
+    assert count_opcodes(crashing_arm, ()) is None
