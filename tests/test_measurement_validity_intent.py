@@ -102,7 +102,7 @@ def test_sampled_and_truncated_are_different_facts():
 def test_every_emitted_reason_is_in_the_declared_vocabulary():
     """A reason outside `CUT_REASONS` cannot be rendered consistently across surfaces."""
     for depth in ("profiled", "cut", "sampled", "unreported"):
-        for containment in ("contained", "uncontained", "unreported"):
+        for containment in ("contained", "uncontained", "unknown", "unreported"):
             for gateable in (True, False):
                 got = measurement_cut_reasons(True, gateable, True, depth, containment, True)
                 assert set(got) <= set(CUT_REASONS), got
@@ -290,3 +290,97 @@ def test_an_isolated_run_count_is_exact_and_not_flagged_approximate():
     )
     assert "approximate:mutant_universe" not in validity.capability_flags
     assert validity.admits_certificate is True
+
+
+# ── explicit containment unknown and shape hazard refusals (B04/B05/Spec 1, 2, 5) ──
+
+
+def test_all_contained_none_is_unknown_and_refuses_certificate():
+    """Spec 2: an explicitly present None is unknown containment, not uncontained or unreported.
+    It must not silently become an admissible certificate."""
+    from Detective.validity import _containment_status
+
+    assert _containment_status(None) == "unknown"
+    validity = normalize_validity(
+        _Result(
+            is_gateable=True,
+            budget_exhausted=False,
+            coverage_depth="profiled",
+            collection_conflicts=(),
+            all_contained=None,
+            execution_mode="isolated",
+        )
+    )
+    assert validity.containment_status == "unknown"
+    assert "containment_unknown" in validity.cut_reasons
+    assert validity.admits_certificate is False
+
+
+def test_shape_hazard_signal_refusal_survives_normalization():
+    """Spec 1: fast_mode='refuse_signal' names the signal hazard, not an uncontained failure."""
+    validity = normalize_validity(
+        _Result(
+            is_gateable=False,
+            budget_exhausted=False,
+            coverage_depth="profiled",
+            collection_conflicts=(),
+            all_contained=True,
+            execution_mode="in_process",
+            fast_mode="refuse_signal",
+            shape_hazards=(
+                {
+                    "hazard": "signal_main_thread",
+                    "test_id": "tests/test_foo.py::test_sig",
+                    "execution_mode": "in_process",
+                    "provenance": "detected",
+                },
+            ),
+        )
+    )
+    assert "refuse_signal" in validity.cut_reasons
+    assert "engine_refused_unspecified" not in validity.cut_reasons
+    assert validity.admits_certificate is False
+    assert len(validity.shape_hazards) == 1
+    assert validity.shape_hazards[0]["hazard"] == "signal_main_thread"
+    assert validity.shape_hazards[0]["provenance"] == "detected"
+
+
+def test_shape_hazard_other_modes_survive_normalization():
+    """Spec 5: cover every supported hazard, keeping engine_refused_unspecified for unexplained cases."""
+    for mode in ("refuse_subprocess", "refuse_thread", "refuse_collector", "refuse_fixture"):
+        validity = normalize_validity(
+            _Result(
+                is_gateable=False,
+                budget_exhausted=False,
+                coverage_depth="profiled",
+                collection_conflicts=(),
+                all_contained=True,
+                execution_mode="in_process",
+                fast_mode=mode,
+            )
+        )
+        assert mode in validity.cut_reasons
+        assert "engine_refused_unspecified" not in validity.cut_reasons
+        assert validity.admits_certificate is False
+
+
+def test_multiple_simultaneous_blockers_preserved():
+    """Spec 5: preserve simultaneous blockers across the gate."""
+    validity = normalize_validity(
+        _Result(
+            is_gateable=False,
+            budget_exhausted=True,
+            coverage_depth="cut",
+            collection_conflicts=(),
+            all_contained=False,
+            execution_mode="in_process",
+            fast_mode="refuse_signal",
+        )
+    )
+    assert set(validity.cut_reasons) == {
+        "budget_exhausted",
+        "uncontained_worker",
+        "coverage_truncated",
+        "refuse_signal",
+    }
+    assert "engine_refused_unspecified" not in validity.cut_reasons

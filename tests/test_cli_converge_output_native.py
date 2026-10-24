@@ -106,6 +106,85 @@ def test_banner_omits_arrow_when_nothing_written():
     assert "→" not in b
 
 
+def test_banner_unexplained_refusal_communicates_diagnostic_counts_no_certified_bound():
+    """Prompt 4/Spec 6: an unexplained engine refusal cannot claim counts are a floor."""
+    from Detective.validity import MeasurementValidity
+
+    res = _cr(
+        validity=MeasurementValidity(gateable=False, cut_reasons=("engine_refused_unspecified",)),
+        cut_reasons=("engine_refused_unspecified",),
+    )
+    b = _final_banner(res)
+    assert "⚠ UNGATEABLE" in b
+    assert "diagnostic counts; no certified bound or verdict established" in b
+    assert "counts are a floor" not in b
+
+
+def test_banner_known_cut_reason_communicates_counts_are_a_floor():
+    """Known partiality/budget cuts retain counts are a floor."""
+    from Detective.validity import MeasurementValidity
+
+    res = _cr(
+        validity=MeasurementValidity(gateable=False, cut_reasons=("budget_exhausted",)),
+        cut_reasons=("budget_exhausted",),
+    )
+    b = _final_banner(res)
+    assert "⚠ UNGATEABLE" in b
+    assert "counts are a floor, not a verdict" in b
+
+
+def test_converge_action_unexplained_refusal_diagnoses_without_promising_repair_or_rerun():
+    """Spec 6: inspect_refusal does not say 'the reason above names the repair' on unspecified refusal."""
+    from Detective.cli import _converge_action
+    from Detective.validity import MeasurementValidity
+
+    res = _cr(
+        validity=MeasurementValidity(gateable=False, cut_reasons=("engine_refused_unspecified",)),
+        cut_reasons=("engine_refused_unspecified",),
+    )
+    action = "\n".join(_converge_action(res, None))
+    assert "the reason above names the repair" not in action
+    assert "THEN RUN:" not in action
+    assert "the engine refused to gate this measurement without naming a cause" in action
+
+
+def test_converge_action_shape_hazard_routes_to_isolated():
+    """Spec 1 & 5: refuse_signal routes to isolated re-measurement."""
+    from Detective.cli import _converge_action, repair_measurement_route
+    from Detective.validity import MeasurementValidity
+
+    assert repair_measurement_route(("refuse_signal",)) == "isolate"
+    res = _cr(
+        validity=MeasurementValidity(gateable=False, cut_reasons=("refuse_signal",)),
+        cut_reasons=("refuse_signal",),
+    )
+    action = "\n".join(_converge_action(res, None))
+    assert "--isolated" in action
+    assert "signal handling" in action
+
+
+def test_format_converge_keeps_mutants_and_value_pinning_populations_consistent():
+    """Spec 3 & 4: distinct mutation and value-specification populations with honest denominators."""
+    from Detective.cli import _format_converge
+
+    # Modeled after the 171 mutant run where 114 killed (94 value + 20 crash/timeout) and 57 true survivors
+    res = _cr(
+        total_mutants=171,
+        killed=114,
+        value_killed=94,
+        initial_killed=80,
+        initial_mutation_survivors=91,
+        final_mutation_survivors=57,
+        initial_value_killed=60,
+        initial_value_survivors=111,
+        final_value_survivors=77,
+        scored_mutants=171,
+    )
+    out = _format_converge(res)
+    assert "mutants: 91 → 57 survivors; score 47% → 67% (114/171 killed)" in out
+    assert "value: 111 → 77 unspecified; score 35% → 55% (94/171 pinned)" in out
+
+
 # ── _plain_terms ──────────────────────────────────────────────────
 def test_plain_terms_complete_clean_has_no_jargon():
     t = _plain_terms(_cr())

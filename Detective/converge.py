@@ -518,6 +518,14 @@ class ConvergeResult:
     # never unconditionally. ``clock=<epoch>`` today; the #24 remainder folds a compound capability
     # set (env / files) into a digest. None when no capability was supplied.
     capability_identity: str | None = None
+    # Accounting separation: mutation killing vs value pinning (Spec 3, 4).
+    initial_killed: int = 0
+    initial_mutation_survivors: int = 0
+    final_mutation_survivors: int = 0
+    initial_value_killed: int = 0
+    initial_value_survivors: int = 0
+    final_value_survivors: int = 0
+    scored_mutants: int = 0
     # The FunctionBasis this converge REBUILT with the real classified count (review: converge is now a
     # basis producer, not just profile()'s advisory equivalent=0 object). U_t folds every VALUE-
     # undischargeable survivor (candidate-equivalent + crash-only + manual-equivalent), so `action`
@@ -1851,6 +1859,10 @@ def _converge_impl(
     # even when the mutants selected this run are already dead. Tracked so that pass happens exactly
     # once — see the zero-survivor branch below for why it exists at all.
     _inputs_honoured = False
+    initial: int | None = None
+    initial_killed_mutants: int | None = None
+    initial_mut_survivors: int | None = None
+    initial_val_killed: int | None = None
 
     for _pass in range(max_iterations):
         # Stop STARTING new work once the wall is gone (issue #31): a fresh pass would only
@@ -1902,6 +1914,9 @@ def _converge_impl(
         survivors = result.value_survived
         if initial is None:
             initial = survivors
+            initial_killed_mutants = result.total_killed
+            initial_mut_survivors = result.total_survived
+            initial_val_killed = result.value_killed
 
         # Zero survivors normally ENDS the run — but not while a user-supplied `--input` is still
         # unspent. Measured: a six-argument wrapper whose suite already killed every selected mutant
@@ -2658,6 +2673,13 @@ def _converge_impl(
         minimal_test_count=len(minimal),
         universe_size=universe_size,
         fast=fast,
+        initial_killed=initial_killed_mutants if initial_killed_mutants is not None else 0,
+        initial_mutation_survivors=initial_mut_survivors if initial_mut_survivors is not None else 0,
+        final_mutation_survivors=final_result.total_survived,
+        initial_value_killed=initial_val_killed if initial_val_killed is not None else 0,
+        initial_value_survivors=initial or 0,
+        final_value_survivors=final,
+        scored_mutants=final_result.total_mutants,
         coverage_guarantee=greedy_coverage_guarantee(node, _cats, max_per_cat, len(iterations)),
         signature=sig,
         param_names=param_names,

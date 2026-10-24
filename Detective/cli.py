@@ -1977,6 +1977,13 @@ def _final_banner_status(result) -> str:
         _reasons = tuple(getattr(result, "cut_reasons", ()) or ())
         if _reasons:
             _why = "; ".join(cut_reason_sentence(r) for r in _reasons)
+            if "engine_refused_unspecified" in _reasons or any(
+                r.startswith("an unrecognised") for r in _reasons
+            ):
+                return (
+                    f"FINAL {result.function}: ⚠ UNGATEABLE — {_why}; "
+                    "diagnostic counts; no certified bound or verdict established"
+                )
             return f"FINAL {result.function}: ⚠ UNGATEABLE — {_why}; counts are a floor, not a verdict"
         _conflicts = tuple(getattr(result, "collection_conflicts", ()) or ())
         if _conflicts:
@@ -2188,16 +2195,34 @@ def _format_converge(
     an oracle — the exact specification work a human or LLM must still supply.
     """
     total = result.total_mutants
-    initial_killed = total - result.initial_survivors
+    scored = getattr(result, "scored_mutants", total) or total
+    final_mut_surv = getattr(result, "final_mutation_survivors", None)
+    if final_mut_surv is None:
+        final_mut_surv = total - result.killed
+    initial_killed = getattr(result, "initial_killed", None)
+    if initial_killed is None:
+        initial_killed = total - getattr(result, "initial_mutation_survivors", result.initial_survivors)
+    initial_mut_surv = total - initial_killed
+
+    initial_val_surv = getattr(result, "initial_value_survivors", result.initial_survivors)
+    final_val_surv = getattr(result, "final_value_survivors", result.final_survivors)
+    initial_val_killed = getattr(result, "initial_value_killed", None)
+    final_val_killed = getattr(result, "value_killed", 0)
+    if initial_val_killed is None:
+        initial_val_killed = max(0, scored - initial_val_surv)
+
     # Lead with the plain verdict a user actually wants — COMPLETE means both axes
     # hold (kills every killable mutant AND covers every line). "converged" is loop
     # state, not a completeness claim, so it no longer headlines.
     verdict = _completeness_verdict(result)
     lines = [
         f"{result.function}: {verdict}",
-        f"  {result.initial_survivors} → {result.final_survivors} survivors; "
+        f"  mutants: {initial_mut_surv} → {final_mut_surv} survivors; "
         f"score {_score(initial_killed, total)} → {_score(result.killed, total)} "
         f"({result.killed}/{total} killed)",
+        f"  value: {initial_val_surv} → {final_val_surv} unspecified; "
+        f"score {_score(initial_val_killed, scored)} → {_score(final_val_killed, scored)} "
+        f"({final_val_killed}/{scored} pinned)",
         f"  every-killable-killed={result.functionally_complete}  line-complete={result.line_complete}",
     ]
     # STATS FLEX: make "mutant-complete" concrete. universe_size is the count of
@@ -2254,8 +2279,8 @@ def _format_converge(
         policy = f" · policy {result.policy_id}" if getattr(result, "policy_id", None) else ""
         lines.append(
             f"  DOF: {universe} behavioral degrees of freedom · {mode} · "
-            f"{result.value_killed}/{universe} = {_score(result.value_killed, universe)} "
-            f"of DOF specified · {tail}{policy}"
+            f"{result.value_killed}/{scored} = {_score(result.value_killed, scored)} "
+            f"of scored mutants value-pinned · {tail}{policy}"
         )
     for i, it in enumerate(result.iterations):
         lines.append(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
@@ -2887,7 +2912,15 @@ def repair_measurement_route(
         return "mutant_phase"
     if "nonreproducible_in_process" in cut_reasons:
         return "reprofile"
-    if "uncontained_worker" in cut_reasons:
+    if (
+        "uncontained_worker" in cut_reasons
+        or "containment_unknown" in cut_reasons
+        or "refuse_signal" in cut_reasons
+        or "refuse_subprocess" in cut_reasons
+        or "refuse_thread" in cut_reasons
+        or "refuse_collector" in cut_reasons
+        or "refuse_fixture" in cut_reasons
+    ):
         return "isolate"
     if "step_budget_exceeded" in cut_reasons or "mutant_wall_undetermined" in cut_reasons:
         return "execution_budget"
@@ -3721,12 +3754,23 @@ def _converge_action(
                 _row("· Resolve", "the reason above names the repair; re-run once it is resolved."),
             ]
         if route == "inspect_refusal":
+            unexplained = "engine_refused_unspecified" in reasons or not reasons
+            if unexplained:
+                return [
+                    _STOP_PREFIX
+                    + (
+                        "; ".join(cut_reason_sentence(r) for r in reasons)
+                        or cut_reason_sentence("engine_refused_unspecified")
+                    ),
+                    "",
+                    _row(
+                        "· Diagnose",
+                        "the engine refused to gate this measurement without naming a cause;",
+                    ),
+                    _row("", "inspect the measurement and runner logs rather than guessing a rerun."),
+                ]
             return [
-                _STOP_PREFIX
-                + (
-                    "; ".join(cut_reason_sentence(r) for r in reasons)
-                    or cut_reason_sentence("engine_refused_unspecified")
-                ),
+                _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
                 # Defers to the reason above rather than substituting a generic one. It read
                 # "inspect the reported engine failure" for every unrouted reason — which asserts an

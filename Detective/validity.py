@@ -37,7 +37,9 @@ import dataclasses
 # 4: `routing_failed` joins the vocabulary (#91). Additive, but the vocabulary is exhaustive on
 #    purpose, so a reader that switches over it must learn the new member rather than meet it.
 # 5: execution bounds have distinct reasons: step exhaustion and unresolved wall time.
-MEASUREMENT_VALIDITY_SCHEMA = 5
+# 6: shape hazard refusals (refuse_signal, refuse_subprocess, refuse_thread, refuse_collector,
+#    refuse_fixture) and containment_unknown join the vocabulary.
+MEASUREMENT_VALIDITY_SCHEMA = 6
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
@@ -47,12 +49,18 @@ CUT_REASONS: tuple[str, ...] = (
     "routing_failed",
     "budget_exhausted",
     "uncontained_worker",
+    "containment_unknown",
     "step_budget_exceeded",
     "mutant_wall_undetermined",
     "coverage_truncated",
     "sampled_universe",
     "collection_incomplete",
     "ambiguous_module_identity",
+    "refuse_signal",
+    "refuse_subprocess",
+    "refuse_thread",
+    "refuse_collector",
+    "refuse_fixture",
     "nonreproducible_in_process",
     "invalid_verification",
     "cached_verification",
@@ -85,6 +93,7 @@ def measurement_cut_reasons(
     routing_failed: bool = False,
     step_budget_exceeded: bool = False,
     mutant_wall_undetermined: bool = False,
+    fast_mode: str = "",
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -138,6 +147,8 @@ def measurement_cut_reasons(
         reasons.append("budget_exhausted")
     if containment == "uncontained":
         reasons.append("uncontained_worker")
+    elif containment == "unknown":
+        reasons.append("containment_unknown")
     if step_budget_exceeded:
         reasons.append("step_budget_exceeded")
     if mutant_wall_undetermined:
@@ -150,6 +161,16 @@ def measurement_cut_reasons(
         reasons.append("collection_incomplete")
     if identity_ambiguous:
         reasons.append("ambiguous_module_identity")
+    if fast_mode == "refuse_signal":
+        reasons.append("refuse_signal")
+    elif fast_mode == "refuse_subprocess":
+        reasons.append("refuse_subprocess")
+    elif fast_mode == "refuse_thread":
+        reasons.append("refuse_thread")
+    elif fast_mode == "refuse_collector":
+        reasons.append("refuse_collector")
+    elif fast_mode == "refuse_fixture":
+        reasons.append("refuse_fixture")
     # THREE reasons, not one. They were collapsed into `mutant_evaluation_failed` and rendered
     # "the harness failed" — which is true of construction and FALSE of the other two: an
     # un-installed mutant means the harness built it fine and the patch could not bind it, and an
@@ -196,6 +217,8 @@ def cut_reason_sentence(reason: str) -> str:
         "budget_exhausted": "the aggregate deadline was exhausted, so the universe was never fully measured",
         "uncontained_worker": "a timed-out worker could not be stopped, so later phases"
         " shared a process with it",
+        "containment_unknown": "the engine could not establish whether worker execution was contained —"
+        " re-measure under an isolated worker",
         "step_budget_exceeded": "one or more mutants exceeded an explicit deterministic step budget;"
         " this is budget-relative evidence, not proof of nontermination or equivalence — inspect the"
         " execution and its declared bound before re-measuring",
@@ -207,6 +230,16 @@ def cut_reason_sentence(reason: str) -> str:
         "collection_incomplete": "one or more test files failed to collect (an import error), so the"
         " routed suite is missing tests the layout implies — fix the collection errors and re-run",
         "ambiguous_module_identity": "the live collection resolved one module name to more than one file",
+        "refuse_signal": "one or more tests reference signal handling on the main thread; in-process"
+        " execution cannot contain signal handlers — re-measure with --isolated",
+        "refuse_subprocess": "one or more tests spawn a subprocess; in-process execution cannot contain"
+        " child processes — re-measure with --isolated",
+        "refuse_thread": "one or more tests start background threads; in-process execution cannot"
+        " isolate thread state — re-measure with --isolated",
+        "refuse_collector": "one or more tests use a custom collector; in-process execution cannot"
+        " verify collector lifecycle — re-measure with --isolated",
+        "refuse_fixture": "one or more tests use stateful runtime fixtures; in-process execution cannot"
+        " isolate fixture state — re-measure with --isolated",
         "nonreproducible_in_process": "the in-process mutant universe did not reproduce under isolated "
         "evaluation — COMPLETE is withheld; re-measure with --isolated, preserving the same inputs and tests",
         "invalid_verification": "the required verification measurement was invalid; "
@@ -254,6 +287,7 @@ class MeasurementValidity:
     engine_version: str = ""
     capability_flags: tuple[str, ...] = ()
     policy_id: str = ""
+    shape_hazards: tuple[dict, ...] = ()
 
     @property
     def admits_certificate(self) -> bool:
@@ -295,10 +329,13 @@ _ADAPTED_FIELDS: tuple[str, ...] = (
 
 
 def _containment_status(contained_raw: object) -> str:
-    """`unreported` when the engine did not say — never folded into `uncontained`, since "it did
-    not contain the run" and "it did not tell us" are different facts about the measurement."""
+    """`unreported` when the engine did not say, `unknown` when explicitly None — never folded into
+    `uncontained`, since "it did not contain the run", "it could not establish containment", and
+    "it did not tell us" are different facts about the measurement."""
     if contained_raw is _ABSENT:
         return "unreported"
+    if contained_raw is None:
+        return "unknown"
     return "contained" if contained_raw else "uncontained"
 
 
@@ -374,6 +411,10 @@ def normalize_validity(
     # determinism or equivalence, and recycled workers need not be fresh per mutant.
     approximate = ["approximate:mutant_universe"] if execution_mode == "in_process" else []
 
+    fast_mode_raw = getattr(result, "fast_mode", _ABSENT)
+    fast_mode = str(fast_mode_raw) if fast_mode_raw is not _ABSENT else ""
+    shape_hazards = tuple(getattr(result, "shape_hazards", ()) or ())
+
     reasons = measurement_cut_reasons(
         reported_gateable=reports_gateable,
         gateable=gateable,
@@ -390,6 +431,7 @@ def normalize_validity(
         routing_failed=bool(routing_failed) or getattr(result, "routing_outcome", "") == "routing_failed",
         step_budget_exceeded=_unscored_by(result, "diverged"),
         mutant_wall_undetermined=_unscored_by(result, "undetermined"),
+        fast_mode=fast_mode,
     )
     return MeasurementValidity(
         gateable=gateable,
@@ -401,4 +443,5 @@ def normalize_validity(
         engine_version=engine_version,
         capability_flags=tuple([f"absent:{name}" for name in missing] + approximate),
         policy_id=str(getattr(result, "policy_id", "") or ""),
+        shape_hazards=shape_hazards,
     )
