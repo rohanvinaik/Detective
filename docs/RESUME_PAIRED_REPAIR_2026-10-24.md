@@ -109,6 +109,15 @@ Type (2) stays scoped in D#72/#73/#74/#90/#97/#109, the search expansion in #110
 existing repair portions. An assessment of another construction system is not
 authorization to replace these projects' theory or implement a new capability.
 
+**Proposal supplement, 2026-10-24:**
+[Detective#137](https://github.com/rohanvinaik/Detective/issues/137) and the separate
+[construction-contract proposal](../openspec/changes/declare-construction-contracts/README.md)
+record an optional function contract and Wesker-owned catalog interchange. This is
+deferred Type (2), requested as a write-up; implementation remains unapproved. It
+does not add a prerequisite to the current repairs or publication. The issue queue
+now includes this additional proposal; the 89-issue counts above describe the earlier
+pause snapshot, whose records and hashes remain intact.
+
 ## Discoveries that this inventory cannot pre-enumerate
 
 This packet covers the known queue, not all possible future defects. For a new finding,
