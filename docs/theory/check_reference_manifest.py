@@ -60,7 +60,7 @@ def _parse(text: str) -> tuple[str, list[dict], list[dict]]:
     def items(section: str, keys: tuple[str, ...]) -> list[dict]:
         start = re.search(rf"^{section}:\s*$", text, re.M)
         if not start:
-            return []
+            raise ValueError(f"missing section {section}")
         body = text[start.end() :]
         nxt = re.search(r"^[a-z_]+:\s*$", body, re.M)
         if nxt:
@@ -69,15 +69,32 @@ def _parse(text: str) -> tuple[str, list[dict], list[dict]]:
         for block in re.split(r"^\s{2}-\s", body, flags=re.M)[1:]:
             rec: dict = {}
             for key in keys:
-                m = re.search(rf"^\s*{key}:\s*(.+?)\s*$", block, re.M)
+                m = re.search(rf"^[ \t]*{key}:[ \t]*(.*?)[ \t]*$", block, re.M)
                 if m:
-                    val = m.group(1).strip().strip('"')
+                    raw = m.group(1).strip()
+                    if key in ("load_bearing", "verified"):
+                        # These are evidence flags, never truthy strings. Quoted
+                        # booleans and arbitrary YAML values exceed this schema.
+                        boolean = re.fullmatch(r"(true|false)(?:[ \t]+#.*)?", raw)
+                        if boolean is None:
+                            raise ValueError(f"{section}.{key}: expected an unquoted true or false")
+                        rec[key] = boolean.group(1) == "true"
+                        continue
+                    val = raw.strip('"')
                     if val in ("true", "false"):
                         rec[key] = val == "true"
                     elif val not in (">", "|"):
                         rec[key] = val
             if rec:
+                if section == "external_citations":
+                    missing = {"key", "load_bearing", "verified"} - rec.keys()
+                    if missing:
+                        raise ValueError(f"{section}: missing {', '.join(sorted(missing))}")
                 out.append(rec)
+            else:
+                raise ValueError(f"{section}: unreadable list item")
+        if not out:
+            raise ValueError(f"{section}: no list items parsed")
         return out
 
     priors = items("priors", ("id", "path", "root", "sha256"))
@@ -92,6 +109,9 @@ def main(argv: list[str]) -> int:
         external_root, priors, citations = _parse(text)
     except OSError as exc:
         print(f"MANIFEST UNREADABLE: {exc}", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"MANIFEST MALFORMED: {exc}", file=sys.stderr)
         return 2
     if not priors:
         print("MANIFEST MALFORMED: no priors parsed", file=sys.stderr)
