@@ -101,7 +101,10 @@ def test_reached_lines_hands_its_worker_to_abandon_when_the_caller_is_cut_inside
     with pytest.raises(Abandoned):
         _reached_lines(_identity, [(1,)], __file__, target_lines, 0.5)
     assert len(fake_worker) == 1
-    assert recorded_abandon == fake_worker
+    # This fake remains alive even after abandon. The outer execution boundary
+    # may therefore retry cleanup; every attempt must still own this worker.
+    assert recorded_abandon, "the worker must be handed to abandon on cancellation"
+    assert all(worker is fake_worker[0] for worker in recorded_abandon)
 
 
 # --- the ordinary path, on a real runaway -----------------------------------------------------------
