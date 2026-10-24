@@ -3,10 +3,15 @@
 **Point Detective at a function and it writes the contract: every behaviour that function has, pinned by a test that fails the moment the behaviour changes — plus the short list of decisions no machine can make for you, handed back pre-typed.**
 
 <p align="center">
-  <a href="https://github.com/rohanvinaik/Detective/actions/workflows/ci.yml"><img src="https://github.com/rohanvinaik/Detective/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://pypi.org/project/detective-spec/"><img src="https://img.shields.io/pypi/v/detective-spec.svg?color=3367d6" alt="PyPI"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-3367d6.svg" alt="License: MIT"></a>
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-3367d6.svg" alt="Python 3.12+"></a>
+  <a href="https://pypi.org/project/detective-spec/"><img src="https://img.shields.io/pypi/v/detective-spec?style=flat-square&amp;logo=pypi&amp;logoColor=white&amp;color=3776ab" alt="PyPI version"></a>
+  <a href="https://github.com/rohanvinaik/Detective/releases/latest"><img src="https://img.shields.io/github/v/release/rohanvinaik/Detective?style=flat-square&amp;logo=github&amp;label=release" alt="Latest GitHub release"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.12%2B-3776ab?style=flat-square&amp;logo=python&amp;logoColor=white" alt="Python 3.12+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/rohanvinaik/Detective?style=flat-square&amp;color=5b6abf" alt="License: MIT"></a>
+  <br>
+  <a href="https://github.com/rohanvinaik/Detective/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rohanvinaik/Detective/ci.yml?branch=main&amp;style=flat-square&amp;logo=githubactions&amp;logoColor=white&amp;label=CI" alt="CI status"></a>
+  <a href="https://github.com/rohanvinaik/Detective/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/rohanvinaik/Detective/codeql.yml?branch=main&amp;style=flat-square&amp;logo=github&amp;label=CodeQL" alt="CodeQL status"></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=rohanvinaik_Detective"><img src="https://sonarcloud.io/api/project_badges/measure?project=rohanvinaik_Detective&amp;metric=alert_status" alt="Sonar quality gate"></a>
+  <a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/code%20style-Ruff-d7ff64?style=flat-square&amp;logo=ruff&amp;logoColor=d7ff64&amp;labelColor=261230" alt="Code style: Ruff"></a>
 </p>
 
 `Deterministic · No LLM · Applies nothing it cannot prove`

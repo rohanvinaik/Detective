@@ -29,7 +29,8 @@
       "title": "Accept integrated pair and proof artifacts",
       "prerequisites": [],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "partially_accepted__see_current_execution_tasks",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B01",
@@ -38,7 +39,8 @@
         "B00"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "partially_accepted__see_current_execution_tasks",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B02",
@@ -47,7 +49,8 @@
         "B01"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "partially_accepted__see_current_execution_tasks",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B03",
@@ -56,7 +59,8 @@
         "B01"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B04",
@@ -66,7 +70,8 @@
         "B03"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B05",
@@ -77,7 +82,8 @@
         "B04"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B06",
@@ -88,7 +94,8 @@
         "B04"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B07",
@@ -98,7 +105,8 @@
         "B03"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B08",
@@ -111,7 +119,8 @@
         "B07"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B09",
@@ -123,7 +132,8 @@
         "B04"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B10",
@@ -135,7 +145,8 @@
         "B09"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B11",
@@ -150,14 +161,16 @@
         "B08"
       ],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "queued_or_partially_implemented__see_recorded_evidence",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     },
     {
       "id": "B12",
       "title": "Reproducible build, reference review and documentation",
       "prerequisites": [],
       "details": "REPAIR_HANDOFF_2026-10-24.md",
-      "state": "queued_or_partially_implemented__see_recorded_evidence"
+      "state": "partially_accepted__see_current_execution_tasks",
+      "execution_tasks": "openspec/changes/complete-paired-repair/tasks.md"
     }
   ],
   "conditional_dependencies": [
@@ -1255,5 +1268,13 @@
     "Missing structural/effect operator premises",
     "Step-cap parameter warrant",
     "Any change to the meaning of fresh reproducibility"
-  ]
+  ],
+  "execution_plan": "openspec/changes/complete-paired-repair/tasks.md",
+  "current_checkpoint": {
+    "Wesker_runtime": "8aa2b4e9d9c00680bd7035e74127143a06aaa4d2",
+    "Wesker_development_lock": "6de166d24318ae3cce27c60adfe00a77f8699ccb",
+    "Detective_runtime": "10962b0b5343a71e3ddcb70d70f1b2999f314203",
+    "version": "1.2.1",
+    "note": "The original basis and body hashes remain a historical inventory. Current subset acceptance is in the OpenSpec tasks and release/B02 receipts. No blanket issue acceptance or performance win is asserted."
+  }
 }

@@ -2,6 +2,17 @@
 
 Owner-directed scope, 2026-10-24. Read this before starting another implementation wave.
 
+## Current execution plan
+
+At the owner's later request, the shared OpenSpec planning home is now
+[`complete-paired-repair`](../openspec/changes/complete-paired-repair/tasks.md).
+Its checked rows record accepted subsets and its unchecked rows preserve remaining
+work. This handoff's original checkpoint/status paragraphs below are historical.
+In particular, the opcode counter already uses the broker, B02 entry snapshots and
+bounded witness phases are implemented, and the 1.2.x publication floor is corrected.
+Do not repeat those implementations from the original future-tense descriptions.
+Existing-test filesystem authority and the wider package acceptance remain open.
+
 ## Mandate and starting state
 
 Finish **Type (1): make the projects correctly perform their existing, specified jobs**.
