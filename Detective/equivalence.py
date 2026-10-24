@@ -1566,6 +1566,16 @@ def _deep_args(args: tuple) -> tuple:
         raise UncopyableInputError(f"Candidate inputs cannot be safely copied: {exc}") from exc
 
 
+@dataclass(frozen=True)
+class _ObservedOutcome:
+    """Rendering payload retained from one admissible, bounded invocation (#108)."""
+
+    args: tuple
+    outcome: str
+    value: Any = None
+    receiver_state: dict[str, Any] | None = None
+
+
 def _outcome(
     fn: Callable[..., Any],
     args: tuple,
@@ -1574,6 +1584,7 @@ def _outcome(
     observe_state: bool = False,
     cap: int | None = None,
     step_count: list[int] | None = None,
+    observations: list[_ObservedOutcome] | None = None,
 ) -> str:
     """The repr of ``fn(*args)``, or a raised-marker — so a mutant that starts
     raising (or stops raising) counts as an observable difference, not a crash.
@@ -1591,6 +1602,11 @@ def _outcome(
     in ``fn``'s code object are monitored via ``sys.monitoring``. Exceeding it returns
     ``_OUTCOME_DIVERGED`` in ~1ms without waiting out the wall-clock timeout.
     ``step_count``, when supplied, receives the executed loop iteration count.
+
+    ``observations`` retains independent entry arguments, the observed value and optional receiver
+    state from this SAME invocation, after the worker finishes admissibly. Copying and rendering
+    stay inside the call's wall. Consumed iterators retain their bounded marker instead of a fresh
+    iterator payload; no execution is repeated to reconstruct a witness.
 
     The marker carries the exception's MESSAGE as well as its type, because the type alone is
     not the behaviour. Given `if key not in slots: raise KeyError(f"unknown slot {key}")`, both
@@ -1612,7 +1628,7 @@ def _outcome(
     witness whose generated test cannot kill the mutant — re-listed as a survivor,
     re-classified killable off this same witness, rebuilt identically, forever.
     """
-    box: dict[str, str] = {}
+    box: dict[str, Any] = {}
     observation_errors: list[Exception] = []
     interrupts: list[BaseException] = []
     from Wesker.monitoring import MonitoringUnavailable
@@ -1620,23 +1636,43 @@ def _outcome(
     from .capture import ObservationIncomplete
     from .synthesis.characterization import _CaptureWriteBlocked, block_fs_writes
 
-    try:
-        call_args = _deep_unwrapped(args)
-    except UncopyableInputError:
-        return _OUTCOME_UNCOPYABLE
-    code = _extract_code(fn)
-
     def _run() -> None:
         try:
+            try:
+                if observations is not None:
+                    box["args"] = _deep_args(args)
+                call_args = _deep_unwrapped(args)
+            except UncopyableInputError:
+                box["v"] = _OUTCOME_UNCOPYABLE
+                return
+            code = _extract_code(fn)
             with block_fs_writes():
                 if code is not None and not is_budget_active():
                     with step_budget([code], cap=cap) as sc:
-                        obs = _observe(fn(*call_args))
+                        value = fn(*call_args)
+                        obs = _observe(value)
                         if step_count is not None:
                             step_count.append(sc.iterations)
                 else:
-                    obs = _observe(fn(*call_args))
+                    value = fn(*call_args)
+                    obs = _observe(value)
                 box["v"] = _with_receiver_state(fn, obs) if observe_state else obs
+                if observations is not None:
+                    receiver = getattr(fn, "last_receiver", None) if observe_state else None
+                    try:
+                        state = dict(vars(receiver)) if receiver is not None else None
+                    except TypeError:  # a slots-only receiver has no dictionary state
+                        state = None
+                    # Iterator content already belongs to the bounded observation;
+                    # a consumed iterator supplies no extra rendering evidence.
+                    payload = None if obs.startswith(("<iter ", "<iter~trunc ")) else value
+                    try:
+                        box["value"], box["state"] = copy.deepcopy((payload, state))
+                    except Exception as exc:
+                        raise ObservationIncomplete(
+                            "outcome_snapshot_failed",
+                            f"observed value or state could not be retained ({type(exc).__name__})",
+                        ) from exc
         except StepBudgetExceeded:
             box["v"] = _OUTCOME_DIVERGED
         except MonitoringUnavailable as exc:
@@ -1662,12 +1698,26 @@ def _outcome(
     if thread.refusal:
         raise ObservationIncomplete("execution_refused", thread.refusal)
     if observation_errors:
+        if isinstance(observation_errors[0], ObservationIncomplete):
+            raise observation_errors[0]
         raise ObservationIncomplete("outcome_observation_failed", str(observation_errors[0])) from (
             observation_errors[0]
         )
     if timed_out:
         return _OUTCOME_WALL_UNDETERMINED
-    return box.get("v", _OUTCOME_WALL_UNDETERMINED)
+    outcome = box.get("v", _OUTCOME_WALL_UNDETERMINED)
+    if (
+        observations is not None
+        and "args" in box
+        and outcome
+        not in (
+            _OUTCOME_UNCOPYABLE,
+            _OUTCOME_DIVERGED,
+            _OUTCOME_WALL_UNDETERMINED,
+        )
+    ):
+        observations.append(_ObservedOutcome(box["args"], outcome, box.get("value"), box.get("state")))
+    return outcome
 
 
 def _reached_lines(
@@ -1733,21 +1783,6 @@ def _reached_lines(
     return frozenset(hit)
 
 
-def _outcome_value(fn: Callable[..., Any], args: tuple) -> Any:
-    """The LIVE outcome of ``fn(*args)``, or None if it raised.
-
-    Companion to ``_outcome``, which yields only a repr — and a repr cannot answer "is
-    this a set", the question that decides whether pinning the outcome by repr is sound or
-    hash-seed flaky. Called once, when a witness is actually constructed, not for every
-    candidate input."""
-    try:
-        call_args = _deep_unwrapped(args)
-        return fn(*call_args)
-    # BLE001: a raise carries no value; `_outcome` already marked it
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def _is_receiver_bound(fn: Any) -> bool:
     """Whether ``fn`` is a :class:`binding.ReceiverBound` — i.e. calling it builds a receiver whose
     post-call state the #25 fallback can observe. Duck-typed on ``last_receiver`` to avoid an import
@@ -1777,34 +1812,13 @@ def _renderable_repr(value: Any) -> str | None:
         return None
 
 
-def _receiver_state_after(fn: Callable[..., Any], args: tuple) -> dict[str, Any] | None:
-    """The receiver's instance ``vars`` after ONE live ``fn(*args)`` — for rendering a state witness.
-    Runs the call once (like :func:`_outcome_value`), then reads the receiver ``ReceiverBound`` kept.
-    None when the call raised or built no receiver (nothing clean to pin)."""
-    try:
-        call_args = _deep_unwrapped(args)
-        fn(*call_args)
-    # BLE001: a raise leaves no clean post-state to pin
-    except Exception:  # noqa: BLE001
-        return None
-    receiver = getattr(fn, "last_receiver", None)
-    if receiver is None:
-        return None
-    try:
-        return dict(vars(receiver))
-    except TypeError:  # __slots__ — no instance dict to render
-        return None
-
-
 def _state_witness_pins(
-    original: Callable[..., Any], mutant: Callable[..., Any], args: tuple
+    original_state: dict[str, Any] | None, mutant_state: dict[str, Any] | None
 ) -> tuple[tuple[str, str], ...]:
     """The ``(attribute, literal-repr)`` pins a state witness asserts (#25 fallback): the receiver
     attributes where original and mutant post-call state differ AND the original's value round-trips
     as a literal. Empty when nothing differs renderably — an object-valued state change is a real
     distinction the SEARCH sees but no literal assertion can pin, so it stays a fixture residual."""
-    original_state = _receiver_state_after(original, args)
-    mutant_state = _receiver_state_after(mutant, args)
     if original_state is None or mutant_state is None:
         return ()
     original_obs = {k: _observe(v) for k, v in original_state.items()}
@@ -1925,12 +1939,15 @@ def _search_witness(
         # single non-terminating _outcome cannot overrun the command deadline by a full 5s cap (#31).
         # We count original iterations and bound the mutant by a deterministic factor-and-floor step budget.
         orig_steps: list[int] = []
+        original_observations: list[_ObservedOutcome] = []
+        mutant_observations: list[_ObservedOutcome] = []
         original_outcome = _outcome(
             original,
             args,
             _outcome_budget_s(deadline),
             cap=None,
             step_count=orig_steps,
+            observations=original_observations,
         )
         orig_it = orig_steps[0] if orig_steps else None
         mut_cap = step_cap(orig_it, factor=10, floor=100) if orig_it is not None else None
@@ -1939,6 +1956,7 @@ def _search_witness(
             args,
             _outcome_budget_s(deadline),
             cap=mut_cap,
+            observations=mutant_observations,
         )
         disposition = _pair_disposition(original_outcome, mutant_outcome)
         if disposition == "step-budget-divergent":
@@ -1952,6 +1970,11 @@ def _search_witness(
             continue
         if disposition == "same":
             continue
+        if not original_observations or not mutant_observations:
+            blocked = True
+            continue
+        original_observation = original_observations[0]
+        mutant_observation = mutant_observations[0]
         if disposition == "crash-only":
             # Crash-only kill — not a value-witness (see crash-as-spec), but not nothing
             # either: the input IS the fact that decides what a caller can do next (write a
@@ -1959,32 +1982,22 @@ def _search_witness(
             # least crash-detects the mutant). Keep the FIRST such input; a value-witness
             # found later still outranks it.
             if crash_witness is None:
-                try:
-                    safe_args = _deep_args(args)
-                except UncopyableInputError:
-                    blocked = True
-                    continue
                 crash_witness = Witness(
-                    safe_args, original_outcome, mutant_outcome, _outcome_value(original, args)
+                    original_observation.args,
+                    original_observation.outcome,
+                    mutant_observation.outcome,
+                    original_observation.value,
                 )
             continue
-        try:
-            safe_args = _deep_args(args)
-        except UncopyableInputError:
-            blocked = True
-            continue
         return (
-            # Capture the MUTANT's live value too (symmetric to the original), so an object /
-            # dataclass distinction that ``==`` cannot see is pinnable by type at the leaf rather
-            # than silently dropped (its repr is not ``literal_eval``-able). Re-runs the mutant
-            # once at construction — the same one-extra-call the original already pays here, and
-            # only when a value-witness is actually built, never per candidate input.
+            # Rendering payloads belong to the calls that established the
+            # distinction, rather than unbounded re-executions of either arm.
             Witness(
-                safe_args,
-                original_outcome,
-                mutant_outcome,
-                _outcome_value(original, args),
-                _outcome_value(mutant, args),
+                original_observation.args,
+                original_observation.outcome,
+                mutant_observation.outcome,
+                original_observation.value,
+                mutant_observation.value,
             ),
             None,
             blocked,
@@ -2023,18 +2036,32 @@ def _state_fallback_witness(
             return None, True
         if not _binds(original, args):
             continue
-        budget = _outcome_budget_s(deadline)
-        original_outcome = _outcome(original, args, budget, observe_state=True)
-        mutant_outcome = _outcome(mutant, args, budget, observe_state=True)
+        original_observations: list[_ObservedOutcome] = []
+        mutant_observations: list[_ObservedOutcome] = []
+        original_outcome = _outcome(
+            original,
+            args,
+            _outcome_budget_s(deadline),
+            observe_state=True,
+            observations=original_observations,
+        )
+        mutant_outcome = _outcome(
+            mutant, args, _outcome_budget_s(deadline), observe_state=True, observations=mutant_observations
+        )
         if _pair_disposition(original_outcome, mutant_outcome) != "witness":
             continue
-        state_pins = _state_witness_pins(original, mutant, args)
+        if not original_observations or not mutant_observations:
+            return None, True
+        state_pins = _state_witness_pins(
+            original_observations[0].receiver_state, mutant_observations[0].receiver_state
+        )
         if state_pins:
-            try:
-                safe_args = _deep_args(args)
-            except UncopyableInputError:
-                continue
-            return Witness(safe_args, original_outcome, mutant_outcome, state_pins=state_pins), False
+            return Witness(
+                original_observations[0].args,
+                original_observations[0].outcome,
+                mutant_observations[0].outcome,
+                state_pins=state_pins,
+            ), False
     return None, False
 
 

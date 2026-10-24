@@ -67,13 +67,43 @@ Detective distribution. The Git development pin does not establish compatibility
 with the declared published dependency. Neither a new release nor an invented
 unpublished version floor was introduced in this pass.
 
+## Same-invocation witness observations — implemented
+
+Witness search now retains entry arguments, the return payload and optional receiver
+state from the bounded invocation that produced its outcome marker. Original and
+mutant payloads are copied before another arm can alter shared objects. The worker
+also owns trial-input copying, so user copy hooks run inside its timeout boundary.
+An uncopyable result raises the named `outcome_snapshot_failed` observation refusal;
+an interrupted copy publishes no partial payload. Consumed iterators retain their
+existing bounded observation rather than being executed again to reconstruct values.
+
+The unbounded `_outcome_value` and `_receiver_state_after` paths were removed after
+checking their consumers. State-witness pins consume the retained receiver states,
+and each state-fallback arm receives the remaining deadline independently.
+
+Seven authored boundary tests protect call counts, marker/payload consistency,
+mutable-return retention, valid None returns, receiver state, worker-owned copying,
+and failed/interrupted snapshots. Verification:
+
+- Focused equivalence/capture/divergence suites: 70 passed.
+- Full Detective suite against local Wesker: 3,856 passed, four skipped, one xfailed.
+- The final change to consume markers from the retained carrier was followed by a
+  fresh focused run: 70 passed. The full-suite receipt precedes that final change.
+- Ruff 0.16.7 check and whole-tree format check passed, 470 files.
+- Advisory ty still reported the same seven warnings outside the changed files.
+
+The full log is retained in the same local receipt directory as
+`Detective-observation-suite.log`. A separate disposable project followed `--help`,
+clean `regime`, and `converge subject.py::select --deadline 30`. Its set-valued
+target reached `COMPLETE (operator universe)`, 8/8 killed, with fresh isolated
+reproducibility confirmation. This is a real-entry-point integration smoke, not
+proof that initial synthesis exercised the changed witness-search branch.
+
+Thread interruption bounds the tested Python copy loop; it is not a hard RSS bound
+or a guarantee of interrupting native code that holds the interpreter lock.
+
 ## Remaining B02 work confirmed in current code
 
-- `_outcome` already copies a complete unwrapped argument row per trial, but the
-  copy currently happens before its bounded worker starts.
-- `_search_witness` still calls `_outcome_value` to re-execute original and mutant
-  while constructing a witness. State fallback similarly re-executes through
-  `_receiver_state_after`. Carry admissible value/state observations instead.
 - `property_holds` still compiles and executes generated code without a worker
   boundary. Witness rendering/writing also needs the aggregate remaining budget.
 - The existing speculative write guard explicitly leaves profiled existing tests

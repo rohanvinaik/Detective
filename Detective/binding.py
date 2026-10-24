@@ -289,7 +289,7 @@ class ReceiverBound:
         # The receiver the most recent __call__ built, kept so the equivalence search can observe its
         # POST-CALL state (#25 fallback): a method whose mutation changes only instance state returns
         # the same value either way, so the return-value observer cannot distinguish it. None until the
-        # first call. Read by `equivalence._outcome` / `_receiver_state_after`, never by the call proper.
+        # first call. Snapshotted by `equivalence._outcome`, never read by the call proper.
         self.last_receiver: Any = None
         self.__globals__ = getattr(fn, "__globals__", {})  # type: ignore[attr-defined]
         self.__name__ = getattr(fn, "__name__", "receiver_bound")
