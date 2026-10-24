@@ -17,6 +17,7 @@ References: Fork 1 / Fork 2 = docs/theory/NEGATIVE_SPECIFICATION.md §11, Defini
 from __future__ import annotations
 
 import contextlib
+import copy
 import io
 import sys
 import threading
@@ -258,7 +259,7 @@ def capture_call_inputs(
     deadline: float | None = None,
     per_test_timeout: float = 5.0,
 ) -> HarvestResult:
-    """Real positional-argument tuples observed at every call to ``original`` while
+    """Independent entry snapshots of positional arguments passed to ``original`` while
     ``tests`` run, deduplicated by value and capped at ``max_samples``.
 
     Keyed on the function's *code object* via owned ``sys.monitoring`` subscription on ``PY_START``.
@@ -273,6 +274,7 @@ def capture_call_inputs(
     tool_id()
     captured: list[tuple] = []
     seen: set[str] = set()
+    snapshot_errors: list[tuple[str, str]] = []
     all_contained = True
     any_timed_out = False
 
@@ -282,14 +284,22 @@ def capture_call_inputs(
         frame: Any = None,
         run_token: int | None = None,
     ) -> None:
-        if frame_code is not code or frame is None or len(captured) >= max_samples:
+        if frame_code is not code or frame is None or len(captured) >= max_samples or snapshot_errors:
             return
         try:
             loc = frame.f_locals
-            args = tuple(loc[n] for n in names)
+            # One copy of the whole row preserves its aliases while severing
+            # references to the test's live arguments before the target runs.
+            args = copy.deepcopy(tuple(loc[n] for n in names))
+        except Exception as exc:  # noqa: BLE001
+            # Report after the worker retires: an observation failure must not
+            # become an exception thrown into the target under observation.
+            snapshot_errors.append(("input_snapshot_failed", type(exc).__name__))
+            return
+        try:
             key = repr(args)
-        # BLE001: an unrepr-able/odd arg is simply not harvested
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            snapshot_errors.append(("input_snapshot_unrepresentable", type(exc).__name__))
             return
         if key in seen:
             return
@@ -313,6 +323,13 @@ def capture_call_inputs(
             run = _run_for_effects(
                 t, timeout_s=timeout_s, code=code, event=sys.monitoring.events.PY_START, observer=_on_start
             )
+            if snapshot_errors:
+                reason, error_type = snapshot_errors[0]
+                raise ObservationIncomplete(
+                    reason,
+                    f"entry arguments could not be retained independently ({error_type})",
+                    contained=run.contained,
+                )
             any_timed_out = any_timed_out or run.timed_out
             if not run.contained:
                 all_contained = False
