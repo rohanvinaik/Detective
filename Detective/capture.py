@@ -194,6 +194,7 @@ def _run_for_effects(
     The parent retires and closes the subscription on every exit.
     """
     interrupt_exc: BaseException | None = None
+    observation_errors: list[MonitoringUnavailable] = []
 
     def _safe_run() -> None:
         nonlocal interrupt_exc
@@ -203,6 +204,8 @@ def _run_for_effects(
             interrupt_exc = exc
         except Abandoned:
             pass
+        except MonitoringUnavailable as exc:
+            observation_errors.append(exc)
         # BLE001: the harvest swallows a test's verdict and never the operator's interrupt
         except BaseException:  # noqa: BLE001
             pass
@@ -245,6 +248,8 @@ def _run_for_effects(
         raise interrupt_exc
     if worker.refusal:
         raise ObservationIncomplete("execution_refused", worker.refusal, contained=contained)
+    if observation_errors:
+        raise observation_errors[0]
     incomplete_thread = include_children and any(
         thread not in alive_before and thread is not worker for thread in threading.enumerate()
     )

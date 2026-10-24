@@ -52,7 +52,7 @@ returned exit 3 and named the observation failure:
 INCOMPLETE:  input_snapshot_failed: entry arguments could not be retained independently (TypeError)
 ```
 
-## Published minimum — reproduced, unresolved
+## Published minimum — reproduced; repaired for the paired 1.2.0 update
 
 In an isolated environment containing published Wesker 1.1.1, pytest and Ruff,
 with only repository Detective on PYTHONPATH, `import Detective` fails through
@@ -65,7 +65,10 @@ ImportError: cannot import name 'JoinedWorker' from 'Wesker.interrupt'
 This tests current repository source against its declared minimum, not an older
 Detective distribution. The Git development pin does not establish compatibility
 with the declared published dependency. Neither a new release nor an invented
-unpublished version floor was introduced in this pass.
+unpublished version floor was introduced during that first pass. The owner then
+selected 1.2.0 for both packages. Detective now requires Wesker 1.2.0 and its lock
+selects the pushed Wesker 1.2.0 commit. Installed-artifact acceptance belongs to the
+paired release receipt; Wesker must reach PyPI before Detective.
 
 ## Same-invocation witness observations — implemented
 
@@ -104,13 +107,18 @@ or a guarantee of interrupting native code that holds the interpreter lock.
 
 ## Remaining B02 work confirmed in current code
 
-- `property_holds` still compiles and executes generated code without a worker
-  boundary. Witness rendering/writing also needs the aggregate remaining budget.
+- `property_holds`, property/witness construction, golden capture and suite rendering
+  now run in bounded workers. Converge threads the remaining aggregate deadline into
+  those phases and checks it before subsequent witness rows. Timeout, unavailable
+  observation and uncontained execution remain distinct from a false assertion.
+- The speculative write guard now reports `filesystem_write_blocked`, including
+  writes whose control exception was caught by a target or iterator. Copy hooks are
+  guarded too. Worker-based harvest propagates monitoring/observation refusals.
+  Tool-owned bytecode-cache maintenance and Ruff pipes stay outside target write
+  guards; legitimate imports suppress bytecode output during property verification.
 - The existing speculative write guard explicitly leaves profiled existing tests
   free to write. D#105 remains to be implemented against explicit test/regime write
   authority; permitting the entire system temp directory is not that authority.
-- `_outcome` currently renders a filesystem interception as a raised target marker;
-  an instrumentation refusal must not become a target distinction.
 - `literal_source` already renders nonfinite floats as executable constructor
   expressions. D#76 still needs verification of assertion and printed-mutant
   consumers; do not reimplement the existing literal renderer merely from the list.

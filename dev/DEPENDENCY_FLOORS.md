@@ -15,10 +15,10 @@ Runtime deps: the Wesker mutation engine (the profiler) AND pytest — Detective
 PRODUCT is pytest suites and it runs pytest to wire + verify them, so pytest is a
 runtime requirement, not dev-only.
 
-The PRE-PyPI-PUBLISH CHECKLIST that stood here is DONE, in its documented order:
-Wesker went to PyPI first, the git-URL became a plain package spec, and
-`[tool.uv.sources] Wesker` + `[tool.hatch.metadata] allow-direct-references` are gone.
-Both existed only for the git-URL dev path; a PyPI package depends on the PyPI package.
+Published metadata uses a plain Wesker version requirement. Development resolves a
+pushed Git revision through `[tool.uv.sources]` and `uv.lock`; that development
+override does not enter wheel metadata. The coordinated release order is Wesker
+first, then Detective, so the published requirement can be resolved from PyPI.
 
 >= 0.6.2 is what the MCP surface REQUIRES TO EXIST AT ALL. Below it, running pytest in-process
 uses pytest's default fd-level capture, which replaces file descriptor 1 — and for a stdio MCP
@@ -64,10 +64,9 @@ live thread per timeout and make LATER mutants time out because earlier ones wer
 value questioned, and its kill attribution silently discards every kill a parametrized
 test earns. Detective's verdicts are only as honest as the engine underneath them.
 
-Local dev now resolves Wesker from PyPI like everyone else. To make edits in a sibling
-../Wesker checkout live again, add back (uv-only; it never reaches the wheel metadata):
-    [tool.uv.sources]
-    Wesker = { path = "../Wesker", editable = true }
+Local pair development uses the sibling checkouts through PYTHONPATH. A clean locked
+development install instead resolves the Wesker Git revision selected by `uv.lock`.
+Published consumers resolve the plain version requirement from PyPI.
 >= 0.7.2 is a CORRECTNESS floor of the same family as 0.6.0, and it is what makes `audit`'s
 ⚠ line trustworthy at all. Below it, `pytest_runner._reset_item` invalidates a fixture by
 assigning `cached_result = None` instead of calling `FixtureDef.finish()`. Only `finish()`
@@ -275,3 +274,20 @@ A CORRECTNESS floor over three Wesker fixes, one of which changes a number Detec
 Measured on this repository: against Wesker 1.0.0 (the stale lock pin this release replaces), three
 integration tests fail on the leaked descriptor; against 1.1.1 they pass. Detective and Wesker ship
 1.1.1 together for exactly this reason.
+
+---
+
+## Wesker >= 1.2.0
+
+An IMPORT and EXECUTION-CONTRACT floor. Current Detective imports `JoinedWorker`
+from `Wesker.interrupt` and uses owned monitoring subscriptions, run retirement and
+qualified execution outcomes. Published Wesker 1.1.1 does not provide `JoinedWorker`.
+Repository Detective paired with that published minimum fails at import through
+certify → engine → capture, before even `detective --help` can run. The development
+Git pin masked this failure; it did not establish minimum-version compatibility.
+
+The coordinated 1.2.0 update carries those APIs, policy 8's annotation exclusion,
+and the isolation/accounting repairs already present in the local pair. Both packages
+require Python 3.12 or newer. Detective's wheel requires `Wesker>=1.2.0` as a plain
+package spec; it must not resolve the older published implementation or embed the
+development Git source. Publish Wesker 1.2.0 before Detective 1.2.0.

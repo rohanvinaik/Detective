@@ -120,7 +120,7 @@ classifiers = [
 #   Wesker >= 0.6.0  stdout-buffer death: full report written to a dead buffer, exit 0
 #   pytest, ruff     RUNTIME deps: the product is a pytest file that must pass ruff format
 dependencies = [
-    "Wesker>=1.1.1",  # policy 7's `withheld` census (1.1.0), plus the equivalence-probe, descriptor and teardown fixes (1.1.1) — see dev/DEPENDENCY_FLOORS.md
+    "Wesker>=1.2.0",  # owned monitoring, JoinedWorker containment and policy 8 — see dev/DEPENDENCY_FLOORS.md
     "pytest>=7",
     # RUNTIME, not dev-only. Detective's PRODUCT is a test file written into someone
     # else's repo, and that file has to pass that repo's `ruff format --check` or it
@@ -168,7 +168,7 @@ dev = ["pytest>=7", "pytest-cov>=4", "ruff==0.16.7", "numpy>=1.24"]
 # `version` field exists to prevent; the floor has ONE home, which is the `dependencies` list above.
 #
 # The "does not enter the wheel" claim is checked, not assumed: the built METADATA declares
-# `wesker>=1.1.1` as a plain spec with no direct reference. A leaked git URL is the one thing PyPI
+# a plain Wesker version spec with no direct reference. A leaked git URL is the one thing PyPI
 # rejects outright, so it is worth re-checking whenever this block changes.
 [tool.uv.sources]
 Wesker = { git = "https://github.com/rohanvinaik/Wesker.git", branch = "main" }

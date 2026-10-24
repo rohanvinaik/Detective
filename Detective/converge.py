@@ -723,7 +723,51 @@ def _remaining_summary(survivor_records: list[dict]) -> tuple[str, ...]:
     return tuple(f"{n} {cat}" for cat, n in sorted(counts.items()))
 
 
-def property_holds(setup_code: str, assertion_code: str, project_root: str) -> bool:
+def _bounded_work[T](
+    work: Callable[[], T], timeout_s: float | None, *, phase: str, guard_writes: bool = True
+) -> T:
+    """Run speculative synthesis work under its remaining wall and write guard (#108).
+
+    A timeout or failed observation is a named refusal, never a false property.
+    Native blocking that cannot be unwound is reported as uncontained.
+    """
+    from Wesker.interrupt import JoinedWorker, bounded_join
+
+    from .capture import ObservationIncomplete
+    from .synthesis.characterization import block_fs_writes
+
+    if timeout_s is not None and timeout_s <= 0:
+        raise ObservationIncomplete(f"{phase}_timeout", "the remaining execution deadline is exhausted")
+    values: list[T] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            with block_fs_writes() if guard_writes else contextlib.nullcontext():
+                value = work()
+            values.append(value)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    worker = JoinedWorker(target=run, daemon=True)
+    worker.start()
+    timed_out, contained = bounded_join(worker, timeout_s, unwind_s=0.05)
+    if not contained:
+        raise ObservationIncomplete(f"{phase}_uncontained", "execution left a live worker", contained=False)
+    if timed_out:
+        raise ObservationIncomplete(f"{phase}_timeout", "execution exceeded its remaining deadline")
+    if worker.refusal:
+        raise ObservationIncomplete("execution_refused", worker.refusal)
+    if errors:
+        raise errors[0]
+    if not values:
+        raise ObservationIncomplete(f"{phase}_incomplete", "execution produced no completed observation")
+    return values[0]
+
+
+def property_holds(
+    setup_code: str, assertion_code: str, project_root: str, *, timeout_s: float | None = 5.0
+) -> bool:
     """True if the property's assertion passes on the unmutated module.
 
     Executes ``setup_code`` + ``assertion_code`` with the SUITE's import path — not merely
@@ -734,26 +778,34 @@ def property_holds(setup_code: str, assertion_code: str, project_root: str) -> b
     killed, which reads as "this code is unkillable" rather than "the gate could not import it".
     ``_suite_path`` is what pytest itself will use, so a property that passes here passes there.
 
-    Any exception (a failed assertion, or an import that can't resolve) means the
-    property does not soundly hold and must not be written.
+    A failed assertion or unresolved import means the property must not be written.
+    Observation failures, blocked writes and timeouts refuse by name. Compilation,
+    imports and execution share the worker's timeout; converge supplies its remaining wall.
     """
     from .engine import _suite_path
 
-    root = os.path.abspath(project_root)
-    added = [p for p in _suite_path(root) if p not in sys.path]
-    sys.path[:0] = added
+    def check() -> bool:
+        root = os.path.abspath(project_root)
+        added = [p for p in _suite_path(root) if p not in sys.path]
+        sys.path[:0] = added
+        bytecode_writes = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            exec(compile(f"{setup_code}\n{assertion_code}", "<verify>", "exec"), {})  # noqa: S102
+            return True
+        finally:
+            sys.dont_write_bytecode = bytecode_writes
+            for p in added:
+                if p in sys.path:
+                    sys.path.remove(p)
+
     try:
-        exec(compile(f"{setup_code}\n{assertion_code}", "<verify>", "exec"), {})  # noqa: S102
-        return True
-    except (KeyboardInterrupt, SystemExit):
-        raise  # never swallow interrupt/exit — only property failures are "unsound"
+        return _bounded_work(check, timeout_s, phase="property")
+    except (KeyboardInterrupt, SystemExit, MonitoringUnavailable):
+        raise
     # BLE001: pytest's Failed inherits BaseException rather than Exception
     except BaseException:  # noqa: BLE001
         return False
-    finally:
-        for p in added:
-            if p in sys.path:
-                sys.path.remove(p)
 
 
 def _numeric_inputs(params: list[str]) -> list[dict]:
@@ -1706,6 +1758,11 @@ def _converge_impl(
         _ms = _budget_ms()
         return None if _ms is None else _ms / 1000.0
 
+    def _verified(setup_code: str, assertion_code: str, project_root: str) -> bool:
+        remaining = _budget_s()
+        timeout = 5.0 if remaining is None else min(5.0, remaining)
+        return property_holds(setup_code, assertion_code, project_root, timeout_s=timeout)
+
     budget_cut = False
     cut_phase = ""
     # Typed refusals for goldens that would have pinned the environment
@@ -1801,6 +1858,17 @@ def _converge_impl(
     from . import pins
 
     fn_digest = pins.function_digest(node)
+
+    def _render_suite(props: list[ExecutableProperty]) -> str:
+        return _bounded_work(
+            lambda: render_module(func_key, props, function_digest=fn_digest, numeric_backend=fn_backend),
+            _budget_s(),
+            phase="suite_render",
+            # The renderer owns Ruff's subprocess pipes; property construction above
+            # has already converted consumer values to source under its own guard.
+            guard_writes=False,
+        )
+
     # #70: whether THIS target's module reaches a platform-dependent numeric backend. Computed here,
     # once, because this is the layer that holds the target's source — the renderer must not sniff
     # the process, which answers "is numpy loaded anywhere" and stamps every float in any project
@@ -1823,7 +1891,7 @@ def _converge_impl(
     # regression guard's retry candidate (`regression_recovery`).
     pre_minimal: dict[str, ExecutableProperty] | None = None
     accumulated: dict[str, ExecutableProperty] = {
-        property_identity(p): p for p in pins.load(root, func_key, fn_digest, verify=property_holds)
+        property_identity(p): p for p in pins.load(root, func_key, fn_digest, verify=_verified)
     }
     if accumulated:
         say(f"recalled {len(accumulated)} pinned test(s) from a previous run")
@@ -1948,10 +2016,14 @@ def _converge_impl(
         previous = survivors
         say(f"pass {_pass}: {survivors} value-survivor(s) — synthesizing killing tests…")
 
-        props = [
-            generate_executable_property(s, func_key, node, call_site_inputs, root)
-            for s in result.value_survivor_records
-        ]
+        props = _bounded_work(
+            lambda _result=result: [
+                generate_executable_property(s, func_key, node, call_site_inputs, root)
+                for s in _result.value_survivor_records
+            ],
+            _budget_s(),
+            phase="property_render",
+        )
         # Pure functions also get golden-capture properties, which pin the exact
         # return value and kill the VALUE/ARITHMETIC survivors oracle-light can't.
         #
@@ -1961,17 +2033,24 @@ def _converge_impl(
         # `representative_site`, i.e. a path we invented. `is_pure` alone put "delete this
         # directory tree" one synthesized argument away from running.
         if is_pure(node, is_method="." in (qualname or "")) and not world_effects(node):
-            golden_props, refused = _golden_properties(
-                func_key,
-                node,
-                full,
-                qualname,
-                root,
-                supplied_inputs=supplied_inputs,
-                clock=clock,
-                env=env,
-                receiver_factory=_rf,
-                coupled=_runtime_coupled,
+            golden_props, refused = _bounded_work(
+                lambda: _golden_properties(
+                    func_key,
+                    node,
+                    full,
+                    qualname,
+                    root,
+                    supplied_inputs=supplied_inputs,
+                    clock=clock,
+                    env=env,
+                    receiver_factory=_rf,
+                    coupled=_runtime_coupled,
+                ),
+                _budget_s(),
+                phase="golden_capture",
+                # Golden capture owns its per-invocation write guard. Its loader also
+                # performs legitimate bytecode-cache maintenance outside those calls.
+                guard_writes=False,
             )
             props += golden_props
             # The supplied inputs have now had their synthesis pass, so the zero-survivor branch
@@ -1981,15 +2060,17 @@ def _converge_impl(
                 if note not in environment_coupled:
                     environment_coupled.append(note)
                     say(f"⚠ {note}")
-        sound = [
-            p for p in props if not p.needs_oracle and property_holds(p.setup_code, p.assertion_code, root)
-        ]
+        sound = []
+        for p in props:
+            if budget_is_exhausted(_budget_ms()):
+                budget_cut, cut_phase = True, "property verification"
+                break
+            if not p.needs_oracle and _verified(p.setup_code, p.assertion_code, root):
+                sound.append(p)
         new_sound = [p for p in sound if property_identity(p) not in accumulated]
         for p in new_sound:
             accumulated[property_identity(p)] = p
-        source = render_module(
-            func_key, list(accumulated.values()), function_digest=fn_digest, numeric_backend=fn_backend
-        )
+        source = _render_suite(list(accumulated.values()))
         if source and write_dir:
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, func_key, root) or None
@@ -2038,7 +2119,7 @@ def _converge_impl(
     )
     _method_attr = _exec_binding.binding.attribute if _exec_binding is not None else None
     _owner = _exec_binding.binding.owner if _exec_binding is not None else None
-    if write_dir:
+    if write_dir and iterations and not budget_is_exhausted(_budget_ms()):
         say("witness pass: searching richer inputs for a distinguishing kill…")
         pre = classify_survivors(
             file,
@@ -2055,6 +2136,9 @@ def _converge_impl(
         witnessed = False
         n_witnessed = 0
         for verdict in pre.killable:
+            if budget_is_exhausted(_budget_ms()):
+                budget_cut, cut_phase = True, "witness writing"
+                break
             w = verdict.witness
             if w is None:
                 continue
@@ -2066,29 +2150,36 @@ def _converge_impl(
             # An env-coupled value golden is declined (#39); the raises form is not a value.
             if not _capturable and not is_raises:
                 continue
-            if w.state_pins:
-                # A receiver-STATE witness (#25 fallback): the mutation changed only `self`, so the
-                # test asserts on the receiver after the call, not on the (unchanged) return.
-                prop = _state_witness_property(
-                    func_key,
-                    w,
-                    root,
-                    receiver_render=_receiver_render,
-                    method_attr=_method_attr,
-                    owner=_owner,
-                    factory_import=_render_import_stmt,
-                )
-            elif is_raises:
-                prop = _raises_witness_property(
+
+            def render_witness(w=w, is_raises=is_raises):
+                if w.state_pins:
+                    # A state witness pins the receiver after the same call.
+                    return _state_witness_property(
+                        func_key,
+                        w,
+                        root,
+                        receiver_render=_receiver_render,
+                        method_attr=_method_attr,
+                        owner=_owner,
+                        factory_import=_render_import_stmt,
+                    )
+                if is_raises:
+                    return _raises_witness_property(
+                        func_key,
+                        w,
+                        root,
+                        kw_names,
+                        call_expr=_render_call_expr,
+                        import_stmt=_render_import_stmt,
+                    )
+                return _witness_property(
                     func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
                 )
-            else:
-                prop = _witness_property(
-                    func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
-                )
+
+            prop = _bounded_work(render_witness, _budget_s(), phase="witness_render")
             if prop is None:
                 continue
-            if property_identity(prop) not in accumulated and property_holds(
+            if property_identity(prop) not in accumulated and _verified(
                 prop.setup_code, prop.assertion_code, root
             ):
                 accumulated[property_identity(prop)] = prop
@@ -2104,19 +2195,26 @@ def _converge_impl(
         # them". Suite-detected ones are left alone — a test already covers them.
         n_crash_detect = 0
         for verdict in pre.equivalent:
+            if budget_is_exhausted(_budget_ms()):
+                budget_cut, cut_phase = True, "witness writing"
+                break
             w = verdict.crash_witness
             # A crash-detection golden also captures the ORIGINAL's value — declined when the
             # return is env-coupled (#39), for the same straddle reason as the value witnesses.
             if w is None or verdict.suite_detected or not _capturable:
                 continue
-            prop = _witness_property(
-                func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
+            prop = _bounded_work(
+                lambda w=w: _witness_property(
+                    func_key, w, root, kw_names, call_expr=_render_call_expr, import_stmt=_render_import_stmt
+                ),
+                _budget_s(),
+                phase="witness_render",
             )
             # The value-witness loop above already declines a None; this one did not, and it is
             # the site that shipped the machine-specific golden (#30).
             if prop is None:
                 continue
-            if property_identity(prop) not in accumulated and property_holds(
+            if property_identity(prop) not in accumulated and _verified(
                 prop.setup_code, prop.assertion_code, root
             ):
                 accumulated[property_identity(prop)] = prop
@@ -2128,9 +2226,7 @@ def _converge_impl(
                 "(crash-only survivor reached by no existing test)"
             )
         if witnessed:
-            source = render_module(
-                func_key, list(accumulated.values()), function_digest=fn_digest, numeric_backend=fn_backend
-            )
+            source = _render_suite(list(accumulated.values()))
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             written_path = _write(source, target, func_key, root) or None
             say(f"witness pass: +{n_witnessed} distinguishing kill test(s) auto-written")
@@ -2215,12 +2311,7 @@ def _converge_impl(
             accumulated = {k: v for k, v in accumulated.items() if k not in drop}
             target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
             if accumulated:
-                source = render_module(
-                    func_key,
-                    list(accumulated.values()),
-                    function_digest=fn_digest,
-                    numeric_backend=fn_backend,
-                )
+                source = _render_suite(list(accumulated.values()))
                 written_path = _write(source, target, func_key, root) or None
             elif written_path:
                 # Every generated property was redundant against stable user evidence:
@@ -2313,9 +2404,7 @@ def _converge_impl(
         )
         accumulated = pre_minimal
         target = write_dir if os.path.isabs(write_dir) else os.path.join(root, write_dir)
-        source = render_module(
-            func_key, list(accumulated.values()), function_digest=fn_digest, numeric_backend=fn_backend
-        )
+        source = _render_suite(list(accumulated.values()))
         written_path = _write(source, target, func_key, root) or None
         final_result = profile(
             file,

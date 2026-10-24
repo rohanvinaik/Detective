@@ -329,8 +329,7 @@ def _open_watch_hook(event: str, args: tuple) -> None:
         event == "open" and open_is_write(args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else 0)
     )
     if is_write:
-        if path is not None:
-            sink.writes.append(path)
+        sink.writes.append(path or event)
         if sink.block:
             # Prevent the write BEFORE it lands (#30). The raise unwinds the target; the caller
             # records the attempt and refuses the golden.
@@ -392,6 +391,9 @@ class _RecordingEnviron(type(os.environ)):  # type: ignore[misc]  # ty: ignore[u
 def _install_open_watch() -> None:
     global _watch_installed
     if not _watch_installed:
+        # The stdlib validates its temporary directory with a probe write on first
+        # use. Initialize that tool-owned state before a speculative sink is active.
+        tempfile.gettempdir()
         sys.addaudithook(_open_watch_hook)
         _watch_installed = True
 
@@ -403,7 +405,7 @@ def block_fs_writes():
     Detective runs the consumer's function on inputs IT invented — golden capture, the witness
     search's original-vs-mutant comparison — and a transitive write there litters the consumer's
     tree for a run that was only ever measuring. Inside this context the audit hook raises on a
-    write, so the effect never lands; the call unwinds and the caller treats it as a raise. Scoped
+    write, so the effect never lands; the context reports an observation refusal. Scoped
     by the ContextVar to the wrapped block and its thread, so the consumer's OWN tests and Wesker's
     profiling — where no sink is set — still write freely. Yields the sink (its ``writes`` lists what
     was prevented). NOT a general sandbox: it blocks writes, not reads, and only where installed.
@@ -411,10 +413,23 @@ def block_fs_writes():
     _install_open_watch()
     sink = _EffectSink(block=True)
     token = _OPEN_WATCH.set(sink)
+    interrupted = False
     try:
+        from ..capture import ObservationIncomplete
+
         yield sink
+    except (KeyboardInterrupt, SystemExit):
+        interrupted = True
+        raise
     finally:
         _OPEN_WATCH.reset(token)
+        if sink.writes and not interrupted:
+            # A target or iterator may catch BaseException. The intercepted effect still
+            # invalidates the observation even when its control exception was swallowed.
+            raise ObservationIncomplete(
+                "filesystem_write_blocked",
+                "speculative filesystem effects were intercepted: " + ", ".join(dict.fromkeys(sink.writes)),
+            )
 
 
 def _environment_paths(opened: list[str], args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[str, ...]:

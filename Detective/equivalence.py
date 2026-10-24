@@ -1634,17 +1634,18 @@ def _outcome(
     from Wesker.monitoring import MonitoringUnavailable
 
     from .capture import ObservationIncomplete
-    from .synthesis.characterization import _CaptureWriteBlocked, block_fs_writes
+    from .synthesis.characterization import block_fs_writes
 
     def _run() -> None:
         try:
-            try:
-                if observations is not None:
-                    box["args"] = _deep_args(args)
-                call_args = _deep_unwrapped(args)
-            except UncopyableInputError:
-                box["v"] = _OUTCOME_UNCOPYABLE
-                return
+            with block_fs_writes():
+                try:
+                    if observations is not None:
+                        box["args"] = _deep_args(args)
+                    call_args = _deep_unwrapped(args)
+                except UncopyableInputError:
+                    box["v"] = _OUTCOME_UNCOPYABLE
+                    return
             code = _extract_code(fn)
             with block_fs_writes():
                 if code is not None and not is_budget_active():
@@ -1677,8 +1678,6 @@ def _outcome(
             box["v"] = _OUTCOME_DIVERGED
         except MonitoringUnavailable as exc:
             observation_errors.append(exc)
-        except _CaptureWriteBlocked as exc:
-            box["v"] = _raised_marker(exc)
         except Exception as exc:  # noqa: BLE001
             box["v"] = _raised_marker(exc)
         except (KeyboardInterrupt, SystemExit) as exc:
