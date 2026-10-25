@@ -1302,6 +1302,9 @@ def test_two_sign_keeps_the_residual_the_headline_and_the_redundancy_as_facts():
         ("fix_load", False, ("stop", "fix_load")),
         ("provide_sample", True, ("supply", "")),
         ("fix_failing_test", True, ("decide", "fix_failing_test")),
+        # A broken fixture stops the line in both modes: a setup that errors is not clean (Wesker#17).
+        ("repair_errored_test", False, ("stop", "repair_errored_test")),
+        ("repair_errored_test", True, ("stop", "repair_errored_test")),
         ("close_the_gap", False, ("run", "")),
         ("close_the_gap", True, ("run", "")),
         ("remove_redundant", False, ("run", "")),

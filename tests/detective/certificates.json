@@ -159,13 +159,13 @@
   },
   "Detective/cli.py::audit_next_action": {
     "cut_reasons": [],
-    "function_digest": "0ed486e96056c9f0",
+    "function_digest": "bab0a11e3e32ca9e",
     "refusal": "",
     "standing": "complete"
   },
   "Detective/cli.py::audit_step": {
     "cut_reasons": [],
-    "function_digest": "26baee973b09aa78",
+    "function_digest": "ede4b129247b0118",
     "refusal": "",
     "standing": "complete"
   },

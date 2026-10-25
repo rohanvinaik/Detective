@@ -5751,7 +5751,7 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         # to delete — it is either a wrong expectation or a real regression.
         lines.append(_row("⚠ FAILING NOW", f"{len(a.failing_tests)} test(s) fail on current code:"))
         lines.append(_row("", _first_n(a.failing_tests, 4)))
-    if _errored := tuple(getattr(a, "errored_tests", ()) or ()):
+    if _errored := tuple(a.errored_tests):
         # Typed `error` (Wesker#17): setup or teardown failed, so these never reached a verdict of their
         # own. Named, never asked "is the expectation wrong?" — the repair is the fixture.
         lines.append(
@@ -5818,6 +5818,7 @@ def audit_next_action(
     has_equivalent_ids: bool,
     unclassified: int,
     diverged: int = 0,
+    errored: int = 0,
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -5841,6 +5842,9 @@ def audit_next_action(
       "removing_now"      `--remove` is EXECUTING: recommending it mid-run would be a stale
                           self-instruction computed for the pre-action state
       "remove_redundant"  tests that kill no mutant and cover no line another does not
+      "repair_errored_test" a test that reaches this function errors in setup or teardown, so it
+                          never ran to a verdict (Wesker#17): its fixture is the repair, and every
+                          ending below would claim more than the suite established
       "flag_equivalents"  every killable behaviour pinned; what remains is undecidable, and `flag`
                           is the one claim a human makes against the engine — never offered while
                           a real gap is open, which is why it ranks below all of them
@@ -5857,6 +5861,16 @@ def audit_next_action(
     routed test failing on current code is a fact about the suite that no sample can change — the code
     or the test must — so a function that raises on every input, whose intent tests therefore fail,
     was handed "provide a real sample" while its failing tests went unnamed.
+
+    ``repair_errored_test`` displaces exactly the endings an errored test makes false, and no other.
+    Each ending below it is a claim that the next action is a human's or that there is none: "DONE …
+    Nothing to do", "DONE: no gaps found", a `flag` offer against candidates the errored test, once it
+    runs, may kill, a divergence hand-back. All of them were printed over a fixture that never ran,
+    which the page named and the closing block contradicted. It ranks BELOW everything that stays true
+    with the errored test present: a measurement that could not run or be trusted, a failing test (it
+    invalidates every number; an errored one only withholds its own evidence), a sample request, real
+    gaps (no test kills them now, and the tests converge writes are never wrong), and redundancy (a
+    redundant test stays redundant when another test starts to run, because a cover only grows).
     """
     if block in ("fix_load", "repair_measurement"):
         return block
@@ -5868,6 +5882,8 @@ def audit_next_action(
         return "close_the_gap"
     if redundant_tests > 0:
         return "removing_now" if removing else "remove_redundant"
+    if errored > 0:
+        return "repair_errored_test"
     if candidate_equivalent > 0 and has_equivalent_ids:
         return "flag_equivalents"
     if diverged > 0:
@@ -5888,6 +5904,9 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
       ("supply", "")                        provide_sample — a real sample, then converge
       ("decide", "fix_failing_test")        a failing test: whether the TEST or the CODE is wrong is a
                                             call only a person may make
+      ("stop", "repair_errored_test")       an errored test: its fixture is repaired, then re-audit —
+                                            under ``two_sign`` too, never ``run``: a setup with a
+                                            broken fixture is not clean (Wesker#17)
       ("run", "")                           close_the_gap (converge) and remove_redundant (--remove);
                                             under ``two_sign`` also flag_equivalents, done_unclassified
                                             and done_complete (see below)
@@ -5907,6 +5926,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
         return "supply", ""
     if code == "fix_failing_test":
         return "decide", "fix_failing_test"
+    if code == "repair_errored_test":
+        return "stop", "repair_errored_test"
     if code in ("close_the_gap", "remove_redundant"):
         return "run", ""
     if code == "done_divergent":
@@ -5954,6 +5975,8 @@ def _audit_code(a, removing: bool = False) -> str:
         bool(a.candidate_equivalent_ids),
         int(a.unclassified or 0),
         diverged=int(getattr(a, "step_budget_divergent", 0) or 0),
+        # A direct read (§9.7): a renamed field must raise, never read as "no errored test" and close DONE.
+        errored=len(a.errored_tests),
     )
 
 
@@ -5981,8 +6004,9 @@ def _audit_commands(
     code: str, fn: str, two_sign: bool
 ) -> tuple[tuple[str, ...] | None, tuple[str, ...] | None]:
     """``(argv, then)`` — the Detective commands audit's block names, as tokens after `detective`,
-    assembled from the target the page prints them with. `fix_failing_test` prints a pytest command,
-    not a Detective one, so its only Detective command is the re-audit after the person's call.
+    assembled from the target the page prints them with. `fix_failing_test` and `repair_errored_test`
+    print a pytest command, not a Detective one, so their only Detective command is the re-audit after
+    the person's repair.
 
     Under ``two_sign`` (D1b §11) a clean setup's next command is converge: every outcome `audit_step`
     gives step ``run`` there names it — ``remove_redundant`` too, whose redundancy stays a fact in the
@@ -5995,7 +6019,7 @@ def _audit_commands(
         return _converge_rerun(universe, fn), None
     if code == "remove_redundant":
         return _carried_argv(universe, "audit", fn, "--remove"), None
-    if code in ("fix_load", "fix_failing_test"):
+    if code in ("fix_load", "fix_failing_test", "repair_errored_test"):
         return None, _carried_argv(universe, "audit", fn)
     if code == "provide_sample":
         return None, _converge_rerun(universe, fn)
@@ -6056,16 +6080,10 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             "",
             _row(_RESOLVE_ROW, "the reported measurement causes before acting on suite gaps or redundancy."),
         ]
+    if kind == "repair_errored_test":
+        return _errored_test_action(tuple(a.errored_tests), decision.then)
     if decision is not None and decision.two_sign and decision.kind == "run":
-        return [
-            f"DO THIS:  {_command_text(decision.argv)}",
-            "",
-            _row(
-                "· Why",
-                "the setup is clean: the suite loads and no intent test fails; "
-                "converge writes and pins this function's suite",
-            ),
-        ]
+        return _two_sign_setup_action(len(a.errored_tests), decision.argv)
     if kind == "fix_load":
         reason = getattr(a, "note", "") or _MODULE_NOT_IMPORTED
         return [
@@ -6134,6 +6152,54 @@ def _failing_test_action(failing_tests: tuple[str, ...], then: tuple[str, ...] |
     if then:
         rows.append(_row("· After fixing", _command_text(then)))
     return rows
+
+
+def _errored_test_action(errored_tests: tuple[str, ...], then: tuple[str, ...] | None) -> list[str]:
+    """The block for a test that reaches this function and errors in setup or teardown (Wesker#17).
+
+    Never `_failing_test_action`: whether the TEST's expectation or the CODE is wrong is a question
+    for a test that ran to a verdict, and this one never did. Its fixture is the repair. The pytest
+    command (a node id, like the failing block's) shows the setup error; the re-audit follows it,
+    because until the test runs, this audit measured the suite without its evidence."""
+    rows = [
+        f"DO THIS:  pytest {shlex.quote(errored_tests[0])}",
+        "",
+        _row("· Then repair", "its setup or teardown: the fixture is broken, not the expectation,"),
+        _row("", "and until it runs, this audit measured the suite without it."),
+    ]
+    if then:
+        rows.append(_row("· After fixing", _command_text(then)))
+    return rows
+
+
+def _two_sign_setup_action(errored: int, argv: tuple[str, ...] | None) -> list[str]:
+    """The two-sign line's block where audit's setup names converge (D1b §11): one ``· Why`` row.
+
+    With an errored test present the Why never says "the setup is clean" (Wesker#17): a fixture that
+    errors is a setup that is not, and the page names it one row above. The gap converge closes is
+    real either way, so the command stands and an ``· Also`` row names the repair beside it."""
+    if errored:
+        return [
+            f"DO THIS:  {_command_text(argv)}",
+            "",
+            _row(
+                "· Why",
+                "the suite loads and no intent test fails; converge writes and pins this function's suite",
+            ),
+            _row(
+                "· Also", f"{errored} test(s) error in setup or teardown (above) and testify about nothing:"
+            ),
+            _row("", "repair their fixtures, then re-audit."),
+        ]
+    return [
+        f"DO THIS:  {_command_text(argv)}",
+        "",
+        _row(
+            "· Why",
+            "the setup is clean: the suite loads and no intent test fails; "
+            "converge writes and pins this function's suite",
+        ),
+    ]
 
 
 def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
@@ -8770,7 +8836,7 @@ def _run_audit(args, file, function) -> int:
             getattr(report, "authored_fence", 0),  # Q8: an unenforced must-not is a spec gap
         )
         # An errored test is absent evidence, never clean evidence (Wesker#17): it never ran to a verdict.
-        _errored = tuple(getattr(report, "errored_tests", ()) or ())
+        _errored = tuple(report.errored_tests)
         meas_incomplete = audit_measurement_incomplete(report.unclassified, len(_errored))
         gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
         payload["gate"] = {
