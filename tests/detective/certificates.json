@@ -493,6 +493,24 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/module_identity.py::module_identity_name": {
+    "cut_reasons": [],
+    "function_digest": "0ea72ca8df13de02",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/module_identity.py::namespace_candidates": {
+    "cut_reasons": [],
+    "function_digest": "de89630c88680807",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/module_identity.py::relative_import_level": {
+    "cut_reasons": [],
+    "function_digest": "55562f5119a114e6",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/plan.py::clean_disposition": {
     "function_digest": "65782f3448b91ea3",
     "refusal": "",

@@ -172,6 +172,23 @@ def importable_module(module_path: str, root: str | None = None) -> str:
     filesystem, which is why ``root`` is threaded here rather than guessed — ``root=None`` keeps
     the old pure-string behaviour for callers that genuinely have no project (and for a path
     that is already dotted).
+
+    D#129: the walk is right for every file that loads under its name. A module whose RELATIVE
+    imports need a deeper package than the walk found (a namespace layout) cannot load under it at
+    all; `module_identity` names the namespace package that gives them one, as every consumer does.
+    """
+    walked = package_walk_name(module_path, root)
+    if root is None or "/" not in module_path.replace("\\", "/"):
+        return walked
+    from ..module_identity import project_identity
+
+    return project_identity(root, module_path, walked).name
+
+
+def package_walk_name(module_path: str, root: str | None = None) -> str:
+    """The ``__init__`` walk alone: the name pytest's prepend import mode gives a file it imports
+    ITSELF — a test module, a conftest. pytest never applies the namespace override, so a reader
+    predicting pytest's own names (``regime._conftest_module``) reads this, not ``importable_module``.
     """
     mod = module_path[:-3] if module_path.endswith(".py") else module_path
     mod = mod.replace("\\", "/")

@@ -24,6 +24,8 @@ from __future__ import annotations
 import ast
 import os
 
+from .module_identity import project_identity, relative_level_of
+
 # Modules that can reach anything: importing these makes reachability undecidable here.
 # NOTE: `pytest_plugins` is deliberately NOT here — it is a conftest module-level *variable*,
 # never an imported module, so an import-name check can never see it (that was G2's dead entry).
@@ -77,13 +79,20 @@ def _pytest_norecursedirs(root: str) -> frozenset[str]:
     return frozenset(d for d in raw if isinstance(d, str) and "*" not in d and "/" not in d)
 
 
-def module_name(root: str, path: str, import_roots: tuple[str, ...] = ()) -> str:
+def module_name(
+    root: str,
+    path: str,
+    import_roots: tuple[str, ...] = (),
+    relative_level: int | None = None,
+) -> str:
     """Dotted import name under the suite's authoritative import roots.
 
     A source file under ``root/src/pkg`` imports as ``pkg``, not ``src.pkg``.  The testing regime
     already measured that distinction; reachability must consume those roots instead of deriving a
     second, root-relative identity.  The deepest containing root wins, with ``root`` as the
-    conservative fallback for test modules and flat layouts.
+    conservative fallback for test modules and flat layouts — unless the file's RELATIVE imports
+    need a deeper package than that name has (D#129), when `module_identity` gives the namespace
+    name every other consumer uses. ``relative_level`` saves a re-read when the caller parsed it.
     """
     full = os.path.abspath(path)
     candidates = {os.path.abspath(root), *(os.path.abspath(p) for p in import_roots)}
@@ -100,7 +109,9 @@ def module_name(root: str, path: str, import_roots: tuple[str, ...] = ()) -> str
     parts = [p for p in stem.split(os.sep) if p not in ("", ".")]
     if parts and parts[-1] == "__init__":
         parts = parts[:-1]
-    return ".".join(parts)
+    return project_identity(
+        root, full, ".".join(parts), import_roots=import_roots, relative_level=relative_level
+    ).name
 
 
 def _imports_of(tree: ast.AST, this_module: str) -> tuple[set[str], bool]:
@@ -196,17 +207,67 @@ def _build_graph(
                     tree = ast.parse(fh.read(), filename=p)
             except (OSError, SyntaxError, ValueError):
                 # Unparseable: cannot rule it out, so let it reach (never exclude on error).
-                m = module_name(root, p, import_roots)
+                m = module_name(root, p, import_roots, relative_level=0)
                 paths[m] = p
                 graph[m] = set()
                 opaque.add(m)
                 continue
-            m = module_name(root, p, import_roots)
+            m = module_name(root, p, import_roots, relative_level=relative_level_of(tree))
             paths[m] = p
             graph[m], is_opaque = _imports_of(tree, m)
             if is_opaque:
                 opaque.add(m)
+    _resolve_aliases(root, import_roots, graph, paths)
     return graph, paths, opaque
+
+
+def _resolve_aliases(
+    root: str,
+    import_roots: tuple[str, ...],
+    graph: dict[str, set[str]],
+    paths: dict[str, str],
+) -> None:
+    """Add the graph's own name for every import that names a file by another spelling.
+
+    A file under several import roots has several dotted names (``tools/voice/metrics.py`` is
+    ``metrics`` via ``tools/voice`` and ``tools.voice.metrics`` via the root), but the graph keys it
+    under ONE. An import of another spelling — a relative import resolved inside a module named for
+    its package (D#129), or a test importing ``src.pkg.mod`` — found no node and cut the edge, a
+    false NEGATIVE, the one direction that costs a verdict. Each such dependency now also carries the
+    canonical name; nothing is removed, so routing can only keep more, never drop a reacher.
+    """
+    bases = [os.path.abspath(root), *(os.path.abspath(r) for r in import_roots)]
+    aliases: dict[str, str] = {}
+    for canonical, p in paths.items():
+        full = os.path.abspath(p)
+        for base in bases:
+            try:
+                if os.path.commonpath((base, full)) != base:
+                    continue
+            except ValueError:
+                continue
+            stem = os.path.relpath(full, base)
+            stem = stem[:-3] if stem.endswith(".py") else stem
+            parts = [x for x in stem.split(os.sep) if x not in ("", ".")]
+            if parts and parts[-1] == "__init__":
+                parts = parts[:-1]
+            alias = ".".join(parts)
+            if alias and alias != canonical and alias not in graph:
+                aliases.setdefault(alias, canonical)
+    if not aliases:
+        return
+    for deps in graph.values():
+        extra: set[str] = set()
+        for dep in deps:
+            pieces = dep.split(".")
+            for i in range(len(pieces), 0, -1):
+                prefix = ".".join(pieces[:i])
+                if prefix in graph:
+                    break
+                if prefix in aliases:
+                    extra.add(".".join([aliases[prefix], *pieces[i:]]))
+                    break
+        deps |= extra
 
 
 def _reaches(start: str, target: str, graph: dict[str, set[str]], opaque: set[str]) -> bool:

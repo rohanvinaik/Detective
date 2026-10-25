@@ -362,6 +362,34 @@ def _live_module_is_stale(mod: Any, real: str, qualname: str, disk_sha: str | No
     return True  # the function is gone from the file on disk — definitely stale
 
 
+def _same_file(a: str | None, b: str) -> bool:
+    """Whether path ``a`` names the same file as ``b`` (symlinks and case folding included)."""
+    if not a:
+        return False
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _import_identity(real: str) -> tuple[str, str, bool]:
+    """``(dotted, sys.path root, namespaced)``: the name the loader imports ``real`` by.
+
+    The ``__init__`` walk's name and root, unless the file's relative imports need a deeper package
+    than the walk found (a namespace layout, D#129): then the namespace name `module_identity` gives
+    it, under the ``sys.path`` entry that yields it. ``namespaced`` says which, so a caller can refuse
+    a namespace name that resolved to another file. One derivation, read by `_load_original` and
+    `_load_failure_reason`, so a failure reason describes the import that actually ran.
+    """
+    from .module_identity import loader_identity
+
+    dotted, pkg_root = _package_qualname(real)
+    ident = loader_identity(real, dotted, list(sys.path))
+    if ident.code == "namespace":
+        return ident.name, ident.import_root, True
+    return dotted, pkg_root, False
+
+
 def _load_original(full_path: str, qualname: str) -> Any | None:
     """Return the live target object from the module under test.
 
@@ -424,12 +452,17 @@ def _load_original(full_path: str, qualname: str) -> Any | None:
     # Import by dotted package name so module-level RELATIVE imports resolve. A parentless path-load
     # (branch 3) execs the file with no package and dies on `from .x import y`, losing every survivor to
     # "the live original could not be loaded" — the failure mode for any target inside a real package.
-    dotted, pkg_root = _package_qualname(real)
+    # D#129: a namespace-layout module is imported by the namespace name its relative imports need.
+    dotted, pkg_root, namespaced = _import_identity(real)
     if "." in dotted:
         try:
             if pkg_root and pkg_root not in sys.path:
                 sys.path.insert(0, pkg_root)
             imported = importlib.import_module(dotted)
+            if namespaced and not _same_file(getattr(imported, "__file__", None), real):
+                # The namespace name resolved to ANOTHER file (a same-named package elsewhere on
+                # the path): measuring it would measure a different program. Fall through.
+                raise ImportError(f"{dotted} resolved to {getattr(imported, '__file__', None)}")
             if disk_sha is not None:
                 # Stamped on the module object so a later import can tell WHICH source it
                 # holds; a dynamic attribute, absent from ModuleType's stub.
@@ -492,7 +525,9 @@ def _load_failure_reason(full_path: str) -> str | None:
     entry is restored. Imported dependencies may remain, as with ordinary Python imports.
     """
     real = os.path.abspath(full_path)
-    dotted, pkg_root = _package_qualname(real)
+    # The same name `_load_original` imports by (D#129), or the reason would describe an import
+    # that never ran.
+    dotted, pkg_root, _namespaced = _import_identity(real)
     added_paths: list[str] = []
     try:
         if "." in dotted:

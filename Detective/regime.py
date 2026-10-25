@@ -36,7 +36,7 @@ from typing import NewType
 
 from .engine import ShadowedTarget, _resolve_origin, _suite_path, shadowed_target
 from .reachability import _SKIP_DIRS, _pytest_norecursedirs
-from .synthesis.oracle_light import importable_module
+from .synthesis.oracle_light import importable_module, package_walk_name
 
 # ── Identity (TEST_BASIS §6, B1) ──────────────────────────────────────────────
 # Type ALIASES are not types: `TestId = str` lets a nodeid and a bare str interchange
@@ -446,10 +446,12 @@ def _conftest_module(root: str, conftest: str) -> str:
     """The module name pytest imports a conftest under (prepend mode).
 
     The name is derived from the first directory ABOVE it that is not a package — exactly the
-    rule `importable_module` uses. A conftest in a non-package directory is therefore plainly
-    `conftest`, and every such conftest in the tree is the same module name as every other.
+    walk `importable_module` starts from. A conftest in a non-package directory is therefore plainly
+    `conftest`, and every such conftest in the tree is the same module name as every other. The
+    walk ALONE: pytest imports a conftest itself and never applies `importable_module`'s namespace
+    override (D#129), so a conftest with a relative import is still `conftest` to pytest.
     """
-    return importable_module(os.path.relpath(conftest, root), root)
+    return package_walk_name(os.path.relpath(conftest, root), root)
 
 
 def _conftests(root: str) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
