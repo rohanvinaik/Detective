@@ -44,6 +44,27 @@ def test_the_watchdog_aborts_a_hung_run_with_a_stack_dump():
     assert "Timeout" in err, f"expected a faulthandler stack dump, got: {err[:400]}"
 
 
+def test_the_dump_survives_a_hung_test_that_holds_fd_level_capture():
+    # Measured 2026-10-25 through `detective converge`: the live session captures at the `sys` level,
+    # so a hang in an ordinary test printed every thread's stack — but the same hang inside a test
+    # using pytest's `capfd` fixture exited 1 with ZERO bytes on stderr. `capfd` points fd 2 at a
+    # temporary file for the test's duration; a dump written to fd 2 lands there and `exit=True`
+    # discards it. The dump must reach the stderr the run STARTED with, whoever holds fd 2 when it
+    # fires.
+    script = (
+        "import os, threading\n"
+        "from Detective.cli import _hang_watchdog\n"
+        "with _hang_watchdog(1.5):\n"
+        "    os.dup2(os.open(os.devnull, os.O_WRONLY), 2)\n"  # what fd-level capture does to fd 2
+        "    threading.Event().wait()\n"
+    )
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, timeout=30)
+    assert proc.returncode != 0, "a hung run must be aborted, never exit 0"
+    err = proc.stderr.decode(errors="replace")
+    assert "Timeout" in err, f"the stack dump was lost with fd 2: {err[:400]!r}"
+    assert "most recent call first" in err
+
+
 def test_the_watchdog_cancels_on_normal_completion():
     # After the `with` exits, the timer must be disarmed — a later sleep PAST the deadline must NOT
     # abort. If cancel were broken, the process would die during the sleep and never print SURVIVED.

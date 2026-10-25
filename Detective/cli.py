@@ -30,7 +30,7 @@ import textwrap
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, TextIO
 
 # Imported, never restated: the engine owns this number, and a second copy would drift silently.
 from Wesker.engine import DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S
@@ -7433,11 +7433,19 @@ class _hang_watchdog:
     WHERE it hung) and hard-exits, turning an infinite hang into a bounded, debuggable failure.
     Cancelled on normal completion, so a fast run leaves no timer armed. The deadline is
     :func:`hang_watchdog_seconds` — a backstop sized never to fire on a legitimate run.
+
+    The dump goes to a PRIVATE copy of stderr, duplicated before the live session starts.
+    faulthandler writes to a raw descriptor, and a hung test that holds fd-level capture (pytest's
+    ``capfd`` fixture, or its own ``dup2``) points fd 2 at a temporary file — so a dump written to fd
+    2 lands there and ``exit=True`` discards it. Measured 2026-10-25 through ``converge``: a hang in
+    an ordinary test printed every thread's stack, while the same hang inside a ``capfd`` test exited
+    1 with nothing on stderr at all.
     """
 
     def __init__(self, seconds: float) -> None:
         self._seconds = seconds
         self._armed = False
+        self._stream: TextIO | None = None
 
     def __enter__(self) -> _hang_watchdog:
         # `dump_traceback_later` writes to a file that must have a real ``fileno()``. Under pytest
@@ -7446,14 +7454,17 @@ class _hang_watchdog:
         # in production (a terminal/pipe with an fd), not under a harness whose runs cannot hang.
         try:
             import faulthandler
+            import os
             import sys
 
-            sys.stderr.fileno()
-            faulthandler.dump_traceback_later(self._seconds, exit=True)
+            stream = os.fdopen(os.dup(sys.stderr.fileno()), "w")
+            self._stream = stream
+            faulthandler.dump_traceback_later(self._seconds, exit=True, file=stream)
             self._armed = True
         # BLE001: a backstop degrades silently; it never fails the run
         except Exception:  # noqa: BLE001
             self._armed = False
+            self._close_stream()
         return self
 
     def __exit__(self, *exc: object) -> bool:
@@ -7461,7 +7472,13 @@ class _hang_watchdog:
             import faulthandler
 
             faulthandler.cancel_dump_traceback_later()
+        self._close_stream()
         return False
+
+    def _close_stream(self) -> None:
+        if self._stream is not None:
+            self._stream.close()
+            self._stream = None
 
 
 def _run_live(args) -> int:
