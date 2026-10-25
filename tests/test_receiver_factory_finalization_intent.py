@@ -71,4 +71,8 @@ def test_the_final_classification_uses_the_receiver_factory_too(tmp_path, monkey
     # no survivor is filed "unclassified — the search could not run".
     assert result.killed > 0, "the receiver axis must let the search run"
     if report is not None:
-        assert not report.unclassified, [d for d in report.unclassified][:3]
+        assert not report.unclassified, {
+            "measurement_valid": report.measurement_valid,
+            "note": note,
+            "unclassified": report.unclassified[:3],
+        }
