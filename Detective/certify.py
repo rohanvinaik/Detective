@@ -798,7 +798,7 @@ def generated_function_digest(path: str) -> str:
 # The `certificate_standing` codes that are VERDICTS ABOUT THE FUNCTION. "stale" and "ungateable"
 # are invalid MEASUREMENTS (the run described a moved source, or was cut / uncontained) and assert
 # nothing about the definition; "" is no record at all.
-_TERMINAL_STANDINGS = ("complete", "incomplete", "unverified")
+_TERMINAL_STANDINGS = ("complete", "incomplete", "unverified", "floor_failing")
 # …but asserting nothing about the DEFINITION is not the same as asserting nothing at all, and
 # these two were falling through to codes that describe an absence. A record exists; it says the
 # run could not be trusted, and the two say so for different reasons with different remedies.
@@ -850,6 +850,10 @@ def behavior_status(
                            never entered). The ONLY state whose remedy is not `converge` — the last
                            converge is what produced it, so repeating it reproduces it. The
                            certificate's recorded `cut_reasons` name what to fix instead.
+      "floor_failing"      a certificate for THIS definition records that a test which is its
+                           business fails on current code (#114): converge wrote nothing over the
+                           disputed floor. Not `converge` — it refuses again until a person decides
+                           whether the TEST or the CODE is wrong
       "unpinned"           no certificate ever, and no generated suite
 
     Slice 1 read `pinned` off a current-digest suite alone; slice 1b makes the certificate primary
@@ -887,6 +891,8 @@ def _certified_status(cert_standing: str, cert_current: bool, cert_refused: bool
         return pins.PINNED_STALE
     if cert_standing == "ungateable":
         return pins.MEASUREMENT_INVALID
+    if cert_standing == "floor_failing":
+        return pins.FLOOR_FAILING
     if cert_standing == "complete":
         return pins.PINNED
     if cert_standing == "incomplete" and cert_refused:

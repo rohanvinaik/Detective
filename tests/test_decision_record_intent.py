@@ -830,6 +830,9 @@ def test_a_kind_outside_the_five_carries_its_own_rule(kind):
         ("settled", "", "repeat", ("done", "")),
         ("rerun_stale", "", "repeat", ("run", "")),
         ("fix_load", "", "repeat", ("stop", "fix_load")),
+        # converge's WRITE TEST hand-back, pinned as observed (2026-10-25): a divergent residual is a
+        # hand-back naming the divergence, whatever plan or disposition rides along
+        ("step_budget_divergent", "hand_pin", "", ("hand_back", "divergent")),
     ],
 )
 def test_converge_step_ends_a_loop_only_where_values_were_asked_for(code, plan_kind, disposition, expected):

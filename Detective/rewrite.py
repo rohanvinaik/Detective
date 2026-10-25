@@ -543,8 +543,15 @@ def make_receipt(
         policy_id=conv.policy_id,
         universe_size=conv.universe_size,
         proof_suite=proof_paths,
+        # A failing floor (#114) is named, never folded into "passed": converge skips verification over
+        # it, and a mutation-complete run with no verification would otherwise read as a sound
+        # baseline that verify-rewrite could PRESERVE against while the code fails its intent test.
         proof_status=(
-            ver.status if ver is not None else ("passed" if conv.functionally_complete else "unverified")
+            "floor_failing"
+            if conv.floor_failing_tests
+            else ver.status
+            if ver is not None
+            else ("passed" if conv.functionally_complete else "unverified")
         ),
         functionally_complete=conv.functionally_complete,
         proof_digests=proof_digests,

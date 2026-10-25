@@ -22,6 +22,18 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/audit.py::function_failing_tests": {
+    "cut_reasons": [],
+    "function_digest": "8d1ecf4ab6f89c47",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::function_test_suite": {
+    "cut_reasons": [],
+    "function_digest": "76f640420acc4437",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/audit.py::probe_reach_status": {
     "cut_reasons": [],
     "function_digest": "3dd2430dc0ae4a9b",
@@ -133,9 +145,15 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::converge_exit_code": {
+    "cut_reasons": [],
+    "function_digest": "db49e5bae48b7d44",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::converge_next_action": {
     "cut_reasons": [],
-    "function_digest": "bad180e08ac5d240",
+    "function_digest": "352beb70aa2d00c4",
     "refusal": "",
     "standing": "complete"
   },
@@ -147,7 +165,7 @@
   },
   "Detective/cli.py::converge_step": {
     "cut_reasons": [],
-    "function_digest": "da218dcd47280915",
+    "function_digest": "9acc10bf0d99fbda",
     "refusal": "",
     "standing": "complete"
   },
@@ -273,6 +291,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/converge.py::certificate_standing": {
+    "cut_reasons": [],
+    "function_digest": "8f049fd76ec93fc4",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/converge.py::regression_recovery": {
     "function_digest": "7e75a398531f11cd",
     "refusal": "",
@@ -296,6 +320,18 @@
   "Detective/decompose_apply.py::decompose_outcome": {
     "cut_reasons": [],
     "function_digest": "e9f305f177507d5c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/decompose_apply.py::preservation_admissible": {
+    "cut_reasons": [],
+    "function_digest": "091e5ff932b1b73f",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/decompose_apply.py::proof_basis_selector": {
+    "cut_reasons": [],
+    "function_digest": "ded35ce2eb4c2ca8",
     "refusal": "",
     "standing": "complete"
   },

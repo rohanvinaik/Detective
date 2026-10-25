@@ -47,7 +47,7 @@ from Detective.synthesis.oracle_light import ExecutableProperty
 from Detective.synthesis.writer import FUNCTION_DIGEST_PREFIX, foreign_generated_test_names, render_module
 
 KEY = "m.py::f"
-STANDINGS = ("", "stale", "ungateable", "unverified", "incomplete", "complete")
+STANDINGS = ("", "stale", "ungateable", "unverified", "incomplete", "complete", "floor_failing")
 BOOLS = (False, True)
 
 
@@ -76,13 +76,15 @@ def _expected(cs, cur, ref, owned, has, match, edited) -> str:
     # The reference table, written from the docstring's seven states — not from the code.
     if owned and edited:
         return "pinned_stale"
-    if cs in ("complete", "incomplete", "unverified", "stale", "ungateable"):
+    if cs in ("complete", "incomplete", "unverified", "stale", "ungateable", "floor_failing"):
         if not cur:
             return "pinned_stale"
         if cs == "stale":
             return "pinned_stale"
         if cs == "ungateable":
             return "measurement_invalid"
+        if cs == "floor_failing":
+            return "floor_failing"  # #114: a recorded refusal, never an absence and never `incomplete`
         if cs == "complete":
             return "pinned"
         if cs == "incomplete" and ref:
@@ -108,7 +110,7 @@ def test_behavior_status_truth_table(cs, cur, ref, owned, has, match, edited) ->
     )
 
 
-def test_the_seven_states_are_all_reachable_and_distinct() -> None:
+def test_the_eight_states_are_all_reachable_and_distinct() -> None:
     states = {
         behavior_status("complete", True, False, False, False, False, False),
         behavior_status("incomplete", True, False, False, False, False, False),
@@ -117,9 +119,10 @@ def test_the_seven_states_are_all_reachable_and_distinct() -> None:
         behavior_status("", False, False, True, False, False, False),
         behavior_status("", False, False, False, False, False, False),
         behavior_status("ungateable", True, False, False, False, False, False),
+        behavior_status("floor_failing", True, False, False, False, False, False),
     }
     assert states == set(pins.BEHAVIOR_STATUSES)
-    assert len(pins.BEHAVIOR_STATUSES) == 7
+    assert len(pins.BEHAVIOR_STATUSES) == 8
 
 
 def test_a_complete_certificate_with_no_suite_is_pinned() -> None:

@@ -1860,6 +1860,14 @@ def _completeness_verdict(result, *, flag_offered: bool = True) -> str:
     if getattr(result, "budget_exhausted", False):
         phase = getattr(result, "cut_phase", "") or "a profiling phase"
         return f"⚠ CUT — aggregate deadline exhausted during {phase}; measurement partial"
+    # A floor that does not hold (#114): a test that is this function's business fails on current code,
+    # so converge wrote nothing and certifies nothing — ranked as `certificate_standing` ranks it.
+    _floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
+    if _floor:
+        return (
+            f"⚠ FAILING NOW — {len(_floor)} test(s) that reach this function fail on current code; "
+            "nothing written; certificate withheld"
+        )
     # A proof basis that ran red/uncollectable (issue #38): name the verification status, not just
     # "Incomplete" — the mutants are all killed; what failed is the suite running green.
     _ver = getattr(result, "verification", None)
@@ -1907,6 +1915,12 @@ def _plain_terms(result) -> str:
     Names EVERY remaining disposition — killable, uncertain, candidate-equivalent, and a
     line gap — so INCOMPLETE is never opaque. Candidate-equivalents lead with 'supply an
     input' (they are usually killable with a richer input), not 'flag' (which is giving up)."""
+    if getattr(result, "floor_failing_tests", ()):
+        # #114: nothing below a failing floor is evidence until the test passes or is corrected.
+        return (
+            "a test written for this function fails on current code — decide whether the TEST or the "
+            "CODE is wrong; converge wrote nothing over it"
+        )
     rep = result.survivor_report
     # #36: this row leads candidate-equivalents with "supply an input" (usually killable with a
     # richer one) — TRUE of candidate-equivalent, FALSE of crash-only (no value can pin them), so
@@ -2034,6 +2048,16 @@ def _final_banner_status(result) -> str:
             f"FINAL {result.function}: ⚠ UNGATEABLE — the profile is {_depth} (a timed-out worker "
             "could not be contained, or the universe was not fully measured); counts are a floor, "
             "not a verdict"
+        )
+    # A floor that does not hold (#114) disowns the verdict too, and names a different remedy: a test
+    # that is this function's business fails on current code, so converge wrote nothing over it.
+    # Ranked as `certificate_standing` ranks it — below an invalid measurement, above UNVERIFIED.
+    _floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
+    if _floor:
+        _more = f" (+{len(_floor) - 1} more)" if len(_floor) > 1 else ""
+        return (
+            f"FINAL {result.function}: ⚠ FAILING NOW — {_floor[0]}{_more} reaches this function and fails "
+            "on current code; nothing written; certificate withheld"
         )
     # A proof basis that RAN and did not pass (issue #38) is not a certificate either — the
     # mutation score can be perfect while the written suite is red or uncollectable under real
@@ -2345,6 +2369,9 @@ def _format_converge(
         val_line,
         f"  every-killable-killed={result.functionally_complete}  line-complete={result.line_complete}",
     ]
+    if floor := tuple(getattr(result, "floor_failing_tests", ()) or ()):
+        # #114: named in the archive as on the page, so `--full`, the report file and `--json` agree.
+        lines.append(f"  ⚠ FAILING NOW — fail on current code: {_first_n(floor, 8)}")
     # STATS FLEX: make "mutant-complete" concrete. universe_size is the count of
     # behavioral degrees of freedom (total possible mutants); killed/universe is the
     # fraction of that DOF space converge actually pinned down. Fast mode greedily
@@ -2636,6 +2663,14 @@ def _format_converge_terse(
         lines.append(final)
         return "\n".join(lines)
 
+    floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
+    if floor:
+        # First, always (#114), as audit's FAILING NOW is: the suite disagrees with the code RIGHT NOW,
+        # so converge wrote nothing, and every count below describes a suite that does not pass.
+        lines.append(
+            _row("⚠ FAILING NOW", f"{len(floor)} test(s) that reach this function fail on current code:")
+        )
+        lines.append(_row("", _first_n(floor, 4)))
     if result.written_path:
         # `_rel_path`, like the banner: converge stores ABSOLUTE paths, and a 90-character
         # /private/tmp/... string in a fixed-width column wraps and destroys the report.
@@ -2664,7 +2699,9 @@ def _format_converge_terse(
         )
     if _no_verdict := tuple(getattr(result, "unresolved_mutants", ()) or ()):
         lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
-    if rep is None and not result.functionally_complete:
+    # Not under a failing floor: classification was not RUN there (#114) — nothing it could classify
+    # would be evidence about a suite that does not pass — so "produced no report" would misstate it.
+    if rep is None and not result.functionally_complete and not floor:
         lines.append(
             _row("✗ unresolved", f"{result.final_survivors} — classification produced no survivor report")
         )
@@ -2887,6 +2924,9 @@ def converge_next_action(
     ``repair_measurement`` — the measurement is ungateable (cut / uncontained worker). Not a verdict.
     ``fix_verification`` — the generated suite did not run green under real pytest. A perfect score
       over a suite that does not run is not a certificate.
+    ``fix_failing_test`` — a test that is this function's business fails on current code (#114). The
+      SAME code audit's ladder gives the same fact, because it is the same remedy: whether the TEST or
+      the CODE is wrong is a person's call, and converge wrote nothing over the disputed floor.
     ``settled`` — NOTHING OUTSTANDING, and this outranks every reason. `session_reason` describes
       the collection at the START of the run, and converge can finish a run that began with no
       collectable suite: it synthesizes tests, writes them, and re-profiles. Ranking the reason
@@ -2915,6 +2955,8 @@ def converge_next_action(
         return "rerun_stale"
     if standing == "ungateable":
         return "repair_measurement"
+    if standing == "floor_failing":
+        return "fix_failing_test"
     if standing == "unverified":
         return "fix_verification"
     if not (has_killable or has_line_gap or has_diverged):
@@ -3193,6 +3235,8 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         _ver is not None,
         _ver is not None and bool(getattr(_ver, "ok", False)),
         bool(getattr(result, "admits_certificate", True)),
+        # The same field `ConvergeResult.standing` consumes (#114), so this reading cannot drift from it.
+        floor_failing=bool(getattr(result, "floor_failing_tests", ())),
     )
     # Signals that let the next action name the RIGHT escape instead of a catch-all `regime
     # --migrate`: whether THIS run wrote a runnable suite (an empty-baseline reason is then stale),
@@ -3250,6 +3294,27 @@ def converge_record_code(next_action: str, stale_target: bool, budget_exhausted:
     return next_action
 
 
+def converge_exit_code(standing: str) -> int:
+    """converge's exit status, from the ONE standing every surface reads (#114, pure — pinned).
+
+    Exit codes are epistemics, not pass/fail (COMMUNICATING_DETERMINISM §4). The ``--json`` and terse
+    channels each spelled the rule inline from raw fields; it now consumes `certificate_standing`'s code:
+
+      3  ``stale`` · ``ungateable`` · ``unverified`` — the measurement, or the basis it rests on, cannot
+         be trusted: re-run once its named cause is resolved
+      1  ``floor_failing`` — a typed refusal over a TRUSTWORTHY measurement: a test that is this
+         function's business fails on current code. Re-running changes nothing, so it is not 3; and
+         ``audit --check`` exits 1 for the same fact
+      0  ``complete`` · ``incomplete`` — the run ran, and the page names what remains
+      3  any other code — one this decision does not know is never read as success
+    """
+    if standing in ("complete", "incomplete"):
+        return 0
+    if standing == "floor_failing":
+        return 1
+    return 3
+
+
 def supplied_ask_disposition(kind: str, supplied: bool, same_ask: bool) -> str:
     """Whether the values a run supplied changed the ask they answered (D1b §6, pure — pinned).
 
@@ -3305,6 +3370,10 @@ def converge_step(
                             repair_measurement that runs nothing; the code itself for
                             fix_verification / fix_load / install_pytest; `empty_collection` for a
                             migrated regime that still collects no test
+      ("decide", "fix_failing_test")
+                            a test that is this function's business fails on current code (#114):
+                            whether the TEST or the CODE is wrong is a person's call — audit_step's
+                            move for the same code
       ("done", "")          settled — nothing to run
       ("unknown", "")       a code this decision does not know: named, never mapped by fall-through to
                             a move nobody decided
@@ -3328,6 +3397,8 @@ def converge_step(
         return "run", ""
     if code in ("fix_verification", "fix_load", "install_pytest"):
         return "stop", code
+    if code == "fix_failing_test":
+        return "decide", "fix_failing_test"
     if code == "fix_collection":
         if marker_declared and session_reason == "empty_collection":
             return "stop", "empty_collection"
@@ -3510,6 +3581,10 @@ def _converge_commands(
     where = ("--project-root", root) if root and root != "." else ()
     if code == "rerun_stale":
         return rerun, None
+    if code == "fix_failing_test":
+        # The block's own command is pytest, not Detective (`_failing_test_action`); the only Detective
+        # command it names is the re-run after the person's call.
+        return None, rerun
     if code == "repair_measurement":
         if route in ("fix_collection", "fix_load", "fix_routing"):
             return None, rerun
@@ -4112,6 +4187,10 @@ def _converge_action(
             _row("", "An invalid measurement cannot justify an input/test action."),
             *_also_live_rows(reasons, route),
         ]
+    if kind == "fix_failing_test":
+        # The floor does not hold (#114): converge stopped before it synthesized anything, and the
+        # remedy is audit's — the same block, from the same renderer.
+        return _failing_test_action(tuple(getattr(result, "floor_failing_tests", ()) or ()), d.then)
     if kind == "rerun_stale":
         return [
             "STOP:  the target changed while converge measured it — this is NOT a verdict.",
@@ -5925,17 +6004,7 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             _row(_THEN_ROW, _command_text(decision.then)),
         ]
     if kind == "fix_failing_test":
-        # The one branch with no single command, and legitimately so: the next move is a
-        # decision only a human has standing to make (is the CODE wrong, or the TEST?), and
-        # either answer is a different edit. The mechanical parts are still commands.
-        first = a.failing_tests[0]
-        return [
-            f"DO THIS:  pytest -k {first!r}",
-            "",
-            _row("· Then decide", "is the TEST's expectation wrong, or is the CODE broken?"),
-            _row("", "Detective will not touch it — that call is yours alone."),
-            _row("· After fixing", _command_text(decision.then)),
-        ]
+        return _failing_test_action(tuple(a.failing_tests), decision.then)
     if kind == "close_the_gap":
         gaps = len(a.killable_gaps)
         lines = len(a.missing_lines)
@@ -5954,6 +6023,30 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             _row("· Writes", "the missing tests, and wires them into pytest."),
         ]
     return _audit_closing_action(a, kind, decision.two_sign)
+
+
+def _failing_test_action(failing_tests: tuple[str, ...], then: tuple[str, ...] | None) -> list[str]:
+    """The block for a test that is this function's business and fails on current code — ONE renderer
+    for audit's FAILING NOW and converge's floor gate (#114), because it is one fact with one remedy.
+
+    The one block with no single Detective command, and legitimately so: the next move is a decision
+    only a person has standing to make (is the CODE wrong, or the TEST?), and either answer is a
+    different edit. The mechanical parts are still commands: the pytest run that shows the failure, and
+    the Detective command after the person's call. The test goes to pytest as a NODE ID. This block
+    used to print ``pytest -k <node id>``, and ``-k`` matches keywords, not ids: measured, it selected
+    nothing ("1 deselected / 0 selected", exit 5) — a command that could not run the test it was about.
+    """
+    import shlex
+
+    rows = [
+        f"DO THIS:  pytest {shlex.quote(failing_tests[0])}",
+        "",
+        _row("· Then decide", "is the TEST's expectation wrong, or is the CODE broken?"),
+        _row("", "Detective will not touch it — that call is yours alone."),
+    ]
+    if then:
+        rows.append(_row("· After fixing", _command_text(then)))
+    return rows
 
 
 def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
@@ -8807,11 +8900,7 @@ def _run_converge(args, file, function) -> int:
         # else an ungateable run that did not blow its budget silently exits 0, the seam this closes.
         return _emit_json(
             {**asdict(result), "decision": _decision_payload(decision)},
-            3
-            if result.stale_target
-            or not result.admits_certificate
-            or (result.verification is not None and not result.verification.ok)
-            else 0,
+            converge_exit_code(result.standing),
         )
     # The full report always goes to a readable file; the terminal stays minimal
     # (a banner + the one quick action) unless --full is asked for. The FILE is always
@@ -8852,14 +8941,9 @@ def _run_converge(args, file, function) -> int:
     # and CI that gates on converge needs to tell them apart (issue #17). ANY ungateable measurement
     # is this class (#60 — a deadline CUT, an uncontained worker, an ambiguous identity, or an
     # incomplete collection), so this consumes the absorbing `admits_certificate` rather than the
-    # narrow `budget_exhausted` proxy that let an ungateable-but-in-budget run exit 0.
-    return (
-        3
-        if result.stale_target
-        or not result.admits_certificate
-        or (result.verification is not None and not result.verification.ok)
-        else 0
-    )
+    # narrow `budget_exhausted` proxy that let an ungateable-but-in-budget run exit 0. All of it now
+    # reads the ONE standing (`converge_exit_code`), with a failing floor (#114) as 1, a typed refusal.
+    return converge_exit_code(result.standing)
 
 
 # What the operator does about each refusal `atomic_store.store_write_disposition` can return

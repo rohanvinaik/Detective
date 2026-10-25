@@ -341,7 +341,9 @@ def next_move(reason: str, gate: str) -> str:
     "escalated"                           → JUDGE
     "unpriced"                            → AUDIT_PLAN
     fenced · judged_leave · silent · no_template · no_gate · over_budget · anything else → ""
-      (nothing to run; the reason itself is the message)
+      (nothing to run; the reason itself is the message) — including the two statuses converge cannot
+      change by running again: measurement_invalid, and floor_failing (#114), whose remedy is a
+      person's decision about a failing test, never a Detective verb
     """
     if reason == FUNDED:
         if gate.startswith("decompose"):

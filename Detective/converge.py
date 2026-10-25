@@ -179,6 +179,7 @@ def certificate_standing(
     verification_ran: bool,
     verification_ok: bool,
     admits_certificate: bool = True,
+    floor_failing: bool = False,
 ) -> str:
     """What a converge result is entitled to CLAIM — one code, read by every surface (#17/#38).
 
@@ -195,6 +196,15 @@ def certificate_standing(
     that no longer exists. Checked FIRST and reported as its own state rather than folded into
     ``incomplete``: a stale run's kill-count and line gap are not small, they are MEANINGLESS,
     and "incomplete" invites the reader to go close a gap computed against moved lines.
+
+    ``floor_failing`` — a test that is this function's business (it killed a mutant or executed a
+    line, `audit.function_failing_tests`) FAILS on current code (#114). The suite is the floor of the
+    sandwich: a squeeze to the ceiling over a floor that does not hold certifies nothing, and a
+    characterization written over it pins behaviour the intent test says is wrong. Ranked below
+    ``stale`` and ``ungateable`` (a measurement that cannot be trusted outranks what it observed, as
+    audit's own ladder ranks a blocked measurement above a failing test) and above ``unverified``,
+    whose remedy — fix the proof basis and re-run — is the wrong one here: whether the TEST or the
+    CODE is wrong is a call only a person may make.
 
     ``unverified`` — the proof basis ran under real pytest and did not come back green
     (tests_failed / collection_failed / runner_missing / timed_out / no_tests). A mutation score
@@ -234,6 +244,8 @@ def certificate_standing(
     # refusal, exactly as with `verification_ran`.
     if not admits_certificate:
         return "ungateable"
+    if floor_failing:
+        return "floor_failing"
     if verification_ran and not verification_ok:
         return "unverified"
     if not (functionally_complete and line_complete):
@@ -499,6 +511,12 @@ class ConvergeResult:
     # case it changes the verdict); None means the run was already incomplete on another axis. A
     # non-``ok`` verification — red, uncollectable, unverified — blocks ``complete`` with its status.
     verification: PytestVerification | None = None
+    # The tests that are this function's business AND fail on current code, measured on the suite on
+    # disk before anything was synthesized (#114, `audit.function_failing_tests` — the derivation audit's
+    # FAILING NOW reads). Non-empty means the floor does not hold: converge stopped before writing, and
+    # `standing` is ``floor_failing`` on every surface. Empty is "the floor holds", never "unmeasured":
+    # a run that could not measure the floor is ungateable and says so through its validity instead.
+    floor_failing_tests: tuple[str, ...] = ()
     # Bytes the consumer target emitted to stdout while it was being measured, all
     # contained off the report/JSON channel (issue #31 output contract). Nonzero names
     # an integration/side-effecting target honestly ("N bytes emitted, contained")
@@ -624,6 +642,7 @@ class ConvergeResult:
             self.verification is not None,
             self.verification is not None and self.verification.ok,
             self.admits_certificate,
+            floor_failing=bool(self.floor_failing_tests),
         )
 
 
@@ -1918,6 +1937,9 @@ def _converge_impl(
             with open(prior_suite_path, encoding="utf-8") as fh:
                 prior_suite_source = fh.read()
     baseline_killed: int | None = None
+    # The floor (#114): the tests that are this function's business and fail on current code, read
+    # off the FIRST profile — the suite on disk, before anything is written. Non-empty stops the run.
+    floor_failing_tests: tuple[str, ...] = ()
     # The same baseline as an obligation SET (#62). The count is retained only for the message
     # and for the fallback when the engine supplies no per-mutant records.
     baseline_killed_ids: list[str] = []
@@ -1987,6 +2009,26 @@ def _converge_impl(
             # stopped by blindness reached no fixed point.
             say("⚠ routing failed — no test was authorised for this function; nothing was synthesized")
             break
+        if _pass == 0:
+            # #114 — THE FLOOR COMES FIRST. A test that is this function's business (it killed a mutant
+            # or executed a line) and fails on current code means the suite disagrees with the code right
+            # now. Characterizing the code as it is would pin the behaviour that test says is wrong, and a
+            # squeeze to the ceiling over a floor that does not hold certifies nothing. Audit's FAILING NOW
+            # reads the same derivation, so the two verbs cannot answer differently for one suite. Stop
+            # before synthesis, exactly as a routing failure does; `standing` reads `floor_failing`.
+            from .audit import function_failing_tests
+
+            floor_failing_tests = function_failing_tests(
+                list(getattr(result, "failing_tests", ()) or ()),
+                dict(getattr(result, "kill_matrix", {}) or {}),
+                dict(getattr(result, "line_coverage", {}) or {}),
+            )
+            if floor_failing_tests:
+                say(
+                    f"⚠ {len(floor_failing_tests)} test(s) that reach this function fail on current code — "
+                    "nothing was synthesized"
+                )
+                break
         # Value-survivors: what the suite hasn't pinned the RETURN VALUE of — true
         # survivors plus crash/timeout kills. Converging drives THIS to zero, so a
         # crash-dominated "100%" no longer reads as done.
@@ -2477,7 +2519,9 @@ def _converge_impl(
     # Classify whatever converge could not kill: killable (a witness = a suggested
     # test), equivalent (retained), or uncertain — so "remaining" is never opaque.
     survivor_report: SurvivorReport | None = None
-    if final > 0:
+    # Not over a failing floor (#114): a survivor classified against a suite that does not pass is not
+    # evidence about the function, and its residual would offer `flag` beside a contradicted intent test.
+    if final > 0 and not floor_failing_tests:
         say(f"{final} survivor(s) remain — classifying (killable / equivalent / needs-input)…")
         try:
             # The SAME receiver axis as the witness pass above (#25): this is the classification whose
@@ -2533,6 +2577,15 @@ def _converge_impl(
     if budget_cut:
         functionally_complete = False
         say(f"⚠ aggregate deadline exhausted during {cut_phase} — result CUT, non-gateable")
+    # A failing floor (#114) withholds completeness exactly as a cut does: every killable mutant killed
+    # by a suite whose test of this function fails is no completeness claim, and no reader of this
+    # field — decompose's preservation proof, a receipt's baseline — may take it for one. It also keeps
+    # the certificate-facing reproducibility check below from running where there is no certificate to
+    # establish. A refusal there outranks the floor: measured with passing killers pinning all 4 mutants
+    # beside the failing test and the project root reached through a symlink, the check refused and the
+    # run ended UNGATEABLE ("mutants could not be BUILT", exit 3) under its own FAILING NOW row.
+    if floor_failing_tests:
+        functionally_complete = False
     # Second completeness axis + minimality, from Wesker's baseline line-coverage
     # pass on the final suite: which executable lines remain uncovered, the smallest
     # test set that preserves both kills and line coverage, and the tests redundant
@@ -2673,18 +2726,24 @@ def _converge_impl(
     redundant = redundant_2axis(final_result.kill_matrix, proof_coverage)
     minimal = minimal_cover_2axis(final_result.kill_matrix, proof_coverage)
     # #38: the certificate's verification axis. COMPLETE requires a GREEN run of the exact target
-    # proof basis under REAL pytest — the generated file PLUS the hand-written files that supplied
-    # target kills (`_covering_test_files`), not merely Wesker's direct-call runner. Run it only
+    # proof basis under REAL pytest — the generated file PLUS the hand-written tests that supplied
+    # target kills or admissible lines, not merely Wesker's direct-call runner. Run it only
     # when the run is OTHERWISE complete (the sole case it changes the verdict), so an already-
     # incomplete run never pays for a subprocess; a red / uncollectable / unverified basis then
     # blocks ✓ COMPLETE with its typed status. `basis` records generated-only vs target-complete so
     # verifying just our file is never presented as proof of the larger hand-written basis.
+    #
+    # EXACT ids (#114), never files found by a killer's bare name: the certificate is about ONE
+    # function, and a by-file run let an unrelated failing test that merely shared a killer's file
+    # withhold it. Not run over a failing floor either — that standing already outranks it.
     stale = _target_changed(full, source_snapshot)
     verification: PytestVerification | None = None
-    if functionally_complete and not missing and not budget_cut and not stale:
-        from .decompose_apply import _covering_test_files
+    if functionally_complete and not missing and not budget_cut and not stale and not floor_failing_tests:
+        from .decompose_apply import exact_proof_basis
 
-        covering = _covering_test_files(root, final_result.kill_matrix, line_owner_ids)
+        covering = exact_proof_basis(
+            root, final_result.kill_matrix, line_owner_ids, exclude_file=written_path or ""
+        )
         basis_paths = tuple(
             dict.fromkeys(
                 ([written_path] if written_path else [])
@@ -2834,6 +2893,7 @@ def _converge_impl(
         budget_exhausted=budget_cut,
         cut_phase=cut_phase,
         verification=verification,
+        floor_failing_tests=floor_failing_tests,
         needs_receiver=_receiver_refusal,
         receiver_identity=_receiver_identity,
         capability_identity=capability_identity(clock, env),

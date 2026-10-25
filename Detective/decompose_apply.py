@@ -83,6 +83,60 @@ def _test_names_in_source(source: str) -> set[str]:
     return {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
 
 
+def proof_basis_selector(test_id: str) -> str:
+    """How one proof-basis test id reaches the pytest verification (#114, pure — pinned).
+
+    The verification used to run every test FILE that defines a def bearing a killer's bare name, so
+    a failing test that never reached the function — sharing a file with a killer, or merely a name —
+    withheld a certificate that is about ONE function (the sandwich unit). Exact selection runs the
+    tests the certificate rests on and nothing else. Three codes:
+
+      "nodeid"   a pytest node id pytest can select as given: ``path::name`` (a ``[case]`` row allowed),
+                 with no ``legacy:`` namespace, a real file head rather than Wesker's ``?`` unknown-
+                 origin placeholder, and no ``#display`` disambiguator (not part of pytest's id)
+      "by_name"  an id pytest cannot select (legacy, unknown origin, display-disambiguated, a bare
+                 name): resolved to the files that define its bare name — the previous rule, kept only
+                 for ids that cannot be selected exactly
+      "none"     an empty id: nothing to verify
+    """
+    if not test_id:
+        return "none"
+    if test_id.startswith("legacy:") or "::" not in test_id or "#" in test_id:
+        return "by_name"
+    head = test_id.split("::", 1)[0]
+    if head in ("", "?"):
+        return "by_name"
+    return "nodeid"
+
+
+def exact_proof_basis(
+    root: str, kill_matrix: dict[str, list[str]], line_owner_ids: tuple[str, ...] = (), exclude_file: str = ""
+) -> tuple[str, ...]:
+    """The selectors pytest verifies a target's proof basis with — exact node ids where the engine's
+    ids allow it, files only for ids it does not (#114; the walk is thin, the decision is
+    :func:`proof_basis_selector`).
+
+    ``kill_matrix`` holds the tests that killed a mutant OF THIS TARGET; ``line_owner_ids`` the
+    ALREADY-GATED admissible line owners (#59). ``exclude_file`` is a file the caller passes WHOLE
+    (converge's own generated suite): its node ids are dropped so pytest does not select them twice.
+    Order is preserved, then de-duplicated.
+    """
+    import os
+
+    ids = [t for tests in kill_matrix.values() for t in tests] + list(line_owner_ids)
+    skip = os.path.relpath(exclude_file, root) if exclude_file else ""
+    exact: list[str] = []
+    by_name: list[str] = []
+    for test_id in ids:
+        kind = proof_basis_selector(test_id)
+        if kind == "nodeid" and not (skip and test_id.split("::", 1)[0] == skip):
+            exact.append(test_id)
+        elif kind == "by_name":
+            by_name.append(test_id)
+    files = list(_covering_test_files(root, {"by_name": by_name})) if by_name else []
+    return tuple(dict.fromkeys(exact + [f for f in files if f != skip]))
+
+
 def _covering_test_files(
     root: str, kill_matrix: dict[str, list[str]], line_owner_ids: tuple[str, ...] = ()
 ) -> tuple[str, ...]:
@@ -711,7 +765,9 @@ def decompose_exit(
     ]
 
 
-def preservation_admissible(functionally_complete: bool, stale: bool, candidate_equivalents: int) -> bool:
+def preservation_admissible(
+    functionally_complete: bool, stale: bool, candidate_equivalents: int, floor_failing: bool = False
+) -> bool:
     """Whether a converge proof may authorize ``decompose --apply`` (issue #41).
 
     A green before/after trial proves the rewrite preserved the behaviours the proof suite PINNED —
@@ -723,8 +779,12 @@ def preservation_admissible(functionally_complete: bool, stale: bool, candidate_
     carries ZERO candidate-equivalents — zero survivors, or a residual every one of which a human
     flagged equivalent (the recorded oracle, which lands in ``manual_equivalent``, never in the
     candidate ``equivalent`` population). Any candidate-equivalent makes the extraction proposal-only.
+
+    Nor over a failing floor (#114): a test that is the function's business fails on current code, so
+    every mutant may be "killed" by the passing tests while the code still contradicts its intent. A
+    green trial then proves only that the rewrite preserved behaviour the failing test says is wrong.
     """
-    return functionally_complete and not stale and candidate_equivalents == 0
+    return functionally_complete and not stale and not floor_failing and candidate_equivalents == 0
 
 
 def apply_decomposition(
@@ -895,13 +955,18 @@ def _apply_decomposition_impl(
     # A stale converge (target edited under the run, issue #17) is not a proof of anything, and a
     # proof carrying candidate-equivalents proves preservation only of the pinned behaviours (#41).
     if conv is not None and preservation_admissible(
-        conv.functionally_complete, conv.stale_target, _cand_equiv
+        conv.functionally_complete,
+        conv.stale_target,
+        _cand_equiv,
+        floor_failing=bool(conv.floor_failing_tests),
     ):
         if conv.written_path:
             proof_suite = conv.written_path
         else:
+            # The exact tests the certificate rests on (#114), never every file defining a killer's
+            # bare name — an unrelated failing test sharing such a file must not refuse a proven split.
             proof_suite = (
-                _covering_test_files(root, _kill_matrix(file, function, project_root), conv.line_owner_ids)
+                exact_proof_basis(root, _kill_matrix(file, function, project_root), conv.line_owner_ids)
                 or None
             )
 
@@ -919,6 +984,11 @@ def _apply_decomposition_impl(
             say(
                 "proof suite is STALE — the target changed during the converge; "
                 "re-run to prove; extractions will be proposed only"
+            )
+        elif conv is not None and conv.floor_failing_tests:
+            say(
+                f"a test that reaches this function fails on current code ({conv.floor_failing_tests[0]}) — "
+                "decide whether the TEST or the CODE is wrong; extractions will be proposed only"
             )
         elif _cand_equiv:
             # The GATE is right to count the union — a crash-only survivor is not value-pinned

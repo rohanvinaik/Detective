@@ -316,6 +316,41 @@ def _gap_desc(verdict: Any, expressible: bool) -> str:
     return f"{verdict.category} [{verdict.mutant_id}]"
 
 
+def function_test_suite(kill_matrix: dict[str, list[str]], line_coverage: dict[str, list[int]]) -> set[str]:
+    """The tests that are THIS function's business (#114, pure — pinned): each killed one of its
+    mutants or executed one of its lines.
+
+    The baseline runs every discovered test against the original, so tests for OTHER functions appear
+    in ``line_coverage`` with an EMPTY covered-line list; counting those would inflate a one-function
+    report with the whole collection. A non-empty contribution is required. ``line_coverage`` is the
+    RAW observed view, never the admissible one: a test that fails on current code is excluded from
+    the admissible ledger, and the scoping below exists precisely to find it.
+
+    Shared by `audit_suite` and `converge`, so the two verbs cannot scope one report differently.
+    """
+    return {t for tests in kill_matrix.values() for t in tests} | {
+        t for t, lines in line_coverage.items() if lines
+    }
+
+
+def function_failing_tests(
+    failing_tests: list[str], kill_matrix: dict[str, list[str]], line_coverage: dict[str, list[int]]
+) -> tuple[str, ...]:
+    """The tests that fail on current code AND are this function's business (#114, pure — pinned).
+
+    ``failing_tests`` is the baseline's REPO-WIDE list, in the engine's order. A test that fails
+    BECAUSE of this function executed its lines (or killed one of its mutants), so it is in
+    `function_test_suite`; one that fails elsewhere — an unrelated test, or a routed test that fails
+    before it ever reaches the function — touched none of them and is not this function's floor.
+    Order is preserved, so the first name is the one a report shows first.
+
+    One derivation, two consumers: audit's ``FAILING NOW`` and converge's floor gate. Converge printed
+    ✓ COMPLETE over a function whose only routed test failed (#114) because it never consulted this.
+    """
+    suite = function_test_suite(kill_matrix, line_coverage)
+    return tuple(f for f in failing_tests if f in suite)
+
+
 def audit_suite(
     file: str,
     function: str,
@@ -349,13 +384,9 @@ def audit_suite(
         use_cache=False,
     )
     # A test belongs to THIS function's suite only if it discharges an obligation for
-    # it — kills one of its mutants OR covers one of its lines. The baseline pass runs
-    # every discovered test against the original, so tests for OTHER functions appear
-    # in line_coverage with an EMPTY covered-line list; counting those would inflate
-    # test_count and bloat. Require a non-empty contribution.
-    suite = set(t for tests in result.kill_matrix.values() for t in tests) | {
-        t for t, lines in result.line_coverage.items() if lines
-    }
+    # it — kills one of its mutants OR covers one of its lines (`function_test_suite`, the one
+    # derivation converge's floor gate shares).
+    suite = function_test_suite(result.kill_matrix, result.line_coverage)
     test_names = sorted(suite)
     # ℋ ⊎ 𝒢 origin census (§2.3, D5): attribute each obligation-discharging test to its half from the
     # RECORDED authorship fact its file carries, never a path glob. The nodeid's path segment resolves
@@ -552,8 +583,11 @@ def audit_suite(
         # positive is visible and investigable instead of 2126 names of unrelated noise.
         # Scoping cannot hide a genuine one: a test that fails BECAUSE of this function
         # executed its lines, so it is in `suite` via line_coverage; one that fails elsewhere
-        # touches none of them and is not this report's business.
-        failing_tests=tuple(f for f in result.failing_tests if f in suite),
+        # touches none of them and is not this report's business. `function_failing_tests` is
+        # the one derivation; converge's floor gate consumes the same (#114).
+        failing_tests=function_failing_tests(
+            list(result.failing_tests), result.kill_matrix, result.line_coverage
+        ),
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
         manually_unreachable=len(manually_unreachable),

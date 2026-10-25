@@ -64,7 +64,8 @@ _FIELDS = (
 # produces it, the taste layer's controller (`controller.admission_reason`) consumes it. It lives
 # here because it is a statement about a pin's currency, and this module owns the function's
 # content identity. Only PINNED arms a style gate; every other state routes to `converge` EXCEPT
-# MEASUREMENT_INVALID, which names a measurement no re-run will change (see below).
+# MEASUREMENT_INVALID, which names a measurement no re-run will change, and FLOOR_FAILING, whose
+# remedy is a person's call (see below).
 PINNED = "pinned"
 PINNED_INCOMPLETE = "pinned_incomplete"
 REFUSED = "refused"
@@ -80,6 +81,12 @@ UNPINNED = "unpinned"
 # synth). `ungateable` reopened it, because the status reader admitted three standings and the
 # ledger records five. The recorded `cut_reasons` name the remedy; this names that one is needed.
 MEASUREMENT_INVALID = "measurement_invalid"
+# The run for THIS definition was recorded with a floor that does not hold (`certificate_standing` ==
+# "floor_failing", #114): a test that is the function's business fails on current code, so converge
+# wrote nothing and certified nothing. Not `converge` either: converge refuses again until a person
+# decides whether the TEST or the CODE is wrong — the ledger records it so `plan` never reads an older
+# `complete` (or no record) over code that fails its intent test, and never arms a style gate over it.
+FLOOR_FAILING = "floor_failing"
 BEHAVIOR_STATUSES = (
     PINNED,
     PINNED_INCOMPLETE,
@@ -88,6 +95,7 @@ BEHAVIOR_STATUSES = (
     PINNED_UNVERIFIED,
     UNPINNED,
     MEASUREMENT_INVALID,
+    FLOOR_FAILING,
 )
 
 
