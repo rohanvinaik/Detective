@@ -5727,6 +5727,14 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         # to delete — it is either a wrong expectation or a real regression.
         lines.append(_row("⚠ FAILING NOW", f"{len(a.failing_tests)} test(s) fail on current code:"))
         lines.append(_row("", _first_n(a.failing_tests, 4)))
+    if _errored := tuple(getattr(a, "errored_tests", ()) or ()):
+        # Typed `error` (Wesker#17): setup or teardown failed, so these never reached a verdict of their
+        # own. Named, never asked "is the expectation wrong?" — the repair is the fixture.
+        lines.append(
+            _row("⚠ ERRORED NOW", f"{len(_errored)} test(s) error in setup or teardown, so they testify")
+        )
+        lines.append(_row("", "about nothing — a broken fixture, not a wrong expectation:"))
+        lines.append(_row("", _first_n(_errored, 4)))
     if a.killable_gaps:
         lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
     if a.missing_lines:
@@ -8721,12 +8729,14 @@ def _run_audit(args, file, function) -> int:
             len(report.failing_tests),
             getattr(report, "authored_fence", 0),  # Q8: an unenforced must-not is a spec gap
         )
-        meas_incomplete = audit_measurement_incomplete(report.unclassified)
+        # An errored test is absent evidence, never clean evidence (Wesker#17): it never ran to a verdict.
+        _errored = tuple(getattr(report, "errored_tests", ()) or ())
+        meas_incomplete = audit_measurement_incomplete(report.unclassified, len(_errored))
         gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
         payload["gate"] = {
             "spec_gap": spec_gap,
             "measurement_incomplete": meas_incomplete,
-            "unmeasured": {"unclassified": report.unclassified},
+            "unmeasured": {"unclassified": report.unclassified, "errored_tests": list(_errored)},
             "strict": strict,
             "exit": gate_exit,
         }

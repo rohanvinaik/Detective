@@ -22,9 +22,27 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/audit.py::audit_measurement_incomplete": {
+    "cut_reasons": [],
+    "function_digest": "41051d32d8d1ac4a",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::baseline_failure_disposition": {
+    "cut_reasons": [],
+    "function_digest": "23c1521582e84803",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::function_errored_tests": {
+    "cut_reasons": [],
+    "function_digest": "23688dc31cdcdb43",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/audit.py::function_failing_tests": {
     "cut_reasons": [],
-    "function_digest": "10201972b81292e4",
+    "function_digest": "18ae493c837468cd",
     "refusal": "",
     "standing": "complete"
   },

@@ -110,7 +110,9 @@ class SuiteAudit:
     mutant_complete: bool
     line_complete: bool  # covers every executable line
     redundant_tests: tuple[str, ...]  # pointless for BOTH axes -> deletion PROPOSALS
-    failing_tests: tuple[str, ...]  # fail on current code, asserted or raised (#124) -> WARN, never delete
+    # fail on current code: typed `failed`, asserted or raised (#124), or named by an engine with no
+    # ledger row (Wesker#17) -> WARN, never delete. An errored test is `errored_tests`, never here.
+    failing_tests: tuple[str, ...]
     killable_gaps: tuple[str, ...]  # killable mutants the suite fails to kill
     missing_lines: tuple[int, ...]  # executable lines no test covers (after the line oracle)
     minimal_test_count: int  # size of the two-axis minimal cover
@@ -192,6 +194,9 @@ class SuiteAudit:
     # Per not-entered cause, its mutants and what still holds the original (`validity.not_entered`,
     # #77) — the cause code alone cannot say where a captured or aliased reference lives.
     not_entered: tuple[dict, ...] = ()
+    # Tests whose baseline is typed `error` — setup or teardown failed, so they never ran to a verdict
+    # of their own (Wesker#17). Named apart from `failing_tests`: not a wrong expectation, never gated.
+    errored_tests: tuple[str, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -233,15 +238,21 @@ def audit_check_failed(killable_gaps: int, missing_lines: int, failing_tests: in
     return bool(killable_gaps) or bool(missing_lines) or bool(failing_tests) or bool(fence)
 
 
-def audit_measurement_incomplete(unclassified: int) -> bool:
+def audit_measurement_incomplete(unclassified: int, errored: int = 0) -> bool:
     """Whether the audit's MEASUREMENT was incomplete — honest tool-side uncertainty, not a code gap.
 
     An UNCLASSIFIED survivor (issue #50) is one the equivalence search could not evaluate — it may be
     killable OR equivalent; Detective simply could not decide. That is the same class as a budget CUT:
     a limit on the measurement, not a finding about the suite. It is surfaced ALWAYS (visible), but is
     fatal only under ``--check-strict`` — so the default ``--check`` stays a claim about the code alone,
-    and a green suite that has not changed can never be reddened because a search got shorter."""
-    return unclassified > 0
+    and a green suite that has not changed can never be reddened because a search got shorter.
+
+    An ERRORED test (Wesker#17, `function_errored_tests`) is the same class from the other side: it
+    reaches this function, but its setup or teardown failed, so it never ran to a verdict and its
+    evidence is absent rather than clean. Not a code gap, so never a ``1``. But "could not measure"
+    must not pass the strict gate as "measured no gap" (COMMUNICATING_DETERMINISM §3.1). The two causes
+    share the strict gate's ``2``; the gate's ``--json`` payload names which (``unmeasured``)."""
+    return unclassified > 0 or errored > 0
 
 
 def audit_gate_exit(spec_gap: bool, measurement_incomplete: bool, strict: bool) -> int:
@@ -336,6 +347,32 @@ def function_test_suite(kill_matrix: dict[str, list[str]], line_coverage: dict[s
     }
 
 
+def baseline_failure_disposition(named_failing: bool, outcome: str) -> str:
+    """What ONE test's baseline says about this function's floor: failing, errored, or neither
+    (#124, Wesker#17, pure — pinned).
+
+    The engine's `failing_tests` is decided from a run code that cannot see pytest's PHASE, and it
+    lists only ASSERTION failures. Two readings were wrong with it alone. A fixture whose setup
+    asserts (pytest's ERROR, typed ``error`` in the very same result's ledger) was named and printed
+    as a failing test, and asked "is the TEST's expectation wrong?" when it never reached one
+    (Wesker#17). A test whose call RAISED, which pytest itself reports ``failed``, was never named, so
+    audit asked for a sample over three failing tests and converge certified over them (#124). The
+    typed outcome is the finer reading, and this one table consumes it for both verbs:
+
+      "failing"      typed ``failed``, asserted or raised, named or not (#124); or ``unrecorded`` and
+                     named, an engine with no ledger row, where its word is all there is
+      "errored"      typed ``error``: setup or teardown failed, so the test never ran to a verdict of its
+                     own. Never a wrong expectation: the repair is the fixture, and it is named apart
+      "not_failing"  a pass, a skip or an expected failure, whatever the engine named; and a test with
+                     no typed outcome that the engine did not name
+    """
+    if outcome == "error":
+        return "errored"
+    if outcome == "failed" or (named_failing and outcome == "unrecorded"):
+        return "failing"
+    return "not_failing"
+
+
 def function_failing_tests(
     failing_tests: list[str],
     kill_matrix: dict[str, list[str]],
@@ -348,22 +385,49 @@ def function_failing_tests(
     BECAUSE of this function executed its lines (or killed one of its mutants), so it is in
     `function_test_suite`; one that fails elsewhere — an unrelated test, or a routed test that fails
     before it ever reaches the function — touched none of them and is not this function's floor.
-    Order is preserved, so the first name is the one a report shows first.
+    Order is preserved, so the first name is the one a report shows first: the engine's names, then
+    the typed failures it did not name.
 
-    ``typed_outcomes`` is the engine's typed baseline outcome per test (#124, `baseline_typed_outcomes`).
-    ``failing_tests`` lists only ASSERTION failures, so a test whose call RAISED — a TypeError the code
-    under test throws on every input — was missing from it, while pytest itself reports that test
-    ``failed``: audit asked for a real sample and never named the three failing tests. A typed ``failed``
-    joins the floor after the engine's own list. ``error`` (setup or teardown: a fixture, an import),
-    ``skipped``, ``xfailed``, ``passed`` and anything unrecorded stay out — the ambiguity the engine
-    itself declines to read as a wrong expectation.
+    Each candidate is read by `baseline_failure_disposition` over ``typed_outcomes`` (the engine's typed
+    baseline outcome per test, `baseline_typed_outcomes`); a test the ledger does not carry reads
+    ``unrecorded``. An engine with no ledger yields ``{}``, so its own names stand, as before.
 
     One derivation, two consumers: audit's ``FAILING NOW`` and converge's floor gate. Converge printed
     ✓ COMPLETE over a function whose only routed test failed (#114) because it never consulted this.
     """
     suite = function_test_suite(kill_matrix, line_coverage)
-    raised = [t for t, outcome in (typed_outcomes or {}).items() if outcome == "failed"]
-    return tuple(f for f in dict.fromkeys([*failing_tests, *raised]) if f in suite)
+    typed = typed_outcomes or {}
+    named = set(failing_tests)
+    raised = [t for t, outcome in typed.items() if outcome == "failed"]
+    return tuple(
+        t
+        for t in dict.fromkeys([*failing_tests, *raised])
+        if t in suite and baseline_failure_disposition(t in named, typed.get(t, "unrecorded")) == "failing"
+    )
+
+
+def function_errored_tests(
+    kill_matrix: dict[str, list[str]],
+    line_coverage: dict[str, list[int]],
+    typed_outcomes: dict[str, str] | None = None,
+) -> tuple[str, ...]:
+    """The tests that are this function's business and ERRORED on current code (Wesker#17, pure — pinned).
+
+    The sibling of `function_failing_tests`, over the same suite and the same typed reading
+    (`baseline_failure_disposition`): setup or teardown failed, so the test never ran to a verdict.
+    It is no wrong expectation, and no evidence either way. Its tests are absent from the measurement
+    rather than measured clean, so a renderer names them apart, and the strict gate counts them as an
+    incomplete measurement (`audit_measurement_incomplete`). Sorted, because no engine order exists
+    for a test it did not name.
+    """
+    suite = function_test_suite(kill_matrix, line_coverage)
+    return tuple(
+        sorted(
+            t
+            for t, outcome in (typed_outcomes or {}).items()
+            if t in suite and baseline_failure_disposition(False, outcome) == "errored"
+        )
+    )
 
 
 def baseline_typed_outcomes(result: Any) -> dict[str, str]:
@@ -588,6 +652,8 @@ def audit_suite(
     # with a typed reason (`target_load_failed`) instead of an anonymous False.
     validity = normalize_validity(result, load_failed=_load_failed, routing_failed=_harvest_routing_failed)
     mutant_complete = mutant_complete and validity.admits_certificate
+    # Each test read by its TYPED baseline outcome (#124, Wesker#17), once, for both lists below.
+    _typed = baseline_typed_outcomes(result)
     _basis = function_basis(
         result,
         validity,
@@ -621,12 +687,15 @@ def audit_suite(
         # touches none of them and is not this report's business. `function_failing_tests` is
         # the one derivation; converge's floor gate consumes the same (#114), typed outcomes
         # included, so a test whose call raised is named as well as one whose assertion failed (#124).
+        # Its errored sibling reads the same typed outcomes over the same suite (Wesker#17): a test
+        # whose setup or teardown failed never ran to a verdict, and is named apart.
         failing_tests=function_failing_tests(
             list(result.failing_tests),
             result.kill_matrix,
             result.line_coverage,
-            baseline_typed_outcomes(result),
+            _typed,
         ),
+        errored_tests=function_errored_tests(result.kill_matrix, result.line_coverage, _typed),
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
         manually_unreachable=len(manually_unreachable),

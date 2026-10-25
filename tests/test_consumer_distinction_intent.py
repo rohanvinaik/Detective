@@ -47,6 +47,18 @@ from Detective.distinction import (
 )
 
 BY_DESIGN: dict[str, str] = {
+    "audit.baseline_failure_disposition @ audit.function_errored_tests": (
+        "One half of a partition. `function_errored_tests` collects the `errored` code and its sibling "
+        "`function_failing_tests` collects `failing`, over the same `function_test_suite` and the same "
+        "typed outcomes (both docstrings say so); `not_failing` belongs in neither list by definition. "
+        "audit renders the two lists as separate rows (FAILING NOW, ERRORED NOW), so no code is lost."
+    ),
+    "audit.baseline_failure_disposition @ audit.function_failing_tests": (
+        "The other half of the same partition: `function_failing_tests` collects `failing` and "
+        "`function_errored_tests` collects `errored`, over one suite and one typed reading; "
+        "`not_failing` is neither. Converge's floor gate consumes only the failing half, because an "
+        "errored test never ran to a verdict and so cannot make a kill meaningless."
+    ),
     "equivalents.contract_disposition @ engine.classify_survivors._split": (
         "Cannot arise here. `_split` calls it with buildable=killable=blocked=False (its docstring: "
         "'contract_disposition with buildable=killable=blocked=False decides'), and with `buildable` "
