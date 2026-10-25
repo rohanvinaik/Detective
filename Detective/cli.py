@@ -7454,8 +7454,6 @@ class _hang_watchdog:
         # in production (a terminal/pipe with an fd), not under a harness whose runs cannot hang.
         try:
             import faulthandler
-            import os
-            import sys
 
             stream = os.fdopen(os.dup(sys.stderr.fileno()), "w")
             self._stream = stream
