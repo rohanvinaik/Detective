@@ -110,7 +110,7 @@ class SuiteAudit:
     mutant_complete: bool
     line_complete: bool  # covers every executable line
     redundant_tests: tuple[str, ...]  # pointless for BOTH axes -> deletion PROPOSALS
-    failing_tests: tuple[str, ...]  # assert-fail on current code -> WARN, never delete
+    failing_tests: tuple[str, ...]  # fail on current code, asserted or raised (#124) -> WARN, never delete
     killable_gaps: tuple[str, ...]  # killable mutants the suite fails to kill
     missing_lines: tuple[int, ...]  # executable lines no test covers (after the line oracle)
     minimal_test_count: int  # size of the two-axis minimal cover
@@ -334,7 +334,10 @@ def function_test_suite(kill_matrix: dict[str, list[str]], line_coverage: dict[s
 
 
 def function_failing_tests(
-    failing_tests: list[str], kill_matrix: dict[str, list[str]], line_coverage: dict[str, list[int]]
+    failing_tests: list[str],
+    kill_matrix: dict[str, list[str]],
+    line_coverage: dict[str, list[int]],
+    typed_outcomes: dict[str, str] | None = None,
 ) -> tuple[str, ...]:
     """The tests that fail on current code AND are this function's business (#114, pure — pinned).
 
@@ -344,11 +347,40 @@ def function_failing_tests(
     before it ever reaches the function — touched none of them and is not this function's floor.
     Order is preserved, so the first name is the one a report shows first.
 
+    ``typed_outcomes`` is the engine's typed baseline outcome per test (#124, `baseline_typed_outcomes`).
+    ``failing_tests`` lists only ASSERTION failures, so a test whose call RAISED — a TypeError the code
+    under test throws on every input — was missing from it, while pytest itself reports that test
+    ``failed``: audit asked for a real sample and never named the three failing tests. A typed ``failed``
+    joins the floor after the engine's own list. ``error`` (setup or teardown: a fixture, an import),
+    ``skipped``, ``xfailed``, ``passed`` and anything unrecorded stay out — the ambiguity the engine
+    itself declines to read as a wrong expectation.
+
     One derivation, two consumers: audit's ``FAILING NOW`` and converge's floor gate. Converge printed
     ✓ COMPLETE over a function whose only routed test failed (#114) because it never consulted this.
     """
     suite = function_test_suite(kill_matrix, line_coverage)
-    return tuple(f for f in failing_tests if f in suite)
+    raised = [t for t, outcome in (typed_outcomes or {}).items() if outcome == "failed"]
+    return tuple(f for f in dict.fromkeys([*failing_tests, *raised]) if f in suite)
+
+
+def baseline_typed_outcomes(result: Any) -> dict[str, str]:
+    """The engine's typed baseline outcome per test id (#124), read off its trace ledger.
+
+    Each `trace_evidence` row carries pytest's own verdict for one traced test on the unmutated code
+    (``passed`` / ``failed`` / ``skipped`` / ``xfailed`` / ``error``). A row with no id names nothing,
+    and one the engine did not type (``unrecorded``: hand-built, or cached before outcomes were typed)
+    is left out rather than guessed. A REPLAYED row is kept: it may never prove (#20), but the floor is
+    a refusal, and the engine's assertion list reaches `function_failing_tests` through the same cache —
+    dropping replayed outcomes would restore the raise/assert asymmetry on every warm run. An engine
+    with no ledger yields ``{}``: the assertion-only derivation, as before.
+    """
+    outcomes: dict[str, str] = {}
+    for row in getattr(result, "trace_evidence", None) or ():
+        test_id = str(getattr(row, "test_id", "") or "")
+        outcome = str(getattr(row, "baseline_outcome", "") or "")
+        if test_id and outcome and outcome != "unrecorded":
+            outcomes[test_id] = outcome
+    return outcomes
 
 
 def audit_suite(
@@ -584,9 +616,13 @@ def audit_suite(
         # Scoping cannot hide a genuine one: a test that fails BECAUSE of this function
         # executed its lines, so it is in `suite` via line_coverage; one that fails elsewhere
         # touches none of them and is not this report's business. `function_failing_tests` is
-        # the one derivation; converge's floor gate consumes the same (#114).
+        # the one derivation; converge's floor gate consumes the same (#114), typed outcomes
+        # included, so a test whose call raised is named as well as one whose assertion failed (#124).
         failing_tests=function_failing_tests(
-            list(result.failing_tests), result.kill_matrix, result.line_coverage
+            list(result.failing_tests),
+            result.kill_matrix,
+            result.line_coverage,
+            baseline_typed_outcomes(result),
         ),
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),

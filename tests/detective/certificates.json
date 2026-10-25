@@ -24,7 +24,7 @@
   },
   "Detective/audit.py::function_failing_tests": {
     "cut_reasons": [],
-    "function_digest": "8d1ecf4ab6f89c47",
+    "function_digest": "10201972b81292e4",
     "refusal": "",
     "standing": "complete"
   },
@@ -135,7 +135,7 @@
   },
   "Detective/cli.py::audit_next_action": {
     "cut_reasons": [],
-    "function_digest": "b8e488fc2cee7ade",
+    "function_digest": "0ed486e96056c9f0",
     "refusal": "",
     "standing": "complete"
   },

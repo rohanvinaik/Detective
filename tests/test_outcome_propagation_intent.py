@@ -32,7 +32,12 @@ from Detective.ledger import reset_observations, take_observations
         ({"redundant_tests": 1}, "remove_redundant"),
         ({"redundant_tests": 1, "removing": True}, "removing_now"),
         ({"candidate_equivalent": 2, "has_equivalent_ids": True}, "flag_equivalents"),
+        # Ids with a zero count are not a flag instruction either: `flag` needs both.
+        ({"has_equivalent_ids": True}, "done_complete"),
         ({"unclassified": 4}, "done_unclassified"),
+        # A step-budget divergence is named before the unknown it sits beside (#80); pinned by hand
+        # where converge's guard kept the generated suite on disk (#124's re-pin).
+        ({"unclassified": 1, "diverged": 1}, "done_divergent"),
         ({}, "done_complete"),
     ],
 )
@@ -54,10 +59,20 @@ def test_each_audit_state_gets_its_own_code(kwargs, expected) -> None:
 def test_a_measurement_that_could_not_RUN_outranks_everything(monkeypatch) -> None:
     """Finding E's rank, preserved by the extraction. Every count below a load failure is
     blindness, so no number of gaps, failing tests or equivalents may take the lead from it."""
-    for block in ("fix_load", "provide_sample"):
+    for block in ("fix_load", "repair_measurement"):
         assert audit_next_action(block, True, 9, 9, 9, False, 9, True, 9) == block, (
             "a blocked measurement must not be outranked by the counts it invalidates"
         )
+
+
+def test_a_sample_request_ranks_below_the_failing_suite_and_above_the_counts() -> None:
+    """#124 moved `provide_sample` out of the could-not-RUN rank. The module loaded and the suite RAN;
+    only the search's synthesized inputs raised. A routed test failing on current code is a fact no
+    sample can change, so it leads — this case used to read `provide_sample`, and a function raising
+    on every input was asked for a sample while its three failing intent tests went unnamed. With no
+    failing test, the sample request still outranks every count the unreached search left behind."""
+    assert audit_next_action("provide_sample", True, 9, 9, 9, False, 9, True, 9) == "fix_failing_test"
+    assert audit_next_action("provide_sample", False, 9, 9, 9, False, 9, True, 9) == "provide_sample"
 
 
 def test_a_failing_suite_outranks_the_numbers_it_invalidates() -> None:

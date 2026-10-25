@@ -5764,11 +5764,12 @@ def audit_next_action(
     `fix_load` three times" — and only the second names what to stop doing.
 
       "fix_load"          the module would not import: nothing ran, so every count is blindness
-      "provide_sample"    the search ran and no input reached the function — a sample, not a migrate
+      "repair_measurement" the measurement ran but cannot be trusted (a typed cut reason)
       "fix_failing_test"  the suite contradicts the code, so every number below was measured
                           against a suite that does not pass. The one branch with no single
                           command, legitimately: whether the TEST or the CODE is wrong is a call
                           only a human has standing to make.
+      "provide_sample"    the search ran and no input reached the function — a sample, not a migrate
       "close_the_gap"     real killable mutants or uncovered lines — converge writes them
       "removing_now"      `--remove` is EXECUTING: recommending it mid-run would be a stale
                           self-instruction computed for the pre-action state
@@ -5780,14 +5781,22 @@ def audit_next_action(
                           equivalents — a named unknown rather than a clean DONE
       "done_complete"     complete and minimal
 
-    ORDER, and each rank has a reason rather than a preference: a measurement that could not RUN
-    outranks everything (Finding E); a failing suite outranks the numbers it invalidates; real gaps
-    outrank bloat; and the human's equivalence judgement comes last.
+    ORDER, and each rank has a reason rather than a preference: a measurement that could not RUN, or
+    cannot be trusted, outranks everything (Finding E); a failing suite outranks the numbers it
+    invalidates; real gaps outrank bloat; and the human's equivalence judgement comes last.
+
+    ``provide_sample`` ranks BELOW the failing suite (#124). It is not a measurement that could not
+    run: the module loaded and the suite ran, and only the SEARCH's synthesized inputs all raised. A
+    routed test failing on current code is a fact about the suite that no sample can change — the code
+    or the test must — so a function that raises on every input, whose intent tests therefore fail,
+    was handed "provide a real sample" while its failing tests went unnamed.
     """
-    if block in ("fix_load", "provide_sample", "repair_measurement"):
+    if block in ("fix_load", "repair_measurement"):
         return block
     if has_failing_tests:
         return "fix_failing_test"
+    if block == "provide_sample":
+        return block
     if killable_gaps > 0 or missing_lines > 0:
         return "close_the_gap"
     if redundant_tests > 0:
@@ -5948,13 +5957,14 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
     result the caller prints next.
 
     A measurement that could not RUN over the target outranks everything (Finding E): a load
-    failure, or an input that never reached the function, makes every count below unreliable — and
-    it is routed through the SAME `measurement_block_route` converge uses, so the two commands
-    cannot diverge on the same report. Then a failing test: the suite contradicts the code, so every
-    other number here was measured against a suite that does not pass, and acting on them first is
-    acting on sand. Then real gaps (converge writes them), then bloat, then the equivalents — last,
-    because `flag` is the one claim a human makes against the engine and it must never be
-    suggested while a real gap is open.
+    failure makes every count below unreliable — and it is routed through the SAME
+    `measurement_block_route` converge uses, so the two commands cannot diverge on the same report.
+    Then a failing test: the suite contradicts the code, so every other number here was measured
+    against a suite that does not pass, and acting on them first is acting on sand. Then a sample
+    request, when no synthesized input reached the function — below the failing test, because no
+    sample can make a failing test pass (#124). Then real gaps (converge writes them), then bloat,
+    then the equivalents — last, because `flag` is the one claim a human makes against the engine
+    and it must never be suggested while a real gap is open.
 
     ``decision`` is the record `_run_audit` computed once; its code is consumed here. Without one (a
     direct call) the code is derived by the same reading. Either way nothing is recorded: the handler

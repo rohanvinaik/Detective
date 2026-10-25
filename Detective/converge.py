@@ -2016,12 +2016,15 @@ def _converge_impl(
             # squeeze to the ceiling over a floor that does not hold certifies nothing. Audit's FAILING NOW
             # reads the same derivation, so the two verbs cannot answer differently for one suite. Stop
             # before synthesis, exactly as a routing failure does; `standing` reads `floor_failing`.
-            from .audit import function_failing_tests
+            # Typed outcomes too (#124): a test whose call raised fails as surely as one whose
+            # assertion did, and the engine's own list carries only the second.
+            from .audit import baseline_typed_outcomes, function_failing_tests
 
             floor_failing_tests = function_failing_tests(
                 list(getattr(result, "failing_tests", ()) or ()),
                 dict(getattr(result, "kill_matrix", {}) or {}),
                 dict(getattr(result, "line_coverage", {}) or {}),
+                baseline_typed_outcomes(result),
             )
             if floor_failing_tests:
                 say(
