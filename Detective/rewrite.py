@@ -595,6 +595,29 @@ def rewrite_classification_status(report_present: bool, load_failed: bool, measu
     return "observed"
 
 
+def replay_selection(node_ids: list[str], proof_suite: list[str]) -> str:
+    """Which frozen basis verify-rewrite REPLAYS against the rewritten source (#114, pure — pinned).
+
+      "nodes"  the receipt froze its verification's real node-ID collection (#58): replay exactly
+               those tests, the basis its ``passed`` was established on
+      "files"  no node basis (a pre-#58 receipt, or an engine without the plugin): the proof FILES,
+               as before
+      "none"   nothing was frozen, so there is nothing to replay
+
+    Why the split was needed. Since #114 converge verifies the EXACT basis, so a receipt over a function
+    whose killer shares a file with a test that is not its business (one failing before it reaches the
+    function, or another function's) reads ``passed``. Replaying ``proof_suite`` — files found by a
+    killer's bare name — re-ran that other test, and a behaviour-PRESERVING rewrite (``x * 2`` ->
+    ``x + x``) came back ✗ CHANGED, exit 1. Main refused the same receipt (``tests_failed``) and abstained.
+    ``proof_suite`` stays file-level as the freeze gate, where freezing more files is only conservative.
+    """
+    if node_ids:
+        return "nodes"
+    if proof_suite:
+        return "files"
+    return "none"
+
+
 def verify_rewrite(
     receipt: RewriteReceipt,
     file: str,
@@ -721,9 +744,19 @@ def verify_rewrite(
                 note="a frozen proof test's file differs from the node-ID basis the receipt froze",
             )
 
-    # 1. REPLAY the original obligations on the new source.
+    # 1. REPLAY the original obligations on the new source — the basis the receipt's verification
+    # established them on (`replay_selection`), each id made a pytest argument exactly as converge's
+    # verification makes it.
     say("replaying the original proof suite against the rewritten source…")
-    abspaths = [p if os.path.isabs(p) else os.path.join(root, p) for p in receipt.proof_suite]
+    node_ids = [nid for nid, _digest in receipt.node_basis]
+    selection = replay_selection(node_ids, list(receipt.proof_suite))
+    if selection == "nodes":
+        targets = node_ids
+    elif selection == "files":
+        targets = list(receipt.proof_suite)
+    else:  # "none": nothing was frozen, so nothing is replayed (`proof_replayed` reads no_tests)
+        targets = []
+    abspaths = [p if os.path.isabs(p) else os.path.join(root, p) for p in targets]
     replay = run_pytest_verification(root, abspaths, basis="target-complete") if abspaths else None
     proof_replayed = replay.status if replay is not None else "no_tests"
     proof_ok = replay is not None and replay.ok

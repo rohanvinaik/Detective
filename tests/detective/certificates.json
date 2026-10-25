@@ -552,6 +552,12 @@
     "refusal": "",
     "standing": "ungateable"
   },
+  "Detective/rewrite.py::replay_selection": {
+    "cut_reasons": [],
+    "function_digest": "b682cbb6ec069dc8",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/rewrite.py::rewrite_classification_status": {
     "function_digest": "dc18ab182c1b1ba2",
     "refusal": "",
