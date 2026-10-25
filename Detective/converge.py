@@ -366,6 +366,9 @@ class ConvergeResult:
     # Second completeness axis + minimality (from Wesker's baseline line-coverage pass).
     line_complete: bool = True  # every executable target line covered by some test
     missing_lines: tuple[int, ...] = ()  # executable lines no test covers (the gap)
+    # Each of `missing_lines` with WHY it has no admissible coverage (`audit.missing_line_standing`,
+    # #139): `(line, standing)`. A line only a failing test runs is unproven, never "uncovered".
+    missing_line_standings: tuple[tuple[int, str], ...] = ()
     # WHICH evidence the line axis rested on (#59): "admissible" when the engine supplied an
     # outcome-qualified view, "observed" when it could not and the weaker union was used. A
     # certificate that cannot say which one it stood on implies the stronger, and the difference
@@ -1593,6 +1596,29 @@ def admissible_proof_coverage(result: Any) -> tuple[dict[str, list[int]], str]:
     return proof_coverage, basis
 
 
+def _missing_line_standings(result: Any, missing: list[int]) -> tuple[tuple[int, str], ...]:
+    """``(line, standing)`` for each missing line (#139), read off ``result``'s observed coverage and its
+    typed failing and errored tests, the derivation audit's page reads. The decision is
+    `audit.missing_line_standing`; this accessor only unpacks the engine's result."""
+    from .audit import (
+        baseline_typed_outcomes,
+        function_errored_tests,
+        function_failing_tests,
+        missing_line_standing,
+    )
+
+    kill_matrix = dict(getattr(result, "kill_matrix", {}) or {})
+    line_coverage = dict(getattr(result, "line_coverage", {}) or {})
+    typed = baseline_typed_outcomes(result)
+    failing = function_failing_tests(
+        list(getattr(result, "failing_tests", ()) or ()), kill_matrix, line_coverage, typed
+    )
+    errored = function_errored_tests(kill_matrix, line_coverage, typed)
+    return tuple(
+        (ln, missing_line_standing(ln, line_coverage, list(failing), list(errored))) for ln in missing
+    )
+
+
 def admissible_line_owners(owner_ids: list[str], line_basis: str) -> tuple[str, ...]:
     """The line-coverage owners that MAY enter a certificate's proof basis (#59, pure — pinned).
 
@@ -2795,6 +2821,9 @@ def _converge_impl(
     # The branch each uncovered line sits behind — its OWN reach requirement, so the line gap is not
     # left to borrow a mutant's kill input (which targets the == edge, not the branch body).
     missing_guards = tuple((ln, " and ".join(g)) for ln in missing if (g := _line_guards(node, ln)))
+    # WHY each missing line is unproven (#139), from the same observations audit reads: a line a
+    # failing test runs has a remedy no `--input` supplies.
+    missing_standings = _missing_line_standings(final_result, missing)
     # Minimize on the SAME admissible ledger completeness rests on (#59): reporting a test as
     # line-redundant from the raw union while the certificate uses the admissible one is the
     # self-contradiction a warm (replayed) run produced — "delete this test" above a gap that test
@@ -2902,6 +2931,7 @@ def _converge_impl(
         functionally_complete=functionally_complete,
         line_complete=not missing,
         missing_lines=tuple(missing),
+        missing_line_standings=missing_standings,
         line_basis=line_basis,
         line_owner_ids=line_owner_ids,
         manually_unreachable=len(manually_unreachable),

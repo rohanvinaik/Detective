@@ -200,6 +200,9 @@ class SuiteAudit:
     # Tests whose baseline is typed `error` — setup or teardown failed, so they never ran to a verdict
     # of their own (Wesker#17). Named apart from `failing_tests`: not a wrong expectation, never gated.
     errored_tests: tuple[str, ...] = ()
+    # Each of `missing_lines` with WHY it has no admissible coverage (`missing_line_standing`, #139):
+    # `(line, standing)`. A line only a failing test runs is unproven, never "uncovered".
+    missing_line_standings: tuple[tuple[int, str], ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -465,6 +468,43 @@ def function_errored_tests(
     )
 
 
+def missing_line_standing(
+    line: int,
+    line_coverage: dict[str, list[int]],
+    failing_tests: list[str],
+    errored_tests: list[str],
+) -> str:
+    """Why an executable line has no admissible coverage, read off what its observations show (#139,
+    pure — pinned).
+
+    `missing_lines` is computed over the ADMISSIBLE view (#59): only a baseline-green, contained,
+    non-truncated observation may discharge a line. A line in it may therefore still have RUN, and
+    "uncovered" / "no test covers" is a claim about EXECUTION, false for every such line. #114's
+    `scale(2) == 4` executes line 2: the page printed `✗ uncovered 1 line(s): 2`, and the report offered
+    an `--input` to reach it. Four states, four remedies (COMMUNICATING_DETERMINISM §3):
+
+      "run_by_failing"    a test that fails on current code executes it. Fixing that test or the code
+                          covers it; no input applies, and converge writes nothing over the floor.
+      "run_by_errored"    only a test whose setup or teardown errored executes it (Wesker#17). Repairing
+                          the fixture covers it, and so does a test converge writes from an input.
+      "run_inadmissibly"  a test executes it, but only in an observation the ledger may not rest on (a
+                          cut, uncontained or replayed trace): a fresh observation can cover it.
+      "unexecuted"        no observed test executes it: the remedy is an input, or a test that reaches it.
+
+    ``line_coverage`` is the OBSERVED union per test (`result.line_coverage`); ``failing_tests`` and
+    ``errored_tests`` are `function_failing_tests` and `function_errored_tests`. A failing runner
+    outranks an errored one, as the floor outranks a fixture in both ladders.
+    """
+    runners = {test for test, lines in line_coverage.items() if line in lines}
+    if runners.intersection(failing_tests):
+        return "run_by_failing"
+    if runners.intersection(errored_tests):
+        return "run_by_errored"
+    if runners:
+        return "run_inadmissibly"
+    return "unexecuted"
+
+
 def baseline_typed_outcomes(result: Any) -> dict[str, str]:
     """The engine's typed baseline outcome per test id (#124), read off its trace ledger.
 
@@ -691,6 +731,10 @@ def audit_suite(
     mutant_complete = mutant_complete and validity.admits_certificate
     # Each test read by its TYPED baseline outcome (#124, Wesker#17), once, for both lists below.
     _typed = baseline_typed_outcomes(result)
+    _failing = function_failing_tests(
+        list(result.failing_tests), result.kill_matrix, result.line_coverage, _typed
+    )
+    _errored = function_errored_tests(result.kill_matrix, result.line_coverage, _typed)
     _basis = function_basis(
         result,
         validity,
@@ -726,15 +770,14 @@ def audit_suite(
         # included, so a test whose call raised is named as well as one whose assertion failed (#124).
         # Its errored sibling reads the same typed outcomes over the same suite (Wesker#17): a test
         # whose setup or teardown failed never ran to a verdict, and is named apart.
-        failing_tests=function_failing_tests(
-            list(result.failing_tests),
-            result.kill_matrix,
-            result.line_coverage,
-            _typed,
-        ),
-        errored_tests=function_errored_tests(result.kill_matrix, result.line_coverage, _typed),
+        failing_tests=_failing,
+        errored_tests=_errored,
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
+        missing_line_standings=tuple(
+            (ln, missing_line_standing(ln, result.line_coverage, list(_failing), list(_errored)))
+            for ln in missing
+        ),
         manually_unreachable=len(manually_unreachable),
         contradicted_line_flags=contradicted_flags,
         minimal_test_count=len(minimal),

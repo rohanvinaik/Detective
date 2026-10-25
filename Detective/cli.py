@@ -2555,6 +2555,10 @@ def _format_converge(
                 f"  spec-completeness: {free} · ≈{pr} more pass{'es' if pr != 1 else ''} "
                 "to complete (greedy bulk decay)"
             )
+        elif getattr(result, "floor_failing_tests", ()):
+            # #114/#139: nothing was synthesized over a failing floor, so the residual is not I_solve.
+            # No input finishes it before that test or the code is fixed.
+            lines.append(f"  spec-completeness: {free} · not synthesized — a failing test holds the floor")
         elif unresolved > 0:
             # Stalled with real killable residuals: the I_solve external facts.
             lines.append(
@@ -2598,11 +2602,7 @@ def _format_converge(
     # Second completeness axis + minimality (from the baseline line-coverage pass).
     # Reported only when there is line data (minimal_test_count > 0 or a measured gap).
     if result.missing_lines:
-        gap = list(result.missing_lines)
-        lines.append(f"  ✗ line gap: {len(result.missing_lines)} executable line(s) no test covers: {gap}")
-        lines += _target_lines(result.signature)
-        if _tmpl := _input_template(result.param_names):
-            lines.append(f"      template: {_tmpl}   # replace every <...> slot to execute line(s) {gap}")
+        lines += _missing_line_report(result)
     elif result.minimal_test_count:
         lines.append("  ✓ line-complete — every executable line is covered by a test")
     if result.manually_unreachable:
@@ -2801,12 +2801,15 @@ def _format_converge_terse(
         # has closed the gap the report showed them and not the gap it counted. audit already used
         # the helper on the same fact; this row was the one place that did not, so the two commands
         # disagreed about how much they were disclosing (S1). The helper's own docstring is the
-        # rule: "a list that stops at N with no marker reads as the WHOLE list."
-        lines.append(_row("✗ uncovered", f"{len(gap)} line(s): {_first_n(gap, 8)}"))
+        # rule: "a list that stops at N with no marker reads as the WHOLE list." One row per standing
+        # (#139): a line only a failing test runs is unproven, never "uncovered".
+        lines += _missing_line_rows(gap, getattr(result, "missing_line_standings", ()))
         # Name each uncovered line's OWN reach requirement (the branch it sits behind), so it is not
         # conflated with a mutant's kill input — the boundary mutant on `if x < 0` wants `x == 0`, but
-        # the body is reached only when `x < 0`. Capped so the block stays inside its line budget.
-        guards = result.missing_line_guards
+        # the body is reached only when `x < 0`. Capped so the block stays inside its line budget. Only
+        # for a line no test executes: one a test already runs has no reach requirement left to name.
+        unexecuted = set(_unexecuted_lines(gap, getattr(result, "missing_line_standings", ())))
+        guards = tuple((ln, guard) for ln, guard in result.missing_line_guards if ln in unexecuted)
         for ln, guard in guards[:3]:
             lines.append(_row("", f"line {ln} runs only when: {guard}"))
         # Disclose the cap, by this report's own rule — a bound that is not named reads as
@@ -5645,6 +5648,94 @@ def _first_n(items, n: int) -> str:
     return ", ".join(str(s) for s in shown) + (f" … (+{extra} more)" if extra else "")
 
 
+# The row each `audit.missing_line_standing` code renders (#139). Only a line no test executes is
+# "uncovered". One that a test runs is unproven, and its reason names the remedy its standing has.
+_UNPROVEN_ROW = "✗ unproven"
+_MISSING_LINE_ROWS = (
+    ("unexecuted", "✗ uncovered", ""),
+    ("run_by_failing", _UNPROVEN_ROW, "run only by a failing test"),
+    ("run_by_errored", _UNPROVEN_ROW, "run only by a test that errored in setup or teardown"),
+    (
+        "run_inadmissibly",
+        _UNPROVEN_ROW,
+        "run only where it cannot count (a cut, uncontained or replayed trace)",
+    ),
+)
+
+
+def _line_standings(missing_lines, standings) -> dict[int, str]:
+    """Each missing line's standing code. A line the result carries no standing for (a result from
+    before #139) is ``unexecuted``, which is what every such line was rendered as before."""
+    known = dict(standings or ())
+    return {ln: known.get(ln, "unexecuted") for ln in missing_lines}
+
+
+def _unexecuted_lines(missing_lines, standings) -> list[int]:
+    """The missing lines no test executes: the only ones an `--input` (or a reach guard) is for."""
+    return [ln for ln, code in _line_standings(missing_lines, standings).items() if code == "unexecuted"]
+
+
+# The full report's line for each standing (#139): what runs the lines, and the remedy that covers them.
+_MISSING_LINE_REPORT = (
+    ("unexecuted", "no test covers", ""),
+    (
+        "run_by_failing",
+        "run only by a failing test",
+        "fixing that test or the code covers them; no --input applies",
+    ),
+    (
+        "run_by_errored",
+        "run only by a test that errored in setup or teardown",
+        "repairing its fixture covers them, and so does a test written from an --input",
+    ),
+    (
+        "run_inadmissibly",
+        "run only where they cannot count (a cut, uncontained or replayed trace)",
+        "a fresh measurement covers them, and so does a test written from an --input",
+    ),
+)
+
+
+def _missing_line_report(result) -> list[str]:
+    """The converge report's line gap, one line per standing (#139). The `--input` template is offered
+    for every line a test written from an input could cover, which is every line except one only a
+    failing test runs: converge writes nothing over that floor."""
+    by_line = _line_standings(list(result.missing_lines), getattr(result, "missing_line_standings", ()))
+    known = {code for code, _, _ in _MISSING_LINE_REPORT}
+    unknown = tuple((code, f"unproven ({code})", "") for code in sorted(set(by_line.values()) - known))
+    lines: list[str] = []
+    for code, phrase, remedy in (*_MISSING_LINE_REPORT, *unknown):
+        group = [ln for ln, standing in by_line.items() if standing == code]
+        if group:
+            lines.append(f"  ✗ line gap: {len(group)} executable line(s) {phrase}: {group}")
+            if remedy:
+                lines.append(f"      {remedy}")
+    reachable = [ln for ln, standing in by_line.items() if standing != "run_by_failing"]
+    if reachable:
+        lines += _target_lines(result.signature)
+        if _tmpl := _input_template(result.param_names):
+            lines.append(
+                f"      template: {_tmpl}   # replace every <...> slot to execute line(s) {reachable}"
+            )
+    return lines
+
+
+def _missing_line_rows(missing_lines, standings) -> list[str]:
+    """One page row per standing present, the renderer audit's and converge's pages share (#139). A
+    code `_MISSING_LINE_ROWS` does not know is still rendered, under its own name, never dropped."""
+    by_line = _line_standings(missing_lines, standings)
+    known = {code for code, _, _ in _MISSING_LINE_ROWS}
+    unknown = tuple((code, _UNPROVEN_ROW, code) for code in sorted(set(by_line.values()) - known))
+    rows = []
+    for code, label, why in (*_MISSING_LINE_ROWS, *unknown):
+        group = [ln for ln, standing in by_line.items() if standing == code]
+        if group:
+            rows.append(
+                _row(label, f"{len(group)} line(s): {_first_n(group, 8)}" + (f" — {why}" if why else ""))
+            )
+    return rows
+
+
 def _format_audit_plan(function: str, static_detail: str, tier1, est_s: float | None) -> str:
     """`audit --plan` — the mutation-budget decision WITHOUT paying for it (issue #52): tier 0 static,
     tier 1 fan-in + coverage, a measured tier-2 estimate, no verdict. A schedule, not a finding."""
@@ -5833,7 +5924,8 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
     if a.killable_gaps:
         lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
     if a.missing_lines:
-        lines.append(_row("✗ uncovered", f"{len(a.missing_lines)} line(s): {_first_n(a.missing_lines, 8)}"))
+        # One row per standing (#139), in the renderer converge's page shares.
+        lines += _missing_line_rows(list(a.missing_lines), getattr(a, "missing_line_standings", ()))
     if getattr(a, "authored_fence", 0):
         # A FENCE is a GAP, not an equivalent (Q8): an authored must-not the suite does not enforce.
         # Shown with the ✗ gaps and above the flagged-equivalent line so the two are never conflated.

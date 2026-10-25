@@ -47,6 +47,19 @@ from Detective.distinction import (
 )
 
 BY_DESIGN: dict[str, str] = {
+    "audit.missing_line_standing @ audit.audit_suite": (
+        "A carrier, not a branch (#139): each missing line's code is stored verbatim beside it in "
+        "`SuiteAudit.missing_line_standings`, which `--json` emits whole. The page renders every code from "
+        "`cli._MISSING_LINE_ROWS`, which names all four, and a code it does not know under its own name."
+    ),
+    "audit.missing_line_standing @ converge._missing_line_standings": (
+        "The same carrier on converge's side (#139): the codes are returned verbatim into "
+        "`ConvergeResult.missing_line_standings`. The page renders them through the shared "
+        "`cli._missing_line_rows`, and the full report through `cli._MISSING_LINE_REPORT`, which also "
+        "names all four. Only the `--input` template's scope collapses three of them, and "
+        "`_missing_line_report`'s docstring says why: an input-written test covers every line except one "
+        "only a failing test runs."
+    ),
     "audit.unresolved_gate_standing @ cli._run_audit": (
         "The partition IS the decision (#80, founder's ruling 2026-10-25): `repairable` and `unknown` "
         "fail `--check-strict`, `budget_floor` and `machine_bound` never do, and those two halves are the "

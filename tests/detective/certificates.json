@@ -52,6 +52,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/audit.py::missing_line_standing": {
+    "cut_reasons": [],
+    "function_digest": "5071b05086a5854d",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/audit.py::probe_reach_status": {
     "cut_reasons": [],
     "function_digest": "3dd2430dc0ae4a9b",
