@@ -2,6 +2,137 @@
 
 Notable changes, newest first. Dates are the commit dates.
 
+## Unreleased
+
+Development source after 1.2.2; no version or release is implied.
+
+- **The hang watchdog's stack dump survives a test that holds fd-level capture.** The live session
+  captures at the `sys` level, but a test using pytest's `capfd` fixture, or its own `dup2`, points
+  fd 2 at a temporary file; the dump landed there and the watchdog's hard exit discarded it, so a hang
+  inside such a test ended with nothing on stderr. The watchdog now writes to a copy of stderr
+  duplicated before the session starts. (`26741de`)
+- The receiver-factory finalization test reports `measurement_valid` and the validity note when it
+  fails, so the CI-only invalid measurement of D#138 names its cut. Its cause is not yet established.
+  (`d2294ce`)
+- The development lock selects Wesker `9915a9e`: W#47's single-invocation repair and its
+  forwarding-wrapper follow-up, and the badge run's stack-dump diagnostics. Verdict-cache rows
+  recorded under an older observation identity are not reused. (`5723410`, `ca00210`)
+- The resumable repair checkpoint after the paired 1.2.2 publication, and the deferred
+  construction-contract proposal (D#137), are recorded. (`0d26891`, `b9fef92`)
+
+## 1.2.2 — 2026-10-24
+
+Requires **`Wesker>=1.2.2`**, a pairing floor. Supersedes 1.2.1, whose exact release commit failed
+macOS 3.14 CI after its release was created (see 1.2.1).
+
+### The harvest deadline
+
+- **An observation that arrives after the aggregate wall is not admitted.** The input harvest checked
+  time between tests, but a worker could finish after the wall before its parent resumed, and its
+  sample was kept. Late input and return observations, and snapshots that cross the wall during copy
+  or repr, are now rejected. Timely partial inputs survive for their diagnostic and search purpose,
+  and an incomplete codomain still refuses certification. The return-observation cache policy
+  changes, so old observations cannot stand in for the corrected contract. (`e5f7c98`, D#108)
+- **Setup and startup draw from the same absolute deadline.** The remaining join allowance is
+  recomputed after startup, a final-test overrun remains a named cut, a started worker is reaped
+  before an operator's interrupt propagates, and cancellation ownership is kept while cleanup may be
+  retried. (`e5f7c98`, `bf3f87b`, D#108)
+
+Controlled-clock regressions cover late entry, partial retention, copy/repr overruns, a late
+codomain, setup/startup expiry and the remaining join allowance. They fail on 1.2.1 without relying
+on sleep timing.
+
+### Release integrity
+
+- **Artifacts are built and signed only after exact-commit CI.** The release workflow refuses unless
+  push CI for the exact checked-out release commit completed successfully. (`e5f7c98`)
+- The signed 1.2.1 artifacts and the maintainer upload commands are recorded in
+  `docs/RELEASE_1_2_1.md`. (`3c0eea0`)
+
+## 1.2.1 — 2026-10-24
+
+Requires **`Wesker>=1.2.1`**, the engine that preserves cold opcode observations beside a coverage
+tool. (`10962b0`)
+
+- The README shows live release and quality signals, and the shared repair plan is recorded under
+  `openspec/`. (`bc37d87`)
+
+**The upload clearance was premature.** The exact release commit `bc37d87` failed its macOS 3.14 CI
+job after the GitHub release was created: `test_the_aggregate_wall_also_bounds_the_current_test`
+retained an input observed after the aggregate deadline. A later documentation-only commit passed,
+which did not establish that the race was repaired. The 1.2.1 tag and distributions remain
+immutable; 1.2.2 is the correction.
+
+## 1.2.0 — 2026-10-24
+
+Requires **`Wesker>=1.2.0`** and Python 3.12 or newer; 3.14 is the standard interpreter (`df37730`).
+Published Wesker 1.1.1 lacks `JoinedWorker`, which Detective's execution paths import, and the
+development Git lock had concealed that, so the floor corrects a real incompatibility. Runtime source
+`02d96d2`; `abbfeb2` records its installed-package acceptance (`docs/RELEASE_1_2_0.md`).
+
+### Measurement correctness
+
+- **The engine runs only the tests routing consulted.** Its pool had been the whole collection. A
+  routing failure is a named cut, `routing_failed`, that authorises no test: never cached, never
+  gateable, a STOP that names the error, exit 3, and `cut_reasons` with `routing_error` in `--json`.
+  (`071fc73`, `08966ba`, D#91)
+- **A warm two-sign run carries the observed codomain with the verdict** and re-harvests nothing; an
+  empty codomain stays empty and is never read as missing. (`d9e3fb4`, D#92)
+- Fast-mode shape hazards are adapted, an unknown containment is resolved, and value pins and
+  mutation kills are accounted separately. Initial and final scores are formatted from independent
+  populations and basis identities; simultaneous shape-hazard blockers are kept together, with the
+  affected tests disclosed; "counts are a floor" is restricted to warranted clean partiality, and
+  uncontained or unknown refusals print diagnostic counts. (`39e3eca`, `27e6c18`)
+- Boundary probes reach the residual a fully expressible signature allows, and `modulo N` no longer
+  claims a frontier it did not establish. (`cdb4f4d`, D#71)
+- The opcode counter leaves out its own frame, so a co-resident tool's first-hit DISABLE no longer
+  varies the read, and `count_opcodes` runs on Wesker's monitoring owner. (`3ad2dee`, `a6c9cc2`)
+- A capture harvest never takes a profile hook it cannot hand back. (`2c40ebc`)
+
+### Inputs and witnesses
+
+- **`nan`, `inf`, `-inf`, `float("nan")` and `float("inf")` are input spellings in every module.** The
+  one parser turns them into constants before its unchanged grammar gate and dunder ban, and
+  everything Detective prints spells a non-finite float as a `float(...)` call that parses back.
+  (`6196613`, `2f70d9d`, D#78)
+- **Harvested arguments are snapshotted at call entry.** Aliases within a row survive, rows are
+  isolated from later trials, and a copy or repr failure is a named refusal
+  (`input_snapshot_failed`, `input_snapshot_unrepresentable`). (`1ca0202`)
+- **A witness's values come from the bounded invocation that established it**; the unbounded value and
+  receiver-state re-executions are gone. (`219a062`)
+- Property checks, golden capture and witness and suite rendering run in bounded workers under the
+  remaining command deadline; an intercepted speculative filesystem write is named
+  `filesystem_write_blocked`. (`02d96d2`)
+
+### The operator's path
+
+- **One decision record per invocation.** `--json` carries what the page routes on, and the ledger
+  records it once on every channel. (`383e54c`)
+- A witness's test is written by converge's own writer, a loop ends when a supplied value changes
+  nothing, the record carries the FINAL line, and a clean two-sign audit names converge. (`9c1276b`)
+- `audit --remove` keeps any test a function it runs still needs, names why each test is kept, and
+  leaves a formatter-clean test file formatter-clean. (`4eded8b`, `d6606a3`, D#103, D#106)
+
+### State and trials
+
+- **Every durable store has one reader.** Unreadable is not empty, nothing is overwritten unseen, a
+  store the tool could not use is never reported as saved or as empty, and every write of a file the
+  user owns is atomic. (`bcc433a`, `28e171b`, `c8c3b82`, `d5cc910`)
+- A decompose trial is journaled and restored on every exit, and an interrupted trial retires the
+  trial's bytecode. (`6b8fa2e`, `7a66833`)
+
+### Guards and tests
+
+- Standing guards: every consumer distinguishes a decision's codes or says why (invariant 3), and no
+  defaulted `getattr` reads a name nothing declares (invariant 7). (`d812775`, `824b23f`)
+- The suite's result does not depend on the machine's installed pytest plugins, and a temp project
+  leaves no trace in the interpreter. (`6959005`, `5666523`)
+
+### Not in this release
+
+Containment of filesystem writes made by existing profiled tests (D#105), hard native-code and
+resource containment, and the wider safe-removal work remain open obligations. No tests were purged.
+
 ## 1.1.1 — 2026-09-14
 
 Requires **`Wesker>=1.1.1`** (see `dev/DEPENDENCY_FLOORS.md`).
