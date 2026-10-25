@@ -98,3 +98,20 @@ def test_wesker_policy_id_names_the_two_sign_policy():
     one, two = wesker_policy_id(), wesker_policy_id(two_sign=True)
     assert one and two and two != one
     assert "+neg" in two and "+neg" not in one
+
+
+def test_a_moved_two_sign_universe_invalidates_only_two_sign_verdicts(monkeypatch):
+    """The two-sign universe has its own policy id, and it moves when a μ⁻ family is added while the
+    one-sign id stays put (Wesker #44). Keyed on the one-sign id alone, a two-sign run replayed the
+    SMALLER universe: measured, `diagnose --two-sign` served 10 cached behaviours where a fresh run
+    measures 15. A two-sign key must move with the two-sign id, and a one-sign key must not."""
+    from Detective import verdict_cache
+
+    ids = {False: "9.one", True: "9+neg.before"}
+    monkeypatch.setattr(verdict_cache, "wesker_policy_id", lambda two_sign=False: ids[two_sign])
+    args = ("mod.py::g", "def g(): ...", [_t], 3, 0, (None, None))
+    one, two = cache_key(*args), cache_key(*args, two_sign=True)
+    ids[True] = "9+neg.after"
+    assert cache_key(*args) == one, "a one-sign verdict is untouched by the two-sign universe"
+    assert cache_key(*args, two_sign=True) != two, "a two-sign verdict from the old universe misses"
+    assert "9+neg.after" in cache_key(*args, two_sign=True)

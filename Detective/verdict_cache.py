@@ -180,6 +180,13 @@ def cache_key(
         from .capture import RETURN_OBSERVATION_POLICY
 
         engine += f"+o{RETURN_OBSERVATION_POLICY}"
+        # The two-sign universe has its OWN policy id (`9+neg.…`), and it moves when a μ⁻ family
+        # enters or leaves while the one-sign id stays put. Keyed on the one-sign id alone, a two-sign
+        # run replayed the smaller universe: measured with #44's operators, `diagnose --two-sign`
+        # served 10 cached behaviours where a fresh run measures 15.
+        neg = wesker_policy_id(two_sign=True)
+        if neg:
+            engine += f"+n{neg}"
     base = (
         f"{func_key}:{engine}:{_sha(func_source)}:{tests_fingerprint(tests)}"
         f":{max_per_category}:{pass_index}:{budgets}"
