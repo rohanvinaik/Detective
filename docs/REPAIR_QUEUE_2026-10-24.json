@@ -189,10 +189,11 @@
       "work_packages": [
         "B01"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "1b7db2c01c1115fb02696b16be13e706c5b301074798334a0bbdb9741fd881ae",
       "latest_body_sha256": "1b7db2c01c1115fb02696b16be13e706c5b301074798334a0bbdb9741fd881ae",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Partial 2026-10-25: (1) and (2) met through the CLI; (3) not met (a pre-existing pool thread reads as reach=complete with no lines)."
     },
     {
       "repository": "Wesker",
@@ -274,10 +275,11 @@
       "work_packages": [
         "B01"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "4a0ff78451db96d607cdb29891dad9d4517f355134ba2d7c86e7a668cb010073",
       "latest_body_sha256": "4a0ff78451db96d607cdb29891dad9d4517f355134ba2d7c86e7a668cb010073",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Partial 2026-10-25: the SAME check holds except steps_140m (a fixed 10 s isolated wall: P-cores COMPLETE vs taskpolicy -b UNGATEABLE). (c) the Mac Pro is not verifiable here. No timeout is counted as a kill."
     },
     {
       "repository": "Wesker",
@@ -302,10 +304,11 @@
       "work_packages": [
         "B01"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "85c5e374eeeb1c4b71b0d4d8dd8671429476f051d12e23077d5ce9507c2bf9df",
       "latest_body_sha256": "85c5e374eeeb1c4b71b0d4d8dd8671429476f051d12e23077d5ce9507c2bf9df",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Not met 2026-10-25: the 6ba533d spec-full timed out at 180 min; the stack dumps locate a permanent hang in Thread.start() -> _started.wait() from _run_test_with_timeout (issue comment)."
     },
     {
       "repository": "Wesker",
@@ -429,10 +432,11 @@
       "work_packages": [
         "B03"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "6828c93056fc778c75a3db341f34e4d303773d551f568257ef3b4548ab3833fc",
       "latest_body_sha256": "6828c93056fc778c75a3db341f34e4d303773d551f568257ef3b4548ab3833fc",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25: the pre-fix crash reproduced on toolz 1.2.0 at d0c1e41^; post-fix the CLI completes in both modes (d0c1e41). Residual filed: Wesker#50 (refused binding reads not_entered)."
     },
     {
       "repository": "Wesker",
@@ -515,10 +519,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "e76ac1d8e5ae345ee388c2889f6404eb0b330b4a214d7af8dd90e70596954b90",
       "latest_body_sha256": "e76ac1d8e5ae345ee388c2889f6404eb0b330b4a214d7af8dd90e70596954b90",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Partial 2026-10-25: of 38 operators, 30 built, 2 partial, 2 realized by others, 4 unsupported; families (i)-(iv) accepted; AC1-AC3 not met as written."
     },
     {
       "repository": "Wesker",
@@ -627,10 +632,11 @@
       "work_packages": [
         "B03"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "8035a8cb4498d565735618864977aac498a853bea20969f07c239e3ae706e668",
       "latest_body_sha256": "8035a8cb4498d565735618864977aac498a853bea20969f07c239e3ae706e668",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Partial 2026-10-25: item 1 met for four causes; item 2's premise no longer holds; items 3 and 5 not met on natural forms (routing); the decorator_wrapper repair cannot work."
     },
     {
       "repository": "Detective",
@@ -670,10 +676,11 @@
         "B00",
         "B01"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "a7bcc9eb98da22ab662785510f3744a63d85321714d2a4816213b2c443bc7153",
       "latest_body_sha256": "a7bcc9eb98da22ab662785510f3744a63d85321714d2a4816213b2c443bc7153",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Partial 2026-10-25: (1) the strict gate fails only on a repairable no-verdict cause (founder ruling) and (2) the witness budget uses Wesker's calibrated constants (01337aa). Open: the original's probe cap, the named outcomes, and (3) the harvest step budget."
     },
     {
       "repository": "Detective",
@@ -1010,10 +1017,11 @@
       "work_packages": [
         "B02"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "bb8fd985a1a7d7cf306e4647d96d10002c44a9e5f5992ac054454ee5bd80357a",
       "latest_body_sha256": "bb8fd985a1a7d7cf306e4647d96d10002c44a9e5f5992ac054454ee5bd80357a",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25 on 6e10cf8: write authority prevents every out-of-authority write (nothing landed in 13 fresh-folder runs); a prevented mutant is named per mutant and never scored, in plain and two-sign modes; a file-writing function's classification refuses the input instead of aborting, and its write-refused survivors route to a WRITE TEST. Residual filed: Wesker#51 (the CLI rollup)."
     },
     {
       "repository": "Detective",
@@ -1124,10 +1132,11 @@
       "work_packages": [
         "B05"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "3907adac23a0ba29d4dc3e2810b4c321eb6f80869a1ec3134e9ea0df8f2ca0b6",
       "latest_body_sha256": "3907adac23a0ba29d4dc3e2810b4c321eb6f80869a1ec3134e9ea0df8f2ca0b6",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25 on fcd3348: converge stops on a failing floor (FINAL ⚠ FAILING NOW, nothing written, standing floor_failing) in the issue's cases 1, 2 and 4; the printed pytest command selects the test (75dd394, edc872f, 03daf8c, ffdd41c, ddbd7c2, 8049510). Residual filed: D#139."
     },
     {
       "repository": "Detective",
@@ -1153,10 +1162,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "0584a7e2e80890ff07f38b2384845608279b010c85b0a6ae5908655ec335350f",
       "latest_body_sha256": "0584a7e2e80890ff07f38b2384845608279b010c85b0a6ae5908655ec335350f",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25: zero-of / type / stale generated and measured (Wesker d5029f5, c20ad75). Consumption defects filed: D#140, Wesker#49."
     },
     {
       "repository": "Detective",
@@ -1167,10 +1177,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "36e203e3664eb2e43b723dacc8394790851b7d819919235e44dce4e3ac1cc374",
       "latest_body_sha256": "36e203e3664eb2e43b723dacc8394790851b7d819919235e44dce4e3ac1cc374",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25: not / true / false generated and measured (Wesker d5029f5)."
     },
     {
       "repository": "Detective",
@@ -1181,10 +1192,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "9686c2b834cc281ff51f7129112f90cf343a52ea53763c30b5d665bec2d08dcb",
       "latest_body_sha256": "9686c2b834cc281ff51f7129112f90cf343a52ea53763c30b5d665bec2d08dcb",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25: ±1 / ±ε / scale / round / inf generated; 0 is return_const (Wesker d5029f5)."
     },
     {
       "repository": "Detective",
@@ -1195,10 +1207,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "126eb6d9c05661c6d38a63c84600a70ddef914442c47ee87c6e96c4ca9cb50a6",
       "latest_body_sha256": "126eb6d9c05661c6d38a63c84600a70ddef914442c47ee87c6e96c4ca9cb50a6",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25: trunc / case / ws (pad) / rev generated (Wesker d5029f5)."
     },
     {
       "repository": "Detective",
@@ -1209,10 +1222,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "bc351d17ca2689681f8265729b227efca49293d506115f04ccfb18f5c6b26de5",
       "latest_body_sha256": "bc351d17ca2689681f8265729b227efca49293d506115f04ccfb18f5c6b26de5",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Progress 2026-10-25 in the issue: built / partial / unsupported members listed (Wesker 6ba533d)."
     },
     {
       "repository": "Detective",
@@ -1223,10 +1237,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "b4f27b6c473c4be52877bc360eb1e5504611a0fe608d46dc65cd3eca8493e4fc",
       "latest_body_sha256": "b4f27b6c473c4be52877bc360eb1e5504611a0fe608d46dc65cd3eca8493e4fc",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Progress 2026-10-25 in the issue: built / partial / unsupported members listed (Wesker 6ba533d)."
     },
     {
       "repository": "Detective",
@@ -1237,10 +1252,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "253a5ccc3bc8734c402cd939eb282bf53480fe9509b927693db17e4feff3d932",
       "latest_body_sha256": "253a5ccc3bc8734c402cd939eb282bf53480fe9509b927693db17e4feff3d932",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Progress 2026-10-25 in the issue: built / partial / unsupported members listed (Wesker 6ba533d)."
     },
     {
       "repository": "Detective",
@@ -1251,10 +1267,11 @@
       "work_packages": [
         "B06"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "partial_2026_10_25",
       "body_sha256": "9cefa83f2038be0f0a719c58eac7bc77caa9280dc92d835bf8ec9add805222aa",
       "latest_body_sha256": "9cefa83f2038be0f0a719c58eac7bc77caa9280dc92d835bf8ec9add805222aa",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Progress 2026-10-25 in the issue: built / partial / unsupported members listed (Wesker 6ba533d)."
     },
     {
       "repository": "Detective",
@@ -1265,10 +1282,11 @@
       "work_packages": [
         "B05"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "fea135029262cfb46079e0e22c893cd0dd3d5aef75a8954cc460cbc9b80ff321",
       "latest_body_sha256": "fea135029262cfb46079e0e22c893cd0dd3d5aef75a8954cc460cbc9b80ff321",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25 on fcd3348: audit --two-sign names order_total's three failing tests as FAILING NOW, with no AUTHOR INPUT (c27b8c4, ddbd7c2). Open question recorded: a callee page naming a caller's failure."
     },
     {
       "repository": "Detective",
@@ -1338,10 +1356,11 @@
       "work_packages": [
         "B03"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "7f6f84c920bab77fde75c19523603485a39737ad113bbd92d1b3dae472546a2b",
       "latest_body_sha256": "7f6f84c920bab77fde75c19523603485a39737ad113bbd92d1b3dae472546a2b",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25 on f2be333: the namespace module loads as tools.voice.references in every verb (5efbfe0), and the load-failure Fix row names the repair its own error names (f2be333). Residuals recorded in the closing comment."
     },
     {
       "repository": "Detective",
@@ -1452,6 +1471,79 @@
       "latest_state": "open",
       "deferred_scope": "Optional declared construction contracts and policy-qualified operator interchange",
       "proposal_change": "openspec/changes/declare-construction-contracts"
+    },
+    {
+      "repository": "Detective",
+      "number": 139,
+      "title": "\"✗ uncovered\" names a line that a failing test executes, and the converge report offers an --input to reach it",
+      "url": "https://github.com/rohanvinaik/Detective/issues/139",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "filed_2026_10_25",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Detective",
+      "number": 140,
+      "title": "Two-sign pages misname μ⁻ survivors: stale class, zero-argument --input, unbuilt operators unnamed, \"detected by crash\" on unexecuted lines",
+      "url": "https://github.com/rohanvinaik/Detective/issues/140",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05",
+        "B06"
+      ],
+      "acceptance_state": "filed_2026_10_25",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Wesker",
+      "number": 48,
+      "title": "A mutant's content id differs between Python 3.12 and 3.13+, so a flag recorded under one interpreter family does not resolve under the other",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/48",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B04"
+      ],
+      "acceptance_state": "filed_2026_10_25",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Wesker",
+      "number": 49,
+      "title": "The stale Form B wrapper keeps its previous return across tests, so a stale kill is credited to whichever test runs second and depends on test order",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/49",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B06"
+      ],
+      "acceptance_state": "filed_2026_10_25",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Wesker",
+      "number": 50,
+      "title": "A metaclass-owned name whose binding is refused reads not_entered (\"installed\") on real toolz in both modes, not not_installed",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/50",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B03"
+      ],
+      "acceptance_state": "filed_2026_10_25",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Wesker",
+      "number": 51,
+      "title": "The CLI rollup neither counts nor names write_outside_authority, so a mutant whose test's write was prevented vanishes from python -m Wesker",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/51",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B02"
+      ],
+      "acceptance_state": "filed_2026_10_25",
+      "latest_state": "open"
     }
   ],
   "owner_decisions": [
@@ -1674,5 +1766,11 @@
         "wesker_exact_ci_run": 40124600315
       }
     }
-  ]
+  ],
+  "session_checkpoint_2026_10_25": {
+    "Detective_main": "6e10cf8 (D#105; pushed after its gate)",
+    "Wesker_main": "7e61cd3",
+    "Detective_uv_lock_pins_Wesker": "6ba533d",
+    "note": "Development state after the 2026-10-25 verification wave. It does not replace current_checkpoint's 1.2.2 publication receipts. The spec-full acceptance run on 6ba533d timed out (W#29); on 7e61cd3 it is expected to hang the same way, since the engine is unchanged."
+  }
 }

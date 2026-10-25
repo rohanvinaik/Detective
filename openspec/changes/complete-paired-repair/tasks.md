@@ -18,7 +18,9 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [ ] 2.3 Verify concurrent/same-event overlap, both cleanup orders, global-mask changes with existing subscribers, setup rollback, startup cancellation, retirement/inflight delivery and thread-ID reuse.
 - [ ] 2.4 Verify child-thread/subprocess uncertainty and foreign coverage/profiler coexistence across 3.12–3.14; retain per-TestId line, arc, capture and outcome equality.
 - [ ] 2.5 Reproduce W#29's six self-measurement containment failures with an unmutated containing parent; do not infer success from the ordinary CI suite.
+- [ ] 2.5a (2026-10-25, not accepted) The spec-full self-measurement on Wesker 6ba533d hit its 180-minute bound. The stall dumps locate a permanent hang: the main thread in `Thread.start()` -> `_started.wait()` from `_run_test_with_timeout`, from 14:57 to 17:27, with no other Python thread (W#29 comment). It is not the `with`-stranding fixed in 91c3b93/b1fd0e1.
 - [ ] 2.6 Validate original-measurement warrants for mutant step caps and propagate named wall/observer/arm failures through every gate.
+- [x] 2.6a (2026-10-25) The witness search budgets a mutant with Wesker's calibrated STEP_BUDGET_FACTOR/FLOOR (Detective 01337aa): the `//` -> `/` halving mutant (1,075 iterations) is distinguished, never filed divergent. The strict gate names every no-verdict mutant and fails only on a repairable one (founder ruling). Not accepted: the original's probe cap (STEP_PROBE_CAP), the steps_140m wall split (W#27), and the harvest step budget (D#80 (3)).
 
 ## 3. B02 — Invocation evidence and effects
 
@@ -26,6 +28,12 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [x] 3.2 Carry witness values and receiver state from the same admissible bounded invocation; remove unbounded value/state re-execution (219a062).
 - [x] 3.3 Bound property checks, golden capture and witness/suite rendering under the remaining deadline; propagate speculative-write refusals (02d96d2).
 - [ ] 3.4 Close D#105's existing-test path-swapping reproduction using explicit test/regime write authority; preserve legitimate temp writes and never score containment interception as assertion detection.
+- [x] 3.4a (2026-10-25) D#105, verified by fresh-folder file sweeps across 13 runs:
+  - write authority prevents every out-of-authority write (nothing landed);
+  - a prevented mutant is named per mutant and never scored;
+  - legitimate tmp_path writes are preserved;
+  - 6e10cf8: a file-writing function's speculative classification refuses the input instead of aborting the run, and write-refused survivors route to a WRITE TEST.
+  Not accepted: Wesker's CLI rollup does not count write_outside_authority (Wesker#51).
 - [ ] 3.5 Re-run D#108/#127 original CLI reproductions, including slow copy/repr/rendering and cancellation, then accept only the demonstrated deadline and authored-input obligations.
 - [ ] 3.6 Verify nonfinite literal round trips, evaluated distinctions and NaN assertions through written tests and public reports; leave unrelated D#76 reporting work in B05.
 - [x] 3.7 Reject harvest observations/snapshots admitted after the absolute deadline, include setup/startup in the remaining budget, and reap startup/pre-join cancellation (Detective e5f7c98/bf3f87b, ten controlled regressions; exact 1.2.2 CI). This accepts the added boundary subset, not 3.4–3.6 or the full D#108 field reproduction.
@@ -34,6 +42,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 
 - [ ] 4.1 Verify patch owner, install and entry acknowledgement across direct/from-import/alias/default/registry/decorator/descriptor/closure topologies and both execution modes.
 - [ ] 4.2 Screen fallback tests against the baseline; reproduce Compose.__name__ and canonical-package/relative-import cases without fabricated kill attribution.
+- [x] 4.2a (2026-10-25) Compose.__name__ on real toolz 1.2.0: the crash reproduced at d0c1e41^, and post-fix both modes complete (Wesker#38 closed). The canonical namespace package with relative imports loads by package name in every verb (D#129 closed; Fix row by cause in f2be333). Not accepted: the refused binding reads not_entered, and in-process records attribute crash kills to an unrelated test (Wesker#50, the fabricated-attribution clause of 4.2).
 - [ ] 4.3 Recollect after mid-file edits and verify the actual mutant universe/TestIds; reproduce different-project sequences without test conftest cleanup.
 - [ ] 4.4 Fix/accept cold same-module helper routing and exact collected identity; distinguish empty synthesis from unknown entry.
 
@@ -46,6 +55,16 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 ## 6. B05 — CLI knowledge and action contract
 
 - [ ] 6.1 Reproduce the remaining report/routing cases from the queue; preserve distinct causes for observation, collection, environment, intent failure, crash-only and equivalence outcomes.
+- [x] 6.1a (2026-10-25) Re-measured and repaired in this wave, each with its own sign:
+  - the failing floor before writing (D#114/#124 closed);
+  - an errored fixture's own route (`repair_errored_test`; no DONE, no "setup is clean");
+  - the gate warning naming its cause;
+  - the load-failure Fix row by cause;
+  - "no test written";
+  - regime's migrate rows read from its plan;
+  - no false "every mutant killed";
+  - write-refused survivors' WRITE TEST.
+  Filed: D#139 (uncovered vs failing-only lines) and D#140 (μ⁻ survivor rendering).
 - [ ] 6.2 Verify human stdout, full report, JSON, ledger and certificate agreement for unknown/multiple refusals, absent/unknown containment and provenance-bearing shape hazards.
 - [ ] 6.3 Round-trip printed witness/mutant identity, full usable outcomes, nonfinite spellings, valid next targets and clock/environment/two-sign context.
 - [ ] 6.4 Complete decision-code/field-consumption guards, foreign missing-evidence handling, plugin disclosure and nested invocation-ledger finalization.
@@ -54,6 +73,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 
 - [ ] 7.1 Build the exact μ⁻ catalog from NEGATIVE_SPECIFICATION definitions 11.4/11.6/11.8/11.10, mapping identity, applicability, observation premise, generator, consumer and witness.
 - [ ] 7.2 Implement/accept missing declared operators and universal observed-codomain applicability, including NoneType; disclose unsupported structural/effect premises.
+- [x] 7.2a (2026-10-25) Of Def. 11.8's 38 operators: 30 built, 2 partial (dict swap, raise inject), 2 realized by others (0, state-noop), 4 unsupported (field, class, clamp, state-extra) (Wesker d5029f5/c20ad75/7b6191a). Families (i)-(iv) accepted (D#116-#119 closed). Not accepted: (v)-(viii); per-return-site typing; and the unbuilt list's surfacing (D#140).
 - [ ] 7.3 Verify wrapper lifetime/reset, generators, effects, policy/census identities and Detective consumption; withhold full-basis claims where capability is absent.
 - [ ] 7.4 Obtain the missing broad-handler narrowing target rule; retain its semantic witness instead of inventing an arbitrary subclass.
 
