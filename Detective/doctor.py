@@ -603,6 +603,33 @@ def order_remedy(target: str, unpinned_regions: list[str], region_count: int) ->
     return "no_function", ""
 
 
+def _order_inputs(root: str, target: object, herb: str, subjects: list[dict]) -> tuple[list[str], int, bool]:
+    """The ordering finding's inputs for one subject (#111): the unpinned regions it covers, how many
+    regions it covers, and whether any recorded converge/audit measured one of them.
+
+    A PATH target (a file or a tree — `plan`, `survey`) is measured and pinned through its REGIONS: a
+    converge of `m.py::double` measures `m.py`, and a taste read over the path presupposes every
+    region under it pinned. Enumerated only for a yellow command on a path — the one subject an
+    ordering finding about a path can come from.
+    """
+    func_key = str(target) if target and "::" in str(target) else ""
+    if func_key:
+        own = {_region_key(root, func_key)}
+        unpinned = [] if _target_ever_pinned(root, func_key) else [func_key]
+        region_count = 1
+    else:
+        regions = _path_regions(root, str(target or "")) if herb == "yellow" else []
+        own = set(regions)
+        unpinned = [key for key in regions if not _target_ever_pinned(root, key)]
+        region_count = len(regions)
+    measured = any(
+        r.get("verb") in ("converge", "audit")
+        and (r.get("target") == target or _region_key(root, r.get("target")) in own)
+        for r in subjects
+    )
+    return unpinned, region_count, measured
+
+
 def red_facts(root: str, herb_of: dict | None = None) -> dict:
     """Read the ledger and answer RED's four questions about the operator (never raises).
 
@@ -655,25 +682,7 @@ def red_facts(root: str, herb_of: dict | None = None) -> dict:
     )
 
     herb = (herb_of or COMMAND_HERB).get(verb, "")
-    func_key = str(target) if target and "::" in str(target) else ""
-    # A PATH target (a file or a tree — `plan`, `survey`) is measured and pinned through its REGIONS
-    # (#111): a converge of `m.py::double` measures `m.py`, and a taste read over the path
-    # presupposes every region under it pinned. Enumerated only for a yellow command on a path —
-    # the one subject an ordering finding about a path can come from.
-    if func_key:
-        own = {_region_key(root, func_key)}
-        unpinned = [] if _target_ever_pinned(root, func_key) else [func_key]
-        region_count = 1
-    else:
-        regions = _path_regions(root, str(target or "")) if herb == "yellow" else []
-        own = set(regions)
-        unpinned = [key for key in regions if not _target_ever_pinned(root, key)]
-        region_count = len(regions)
-    measured = any(
-        r.get("verb") in ("converge", "audit")
-        and (r.get("target") == target or _region_key(root, r.get("target")) in own)
-        for r in subjects
-    )
+    unpinned, region_count, measured = _order_inputs(root, target, herb, subjects)
     out["order"] = _L.order_disposition(herb, region_count > 0 and not unpinned, measured)
     remedy, region = order_remedy(str(target or ""), unpinned, region_count)
     out["order_remedy"], out["order_region"] = remedy, region
