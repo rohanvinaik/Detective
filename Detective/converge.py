@@ -1732,6 +1732,35 @@ def converge(
     return result
 
 
+def zero_survivor_standing(scored: int, unscored: int) -> str:
+    """What a converge pass with no value-survivor left has established (pure — pinned).
+
+    Split out because the progress line said "✓ every mutant killed" whenever no value-survivor
+    remained. Measured: a pass where every mutant was kept out of the denominator (11 not entered, 0
+    scored) printed it, and so did #105's fixture beside a mutant whose write was prevented. Neither
+    killed what it claimed.
+
+      "all_killed"     every mutant was scored, and every scored mutant was killed
+      "some_unscored"  every scored mutant was killed; ``unscored`` reached no verdict
+      "none_scored"    no mutant reached a verdict: nothing was killed
+    """
+    if scored <= 0:
+        return "none_scored"
+    if unscored > 0:
+        return "some_unscored"
+    return "all_killed"
+
+
+def _zero_survivor_line(n: int, result: Any) -> str:
+    """The progress line `zero_survivor_standing` decides, over the engine result's own counts."""
+    unscored = len(result.unscored_records)
+    return {
+        "all_killed": f"pass {n}: ✓ every mutant killed",
+        "some_unscored": f"pass {n}: ✓ every scored mutant killed; {unscored} reached no verdict",
+        "none_scored": f"pass {n}: no mutant reached a verdict, so none was killed",
+    }[zero_survivor_standing(result.total_mutants, unscored)]
+
+
 def _converge_impl(
     file: str,
     function: str,
@@ -2053,10 +2082,10 @@ def _converge_impl(
         if survivors == 0 and not (supplied_inputs and not _inputs_honoured):
             iterations.append(ConvergeIteration(0, 0))
             hit_max = False
-            say(f"pass {_pass}: ✓ every mutant killed")
+            say(_zero_survivor_line(_pass, result))
             break
         if survivors == 0:
-            say(f"pass {_pass}: ✓ every mutant killed — pinning the supplied input(s)…")
+            say(_zero_survivor_line(_pass, result) + "; pinning the supplied input(s)…")
 
         if previous is not None and not _progressed(previous, survivors):
             iterations.append(ConvergeIteration(survivors, 0))  # no progress -> floor

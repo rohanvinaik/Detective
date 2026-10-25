@@ -444,9 +444,9 @@ def cut_reason_sentence(reason: str) -> str:
     """
     return {
         "target_load_failed": "the target module could not be imported, so no mutant was ever"
-        " evaluated and every count on this run describes an empty observation — run under an"
-        " interpreter that has the module's dependencies; no --input, --deadline or regime"
-        " migration substitutes for an import that fails",
+        " evaluated and every count on this run describes an empty observation — fix the import"
+        " its error names (a dependency, a package for its relative imports, or the module's own"
+        " error); no --input, --deadline or regime migration substitutes for an import that fails",
         "routing_failed": "routing — the bound on which tests may run for this function — failed, so no"
         " test was authorised, no mutant met a test, and every count on this run describes an empty"
         " observation; the error reported with it names the cause: an ImportError means the installed"

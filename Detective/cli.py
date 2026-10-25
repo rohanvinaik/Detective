@@ -25,6 +25,7 @@ import difflib
 import functools
 import json
 import os
+import re
 import shlex
 import sys
 import textwrap
@@ -847,6 +848,58 @@ def diagnose_next_action(block: str, entangled: bool, seams: int, unspecified_do
     return "settled"
 
 
+def load_failure_remedy(reason: str) -> str:
+    """Which repair a load failure's own error names (#129, pure — pinned).
+
+    Split out because four renderers (diagnose, audit, converge's standing and its block) printed ONE
+    Fix row, "run under an interpreter/venv that has the missing dependency", over every load
+    failure. Measured on #129's no-package-context targets (a root module with a relative import,
+    and one deeper than any import root): nothing was missing, no interpreter could load either, and
+    the row sent the reader to install something (COMMUNICATING_DETERMINISM §3). The error text is
+    already on the page; this reads it, in order:
+
+      "missing_module"      a ModuleNotFoundError — a dependency this interpreter lacks
+      "no_package_context"  a relative import with no parent package: no interpreter resolves it
+      "import_failed"       another ImportError — a missing name, a circular import, a version
+      "import_raised"       the module itself raised while importing (a named exception type)
+      "unknown"             no error recorded: the cause is not known, so none is asserted
+    """
+    if "ModuleNotFoundError" in reason:
+        return "missing_module"
+    if "attempted relative import" in reason:
+        return "no_package_context"
+    if "ImportError" in reason:
+        return "import_failed"
+    if re.search(r"\b[A-Z]\w*: ", reason):
+        return "import_raised"
+    return "unknown"
+
+
+def _load_fix_rows(reason: str, then: str) -> list[str]:
+    """The ``· Fix`` rows for a load failure: one derivation (`load_failure_remedy`) for every verb."""
+    first, second = {
+        "missing_module": (_RUN_UNDER_INTERPRETER, "(detective regime names the one in use), then: "),
+        "no_package_context": (
+            "give its relative imports a parent: the module must sit inside a package",
+            "an import root reaches (detective regime names the roots), or import its "
+            "siblings absolutely; then: ",
+        ),
+        "import_failed": (
+            "resolve the import the error names: a name the imported module lacks, a circular",
+            "import, or another version of a dependency; then: ",
+        ),
+        "import_raised": (
+            "fix the error the module raises while importing, in it or its import chain;",
+            "no other interpreter changes it; then: ",
+        ),
+        "unknown": (
+            "find why the module does not import under the interpreter in use",
+            "(detective regime names it), then: ",
+        ),
+    }[load_failure_remedy(reason)]
+    return [_row(_FIX_ROW, first), _row("", second + then)]
+
+
 def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
     """Diagnose's ONE next action, in the report's row style.
 
@@ -883,8 +936,7 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
             _row("", "unpinned because NOTHING could run, not because tests are absent."),
             _row("· Not converge", "it cannot write a test that runs either; on this target it"),
             _row("", "refuses with the same reason."),
-            _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
-            _row("", f"(detective regime names the one in use), then: detective diagnose '{fn}'"),
+            *_load_fix_rows(reason, f"detective diagnose '{fn}'"),
         ]
     if kind == "decompose_first":
         return [
@@ -4151,8 +4203,7 @@ def _converge_action(
                 _row(_WHY_FIRST_ROW, "the module would not import, so NOTHING ran — a 0-kill here is"),
                 _row("", _BLINDNESS_NOT_RESULT),
                 _row("", "neither regime --migrate nor a larger budget can fix an import."),
-                _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
-                _row("", f"(detective regime names the one in use), then: {_command_text(d.then)}"),
+                *_load_fix_rows(note, _command_text(d.then)),
                 *_also_live_rows(reasons, route),
             ]
         if route == "fix_routing":
@@ -4273,8 +4324,7 @@ def _converge_action(
             _row(_WHY_FIRST_ROW, "The module would not import, so nothing ran — a 0-kill here is"),
             _row("", _BLINDNESS_NOT_RESULT),
             _row("", "`regime --migrate` cannot fix a missing import."),
-            _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
-            _row("", f"(detective regime names the one in use), then: {_command_text(d.then)}"),
+            *_load_fix_rows(reason, _command_text(d.then)),
         ]
     if kind == "provide_sample":
         # The module loaded and the search ran in-process, but no input reached the function — so
@@ -6094,8 +6144,7 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             _row(_WHY_FIRST_ROW, "the module would not import, so nothing ran — a 0-kill here is"),
             _row("", _BLINDNESS_NOT_RESULT),
             _row("", "`regime --migrate` cannot fix a missing import."),
-            _row(_FIX_ROW, _RUN_UNDER_INTERPRETER),
-            _row("", f"(detective regime names the one in use), then: {_command_text(decision.then)}"),
+            *_load_fix_rows(reason, _command_text(decision.then)),
         ]
     if kind == "provide_sample":
         note = getattr(a, "note", "") or "no synthesized input reached the function"

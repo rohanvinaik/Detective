@@ -144,7 +144,11 @@ def test_the_sentence_rules_out_the_three_remedies_that_spiralled():
     assert "--input" in s
     assert "--deadline" in s
     assert "regime" in s
-    assert "dependencies" in s
+    # The repair is the one the import's own error names (#129): a dependency is one possibility, a
+    # package for its relative imports another, and the sentence asserts neither over every failure.
+    assert "the import its error names" in s
+    assert "dependency" in s and "relative imports" in s
+    assert "interpreter that has the module's dependencies" not in s
 
 
 def test_a_load_failed_run_with_nothing_outstanding_is_still_refused():

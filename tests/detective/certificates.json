@@ -221,6 +221,12 @@
     "refusal": "",
     "standing": "ungateable"
   },
+  "Detective/cli.py::load_failure_remedy": {
+    "cut_reasons": [],
+    "function_digest": "f5ecd4943fff73df",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::marked_cut": {
     "cut_reasons": [],
     "function_digest": "3c83a4809b86148c",
@@ -338,6 +344,12 @@
   },
   "Detective/converge.py::verification_disposition": {
     "function_digest": "88e3b0c341240d8a",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/converge.py::zero_survivor_standing": {
+    "cut_reasons": [],
+    "function_digest": "49377071b351de12",
     "refusal": "",
     "standing": "complete"
   },
