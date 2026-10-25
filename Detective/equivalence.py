@@ -1539,6 +1539,12 @@ def _outcome_budget_s(deadline: float | None) -> float:
     return max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - _t.monotonic()))
 
 
+def _deadline_passed(deadline: float | None) -> bool:
+    """Whether the aggregate wall (#31) is gone: the check each witness search makes before every
+    input. ``None`` = no aggregate wall, which never passes."""
+    return deadline is not None and time.monotonic() >= deadline
+
+
 def _deep_unwrapped(args: tuple | list) -> list:
     """Live candidate argument values, defensively deepcopied to prevent in-place mutation
 
@@ -1567,6 +1573,19 @@ class _ObservedOutcome:
     outcome: str
     value: Any = None
     receiver_state: dict[str, Any] | None = None
+
+
+def _record_unavailable(exc: Exception, box: dict[str, Any], observation_errors: list[Exception]) -> None:
+    """File one worker's unavailable observation for :func:`_outcome` (#105).
+
+    ONLY a prevented write is this input's own outcome: the hook stopped it before it landed, and the
+    run is no observation of the function. An uncontained or refused worker, a failed snapshot, or
+    monitoring that could not be owned is kept, and still invalidates the whole measurement.
+    """
+    if getattr(exc, "code", None) == "filesystem_write_blocked":
+        box["v"] = _OUTCOME_WRITE_REFUSED
+    else:
+        observation_errors.append(exc)
 
 
 def _outcome(
@@ -1669,16 +1688,8 @@ def _outcome(
                         ) from exc
         except StepBudgetExceeded:
             box["v"] = _OUTCOME_DIVERGED
-        except ObservationIncomplete as exc:
-            # ONLY a prevented write is this input's own outcome (#105): the hook stopped it before it
-            # landed, and the run is no observation of the function. An uncontained or refused worker,
-            # or a failed snapshot, still invalidates the whole measurement below.
-            if exc.code == "filesystem_write_blocked":
-                box["v"] = _OUTCOME_WRITE_REFUSED
-            else:
-                observation_errors.append(exc)
         except MonitoringUnavailable as exc:
-            observation_errors.append(exc)
+            _record_unavailable(exc, box, observation_errors)
         except Exception as exc:  # noqa: BLE001
             box["v"] = _raised_marker(exc)
         except (KeyboardInterrupt, SystemExit) as exc:
@@ -1973,6 +1984,16 @@ def _observe_pair(
     )
 
 
+def _pair_witness(pair: _PairObservation) -> Witness:
+    """The Witness a distinguishing pair renders. Its payloads belong to the calls that established the
+    distinction, never to an unbounded re-execution of either arm. A ``crash-only`` pair carries no
+    mutant value: only the mutant raised."""
+    original, mutant = pair.original, pair.mutant
+    if pair.disposition == "crash-only":
+        return Witness(original.args, original.outcome, mutant.outcome, original.value)
+    return Witness(original.args, original.outcome, mutant.outcome, original.value, mutant.value)
+
+
 def _search_witness_detail(
     original: Callable[..., Any],
     mutant: Callable[..., Any],
@@ -2003,7 +2024,7 @@ def _search_witness_detail(
         # pool of ten inputs is 50s on one mutant alone. When the wall is gone, stop searching
         # and report ``blocked`` — honest uncertainty (the same signal a per-input timeout
         # gives), never a false "no input distinguishes it". ``deadline`` is absolute monotonic.
-        if deadline is not None and time.monotonic() >= deadline:
+        if _deadline_passed(deadline):
             blocked = True
             break
         if not _binds(original, args):
@@ -2038,36 +2059,15 @@ def _search_witness_detail(
             diverged = diverged or pair.disposition == "step-budget-divergent"
             blocked = blocked or pair.disposition == "blocked"
             continue
-        original_observation, mutant_observation = pair.original, pair.mutant
         if pair.disposition == "crash-only":
             # Crash-only kill — not a value-witness (see crash-as-spec), but not nothing
             # either: the input IS the fact that decides what a caller can do next (write a
             # golden capture at it, so a suite that never exercised the weakened guard at
             # least crash-detects the mutant). Keep the FIRST such input; a value-witness
             # found later still outranks it.
-            if crash_witness is None:
-                crash_witness = Witness(
-                    original_observation.args,
-                    original_observation.outcome,
-                    mutant_observation.outcome,
-                    original_observation.value,
-                )
+            crash_witness = crash_witness or _pair_witness(pair)
             continue
-        return _WitnessSearch(
-            # Rendering payloads belong to the calls that established the
-            # distinction, rather than unbounded re-executions of either arm.
-            Witness(
-                original_observation.args,
-                original_observation.outcome,
-                mutant_observation.outcome,
-                original_observation.value,
-                mutant_observation.value,
-            ),
-            None,
-            blocked,
-            diverged,
-            write_refused,
-        )
+        return _WitnessSearch(_pair_witness(pair), None, blocked, diverged, write_refused)
     # FALLBACK — receiver STATE (#25, "fallback only"): the value search found no witness, so retry
     # observing the receiver's post-call state. Extracted whole so this function's job (the value
     # search) stays one loop; see :func:`_state_fallback_witness`.
@@ -2099,7 +2099,7 @@ def _state_fallback_witness(
     if not (_is_receiver_bound(original) and _is_receiver_bound(mutant)):
         return None, False
     for args in candidate_inputs:
-        if deadline is not None and time.monotonic() >= deadline:
+        if _deadline_passed(deadline):
             return None, True
         if not _binds(original, args):
             continue
