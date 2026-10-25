@@ -47,6 +47,23 @@ from Detective.distinction import (
 )
 
 BY_DESIGN: dict[str, str] = {
+    "equivalence.speculative_refusal @ equivalence._reached_lines": (
+        "Either refusal means one thing here (D#141): the trial's write or process effect was refused, "
+        "so it observed no reach, and the diagnostic, which only ever adds a caveat, skips the input "
+        "(the comment at the call site says so). Which effect it was reaches a page only through "
+        "`_record_unavailable`, which distinguishes all three codes."
+    ),
+    "equivalence.speculative_refusal @ converge._rendered_properties": (
+        "Either refusal means the property's rendering run observed nothing (D#141), so no test is "
+        "written from it, write or process effect alike. The distinction reaches a page through "
+        "`_record_unavailable`, which distinguishes all three codes."
+    ),
+    "equivalence.speculative_refusal @ converge.property_holds": (
+        "A check whose write or process effect was refused is not verified, whichever it was (D#141): "
+        "it observed nothing, and a test that does either from the project's cwd is not one to write "
+        "(the comment in `property_holds` says so). The distinction reaches a page through "
+        "`_record_unavailable`, which distinguishes all three codes."
+    ),
     "audit.missing_line_standing @ audit.audit_suite": (
         "A carrier, not a branch (#139): each missing line's code is stored verbatim beside it in "
         "`SuiteAudit.missing_line_standings`, which `--json` emits whole. The page renders every code from "

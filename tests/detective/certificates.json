@@ -108,7 +108,7 @@
   },
   "Detective/audit.py::write_refused_survivors": {
     "cut_reasons": [],
-    "function_digest": "62cd159d73d44f91",
+    "function_digest": "2ef03d7ae6b8307c",
     "refusal": "",
     "standing": "complete"
   },
@@ -486,7 +486,7 @@
   },
   "Detective/equivalence.py::_pair_disposition": {
     "cut_reasons": [],
-    "function_digest": "9f27ded7a6978fca",
+    "function_digest": "81e44f1e756d2009",
     "refusal": "",
     "standing": "complete"
   },
@@ -510,6 +510,12 @@
   "Detective/equivalence.py::nonfinite_float_spelling": {
     "cut_reasons": [],
     "function_digest": "78ef4192f4d7867c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/equivalence.py::speculative_refusal": {
+    "cut_reasons": [],
+    "function_digest": "f01ce70beda0d7e1",
     "refusal": "",
     "standing": "complete"
   },
@@ -747,6 +753,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/synthesis/characterization.py::golden_capture_disposition": {
+    "cut_reasons": [],
+    "function_digest": "70ccc249400430bd",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/synthesis/characterization.py::golden_observation_scope": {
     "cut_reasons": [],
     "function_digest": "aec73fe1483cd6ef",
@@ -756,6 +768,12 @@
   "Detective/synthesis/characterization.py::observation_stamp": {
     "cut_reasons": [],
     "function_digest": "41d56a490508c84f",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/synthesis/characterization.py::value_capture_coupling": {
+    "cut_reasons": [],
+    "function_digest": "80a41c17f49a491a",
     "refusal": "",
     "standing": "complete"
   },

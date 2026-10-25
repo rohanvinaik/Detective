@@ -60,29 +60,29 @@ def test_only_the_suites_own_crash_kill_makes_a_write_refused_survivor_detected(
 
 def test_each_survivor_is_named_with_its_change_and_a_detected_one_with_a_test_that_detects_it():
     records = [
-        ["VALUE_a", "staging name", "tmp = f'{p}.tmp' → tmp = f'{p}'", ""],
-        ["STMT_b", "replace deleted", "os.replace(tmp, p) → pass", "crash"],
+        ["VALUE_a", "staging name", "tmp = f'{p}.tmp' → tmp = f'{p}'", "", "write"],
+        ["STMT_b", "replace deleted", "os.replace(tmp, p) → pass", "crash", "write"],
     ]
     kill_matrix = {"replace deleted": ["tests/t.py::test_z", "tests/t.py::test_a"], "staging name": []}
     assert write_refused_survivors(records, kill_matrix) == (
-        ("VALUE_a", "tmp = f'{p}.tmp' → tmp = f'{p}'", "open", ""),
-        ("STMT_b", "os.replace(tmp, p) → pass", "crash_detected", "tests/t.py::test_a"),
+        ("VALUE_a", "tmp = f'{p}.tmp' → tmp = f'{p}'", "open", "", "write"),
+        ("STMT_b", "os.replace(tmp, p) → pass", "crash_detected", "tests/t.py::test_a", "write"),
     )
 
 
 def test_an_open_survivor_names_no_killer_even_where_the_matrix_records_a_timeout():
     # Wesker records a timeout's test in the kill matrix, and a timeout is no detection (`undetermined`
     # in its own disposition): the survivor is open, and naming that test would say it detects it.
-    records = [["VALUE_t", "loops", "while x: → while True:", "timeout"]]
+    records = [["VALUE_t", "loops", "while x: → while True:", "timeout", "write"]]
     assert write_refused_survivors(records, {"loops": ["tests/t.py::test_slow"]}) == (
-        ("VALUE_t", "while x: → while True:", "open", ""),
+        ("VALUE_t", "while x: → while True:", "open", "", "write"),
     )
 
 
 def test_the_kill_matrix_is_read_by_the_mutants_description_never_by_its_id():
     # The defect a first draft had: it looked the id up among a test → mutant map, found nothing, and
     # named no test for any of them.
-    records = [["STMT_b", "replace deleted", "os.replace(tmp, p) → pass", "crash"]]
+    records = [["STMT_b", "replace deleted", "os.replace(tmp, p) → pass", "crash", "write"]]
     assert write_refused_survivors(records, {"STMT_b": ["tests/t.py::test_x"]})[0][3] == ""
     assert write_refused_survivors(records, {"replace deleted": ["tests/t.py::test_x"]})[0][3] == (
         "tests/t.py::test_x"
@@ -123,9 +123,9 @@ def test_the_detected_hand_back_runs_nothing():
 
 
 _SURVIVORS = (
-    ("VALUE_a", "tmp = f'{p}.tmp' → tmp = f'{p}'", "open", ""),
-    ("STMT_b", "os.replace(tmp, p) → pass", "crash_detected", "tests/t.py::test_a"),
-    ("SWAP_c", "open(tmp, 'w') → open('w', tmp)", "crash_detected", "tests/t.py::test_a"),
+    ("VALUE_a", "tmp = f'{p}.tmp' → tmp = f'{p}'", "open", "", "write"),
+    ("STMT_b", "os.replace(tmp, p) → pass", "crash_detected", "tests/t.py::test_a", "write"),
+    ("SWAP_c", "open(tmp, 'w') → open('w', tmp)", "crash_detected", "tests/t.py::test_a", "write"),
 )
 
 
@@ -145,7 +145,9 @@ def test_the_rows_name_every_survivor_by_standing_and_never_claim_no_value_pins_
 
 
 def test_a_long_group_says_where_the_rest_are_named():
-    many = tuple((f"SWAP_{i}", f"change {i}", "crash_detected", "tests/t.py::test_a") for i in range(9))
+    many = tuple(
+        (f"SWAP_{i}", f"change {i}", "crash_detected", "tests/t.py::test_a", "write") for i in range(9)
+    )
     rows = "\n".join(_write_refused_rows(many))
     assert "(+3 more — --json names every one)" in rows and "SWAP_8" not in rows
 

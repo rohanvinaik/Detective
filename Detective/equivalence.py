@@ -1387,6 +1387,10 @@ _OUTCOME_UNCOPYABLE = "<uncopyable-input>"
 # write, so the run is no observation of the function. A FIXED marker, never the blocked path: two
 # sides refusing different paths must not read as a distinguishing outcome.
 _OUTCOME_WRITE_REFUSED = "<write-refused>"
+# An input whose speculative run attempted a process effect (D#141): a spawn, a signal, a resource limit,
+# the working directory or the environment, refused before it ran. Its own sign, never the write
+# marker: a page naming it must not say "the function writes files" of a function that spawns.
+_OUTCOME_EFFECT_REFUSED = "<effect-refused>"
 
 
 class UncopyableInputError(ValueError):
@@ -1498,6 +1502,7 @@ def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
         _OUTCOME_DIVERGED,
         _OUTCOME_UNCOPYABLE,
         _OUTCOME_WRITE_REFUSED,
+        _OUTCOME_EFFECT_REFUSED,
     ):
         return "blocked"
     if mutant_outcome == _OUTCOME_DIVERGED:
@@ -1507,6 +1512,7 @@ def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
         _OUTCOME_WALL_UNDETERMINED,
         _OUTCOME_UNCOPYABLE,
         _OUTCOME_WRITE_REFUSED,
+        _OUTCOME_EFFECT_REFUSED,
     ):
         return "blocked"
     # An equal TRUNCATED iterator prefix is UNKNOWN, not equivalent: a suffix past the observed bound
@@ -1575,15 +1581,43 @@ class _ObservedOutcome:
     receiver_state: dict[str, Any] | None = None
 
 
-def _record_unavailable(exc: Exception, box: dict[str, Any], observation_errors: list[Exception]) -> None:
-    """File one worker's unavailable observation for :func:`_outcome` (#105).
+def speculative_refusal(code: str) -> str:
+    """Whether an incomplete observation of a SPECULATIVE run is that input's own outcome, and which one
+    (D#141, pure — pinned).
 
-    ONLY a prevented write is this input's own outcome: the hook stopped it before it landed, and the
-    run is no observation of the function. An uncontained or refused worker, a failed snapshot, or
-    monitoring that could not be owned is kept, and still invalidates the whole measurement.
+    Detective runs a function on inputs it invented or replayed under `block_fs_writes`, which refuses
+    a file write (#105) and a process effect (D#141) before either happens. Each refusal means THIS
+    input observed nothing of the function; the measurement itself is sound. Every other incomplete
+    observation (an uncontained worker, a failed snapshot, monitoring that could not be owned)
+    invalidates the whole measurement. Four sites act on the answer, and four inline comparisons of the
+    code would drift apart:
+
+      "write_refused"   a file write was prevented: the input's outcome is `_OUTCOME_WRITE_REFUSED`
+      "effect_refused"  a process effect was refused: the outcome is `_OUTCOME_EFFECT_REFUSED`, never the
+                        write marker, whose page reads "the function writes files"
+      "abort"           anything else: the measurement stops, under its own name
     """
-    if getattr(exc, "code", None) == "filesystem_write_blocked":
+    if code == "filesystem_write_blocked":
+        return "write_refused"
+    if code == "process_effect_blocked":
+        return "effect_refused"
+    return "abort"
+
+
+def _record_unavailable(exc: Exception, box: dict[str, Any], observation_errors: list[Exception]) -> None:
+    """File one worker's unavailable observation for :func:`_outcome` (#105, D#141).
+
+    ONLY a refused write or process effect is this input's own outcome (`speculative_refusal`): the hook
+    stopped it before it happened, and the run is no observation of the function. An uncontained or
+    refused worker, a failed snapshot, or monitoring that could not be owned is kept, and still
+    invalidates the whole measurement.
+    """
+    refusal = speculative_refusal(str(getattr(exc, "code", "") or ""))
+    if refusal == "write_refused":
         box["v"] = _OUTCOME_WRITE_REFUSED
+    elif refusal == "effect_refused":
+        box["v"] = _OUTCOME_EFFECT_REFUSED
+        box["effects"] = tuple(exc.effects)  # type: ignore[attr-defined]  # EffectRefused alone carries the code
     else:
         observation_errors.append(exc)
 
@@ -1597,6 +1631,7 @@ def _outcome(
     cap: int | None = None,
     step_count: list[int] | None = None,
     observations: list[_ObservedOutcome] | None = None,
+    refused_effects: list[str] | None = None,
 ) -> str:
     """The repr of ``fn(*args)``, or a raised-marker — so a mutant that starts
     raising (or stops raising) counts as an observable difference, not a crash.
@@ -1614,6 +1649,9 @@ def _outcome(
     in ``fn``'s code object are monitored via ``sys.monitoring``. Exceeding it returns
     ``_OUTCOME_DIVERGED`` in ~1ms without waiting out the wall-clock timeout.
     ``step_count``, when supplied, receives the executed loop iteration count.
+
+    ``refused_effects``, when supplied, receives the process effects this call attempted and Detective
+    refused (D#141), whose outcome is `_OUTCOME_EFFECT_REFUSED`: what a page needs to name them.
 
     ``observations`` retains independent entry arguments, the observed value and optional receiver
     state from this SAME invocation, after the worker finishes admissibly. Copying and rendering
@@ -1717,6 +1755,8 @@ def _outcome(
     if timed_out:
         return _OUTCOME_WALL_UNDETERMINED
     outcome = box.get("v", _OUTCOME_WALL_UNDETERMINED)
+    if refused_effects is not None and outcome == _OUTCOME_EFFECT_REFUSED:
+        refused_effects.extend(box.get("effects", ()))
     if (
         observations is not None
         and "args" in box
@@ -1726,6 +1766,7 @@ def _outcome(
             _OUTCOME_DIVERGED,
             _OUTCOME_WALL_UNDETERMINED,
             _OUTCOME_WRITE_REFUSED,
+            _OUTCOME_EFFECT_REFUSED,
         )
     ):
         observations.append(_ObservedOutcome(box["args"], outcome, box.get("value"), box.get("state")))
@@ -1789,9 +1830,10 @@ def _reached_lines(
                 deadline=deadline,
             )
         except ObservationIncomplete as exc:
-            # A prevented write (#105) makes THIS trial no observation of reach; the diagnostic only ever
-            # adds a caveat, so the input is skipped. Every other incomplete observation still refuses.
-            if exc.code != "filesystem_write_blocked":
+            # A prevented write (#105) or a refused process effect (D#141) makes THIS trial no observation
+            # of reach; the diagnostic only ever adds a caveat, so the input is skipped. Every other
+            # incomplete observation still refuses.
+            if speculative_refusal(exc.code) == "abort":
                 raise
             continue
         if not run.contained:
@@ -1905,13 +1947,14 @@ def _binds(fn: Callable[..., Any], args: tuple) -> bool:
 
 class _WitnessSearch(NamedTuple):
     """What one witness search established: `_search_witness`'s four facts, plus whether a refused
-    write (#105) is among the reasons it was ``blocked``."""
+    write (#105) is among the reasons it was ``blocked``, and which process effects were (D#141)."""
 
     witness: Witness | None
     crash_witness: Witness | None
     blocked: bool
     diverged: bool
     write_refused: bool
+    refused_effects: tuple[str, ...] = ()
 
 
 def _search_witness(
@@ -1933,12 +1976,14 @@ _NO_OBSERVATION = _ObservedOutcome((), "", None, None)
 
 class _PairObservation(NamedTuple):
     """One input's paired observation: `_pair_disposition`'s code over the original's and the mutant's
-    outcomes, the observations that established it, and whether a refused write was one of them."""
+    outcomes, the observations that established it, whether a refused write was one of them, and the
+    process effects either side attempted and Detective refused (D#141)."""
 
     disposition: str
     original: _ObservedOutcome
     mutant: _ObservedOutcome
     write_refused: bool
+    refused_effects: tuple[str, ...] = ()
 
 
 def _observe_pair(
@@ -1957,6 +2002,7 @@ def _observe_pair(
     orig_steps: list[int] = []
     original_observations: list[_ObservedOutcome] = []
     mutant_observations: list[_ObservedOutcome] = []
+    effects: list[str] = []
     original_outcome = _outcome(
         original,
         args,
@@ -1964,23 +2010,31 @@ def _observe_pair(
         cap=None,
         step_count=orig_steps,
         observations=original_observations,
+        refused_effects=effects,
     )
     orig_it = orig_steps[0] if orig_steps else None
     mut_cap = (
         step_cap(orig_it, factor=STEP_BUDGET_FACTOR, floor=STEP_BUDGET_FLOOR) if orig_it is not None else None
     )
     mutant_outcome = _outcome(
-        mutant, args, _outcome_budget_s(deadline), cap=mut_cap, observations=mutant_observations
+        mutant,
+        args,
+        _outcome_budget_s(deadline),
+        cap=mut_cap,
+        observations=mutant_observations,
+        refused_effects=effects,
     )
     refused = _OUTCOME_WRITE_REFUSED in (original_outcome, mutant_outcome)
+    refused_effects = tuple(dict.fromkeys(effects))
     disposition = _pair_disposition(original_outcome, mutant_outcome)
     if disposition in ("witness", "crash-only") and not (original_observations and mutant_observations):
-        return _PairObservation("blocked", _NO_OBSERVATION, _NO_OBSERVATION, refused)
+        return _PairObservation("blocked", _NO_OBSERVATION, _NO_OBSERVATION, refused, refused_effects)
     return _PairObservation(
         disposition,
         original_observations[0] if original_observations else _NO_OBSERVATION,
         mutant_observations[0] if mutant_observations else _NO_OBSERVATION,
         refused,
+        refused_effects,
     )
 
 
@@ -2018,6 +2072,7 @@ def _search_witness_detail(
     blocked = False
     diverged = False
     write_refused = False
+    refused_effects: dict[str, None] = {}
     for args in candidate_inputs:
         # The aggregate wall (issue #31) is checked PER INPUT, not just per mutant: a
         # non-terminating mutant pays #42's 5s classifier timeout on EVERY candidate, so a
@@ -2048,9 +2103,10 @@ def _search_witness_detail(
             # where a human supplies the instance synthesis cannot build.
             continue
         pair = _observe_pair(original, mutant, args, deadline)
-        # A refused write is `blocked`; it is recorded so the verdict can name the one repair no longer
-        # search supplies (#105).
+        # A refused write or process effect is `blocked`; each is recorded so the verdict can name the
+        # one repair no longer search supplies (#105, D#141).
         write_refused = write_refused or pair.write_refused
+        refused_effects.update(dict.fromkeys(pair.refused_effects))
         if pair.disposition not in ("witness", "crash-only"):
             # `step-budget-divergent` is recorded; `blocked` is #42's honest uncertainty (a timeout, an
             # uncopyable input, a refused write, a missing payload): unclassified, never
@@ -2067,7 +2123,9 @@ def _search_witness_detail(
             # found later still outranks it.
             crash_witness = crash_witness or _pair_witness(pair)
             continue
-        return _WitnessSearch(_pair_witness(pair), None, blocked, diverged, write_refused)
+        return _WitnessSearch(
+            _pair_witness(pair), None, blocked, diverged, write_refused, tuple(refused_effects)
+        )
     # FALLBACK — receiver STATE (#25, "fallback only"): the value search found no witness, so retry
     # observing the receiver's post-call state. Extracted whole so this function's job (the value
     # search) stays one loop; see :func:`_state_fallback_witness`.
@@ -2075,7 +2133,12 @@ def _search_witness_detail(
         original, mutant, candidate_inputs, deadline=deadline
     )
     return _WitnessSearch(
-        state_witness, crash_witness, (blocked or state_blocked) and not diverged, diverged, write_refused
+        state_witness,
+        crash_witness,
+        (blocked or state_blocked) and not diverged,
+        diverged,
+        write_refused,
+        tuple(refused_effects),
     )
 
 
@@ -2173,6 +2236,10 @@ class MutantVerdict:
     # is what lets a page name the repair a longer search cannot supply: a test that writes under
     # tmp_path.
     write_refused: bool = False
+    # The process effects whose refusal kept the search from this mutant (D#141), set exactly as
+    # ``write_refused`` is: with ``blocked``, never when killable. A spawn, a signal or a limit is no
+    # write, so it is named by its own event, and its repair is a test that stubs the call.
+    refused_effects: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
@@ -2253,14 +2320,16 @@ class SurvivorReport:
     unclassified: tuple[str, ...]  # survivor descriptions with no verdict
     note: str | None = None  # function-level reason when the search could not run at all
     # The members of ``unclassified`` whose search could not run because the function WRITES FILES
-    # (#105): every input made a speculative run write, which was prevented, so nothing was observed.
-    # Named apart because their repair is not a longer search: a test that writes under tmp_path.
+    # (#105) or makes a process effect (D#141): every input made a speculative run do one, which was
+    # refused, so nothing was observed. Named apart because their repair is not a longer search: a test
+    # the person writes. The record below names which (``cause``).
     write_refused: tuple[str, ...] = ()
-    # ``(mutant_id, mutant, change, killed_by)`` for each of ``write_refused``, in the same order (#105).
-    # The one-line change is what a person needs to write the test that pins it; ``killed_by`` (the
-    # suite's own kill reason, "" for none) says whether the suite already detects it, and ``mutant``
-    # (the description, the kill matrix's key) finds the test that does.
-    write_refused_records: tuple[tuple[str, str, str, str], ...] = ()
+    # ``(mutant_id, mutant, change, killed_by, cause)`` for each of ``write_refused``, in the same order
+    # (#105). The one-line change is what a person needs to write the test that pins it; ``killed_by``
+    # (the suite's own kill reason, "" for none) says whether the suite already detects it, and
+    # ``mutant`` (the description, the kill matrix's key) finds the test that does. ``cause`` is what
+    # the speculative run was refused: "write", the process effects' audit events (D#141), or both.
+    write_refused_records: tuple[tuple[str, str, str, str, str], ...] = ()
     manual_equivalent: tuple[str, ...] = ()  # mutations manually flagged equivalent (the oracle)
     # Mutations manually flagged a FENCE — an authored MUST-NOT (Def. 12.1 `invalid`: this survival
     # is a bug). A fence with no distinguishing witness is an UNENFORCED negative degree of freedom,
@@ -2381,9 +2450,10 @@ def classify_survivor(
     ``deadline`` (absolute monotonic seconds) is the aggregate command wall (issue #31): the
     witness search stops when it passes, and the verdict comes back ``blocked`` — never a
     false candidate-equivalent from a search the budget cut short."""
-    witness, crash_witness, blocked, diverged, write_refused = _search_witness_detail(
+    witness, crash_witness, blocked, diverged, write_refused, refused_effects = _search_witness_detail(
         original, mutant, candidate_inputs, deadline=deadline
     )
+    unsearched = blocked and witness is None and not diverged
     return MutantVerdict(
         mutant_id=mutant_id,
         category=category,
@@ -2396,5 +2466,6 @@ def classify_survivor(
         suite_detected=suite_detected,
         blocked=blocked and witness is None and not diverged,
         diverged=diverged and witness is None,
-        write_refused=write_refused and blocked and witness is None and not diverged,
+        write_refused=write_refused and unsearched,
+        refused_effects=refused_effects if unsearched else (),
     )

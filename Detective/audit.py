@@ -129,9 +129,10 @@ class SuiteAudit:
     # in the suite detects (#105): the residual a test written under tmp_path closes, and the count
     # audit's ladder routes on. A crash-detected one is named in `write_refused_survivors`, never here.
     write_refused: int = 0
-    # Every write-refused survivor as `(mutant_id, change, standing, killer)` (`write_refused_survivors`):
-    # the page names the open ones to pin and the crash-detected ones with the test that detects them.
-    write_refused_survivors: tuple[tuple[str, str, str, str], ...] = ()
+    # Every write-refused survivor as `(mutant_id, change, standing, killer, cause)`
+    # (`write_refused_survivors`): the page names the open ones to pin, the crash-detected ones with the
+    # test that detects them, and each by what its speculative run was refused (#105, D#141).
+    write_refused_survivors: tuple[tuple[str, str, str, str, str], ...] = ()
     step_budget_divergent: int = 0  # survivors whose loop execution deterministically diverged (#80/#126)
     # Mutants that reached NO verdict in the profile — `(mutant_id, disposition)`, the same derivation
     # converge carries (`validity.unresolved_mutant_records`), so the two verbs name them alike (#126).
@@ -511,7 +512,7 @@ def missing_line_standing(
 
 def write_refused_standing(killed_by: str) -> str:
     """Whether the suite already detects a survivor whose search was refused because the function writes
-    files (#105, pure — pinned).
+    files or makes a process effect (#105, D#141, pure — pinned).
 
     The search that would sort such a survivor into crash-only, killable or equivalent is exactly the one
     refused for a writer, so #105's first route handed EVERY one back as "write a test". That loops:
@@ -530,11 +531,13 @@ def write_refused_standing(killed_by: str) -> str:
 def write_refused_survivors(
     records: list[list[str]],
     kill_matrix: dict[str, list[str]],
-) -> tuple[tuple[str, str, str, str], ...]:
-    """Each write-refused survivor as ``(mutant_id, change, standing, killer)`` (#105, pure — pinned).
+) -> tuple[tuple[str, str, str, str, str], ...]:
+    """Each write-refused survivor as ``(mutant_id, change, standing, killer, cause)`` (#105, pure —
+    pinned).
 
-    ``records`` are `SurvivorReport.write_refused_records` (``mutant_id, mutant, change, killed_by``),
-    and ``kill_matrix`` the profile's map from a mutant's description to the tests that kill it.
+    ``records`` are `SurvivorReport.write_refused_records` (``mutant_id, mutant, change, killed_by,
+    cause``), and ``kill_matrix`` the profile's map from a mutant's description to the tests that kill
+    it. ``cause`` is carried as recorded: "write", the refused process effects (D#141), or both.
     ``standing`` is `write_refused_standing`; ``killer`` names a test that kills a ``crash_detected``
     one ("" for an open one), so the page can say WHICH test detects it: the first in sorted order where
     the profile recorded several. A profile in first-killer mode records one, the first to kill in its
@@ -542,11 +545,11 @@ def write_refused_survivors(
     read by audit's page, converge's page and both ladders: only an ``open`` one is a residual a
     written test can close.
     """
-    out: list[tuple[str, str, str, str]] = []
-    for mutant_id, mutant, change, killed_by in records:
+    out: list[tuple[str, str, str, str, str]] = []
+    for mutant_id, mutant, change, killed_by, cause in records:
         standing = write_refused_standing(killed_by)
         killers = sorted(kill_matrix.get(mutant, [])) if standing == "crash_detected" else []
-        out.append((mutant_id, change, standing, killers[0] if killers else ""))
+        out.append((mutant_id, change, standing, killers[0] if killers else "", cause))
     return tuple(out)
 
 
@@ -673,7 +676,7 @@ def audit_suite(
     boundary_probe = ""
     unclassified = 0
     write_refused = 0
-    write_refused_named: tuple[tuple[str, str, str, str], ...] = ()
+    write_refused_named: tuple[tuple[str, str, str, str, str], ...] = ()
     classified = False
     # The measurement-block signals (Finding E), carried onto the audit so its next action names the
     # SAME escape converge does via `measurement_block_route`. Defaulted here so the advisory

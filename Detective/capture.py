@@ -123,6 +123,19 @@ class ObservationIncomplete(MonitoringUnavailable):
         super().__init__(f"{code}: {detail}")
 
 
+class EffectRefused(ObservationIncomplete):
+    """A speculative call attempted process effects, each refused before it ran (D#141).
+
+    ``effects`` names them as their audit events (``subprocess.Popen``, ``resource.setrlimit``), so the
+    page can say what the function does rather than borrow "writes files", which would be false."""
+
+    def __init__(self, effects: tuple[str, ...]):
+        self.effects = effects
+        super().__init__(
+            "process_effect_blocked", "speculative process effects were refused: " + ", ".join(effects)
+        )
+
+
 class HarvestIncomplete(ObservationIncomplete):
     """A codomain harvest did not finish admissibly; partial types are diagnostic only."""
 

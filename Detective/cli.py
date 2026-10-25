@@ -2879,8 +2879,9 @@ def _format_converge_terse(
         lines.append(
             _row(
                 "· env-coupled",
-                f"{len(coupled)} golden(s) refused — environment-dependent (clock / process / "
-                "default-path I/O / transitive write); see report for the exact reason per capture",
+                f"{len(coupled)} golden(s) refused — environment-dependent (clock / PID or environment / "
+                "default-path I/O / transitive write / a spawn, signal or limit); see report for the "
+                "exact reason per capture",
             )
         )
     # Static environment-read gating on a live line gap: a distinct residual class from the
@@ -3404,7 +3405,7 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
     # unclassified survivor exists, and then directly (§9.7): a renamed field must raise, never route.
     _write_refused = (
         write_refused_residual(
-            [standing_ for _mid, _change, standing_, _killer in result.write_refused_survivors],
+            [survivor[2] for survivor in result.write_refused_survivors],
             len(rep.unclassified),
             bool(rep.killable),
             bool(result.missing_lines),
@@ -6411,49 +6412,74 @@ def _errored_test_action(errored_tests: tuple[str, ...], then: tuple[str, ...] |
     return rows
 
 
-def _write_refused_action(
-    survivors: tuple[tuple[str, str, str, str], ...], then: tuple[str, ...] | None
-) -> list[str]:
-    """The block for survivors the search could not run because the function writes files and nothing in
-    the suite detects (#105): each named with its change, which is what the test that pins it needs.
+def _refusal_phrase(survivors: tuple[tuple[str, str, str, str, str], ...] | list) -> str:
+    """What the function does, read off refused survivors' recorded causes (#105, D#141): "writes files",
+    "calls subprocess.Popen", or both. A process effect is never called a write: the remedies differ."""
+    causes = {cause.strip() for survivor in survivors for cause in survivor[4].split(",") if cause.strip()}
+    effects = sorted(causes - {"write"})
+    parts = ["writes files"] if "write" in causes or not effects else []
+    if effects:
+        parts.append(f"calls {', '.join(effects)}")
+    return " and ".join(parts)
 
-    Never AUTHOR INPUT: an ``--input`` is run speculatively like any invented input, and its write is
-    refused the same way, so asking for one is a loop. The repair is a test the person writes, with
-    paths under tmp_path, that fails under the change, and it runs in the suite under its own write
-    authority. A survivor the suite detects by crash is never handed back here: that advice looped
-    (#105's reopen), and the rows above name it with the test that detects it."""
-    named = [(mid, change) for mid, change, standing, _killer in survivors if standing == "open"]
-    rows = [
-        f"WRITE TEST:  pin the {len(named)} survivor(s) nothing in the suite detects: "
-        "the function writes files",
-        "",
-        _row("· Why", "Detective never runs a file-writing function on an input it invented or"),
-        _row("", "replayed, so neither its search nor an --input can classify them."),
-        *_survivor_rows("· Pin", named),
-        _row("· Write", "a test that calls it with paths under tmp_path and fails under each change."),
+
+def _refusal_why_rows() -> list[str]:
+    """The ``· Why`` rows every refused-survivor block shares (#105, D#141)."""
+    return [
+        _row("· Why", "Detective never lets a call on an input it invented or replayed write a file"),
+        _row("", "or change its own process, so neither its search nor an --input can classify them."),
     ]
+
+
+def _write_refused_action(
+    survivors: tuple[tuple[str, str, str, str, str], ...], then: tuple[str, ...] | None
+) -> list[str]:
+    """The block for survivors the search could not run because the function writes files or makes a
+    process effect, and nothing in the suite detects them (#105, D#141): each named with its change,
+    which is what the test that pins it needs.
+
+    Never AUTHOR INPUT: an ``--input`` is run speculatively like any invented input, and its effect is
+    refused the same way, so asking for one is a loop. The repair is a test the person writes that fails
+    under the change: with paths under tmp_path for a write, with the call stubbed for a process effect.
+    It runs in the suite under its own write authority. A survivor the suite detects by crash is never
+    handed back here: that advice looped (#105's reopen), and the rows above name it with the test that
+    detects it."""
+    open_ = [survivor for survivor in survivors if survivor[2] == "open"]
+    phrase = _refusal_phrase(open_)
+    rows = [
+        f"WRITE TEST:  pin the {len(open_)} survivor(s) nothing in the suite detects: the function {phrase}",
+        "",
+        *_refusal_why_rows(),
+        *_survivor_rows("· Pin", [(survivor[0], survivor[1]) for survivor in open_]),
+    ]
+    if "writes files" in phrase:
+        rows.append(
+            _row("· Write", "a test that calls it with paths under tmp_path and fails under each change.")
+        )
+    if "calls " in phrase:
+        rows.append(_row("· Write", "a test that stubs the call (monkeypatch) and fails under each change."))
     if then:
         rows.append(_row("· Then", _command_text(then)))
     return rows
 
 
-def _write_refused_detected_action(survivors: tuple[tuple[str, str, str, str], ...]) -> list[str]:
-    """Converge's block when the only residual is write-refused survivors the suite detects, every one,
-    by crash (#105): a hand-back with no command.
+def _write_refused_detected_action(survivors: tuple[tuple[str, str, str, str, str], ...]) -> list[str]:
+    """Converge's block when the only residual is refused survivors the suite detects, every one, by
+    crash (#105, D#141): a hand-back with no command.
 
     INCOMPLETE, never DONE: none of them is classified, so the FINAL line below reads Incomplete, and a
     DONE block above it is the contradiction `_converge_blocked` records. No `flag`: a survivor a value
     assertion might pin was never judged equivalent. The rows above name each, with its test."""
     return [
         f"INCOMPLETE:  {len(survivors)} survivor(s) the suite detects only by crash: "
-        "the function writes files.",
+        f"the function {_refusal_phrase(survivors)}.",
         "",
         _row("· Detected", "a test fails under each change, by crash (named above); whether a value"),
         _row("", "assertion could also pin one was not searched."),
-        _row("· Why", "Detective never runs a file-writing function on an input it invented or"),
-        _row("", "replayed, so neither its search nor an --input can classify them."),
-        _row("· By hand", "a test that asserts what the function wrote pins any whose change a value"),
-        _row("", "shows; one that always raises is already detected as fully as it can be."),
+        *_refusal_why_rows(),
+        _row("· By hand", "a test that asserts what the function did (what it wrote, or a stubbed call's"),
+        _row("", "arguments) pins any whose change a value shows; one that always raises is"),
+        _row("", "already detected as fully as it can be."),
         _row("", "Nothing to `flag`, and no Detective command closes them."),
     ]
 
@@ -9077,10 +9103,11 @@ def _survivor_rows(label: str, named: list[tuple[str, str]], indent: str = "") -
     return rows
 
 
-def _write_refused_rows(survivors: tuple[tuple[str, str, str, str], ...]) -> list[str]:
-    """The continuation rows under ``⚠ unclassified`` naming the survivors a file write kept the search
-    from (#105), from `audit.write_refused_survivors`. One renderer for audit and converge: their repair
-    is never a longer search, so they must not read as the search's own limit.
+def _write_refused_rows(survivors: tuple[tuple[str, str, str, str, str], ...]) -> list[str]:
+    """The continuation rows under ``⚠ unclassified`` naming the survivors a file write or a process
+    effect kept the search from (#105, D#141), from `audit.write_refused_survivors`. One renderer for
+    audit and converge: their repair is never a longer search, so they must not read as the search's
+    own limit.
 
     Each standing is named apart. Those nothing in the suite detects are open; those the suite detects
     by crash carry the test that detects them, and no block hands them back as a test to write, which
@@ -9088,14 +9115,17 @@ def _write_refused_rows(survivors: tuple[tuple[str, str, str, str], ...]) -> lis
     if not survivors:
         return []
     rows = [
-        _row("", f"{len(survivors)} of them: the function writes files, and Detective never runs it on an"),
-        _row("", "input it invented or replayed, so no search or --input classifies them."),
+        _row(
+            "", f"{len(survivors)} of them: the function {_refusal_phrase(survivors)}, which Detective never"
+        ),
+        _row("", "lets a call on an input it invented or replayed do, so no search or --input"),
+        _row("", "classifies them."),
     ]
-    named_open = [(mid, change) for mid, change, standing, _killer in survivors if standing == "open"]
+    named_open = [(survivor[0], survivor[1]) for survivor in survivors if survivor[2] == "open"]
     if named_open:
         rows.append(_row("", f"{len(named_open)} nothing in the suite detects:"))
         rows += _survivor_rows("", named_open, "  ")
-    detected = [(mid, change, killer) for mid, change, standing, killer in survivors if standing != "open"]
+    detected = [(survivor[0], survivor[1], survivor[3]) for survivor in survivors if survivor[2] != "open"]
     if detected:
         killers = sorted({killer for _mid, _change, killer in detected})
         single = killers[0] if len(killers) == 1 else ""

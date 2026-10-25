@@ -69,6 +69,9 @@ class GoldenCapture:
     # it did not litter. Consumers refuse such a capture and name the writes. Distinct from
     # ``environment_paths`` (default-path READS, #23): a read pins the environment, a write changes it.
     filesystem_writes: tuple[str, ...] = ()
+    # The process effects the capture attempted and Detective refused (D#141): never pinnable, and
+    # named apart from a write so the refusal can say what the function does.
+    process_effects: tuple[str, ...] = ()
     # Environment VARIABLE names the invocation read (issue #23, environment half). Non-empty means
     # the captured value is a function of this machine's environment, so pinning it by equality
     # produces a test that is green here and red on CI. Distinct from ``environment_paths``, which
@@ -262,6 +265,17 @@ class _EffectSink:
     # read, so the hook that powers the two lists above structurally cannot cover this one.
     env_reads: list[str] = field(default_factory=list)
     block: bool = False
+    # The process effects a speculative call attempted (D#141), each refused before it ran. Recorded
+    # where the caller decides from it, so a target that swallows the refusal is still refused.
+    effects: list[str] = field(default_factory=list)
+
+
+class _CaptureEffectBlocked(BaseException):
+    """A process effect attempted during a speculative call was refused before it ran (D#141).
+
+    ``BaseException`` for `_CaptureWriteBlocked`'s reason: a target's own ``except Exception`` must not
+    swallow the refusal and return as though the effect had happened. A target that swallows it anyway
+    has still left the effect in the sink, and the sink is what the caller decides from."""
 
 
 class _CaptureWriteBlocked(BaseException):
@@ -294,6 +308,32 @@ _FS_EFFECT_EVENTS = frozenset(
 # The events that ALWAYS mutate the filesystem — `open` is the exception (it reads OR writes,
 # decided by mode/flags via `open_is_write`). Everything else here only ever changes the tree.
 _MUTATING_EFFECT_EVENTS = _FS_EFFECT_EVENTS - {"open"}
+# The process effects a speculative call must never make on Detective's own process (D#141): resource
+# limits, spawned processes, signals, the working directory and the environment, none of which the
+# call's end undoes. The list is Wesker's (`write_authority._PROCESS_EFFECTS`, W#29: an invented input
+# lowered the measuring process's RLIMIT_AS, and no thread could start after it), and a drift fence keeps
+# the two one. Detective refuses them in its own hook, scoped by the ContextVar like a write, and not
+# through Wesker's process-wide window: a speculative worker abandoned on its deadline would leave that
+# window armed, refusing Detective's own later spawns, such as verification's.
+_PROCESS_EFFECT_EVENTS = frozenset(
+    {
+        "resource.setrlimit",
+        "resource.prlimit",
+        "os.system",
+        "os.exec",
+        "os.posix_spawn",
+        "os.spawn",
+        "os.fork",
+        "os.forkpty",
+        "subprocess.Popen",
+        "os.kill",
+        "os.killpg",
+        "signal.pthread_kill",
+        "os.chdir",
+        "os.putenv",
+        "os.unsetenv",
+    }
+)
 
 
 def open_is_write(mode: object, flags: object) -> bool:
@@ -312,7 +352,19 @@ def open_is_write(mode: object, flags: object) -> bool:
     return False
 
 
+def _refuse_process_effect(event: str) -> None:
+    """Refuse a process effect inside an armed speculative window, BEFORE it runs, and record it where
+    the caller decides from it (D#141). Outside a window, or with a non-blocking sink, it is not ours."""
+    sink = _OPEN_WATCH.get()
+    if sink is not None and sink.block:
+        sink.effects.append(event)
+        raise _CaptureEffectBlocked(event)
+
+
 def _open_watch_hook(event: str, args: tuple) -> None:
+    if event in _PROCESS_EFFECT_EVENTS:
+        _refuse_process_effect(event)
+        return
     if event not in _FS_EFFECT_EVENTS:
         return
     sink = _OPEN_WATCH.get()
@@ -408,7 +460,10 @@ def block_fs_writes():
     write, so the effect never lands; the context reports an observation refusal. Scoped
     by the ContextVar to the wrapped block and its thread, so the consumer's OWN tests and Wesker's
     profiling — where no sink is set — still write freely. Yields the sink (its ``writes`` lists what
-    was prevented). NOT a general sandbox: it blocks writes, not reads, and only where installed.
+    was prevented). NOT a general sandbox: it blocks writes and the process effects in
+    `_PROCESS_EFFECT_EVENTS` (D#141), not reads, and only where installed. An effect made from a thread
+    the target itself starts escapes the ContextVar, as a write does, and a spawned child's own
+    effects are its own: refusing the spawn is what keeps them out.
     """
     _install_open_watch()
     sink = _EffectSink(block=True)
@@ -430,6 +485,11 @@ def block_fs_writes():
                 "filesystem_write_blocked",
                 "speculative filesystem effects were intercepted: " + ", ".join(dict.fromkeys(sink.writes)),
             )
+        if sink.effects and not interrupted:
+            # D#141, the same rule: a swallowed refusal still left its record.
+            from ..capture import EffectRefused
+
+            raise EffectRefused(tuple(dict.fromkeys(sink.effects)))
 
 
 def _environment_paths(opened: list[str], args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[str, ...]:
@@ -461,6 +521,7 @@ def golden_capture_disposition(
     machine_probe: str,
     clock_dependent: bool,
     deterministic: bool,
+    process_effects: tuple[str, ...] = (),
 ) -> str:
     """Whether a captured value may be pinned by equality, and if not, WHICH way it is unpinnable.
 
@@ -482,7 +543,14 @@ def golden_capture_disposition(
     ``drop_nondeterministic`` is deliberately distinct from the refusals: an unstable value is
     dropped without a message today, and preserving that as its own code keeps "we said why" and
     "we said nothing" from reading alike.
+
+    ``refuse_process_effect`` (D#141) ranks first: the function spawned, signalled, set a limit or
+    changed the working directory or environment, and Detective refused that before it ran, so the
+    capture observed no run of the function at all. Its remedy is a test that stubs the call, which
+    none of the others is.
     """
+    if process_effects:
+        return "refuse_process_effect"
     if filesystem_writes:
         return "refuse_writes"
     if environment_paths:
@@ -508,8 +576,9 @@ def value_capture_coupling(disposition: str) -> str:
     environment-dependent" and wrote `assert result == "STAGING"` in the same run.
 
     ``function_coupled`` — the objection is to the function: it reads the environment, moves with
-    the clock, opens a default path, or writes. NO value it returns is portable, at any input the
-    witness search might find, so the whole value-golden pass is declined for it.
+    the clock, opens a default path, writes, or makes a process effect (D#141). NO value it returns is
+    portable, at any input the witness search might find, so the whole value-golden pass is declined
+    for it.
 
     ``value_local`` — the objection is to this particular VALUE, not the function. The machine-path
     case is the one: `golden_assert_line` already declines such a value wherever it is rendered, so
@@ -523,6 +592,7 @@ def value_capture_coupling(disposition: str) -> str:
         "refuse_clock_dependent",
         "refuse_default_path_read",
         "refuse_writes",
+        "refuse_process_effect",
     ):
         return "function_coupled"
     if disposition == "refuse_machine_path":
@@ -649,15 +719,17 @@ def _try_capture(
     # block=True: a transitive/default-path WRITE is prevented, not just recorded — so a speculative
     # capture of a tree-mutating function (issue #30) cannot litter the consumer's checkout.
     sink = _EffectSink(block=True)
+    # Apply the declared environment (#48) BEFORE the recording proxy wraps os.environ, so the
+    # captured function reads the DECLARED values and those reads are still recorded; restored in
+    # `finally` after the proxy is off, so a declared var never leaks into a later capture. Applied
+    # before the sink is armed and restored after it is reset: setting a variable is a process effect
+    # the armed window refuses (D#141), and these two are Detective's own, not the function's.
+    _env_applied = apply_env(env) if env else None
     token = _OPEN_WATCH.set(sink)
     # Freeze the whole time-module clock family (#24 increment 1), not only `time.time`, so a function
     # reading `monotonic()`/`perf_counter()` for a TTL/elapsed check is deterministic too — the same
     # plan `render_clock_freeze` emits into the test.
     _clock_saved = apply_clock(clock, namespace) if clock is not None else None
-    # Apply the declared environment (#48) BEFORE the recording proxy wraps os.environ, so the
-    # captured function reads the DECLARED values and those reads are still recorded; restored in
-    # `finally` after the proxy is off, so a declared var never leaks into a later capture.
-    _env_applied = apply_env(env) if env else None
     # Proxy `os.environ` for the duration of the call so a read is observed at whatever depth and
     # under whatever spelling it happens. Restored in `finally` alongside the clock: leaving the
     # proxy installed would make every later capture record the previous one's reads.
@@ -695,18 +767,34 @@ def _try_capture(
                     restore_clock(_probe_saved)
     except _CaptureWriteBlocked:
         blocked_write = True
+    except _CaptureEffectBlocked:
+        pass  # decided below from the sink's record, which a swallowed refusal also left
     except Exception:
         return None
     finally:
         os.environ = _env_saved  # type: ignore[assignment] # noqa: B003
         if _clock_saved is not None:
             restore_clock(_clock_saved)  # restore — the freeze must never outlive the capture
-        if _env_applied is not None:
-            restore_env(_env_applied)  # restore the real env exactly, now the proxy is off
         _OPEN_WATCH.reset(token)
-    if blocked_write:
+        if _env_applied is not None:
+            restore_env(_env_applied)  # restore the real env exactly, now the proxy and the sink are off
+    if sink.effects:
+        # A process effect was refused before it ran (D#141): the capture observed no run of the
+        # function, and its golden would pin nothing. Decided from the record, so a target that
+        # swallowed the refusal and returned is refused too.
+        return GoldenCapture(
+            inputs=args,
+            kwargs=dict(kwargs),
+            deterministic=False,
+            process_effects=tuple(dict.fromkeys(sink.effects)),
+            clock=clock,
+            env=env,
+        )
+    if blocked_write or sink.writes:
         # A tree-mutating function is not golden-capturable; the write was prevented (no litter),
         # and the attempt is surfaced so the refusal names it rather than reading as a bare drop.
+        # Decided from the record as well (D#141): a target that swallowed the guard returned from its
+        # fallback branch, and a golden of that branch pins what the real run never does.
         return GoldenCapture(
             inputs=args,
             kwargs=dict(kwargs),

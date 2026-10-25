@@ -362,9 +362,10 @@ class ConvergeResult:
     remaining: tuple[str, ...] = ()  # e.g. ("2 VALUE", "1 STATE") — the survivors and why
     wiring: PytestWiring | None = None  # how the written suite was wired to run under pytest
     survivor_report: SurvivorReport | None = None  # killable/equivalent/uncertain for leftovers
-    # Each survivor a file write kept the search from, as `(mutant_id, change, standing, killer)`
-    # (`audit.write_refused_survivors`, #105): only an `open` one is a residual a written test closes.
-    write_refused_survivors: tuple[tuple[str, str, str, str], ...] = ()
+    # Each survivor a file write or a process effect kept the search from, as
+    # `(mutant_id, change, standing, killer, cause)` (`audit.write_refused_survivors`, #105, D#141):
+    # only an `open` one is a residual a written test closes.
+    write_refused_survivors: tuple[tuple[str, str, str, str, str], ...] = ()
     functionally_complete: bool = False  # every KILLABLE mutant killed (equivalents may remain)
     # Second completeness axis + minimality (from Wesker's baseline line-coverage pass).
     line_complete: bool = True  # every executable target line covered by some test
@@ -764,6 +765,7 @@ def _rendered_properties(
     over the whole list turned one survivor's refused write into the end of the run.
     """
     from .capture import ObservationIncomplete
+    from .equivalence import speculative_refusal
     from .synthesis.characterization import block_fs_writes
 
     rendered = []
@@ -774,7 +776,7 @@ def _rendered_properties(
                     generate_executable_property(survivor, func_key, node, call_site_inputs, root)
                 )
         except ObservationIncomplete as exc:
-            if exc.code != "filesystem_write_blocked":
+            if speculative_refusal(exc.code) == "abort":
                 raise
     return rendered
 
@@ -856,14 +858,16 @@ def property_holds(
                     sys.path.remove(p)
 
     from .capture import ObservationIncomplete
+    from .equivalence import speculative_refusal
 
     try:
         return _bounded_work(check, timeout_s, phase="property")
     except ObservationIncomplete as exc:
-        # A generated test whose check writes a file (#105) is NOT verified: the write was prevented, so
-        # the check observed nothing, and a test that writes from the project's cwd is not one to
-        # write. Any other incomplete observation still refuses the run.
-        if exc.code == "filesystem_write_blocked":
+        # A generated test whose check writes a file (#105) or makes a process effect (D#141) is NOT
+        # verified: the effect was refused, so the check observed nothing, and a test that does either
+        # from the project's cwd is not one to write. Any other incomplete observation still refuses
+        # the run.
+        if speculative_refusal(exc.code) != "abort":
             return False
         raise
     except (KeyboardInterrupt, SystemExit, MonitoringUnavailable):
@@ -1276,6 +1280,7 @@ def _golden_properties(
             probe,
             c.clock_dependent,
             c.deterministic,
+            c.process_effects,
         )
         # Out-channel to the witness pass (#39), mirroring the `truncated` idiom: a reason
         # established HERE, by running the function, is the only evidence that pass can have —
@@ -1284,7 +1289,16 @@ def _golden_properties(
         # last wins.
         if coupled is not None and value_capture_coupling(disposition) == "function_coupled":
             coupled.append(disposition)
-        if disposition == "refuse_writes":
+        if disposition == "refuse_process_effect":
+            # D#141: the function spawned, signalled, set a limit or changed the working directory or
+            # environment, and Detective refused it before it ran: the capture observed nothing.
+            rendered = ", ".join(repr(a) for a in c.inputs)
+            refusals.append(
+                f"golden at ({rendered}) refused — the function calls {', '.join(c.process_effects)}, "
+                "which Detective never lets a speculative run do; a test that stubs the call is needed, "
+                "not a golden"
+            )
+        elif disposition == "refuse_writes":
             # The function mutates the tree — transitively, past AST-local purity (issue #30). The
             # write was BLOCKED during capture (no litter); a golden of its return would pin nothing
             # portable regardless. Refuse and name the paths, like the #23 default-path-read case.
@@ -1599,7 +1613,7 @@ def admissible_proof_coverage(result: Any) -> tuple[dict[str, list[int]], str]:
     return proof_coverage, basis
 
 
-def _named_write_refused(report: Any, result: Any) -> tuple[tuple[str, str, str, str], ...]:
+def _named_write_refused(report: Any, result: Any) -> tuple[tuple[str, str, str, str, str], ...]:
     """`audit.write_refused_survivors` over a converge's survivor report and final profile (#105): the
     accessor unpacks the objects; the decision is audit's, so the two verbs name them alike."""
     from .audit import write_refused_survivors

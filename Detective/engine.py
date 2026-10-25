@@ -3558,12 +3558,12 @@ def classify_survivors(
             )
         }
 
-    # Survivors whose search the function's own file writes refused (#105), by the id `unclassified`
-    # carries, each with `(mutant_id, mutant, change, killed_by)` from its record: what a person needs to
-    # pin it, and whether the suite already detects it (``mutant`` is the kill matrix's key). Gathered
-    # across every pool and narrowed to the FINAL unclassified list below, so a retry that classifies
-    # one drops it.
-    _write_refused_ids: dict[str, tuple[str, str, str, str]] = {}
+    # Survivors whose search the function's own file writes (#105) or process effects (D#141) refused,
+    # by the id `unclassified` carries, each with `(mutant_id, mutant, change, killed_by, cause)` from its
+    # record: what a person needs to pin it, whether the suite already detects it (``mutant`` is the
+    # kill matrix's key), and what was refused ("write", or the refused events). Gathered across every
+    # pool and narrowed to the FINAL unclassified list below, so a retry that classifies one drops it.
+    _write_refused_ids: dict[str, tuple[str, str, str, str, str]] = {}
 
     def _classify_pool(
         pool: list[tuple],
@@ -3588,12 +3588,13 @@ def classify_survivors(
                 _fence.append(rec.get("diff_summary", ""))
             else:  # "unclassified" — no verdict to trust and no flag speaks for it
                 _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
-                if verdict is not None and verdict.write_refused:
+                if verdict is not None and (verdict.write_refused or verdict.refused_effects):
                     _write_refused_ids[_unclassified[-1]] = (
                         str(rec.get("mutant_id", "") or ""),
                         str(rec.get("mutant", "") or ""),
                         str(rec.get("change", "") or ""),
                         str(rec.get("killed_by", "") or ""),
+                        ", ".join((("write",) if verdict.write_refused else ()) + verdict.refused_effects),
                     )
 
         for rec in survivors if records is None else records:
