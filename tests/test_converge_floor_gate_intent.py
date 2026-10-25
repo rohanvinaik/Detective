@@ -368,6 +368,10 @@ def test_i_the_only_routed_test_fails_so_nothing_is_written_or_certified(tmp_pat
     # The certificate ledger records the refusal, so `plan` cannot read an older `complete` over it.
     ledger = json.loads((project / "tests" / "detective" / "certificates.json").read_text())
     assert ledger["m.py::scale"]["standing"] == "floor_failing"
+    # So the FINAL says what was NOT written, exactly: no test. "nothing written" was false beside
+    # the ledger file this run wrote.
+    assert "no test written; certificate withheld" in _final(out), out
+    assert "nothing written" not in out, out
     # --json carries the same decision and the same exit code.
     as_json = _cli(project, "converge", "m.py::scale", "--two-sign", "--json")
     payload = json.loads(as_json.stdout)

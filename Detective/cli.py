@@ -1861,12 +1861,14 @@ def _completeness_verdict(result, *, flag_offered: bool = True) -> str:
         phase = getattr(result, "cut_phase", "") or "a profiling phase"
         return f"⚠ CUT — aggregate deadline exhausted during {phase}; measurement partial"
     # A floor that does not hold (#114): a test that is this function's business fails on current code,
-    # so converge wrote nothing and certifies nothing — ranked as `certificate_standing` ranks it.
+    # so converge writes no test and certifies nothing — ranked as `certificate_standing` ranks it. The
+    # ledger still records that standing (`floor_failing`), so the FINAL says "no test written", never
+    # "nothing written": a file this run did write would make that clause false.
     _floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
     if _floor:
         return (
             f"⚠ FAILING NOW — {len(_floor)} test(s) that reach this function fail on current code; "
-            "nothing written; certificate withheld"
+            "no test written; certificate withheld"
         )
     # A proof basis that ran red/uncollectable (issue #38): name the verification status, not just
     # "Incomplete" — the mutants are all killed; what failed is the suite running green.
@@ -2059,7 +2061,7 @@ def _final_banner_status(result) -> str:
         # the printed re-run carries it (#115); the FINAL names it so the two can be checked together.
         return (
             f"FINAL {result.function}: ⚠ FAILING NOW — {_floor[0]}{_more} reaches this function and fails "
-            f"on current code; nothing written; certificate withheld{_measurement_scope(result)}"
+            f"on current code; no test written; certificate withheld{_measurement_scope(result)}"
         )
     # A proof basis that RAN and did not pass (issue #38) is not a certificate either — the
     # mutation score can be perfect while the written suite is red or uncollectable under real
@@ -7292,6 +7294,36 @@ def regime_step(blocked: bool, needed: bool, conflict: bool) -> tuple[str, str]:
     return "done", ""
 
 
+def _migration_rows(plan) -> list[str]:
+    """What the offered `regime --migrate` will do, read from the plan `apply_migration` applies.
+
+    Never a fixed sentence. The old one said pythonpath is written "if a conftest WE wrote was
+    supplying it" and then "removes that conftest": on a scripts tree with no conftest the plan
+    declares pythonpath for the bare-imported root, so both clauses were false. Each row here is one
+    field of the plan. pythonpath lands only in a pyproject.toml pytest reads, which the row says,
+    because `apply_migration` writes it nowhere else."""
+    declared = [
+        name
+        for name, on in (
+            ("the detective marker", plan.declare_marker),
+            ('pythonpath = ["."] (pyproject.toml only)', plan.declare_pythonpath),
+        )
+        if on
+    ]
+    rows = []
+    if plan.create_config:
+        rows.append(_row("· creates", "pyproject.toml, with a pytest table"))
+    if declared:
+        rows.append(_row("· declares", f"{' and '.join(declared)} in the config file pytest reads"))
+    if plan.remove_conftests:
+        rows.append(
+            _row("· removes", f"{', '.join(plan.remove_conftests)}: Detective wrote it, and the config")
+        )
+        rows.append(_row("", "then declares everything it did."))
+    rows.append(_row("· never touches", "a file you wrote."))
+    return rows
+
+
 def _regime_action(regime, plan, applied, target: str | None = None) -> list[str]:
     """The one thing to do next. Migration first — it is the only step that is ours to take.
 
@@ -7314,13 +7346,7 @@ def _regime_action(regime, plan, applied, target: str | None = None) -> list[str
         # migrate" about the problem it had just diagnosed one line above, and wrote nothing.
         # A caller following the action verbatim (which is the contract) loops forever on it.
         aim = f" '{target}'" if target else ""
-        return [
-            f"DO THIS:  detective regime --migrate{aim}{where}",
-            "",
-            _row("· writes", "the marker (and pythonpath, if a conftest WE wrote was"),
-            _row("", "supplying it) into pyproject — then removes that conftest."),
-            _row("· never touches", "a file you wrote."),
-        ]
+        return [f"DO THIS:  detective regime --migrate{aim}{where}", "", *_migration_rows(plan)]
     if remedy == "regime_conflict":
         return [
             "DO THIS:  resolve the conflict — every verdict here is untrustworthy until",

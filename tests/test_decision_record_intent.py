@@ -390,7 +390,15 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
 
 def test_regime_run_the_printed_migrate_is_the_records_argv():
     regime = types.SimpleNamespace(root="/abs/repo", conflicts=())
-    plan = types.SimpleNamespace(blocked=(), needed=True)
+    # A marker-only plan: the page's rows are read from the plan's fields, never assumed.
+    plan = types.SimpleNamespace(
+        blocked=(),
+        needed=True,
+        declare_marker=True,
+        declare_pythonpath=False,
+        remove_conftests=(),
+        create_config=False,
+    )
     d = _regime_decision(regime, plan, "m.py::f", "migration_available")
     out = _regime_action(regime, plan, (), "m.py::f")
     assert (d.code, d.kind) == ("migration_available", "run")
