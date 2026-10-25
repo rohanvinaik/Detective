@@ -289,12 +289,46 @@ def test_the_detail_carries_where_the_original_is_held_and_a_cut_scan():
 
 
 def test_a_reach_gap_is_not_a_measurement_block_and_a_captured_copy_is():
-    gap = types.SimpleNamespace(cut_reasons=("mutant_not_entered_not_reached",), load_failed=False, note="")
+    gap = types.SimpleNamespace(
+        cut_reasons=("mutant_not_entered_not_reached",),
+        load_failed=False,
+        note="",
+        killable_gaps=(),
+        missing_lines=(2, 3, 4),
+    )
     assert _audit_measurement_block(gap) != "repair_measurement"
     captured = types.SimpleNamespace(
         cut_reasons=("mutant_not_entered_captured_at_import",), load_failed=False
     )
     assert _audit_measurement_block(captured) == "repair_measurement"
+
+
+def test_a_reach_gap_with_nothing_left_to_write_never_closes_on_done():
+    """Adversarial edge: every line flagged unreachable and no killable survivor, yet the not-entered
+    mutants withhold the certificate. Falling through, the ladder printed `DONE: the suite is complete
+    and minimal` over a withheld certificate; it stays a measurement block and names the repair."""
+    from Detective.audit import SuiteAudit
+    from Detective.cli import _audit_action
+
+    a = SuiteAudit(
+        function="m.py::f",
+        test_count=1,
+        kill_pct=0.0,
+        mutant_complete=False,
+        line_complete=False,
+        redundant_tests=(),
+        failing_tests=(),
+        killable_gaps=(),
+        missing_lines=(),
+        minimal_test_count=1,
+        manually_unreachable=3,
+        total_mutants=2,
+        cut_reasons=("mutant_not_entered_not_reached",),
+    )
+    assert _audit_measurement_block(a) == "repair_measurement"
+    text = "\n".join(_audit_action(a))
+    assert "DONE" not in text, text
+    assert text.startswith("INCOMPLETE:  ") and "converge writes one" in text, text
 
 
 # ── end to end: the plain function, and the captured copy, through the real CLI ─────────────────

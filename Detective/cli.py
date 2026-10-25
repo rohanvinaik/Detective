@@ -5895,10 +5895,14 @@ def _audit_measurement_block(a) -> str:
     unloadable module to a converge that also could not run (Finding E).
     """
     load_failed = bool(getattr(a, "load_failed", False))
-    # Only `repair` blocks. `reach_gap` and `none` share the ladder below on purpose: a cut whose every
-    # reason is "no consulted test calls this function" is a REACH gap, not a measurement to repair
-    # (#77), so its gaps are real gaps and converge — which writes the test that calls it — is the move.
-    if measurement_cut_kind(list(getattr(a, "cut_reasons", ()) or ())) == "repair" and not load_failed:
+    cut_kind = measurement_cut_kind(list(getattr(a, "cut_reasons", ()) or ()))
+    # A cut whose every reason is "no consulted test calls this function" is a REACH gap, not a
+    # measurement to repair (#77): with a gap to write, the ladder below names converge, which writes
+    # the test that calls it. With nothing left to write (every line flagged unreachable) the ladder
+    # would close on DONE over a withheld certificate, so it stays a measurement block and its
+    # sentence names the repair.
+    has_gap = bool(getattr(a, "killable_gaps", ()) or getattr(a, "missing_lines", ()))
+    if not load_failed and (cut_kind == "repair" or (cut_kind == "reach_gap" and not has_gap)):
         return "repair_measurement"
     expressible = getattr(a, "inputs_expressible", None)
     needs_sample = expressible is None and not load_failed and bool(getattr(a, "note", ""))
