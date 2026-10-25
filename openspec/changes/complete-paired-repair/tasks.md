@@ -27,13 +27,15 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [x] 3.1 Snapshot the argument graph at PY_START, preserve within-row aliases, isolate rows and name copy/unrepresentable failures (1ca0202; B02 execution record).
 - [x] 3.2 Carry witness values and receiver state from the same admissible bounded invocation; remove unbounded value/state re-execution (219a062).
 - [x] 3.3 Bound property checks, golden capture and witness/suite rendering under the remaining deadline; propagate speculative-write refusals (02d96d2).
-- [ ] 3.4 Close D#105's existing-test path-swapping reproduction using explicit test/regime write authority; preserve legitimate temp writes and never score containment interception as assertion detection.
+- [x] 3.4 Close D#105's existing-test path-swapping reproduction using explicit test/regime write authority; preserve legitimate temp writes and never score containment interception as assertion detection (2026-10-25: D#105 closed at e341b25, Wesker#51 at fc661d0).
 - [x] 3.4a (2026-10-25) D#105, verified by fresh-folder file sweeps across 13 runs:
   - write authority prevents every out-of-authority write (nothing landed);
   - a prevented mutant is named per mutant and never scored;
   - legitimate tmp_path writes are preserved;
   - 6e10cf8: a file-writing function's speculative classification refuses the input instead of aborting the run, and write-refused survivors route to a WRITE TEST.
-  Not accepted: Wesker's CLI rollup does not count write_outside_authority (Wesker#51).
+  - e341b25 (D#105 reopened): that WRITE TEST looped on survivors the suite already detected by crash. Each write-refused survivor is now named by standing, WRITE TEST names only those nothing detects, and a detected-only residual is converge's INCOMPLETE hand-back `write_refused_detected`. Accepted over three rounds on the c1 fixture: the advised test closes the open survivor and is never called redundant.
+  - Wesker fc661d0 (Wesker#51): the CLI rollup counts and names write_outside_authority.
+  Not accepted: a writer with an always-raising mutant cannot reach COMPLETE, since its value search is the refused one (D#141).
 - [ ] 3.5 Re-run D#108/#127 original CLI reproductions, including slow copy/repr/rendering and cancellation, then accept only the demonstrated deadline and authored-input obligations.
 - [ ] 3.6 Verify nonfinite literal round trips, evaluated distinctions and NaN assertions through written tests and public reports; leave unrelated D#76 reporting work in B05.
 - [x] 3.7 Reject harvest observations/snapshots admitted after the absolute deadline, include setup/startup in the remaining budget, and reap startup/pre-join cancellation (Detective e5f7c98/bf3f87b, ten controlled regressions; exact 1.2.2 CI). This accepts the added boundary subset, not 3.4–3.6 or the full D#108 field reproduction.

@@ -1768,9 +1768,9 @@
     }
   ],
   "session_checkpoint_2026_10_25": {
-    "Detective_main": "6e10cf8 (D#105; pushed after its gate)",
-    "Wesker_main": "7e61cd3",
+    "Detective_main": "e341b25 (D#105 reopened and closed again; pushed after its gate)",
+    "Wesker_main": "f99281c (W#51 fc661d0; W#29 prevention f1598bf and safety net eb6a17a; pushed after its gate)",
     "Detective_uv_lock_pins_Wesker": "6ba533d",
-    "note": "Development state after the 2026-10-25 verification wave. It does not replace current_checkpoint's 1.2.2 publication receipts. The spec-full acceptance run on 6ba533d timed out (W#29); on 7e61cd3 it is expected to hang the same way, since the engine is unchanged."
+    "note": "Development state after the 2026-10-25 verification wave. It does not replace current_checkpoint's 1.2.2 publication receipts. The spec-full run on 7e61cd3 (40216925036) hung in Thread.start exactly as W#29's root cause predicts. Run 40237240506 on f99281c is W#29's acceptance run; W#29 stays open until a spec-full run is green."
   }
 }
