@@ -23,6 +23,7 @@ what is ignored.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -149,6 +150,24 @@ def test_the_shipped_artifact_itself_passes():
     built = sorted((_SCRIPT.parent.parent / "dist").glob("detective_spec-*.tar.gz"))
     if not built:
         pytest.skip("no built sdist in dist/ — run `uv build --out-dir dist` first")
+    # A THIRD state, named apart from both: an artifact built from an EARLIER tree. Checked against
+    # this tree, a file deleted since then reads as "carries an untracked file", which is a fact
+    # about the drift between two trees, not about packaging (measured 2026-10-25: the released 1.2.2
+    # sdist still held a golden that converge had just regenerated under a new name). Its remedy is
+    # a fresh build, so it is a skip that says so, never a failure. CI's packaging check and the
+    # pre-publish protocol both build fresh, so this does not weaken the check that decides a release.
+    head = subprocess.run(
+        ["git", "log", "-1", "--format=%ct"],
+        cwd=_SCRIPT.parent.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    if head.isdigit() and built[-1].stat().st_mtime < int(head):
+        pytest.skip(
+            f"{built[-1].name} predates HEAD — an earlier tree's artifact; "
+            "build a fresh sdist to check this one"
+        )
     assert check_sdist.main([str(built[-1])]) == 0
 
 
