@@ -8685,6 +8685,22 @@ def _run_decompose(args, file, function) -> int:
     return exit_code
 
 
+def _unmeasured_clause(unclassified: int, errored: int) -> str:
+    """What left an audit's measurement incomplete, each cause in its own words (Wesker#17, pure — pinned).
+
+    Split out because `audit_measurement_incomplete` answers only WHETHER, and since Wesker#17 an errored
+    test alone makes it true. The gate's warning named one cause whatever the run held, so an errored
+    fixture read as "0 survivor(s) the equivalence search could not classify": a false cause, with a
+    repair (a longer search) that cannot fix a broken setup (COMMUNICATING_DETERMINISM §3). Each
+    present cause gets its own clause, in a fixed order; "" when neither is present."""
+    clauses = []
+    if unclassified > 0:
+        clauses.append(f"{unclassified} survivor(s) the equivalence search could not classify")
+    if errored > 0:
+        clauses.append(f"{errored} test(s) errored in setup or teardown, so they never ran to a verdict")
+    return "; ".join(clauses)
+
+
 def _run_audit(args, file, function) -> int:
     from .audit import audit_suite
 
@@ -8786,11 +8802,12 @@ def _run_audit(args, file, function) -> int:
         )
     if check:
         if meas_incomplete and not spec_gap:
-            # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search
-            # is a measurement limit, not a finding — the default gate stays a claim about the code.
+            # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search or an
+            # errored fixture is a measurement limit, not a finding — the default gate stays a claim
+            # about the code. Each cause is named apart (`_unmeasured_clause`).
             print(
-                f"  ⚠ measurement incomplete — {report.unclassified} survivor(s) the equivalence "
-                "search could not classify; NOT a specification gap. Use --check-strict to gate on it.",
+                f"  ⚠ measurement incomplete — {_unmeasured_clause(report.unclassified, len(_errored))}; "
+                "NOT a specification gap. Use --check-strict to gate on it.",
                 file=sys.stderr,
             )
         return gate_exit

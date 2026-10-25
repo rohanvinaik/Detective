@@ -166,3 +166,42 @@ def test_an_errored_test_is_named_apart_and_a_wrong_expectation_still_fails(tmp_
     assert "test_wrong_expectation" in failing_rows, out
     assert "test_errors_in_setup" not in failing_rows, "the errored test rode back in as failing"
     assert "pytest test_wrong.py::test_wrong_expectation" in out, out
+
+
+# ── the gate's warning names the cause the run holds ────────────────────────────────────────────
+
+
+def test_the_gate_warning_names_each_unmeasured_cause_apart():
+    """Since Wesker#17 an errored test alone makes the audit's measurement incomplete, and the gate's
+    warning still said "{unclassified} survivor(s) the equivalence search could not classify" whatever
+    the run held: an errored fixture read as "0 survivor(s) the equivalence search could not
+    classify". That names a false cause, whose repair (a longer search) cannot fix a broken setup
+    (COMMUNICATING_DETERMINISM §3)."""
+    from Detective.cli import _unmeasured_clause
+
+    errored_only = _unmeasured_clause(0, 1)
+    assert "errored in setup or teardown" in errored_only
+    assert "survivor" not in errored_only, "an errored test was reported as an unclassified survivor"
+    unclassified_only = _unmeasured_clause(2, 0)
+    assert unclassified_only.startswith("2 survivor(s)") and "errored" not in unclassified_only
+    both = _unmeasured_clause(2, 1)
+    assert both.index("survivor") < both.index("errored"), "both causes, each named, in a fixed order"
+    assert _unmeasured_clause(0, 0) == ""
+
+
+def test_an_errored_fixture_over_a_pinned_suite_is_warned_as_itself_through_the_gate(tmp_path):
+    (tmp_path / "m.py").write_text("def f(x):\n    return x + 1\n")
+    (tmp_path / "conftest.py").write_text(_CONFTEST)
+    (tmp_path / "test_m.py").write_text(
+        "from m import f\n\n\ndef test_errors_in_setup(broken_setup):\n    assert f(2) == 3\n\n\n"
+        "def test_passes():\n    assert f(1) == 2\n"
+    )
+    migrate = _detective(tmp_path, "regime", "--migrate", "--project-root", str(tmp_path))
+    assert migrate.returncode == 0, migrate.stdout + migrate.stderr
+    check = _detective(tmp_path, "audit", "m.py::f", "--check")
+    assert check.returncode == 0, "an errored test is no specification gap: " + check.stdout + check.stderr
+    warning = check.stderr.split("⚠ measurement incomplete", 1)[-1]
+    assert "1 test(s) errored in setup or teardown" in warning, check.stderr
+    assert "could not classify" not in warning, "the warning named the search for a broken fixture"
+    strict = _detective(tmp_path, "audit", "m.py::f", "--check-strict")
+    assert strict.returncode == 2, "could not measure must not pass the strict gate: " + strict.stderr

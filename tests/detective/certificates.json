@@ -151,6 +151,12 @@
     "refusal": "",
     "standing": "incomplete"
   },
+  "Detective/cli.py::_unmeasured_clause": {
+    "cut_reasons": [],
+    "function_digest": "aa14ad83c40510b7",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::audit_next_action": {
     "cut_reasons": [],
     "function_digest": "0ed486e96056c9f0",
