@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import ast
 import difflib
+import functools
 import json
 import os
 import shlex
@@ -1678,6 +1679,8 @@ def _format_survivor_report(
     param_names: tuple[str, ...] = (),
     verbose: bool = True,
     structural_difficulty: str = "",
+    *,
+    flag_offered: bool = True,
 ) -> list[str]:
     """Render the grounded disposition of every leftover survivor: equivalent
     (retained), killable (a suggested test, NOT auto-applied), or uncertain.
@@ -1709,10 +1712,13 @@ def _format_survivor_report(
     if unproven:
         cats = ", ".join(sorted({v.category for v in unproven}))
         tried = unproven[0].searched
+        # `flag` is named only where it can reproduce the run's universe (#115); otherwise the report's
+        # flag line says why it is not offered, and this sentence must not contradict it.
+        or_flag = " (or `flag` what you can PROVE equivalent)" if flag_offered else ""
         lines.append(
             f"  candidate-equivalent — retained, UNPROVEN ({len(unproven)}: {cats}); "
             f"no distinguishing input in {tried} tried. To KILL: supply an input reaching a "
-            "mutated branch below (or `flag` what you can PROVE equivalent):"
+            f"mutated branch below{or_flag}:"
         )
         lines.append(
             _probe_status_line(getattr(rep, "boundary_probe", ""), getattr(rep, "boundary_probes", 0))
@@ -1843,7 +1849,7 @@ def _show_written(path: str | None) -> list[str]:
     return lines
 
 
-def _completeness_verdict(result) -> str:
+def _completeness_verdict(result, *, flag_offered: bool = True) -> str:
     """The honest headline. 'COMPLETE' is claimed ONLY when nothing killable remains AND
     no survivor is merely *candidate*-equivalent (an unproven 'no distinguishing input
     found' — automated search never proves equivalence; only a manual `flag` or a killing
@@ -1875,6 +1881,8 @@ def _completeness_verdict(result) -> str:
         bits.append(
             f"{candidate} candidate-equivalent (UNPROVEN: `flag` if truly equivalent, "
             "or add a distinguishing input)"
+            if flag_offered
+            else f"{candidate} candidate-equivalent (UNPROVEN: add a distinguishing input)"
         )
     if crash_only:
         bits.append(f"{crash_only} crash-only value gap(s) — detected by crash; no value pins them")
@@ -1931,6 +1939,26 @@ def _final_banner(result) -> str:
     """Name the measured policy beside every final standing, including invalid runs."""
     policy = getattr(result, "policy_id", None) or "unversioned"
     return f"{_final_banner_status(result)} · policy {policy}"
+
+
+def _measurement_scope(result) -> str:
+    """What a measured certificate holds UNDER — named on every FINAL that reports one (#115).
+
+    A method target's certificate is scoped to the RECEIVER population explored (issue #25): it holds
+    UNDER this receiver (a single `Basket()`, its class for a classmethod, or a `--receiver-factory`),
+    not for every possible instance state. An environment capability (a `--clock` freeze, a declared
+    `--env`) makes a function whose result depends on external state pinnable — but its certificate
+    holds only UNDER that capability set, never unconditionally (issue #24). The COMPLETE banner and the
+    UNVERIFIED one read this one helper, so a withheld certificate never drops the scope a granted one
+    names."""
+    scope = ""
+    receiver = getattr(result, "receiver_identity", None)
+    if receiver:
+        scope += f" · under receiver {receiver}"
+    capability = getattr(result, "capability_identity", None)
+    if capability:
+        scope += f" · under capability set {capability}"
+    return scope
 
 
 def _final_banner_status(result) -> str:
@@ -2012,9 +2040,12 @@ def _final_banner_status(result) -> str:
     # pytest. Named before COMPLETE, like STALE/CUT, because it too disowns the verdict.
     _ver = getattr(result, "verification", None)
     if _ver is not None and not _ver.ok:
+        # The withheld certificate was measured UNDER a receiver/capability set as much as a granted one
+        # (#115): naming it is what lets the re-run reproduce the measurement it disowns.
         return (
             f"FINAL {result.function}: ⚠ UNVERIFIED — proof basis {_ver.status} under pytest "
             f"({_ver.passed} passed / {_ver.failed} failed / {_ver.errors} error); certificate withheld"
+            f"{_measurement_scope(result)}"
         )
     total = result.total_mutants
     rep = result.survivor_report
@@ -2053,16 +2084,8 @@ def _final_banner_status(result) -> str:
         # ✗ made a good result look like a broken run. State the residual plainly instead —
         # what is missing is already named in `bits`.
         status = "Incomplete" + (f": {' · '.join(bits)}" if bits else "")
-    # A method target's certificate is scoped to the RECEIVER population explored (issue #25): a
-    # COMPLETE holds UNDER this receiver (a single `Basket()`, its class for a classmethod, or a
-    # `--receiver-factory`), not for every possible instance state. Name it so the claim is honest.
-    if result.complete and result.receiver_identity:
-        status += f" · under receiver {result.receiver_identity}"
-    # An environment capability (a `--clock` freeze) makes a function whose result depends on external
-    # state pinnable — but its COMPLETE holds only UNDER that capability set, never unconditionally
-    # (issue #24). Name it, the same honesty as the receiver scope above.
-    if result.complete and getattr(result, "capability_identity", None):
-        status += f" · under capability set {result.capability_identity}"
+    if result.complete:
+        status += _measurement_scope(result)
     # A COMPLETE whose LINE axis rested on the observed union is a weaker claim than one that
     # rested on admissible evidence (issue #59), and for the same reason the two lines above
     # exist: the certificate holds UNDER something, so it has to say what. The engine reports an
@@ -2190,8 +2213,13 @@ def _format_converge(
     final: str | None = None,
     *,
     two_sign: bool = False,
+    run_universe: UniverseOptions | None = None,
 ) -> str:
     """Validation report: what converge measured and what it left standing.
+
+    ``run_universe`` is the run's universe-defining options (#115), carried by the report's flag command
+    exactly as by the page's; absent, the policy choice ``two_sign`` alone. (Not ``universe``: that name
+    is the body's mutant-universe count.)
 
     ``verbose`` passes through to the survivor block: True (the default, and what the written
     report uses) renders every mutant id and diff; False groups them by mutated statement.
@@ -2203,6 +2231,8 @@ def _format_converge(
     A non-empty ``remaining`` names the survivors converge could not kill without
     an oracle — the exact specification work a human or LLM must still supply.
     """
+    _run_u = run_universe if run_universe is not None else UniverseOptions(two_sign=two_sign)
+    _flag_offered = _universe_code(_run_u, "flag")[0] != "cannot_reproduce"
     total = result.total_mutants
     scored = getattr(result, "scored_mutants", None)
     if scored is None:
@@ -2235,7 +2265,7 @@ def _format_converge(
     # Lead with the plain verdict a user actually wants — COMPLETE means both axes
     # hold (kills every killable mutant AND covers every line). "converged" is loop
     # state, not a completeness claim, so it no longer headlines.
-    verdict = _completeness_verdict(result)
+    verdict = _completeness_verdict(result, flag_offered=_flag_offered)
 
     if initial_total is not None and initial_killed is not None:
         if initial_total == total:
@@ -2380,6 +2410,7 @@ def _format_converge(
         result.param_names,
         verbose=verbose,
         structural_difficulty=result.structural_difficulty,
+        flag_offered=_flag_offered,
     )
     # Make the equivalent-mutant escape hatch discoverable: a new user should never have
     # to read --help to learn `flag`, nor loop forever chasing an unkillable mutant. Emit
@@ -2396,18 +2427,14 @@ def _format_converge(
             else "▶ NOT boundary-probed — probe these with --input first (edges, the None of an Optional); "
             "only if you can then PROVE one equivalent, record it"
         )
-        flag = (
-            "flag",
-            result.function,
-            _ids[0],
-            *(("--two-sign",) if two_sign else ()),
-            "--note",
-            "why-equivalent",
-        )
-        lines.append(
-            f"  {_lead}: `{_command_text(flag)}`"
-            + (f"   (repeat for: {', '.join(_ids[1:])})" if len(_ids) > 1 else "")
-        )
+        flag = _carried_argv(_run_u, "flag", result.function, _ids[0])
+        if flag is None:
+            lines.append(f"  ▶ {_withheld_sentence('flag', _universe_code(_run_u, 'flag')[1])}")
+        else:
+            lines.append(
+                f"  {_lead}: `{_command_text((*flag, '--note', 'why-equivalent'))}`"
+                + (f"   (repeat for: {', '.join(_ids[1:])})" if len(_ids) > 1 else "")
+            )
     # Second completeness axis + minimality (from the baseline line-coverage pass).
     # Reported only when there is line data (minimal_test_count > 0 or a measured gap).
     if result.missing_lines:
@@ -3282,6 +3309,124 @@ def _command_text(argv: tuple[str, ...] | None) -> str:
     return "detective " + " ".join(parts)
 
 
+def universe_carry(
+    accepted: list[str],
+    two_sign: bool,
+    fast: bool,
+    clock: str,
+    env: list[str],
+    receiver_factory: str,
+) -> tuple[str, tuple[str, ...]]:
+    """Which of a run's universe-defining options a printed `detective` command carries (#115, pure —
+    pinned). ``accepted`` is every option string the printed verb's own parser accepts.
+
+    The universe-defining options say WHAT a measurement was about, so a printed command that drops one
+    measures something else: the operator universe (``--two-sign``), the world the function ran in
+    (``--clock``, ``--env``) and the receiver population (``--receiver-factory``) are REQUIRED. ``--fast``
+    is a SAMPLING choice — carried where the verb accepts it; a verb without it measures the full
+    universe, which contains the sample.
+
+    * ``("static", ())``                — the verb measures no mutant universe (its parser takes no
+                                          ``--two-sign``): it carries nothing and needs nothing.
+    * ``("carry", args)``               — the verb accepts every required option the run used: append
+                                          ``args``, in one fixed order.
+    * ``("cannot_reproduce", missing)`` — the run used a required option the verb does not accept: the
+                                          command would measure a different universe, so it is never
+                                          printed, and ``missing`` names what it lacks.
+    """
+    if "--two-sign" not in accepted:
+        return "static", ()
+    required = [
+        *(("--two-sign",) if two_sign else ()),
+        *(("--clock",) if clock else ()),
+        *(("--env",) if env else ()),
+        *(("--receiver-factory",) if receiver_factory else ()),
+    ]
+    missing = tuple(option for option in required if option not in accepted)
+    if missing:
+        return "cannot_reproduce", missing
+    return "carry", (
+        *(("--two-sign",) if two_sign else ()),
+        *(("--fast",) if fast and "--fast" in accepted else ()),
+        *(("--clock", clock) if clock else ()),
+        *(token for value in env for token in ("--env", value)),
+        *(("--receiver-factory", receiver_factory) if receiver_factory else ()),
+    )
+
+
+@dataclass(frozen=True)
+class UniverseOptions:
+    """A run's universe-defining options (#115) — the ONE record every printed command takes its carried
+    options from (`_carried_argv` over `universe_carry`), never rebuilt per call site. Built once, where
+    the handler holds the parsed arguments (`UniverseOptions.of`)."""
+
+    two_sign: bool = False
+    fast: bool = False
+    clock: float | None = None
+    env: tuple[str, ...] = ()
+    receiver_factory: str | None = None
+
+    @classmethod
+    def of(cls, args) -> UniverseOptions:
+        return cls(
+            two_sign=bool(getattr(args, "two_sign", False)),
+            fast=bool(getattr(args, "fast", False)),
+            clock=getattr(args, "clock", None),
+            env=tuple(getattr(args, "env", None) or ()),
+            receiver_factory=getattr(args, "receiver_factory", None),
+        )
+
+
+@functools.cache
+def _verb_options(verb: str) -> frozenset[str]:
+    """Every option string ``verb``'s own parser accepts — read from `_build_parser`, the one authority
+    on what a printed command may carry, so there is no second table to drift from it."""
+    for action in _build_parser()._actions:  # noqa: SLF001
+        choices = action.choices  # every argparse Action sets it (None unless choices were given)
+        if isinstance(choices, dict) and verb in choices:
+            return frozenset(s for a in choices[verb]._actions for s in a.option_strings)  # noqa: SLF001
+    return frozenset()
+
+
+def _universe_code(universe: UniverseOptions, verb: str) -> tuple[str, tuple[str, ...]]:
+    """`universe_carry` for a printed ``verb`` under ``universe`` — the parser supplies what it accepts."""
+    return universe_carry(
+        sorted(_verb_options(verb)),
+        universe.two_sign,
+        universe.fast,
+        "" if universe.clock is None else repr(universe.clock),
+        list(universe.env),
+        universe.receiver_factory or "",
+    )
+
+
+def _carried_argv(universe: UniverseOptions, verb: str, *rest: str) -> tuple[str, ...] | None:
+    """A printed command — ``verb``, its own arguments, then the run's universe-defining options the verb
+    accepts — or None when the verb cannot reproduce the measured universe (#115)."""
+    code, carried = _universe_code(universe, verb)
+    if code == "cannot_reproduce":
+        return None
+    return (verb, *rest, *carried)
+
+
+def _converge_rerun(universe: UniverseOptions, fn: str) -> tuple[str, ...]:
+    """The converge re-run under the run's whole universe. converge accepts every universe-defining
+    option, so it can always reproduce one; a None here means a new option was not wired into converge's
+    parser, which must fail loudly rather than print a re-run of a different universe."""
+    rerun = _carried_argv(universe, "converge", fn)
+    if rerun is None:
+        raise RuntimeError("converge's parser no longer accepts every universe-defining option (#115)")
+    return rerun
+
+
+def _withheld_sentence(verb: str, missing: tuple[str, ...]) -> str:
+    """Why a command is not printed (#115): it would measure a universe other than this run's."""
+    return (
+        f"`{verb}` is not offered: it takes no {', '.join(missing)}, so it would measure a different "
+        "universe than this run's"
+    )
+
+
 def _converge_commands(
     code: str,
     route: str,
@@ -3291,14 +3436,18 @@ def _converge_commands(
     attempted_inputs: tuple[str, ...],
     plan: InputPlan | None,
     two_sign: bool = False,
+    *,
+    universe: UniverseOptions | None = None,
 ) -> tuple[tuple[str, ...] | None, tuple[str, ...] | None]:
     """``(argv, then)`` — the Detective commands converge's block names, as tokens after `detective`,
     assembled from the values the page prints them from: the target, the supplied ``--input``s in order,
     the ``--project-root`` the dead-suite block quotes, the witness plan's items. Each is
     ``shlex.split`` of the printed command with `detective` removed; a placeholder never enters either.
-    The stale ending names no command of its own; its re-run is the one `rerun_stale` stands for.
+    The stale ending names no command of its own; its re-run is the one `rerun_stale` stands for. Every
+    re-run carries the run's whole universe (#115): ``universe`` when the handler built one, else the
+    policy choice alone.
     """
-    rerun = ("converge", fn, *(("--two-sign",) if two_sign else ()))
+    rerun = _converge_rerun(universe if universe is not None else UniverseOptions(two_sign=two_sign), fn)
     inputs = tuple(token for raw in attempted_inputs for token in ("--input", raw))
     where = ("--project-root", root) if root and root != "." else ()
     if code == "rerun_stale":
@@ -3500,9 +3649,14 @@ def _converge_decision(
     target_src: str = "",
     final: str | None = None,
     two_sign: bool = False,
+    universe: UniverseOptions | None = None,
 ) -> Decision:
     """Converge's decision record, computed ONCE from the result: the code the page routes on, the move
     it prints, the commands it names, the typed plan, the residual, and the decided state.
+
+    ``universe`` is the run's universe-defining options (#115); every command the record names carries
+    the ones its verb accepts, and a verb that cannot reproduce them is recorded in ``withheld`` instead
+    of printed. Absent, the run's universe is the policy choice ``two_sign`` alone.
 
     `_run_converge` calls this where it holds the result and records the outcome there — once, on every
     channel: ``--json``, the terse page, ``--full``, and the stale and cut endings that return before
@@ -3517,6 +3671,8 @@ def _converge_decision(
     FINAL line the page prints (`_final_banner`), carried on the record as given (D1b §7).
     """
     fn = result.function
+    universe = universe if universe is not None else UniverseOptions(two_sign=two_sign)
+    two_sign = universe.two_sign
     standing, next_action = _converge_routing(result, rep, session_reason)
     budget_exhausted = bool(getattr(result, "budget_exhausted", False))
     code = converge_record_code(next_action, bool(getattr(result, "stale_target", False)), budget_exhausted)
@@ -3553,20 +3709,30 @@ def _converge_decision(
     kind, remedy = converge_step(
         code, route, plan.kind if plan is not None else "", marker_declared, session_reason, disposition
     )
-    argv, then = _converge_commands(code, route, kind, fn, root, attempted_inputs, plan, two_sign)
+    argv, then = _converge_commands(
+        code, route, kind, fn, root, attempted_inputs, plan, two_sign, universe=universe
+    )
     residual: tuple[str, tuple[str, ...]] | None = None
     optional: tuple[tuple[str, ...], ...] = ()
+    withheld: list[tuple[str, tuple[str, ...]]] = []
     if code == "settled":
-        # The DONE block's NEXT style commands, as tokens. Its efficiency line is left out: it carries a
-        # `<receipt>` placeholder, and a placeholder is never a command.
+        # The DONE block's NEXT style commands, as tokens, each carrying the run's universe — or withheld,
+        # by name, when its verb cannot reproduce it (#115: `decompose` takes no --clock, so under one it
+        # would prove preservation over a different universe). The efficiency line is left out: it carries
+        # a `<receipt>` placeholder, and a placeholder is never a command.
         file_part = fn.split("::")[0]
-        optional = (
-            ("plan", file_part),
-            ("decompose", fn, "--apply", *(("--two-sign",) if two_sign else ())),
-            ("survey", file_part),
-        )
+        printed: list[tuple[str, ...]] = []
+        for verb, *rest in (("plan", file_part), ("decompose", fn, "--apply"), ("survey", file_part)):
+            command = _carried_argv(universe, verb, *rest)
+            if command is None:
+                withheld.append((verb, _universe_code(universe, verb)[1]))
+            else:
+                printed.append(command)
+        optional = tuple(printed)
         if rep is not None and getattr(rep, "equivalent", ()):
             residual = _settled_residual(rep, getattr(result, "param_names", None))
+            if residual[1] and _carried_argv(universe, "flag", fn, residual[1][0]) is None:
+                withheld.append(("flag", _universe_code(universe, "flag")[1]))
     diverged = list(getattr(rep, "step_budget_divergent", ()) or ()) if rep is not None else []
     if code == "step_budget_divergent":
         diverged_ids = tuple(getattr(v, "mutant_id", "") for v in diverged)
@@ -3601,6 +3767,8 @@ def _converge_decision(
         final,
         attempted_inputs if remedy == "supplied_did_not_reach" else (),
         two_sign=two_sign,
+        universe=universe,
+        withheld=tuple(withheld),
     )
 
 
@@ -3625,7 +3793,9 @@ def _dead_suite_action(
             _row(_WHY_NOT_INPUT_ROW, "no input can help: nothing can execute a test here."),
         ]
     where = f" --project-root '{root}'" if root and root != "." else ""
-    rerun = then or ("converge", fn, *(("--project-root", root) if where else ()))
+    # `then` is the decision's re-run, carrying the run's universe (#115); a caller with no decision
+    # gets the same derivation over the empty universe, never a second hand-built command.
+    rerun = then or (*_converge_rerun(UniverseOptions(), fn), *(("--project-root", root) if where else ()))
     named = {
         "empty_collection": "pytest collected NO tests, so nothing can run the pins.",
         "collection_errors": "pytest failed to collect, so the suite never started.",
@@ -3677,7 +3847,7 @@ def _supplied_did_not_reach_action(d: Decision, plan: InputPlan, fn: str, report
     out.extend(_row("· Supplied" if i == 0 else "", f"{i + 1}. {raw}") for i, raw in enumerate(d.supplied))
     out.append(_row("· Why", "the same ask came back: supplying it again is a proven loop"))
     out.append("")
-    out.append(f"THEN RUN:  {_command_text(d.then or ('converge', fn))}")
+    out.append(f"THEN RUN:  {_command_text(d.then or _converge_rerun(d.run_universe, fn))}")
     return out
 
 
@@ -3715,8 +3885,8 @@ def _converge_action(
         else _converge_decision(result, rep, root, session_reason, attempted_inputs, render_tests=False)
     )
     blocked = _converge_blocked(result, rep)
-    policy = ("--two-sign",) if d.two_sign else ()
-    rerun = _command_text(("converge", fn, *policy))
+    universe = d.run_universe
+    rerun = _command_text(_converge_rerun(universe, fn))
     kind = d.code
     if d.remedy == "supplied_did_not_reach" and d.plan is not None:
         return _supplied_did_not_reach_action(d, d.plan, fn, report_path)
@@ -3978,6 +4148,11 @@ def _converge_action(
         "",
         "       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):",
         *(f"         {_command_text(argv)}" for argv in d.optional),
+        *(
+            f"         ({_withheld_sentence(verb, missing)})"
+            for verb, missing in d.withheld
+            if verb != "flag"
+        ),
         "         (efficiency: verify-rewrite --budget against a receipt from policy "
         f"{getattr(result, 'policy_id', None) or 'unversioned'})",
     ]
@@ -3992,11 +4167,16 @@ def _converge_action(
             else _settled_residual(rep, getattr(result, "param_names", None))
         )
         more = f"  ({len(ids) - 1} more in the report)" if len(ids) > 1 else ""
-        flag_lines = [
-            "       If you can PROVE one equivalent: "
-            f'{_command_text(("flag", fn, first, *policy))} --note "why"{more}'
-            for first in ids[:1]
-        ]
+        flag_lines = []
+        for first in ids[:1]:
+            flag = _carried_argv(universe, "flag", fn, first)
+            if flag is None:
+                missing = _universe_code(universe, "flag")[1]
+                flag_lines.append(f"       {_withheld_sentence('flag', missing)}.")
+            else:
+                flag_lines.append(
+                    f'       If you can PROVE one equivalent: {_command_text(flag)} --note "why"{more}'
+                )
         return [
             "DONE:  every killable behaviour Detective found is pinned.",
             *(f"       {line}" for line in residual_done_why(basis).split("\n")),
@@ -4306,6 +4486,10 @@ class Decision:
     the step is the ``supplied_did_not_reach`` hand-back (D1b §6), where the plan carries them beside the
     ask they failed to change. ``two_sign`` identifies the run's mutation-policy choice: it travels in
     the serialized record and in every subsequent measurement/preservation command (D1b §11).
+    ``universe`` widens that to every universe-defining option the run used (#115) — read through
+    ``run_universe``, which falls back to the policy choice alone for a verb that builds no record —
+    and ``withheld`` names each command the page does not print because it cannot reproduce that
+    universe, with the options it lacks.
     """
 
     verb: str
@@ -4324,6 +4508,14 @@ class Decision:
     final: str | None = None
     supplied: tuple[str, ...] = ()
     two_sign: bool = False
+    universe: UniverseOptions | None = None
+    withheld: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    @property
+    def run_universe(self) -> UniverseOptions:
+        """The run's universe-defining options: the record when the handler built one, else the
+        policy choice alone — so every decision answers from ONE place (#115)."""
+        return self.universe if self.universe is not None else UniverseOptions(two_sign=self.two_sign)
 
 
 def _decision_payload(d: Decision) -> dict:
@@ -4364,6 +4556,8 @@ def _decision_payload(d: Decision) -> dict:
         "state": d.state,
         "final": d.final,
         "two_sign": d.two_sign,
+        "universe": list(_universe_code(d.run_universe, "converge")[1]),
+        "withheld": [{"verb": verb, "missing": list(missing)} for verb, missing in d.withheld],
     }
 
 
@@ -5566,18 +5760,19 @@ def _audit_commands(
 
     Under ``two_sign`` (D1b §11) a clean setup's next command is converge: every outcome `audit_step`
     gives step ``run`` there names it — ``remove_redundant`` too, whose redundancy stays a fact in the
-    record and whose command is never ``--remove``."""
-    policy = ("--two-sign",) if two_sign else ()
+    record and whose command is never ``--remove``. Audit's universe is the policy choice alone (it takes
+    no other universe-defining option), carried through the one derivation every page uses (#115)."""
+    universe = UniverseOptions(two_sign=two_sign)
     if code == "close_the_gap" or (
         two_sign and code in ("remove_redundant", "flag_equivalents", "done_unclassified", "done_complete")
     ):
-        return ("converge", fn, *policy), None
+        return _converge_rerun(universe, fn), None
     if code == "remove_redundant":
-        return ("audit", fn, "--remove"), None
+        return _carried_argv(universe, "audit", fn, "--remove"), None
     if code in ("fix_load", "fix_failing_test"):
-        return None, ("audit", fn, *policy)
+        return None, _carried_argv(universe, "audit", fn)
     if code == "provide_sample":
-        return None, ("converge", fn, *policy)
+        return None, _converge_rerun(universe, fn)
     return None, None
 
 
@@ -5705,7 +5900,7 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
     none. `flag` is deliberately last: it is the one claim a human makes against the engine, and it
     must never be offered while a real gap is still open.
     """
-    policy = ("--two-sign",) if two_sign else ()
+    universe = UniverseOptions(two_sign=two_sign)
     if kind == "removing_now":
         return [
             _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
@@ -5713,7 +5908,7 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
         ]
     if kind == "remove_redundant":
         return [
-            f"DO THIS:  {_command_text(('audit', a.function, '--remove', *policy))}",
+            f"DO THIS:  {_command_text(_carried_argv(universe, 'audit', a.function, '--remove'))}",
             "",
             _row("· Why", f"{len(a.redundant_tests)} test(s) kill no mutant AND cover no line"),
             _row("", "OF THIS FUNCTION that another test does not already. --remove"),
@@ -5738,7 +5933,8 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
                 [
                     _row(
                         "· If you can PROVE",
-                        f'{_command_text(("flag", a.function, ids[0], *policy))} --note "why"{more}',
+                        f"{_command_text(_carried_argv(universe, 'flag', a.function, ids[0]))} "
+                        f'--note "why"{more}',
                     )
                 ]
                 if ids
@@ -8532,6 +8728,9 @@ def _run_converge(args, file, function) -> int:
         target_src=target_src,
         final=_final_banner(result),
         two_sign=args.two_sign,
+        # The ONE place the run's universe-defining options are read (#115); every command the record,
+        # the page and the report print takes its carried options from this record.
+        universe=UniverseOptions.of(args),
     )
     observe("outcome", "converge", decision.code)
     # This run's ask, for `_record_invocation` to write under `plan` — the next run's earlier ask.
@@ -8560,7 +8759,12 @@ def _run_converge(args, file, function) -> int:
         os.path.abspath(args.project_root),
         qn,
         _format_converge(
-            result, show_tests=True, verbose=True, final=decision.final, two_sign=decision.two_sign
+            result,
+            show_tests=True,
+            verbose=True,
+            final=decision.final,
+            two_sign=decision.two_sign,
+            run_universe=decision.run_universe,
         ),
     )
     if args.full:
@@ -8571,6 +8775,7 @@ def _run_converge(args, file, function) -> int:
                 verbose=args.verbose,
                 final=decision.final,
                 two_sign=decision.two_sign,
+                run_universe=decision.run_universe,
             )
         )
     else:
@@ -8884,11 +9089,10 @@ def _flag_needs_two_sign(args) -> int:
     """The `needs_two_sign` refusal (#128): name the policy, and print the SAME command under it —
     note, fence, JSON and project root kept — so the repair can be run as printed."""
     mutant_id = args.mutant_id.strip()
+    # The universe that holds the id is the two-sign one; its options come from the one derivation (#115).
+    held = _carried_argv(UniverseOptions(two_sign=True), "flag", args.target, mutant_id)
     repair = (
-        "flag",
-        args.target,
-        mutant_id,
-        "--two-sign",
+        *(held or ("flag", args.target, mutant_id, "--two-sign")),
         *(("--fence",) if args.fence else ()),
         *(("--note", args.note) if args.note else ()),
         *(("--project-root", args.project_root) if args.project_root not in ("", ".") else ()),
@@ -9012,7 +9216,7 @@ def _run_flag(args, file, function) -> int:
         print("")
         print("DONE:  future audit/converge runs report it as an UNENFORCED must-not — a gap")
         print("       that fails `audit --check` and blocks ✓COMPLETE until a test kills it.")
-        next_argv = ("converge", result.function_key, *(("--two-sign",) if two_sign else ()))
+        next_argv = _converge_rerun(UniverseOptions(two_sign=two_sign), result.function_key)
         print(f"       Next: {_command_text(next_argv)}   # write the test it needs")
         return 0
     # A flag is a CLAIM, and the one place a human overrides the engine. Say what it does
@@ -9025,7 +9229,7 @@ def _run_flag(args, file, function) -> int:
     print("       is found, which outranks your flag. Proof beats judgement.")
     # `function_key`, not `function`: the bare name does not resolve as a target, so the
     # one command this line offers would fail for anyone who pasted it.
-    next_argv = ("audit", result.function_key, *(("--two-sign",) if two_sign else ()))
+    next_argv = _carried_argv(UniverseOptions(two_sign=two_sign), "audit", result.function_key)
     print(f"       Next: {_command_text(next_argv)}   # it is no longer a gap")
     return 0
 
