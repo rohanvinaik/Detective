@@ -574,6 +574,24 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/reachability.py::_canonical_spelling": {
+    "cut_reasons": [],
+    "function_digest": "e916538803c17e0c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/reachability.py::_dotted_under": {
+    "cut_reasons": [],
+    "function_digest": "18954fd02de341ff",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/rewrite.py::abstain_reason": {
+    "cut_reasons": [],
+    "function_digest": "c84004c331b28fcc",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/rewrite.py::basis_freshness": {
     "cut_reasons": [],
     "function_digest": "a4c295fd4d34c381",
@@ -591,6 +609,12 @@
   "Detective/rewrite.py::receipt_baseline_standing": {
     "cut_reasons": [],
     "function_digest": "7b7513eb75a7903c",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/rewrite.py::receipt_proof_status": {
+    "cut_reasons": [],
+    "function_digest": "dd931f5797886f7a",
     "refusal": "",
     "standing": "complete"
   },
@@ -716,6 +740,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/validity.py::holder_names": {
+    "cut_reasons": [],
+    "function_digest": "70f50dbc0a20944b",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/validity.py::measurement_cut_kind": {
     "cut_reasons": [],
     "function_digest": "d6eea9f4e0d7558b",
@@ -730,7 +760,7 @@
   },
   "Detective/validity.py::not_entered_detail": {
     "cut_reasons": [],
-    "function_digest": "4047062e00992a1d",
+    "function_digest": "c5a6b3e5dd61875f",
     "refusal": "",
     "standing": "complete"
   },

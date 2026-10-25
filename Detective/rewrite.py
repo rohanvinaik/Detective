@@ -498,6 +498,26 @@ def _function_source(file_full: str, function: str) -> tuple[str, Any, str] | No
     return (seg or "", node, qualname)
 
 
+def receipt_proof_status(floor_failing: bool, verification_status: str, functionally_complete: bool) -> str:
+    """The ``proof_status`` a receipt records for its baseline (#114, pure — pinned).
+
+    Split out because three facts decide it and their order is the point. A failing floor is named
+    FIRST and never folded into "passed": converge skips verification over it, so a mutation-complete
+    run with no verification would otherwise read as a sound baseline that verify-rewrite could
+    PRESERVE against while the code fails its intent test.
+
+      "floor_failing"   a test that is this function's business fails on current code
+      <the status>      the final verification's own status (``passed``, ``tests_failed``, ...)
+      "passed"          no verification ran (``verification_status`` is "") and the run is complete
+      "unverified"      no verification ran and the run is not complete
+    """
+    if floor_failing:
+        return "floor_failing"
+    if verification_status:
+        return verification_status
+    return "passed" if functionally_complete else "unverified"
+
+
 def make_receipt(
     file: str, function: str, project_root: str = ".", *, notify: Callable[[str], None] | None = None
 ) -> RewriteReceipt:
@@ -546,12 +566,10 @@ def make_receipt(
         # A failing floor (#114) is named, never folded into "passed": converge skips verification over
         # it, and a mutation-complete run with no verification would otherwise read as a sound
         # baseline that verify-rewrite could PRESERVE against while the code fails its intent test.
-        proof_status=(
-            "floor_failing"
-            if conv.floor_failing_tests
-            else ver.status
-            if ver is not None
-            else ("passed" if conv.functionally_complete else "unverified")
+        proof_status=receipt_proof_status(
+            bool(conv.floor_failing_tests),
+            ver.status if ver is not None else "",
+            conv.functionally_complete,
         ),
         functionally_complete=conv.functionally_complete,
         proof_digests=proof_digests,
@@ -678,6 +696,28 @@ def receipt_baseline_standing(
     if policy_state != "match":
         return "policy_unestablished"
     return "valid"
+
+
+def abstain_reason(verdict: str, baseline: str, order_standing: str) -> str:
+    """The machine-readable cause an ABSTAIN carries on ``reason``, or "" (#114, pure — pinned).
+
+    The cause rides only when it actually DECIDED the verdict: on a CHANGED result the baseline's
+    unasked questions are true but not why the answer came out that way, and stamping them there
+    would invite a reader to treat a proven difference as an evidence gap. An invalid receipt decides
+    an ABSTAIN before argument order is consulted (`rewrite_verdict` checks it first), so its standing
+    outranks an order cause.
+
+      "receipt_<code>"   the receipt cannot be a baseline (`receipt_baseline_standing`)
+      <order standing>   the baseline's argument-order evidence (`order_evidence_standing`)
+      ""                 not an ABSTAIN, or one neither of those decided (classification did not run)
+    """
+    if verdict != "ABSTAIN":
+        return ""
+    if baseline != "valid":
+        return f"receipt_{baseline}"
+    if order_standing != "clear":
+        return order_standing
+    return ""
 
 
 def verify_rewrite(
@@ -917,11 +957,5 @@ def verify_rewrite(
         # stamping them there would invite a reader to treat a proven difference as an evidence gap.
         # An invalid receipt decides an ABSTAIN before argument order is consulted (`rewrite_verdict`
         # checks it first), so its standing is the cause whenever it is not `valid` (#114).
-        reason=(
-            f"receipt_{baseline}"
-            if verdict_str == "ABSTAIN" and baseline != "valid"
-            else order_standing
-            if verdict_str == "ABSTAIN" and order_standing != "clear"
-            else ""
-        ),
+        reason=abstain_reason(verdict_str, baseline, order_standing),
     )

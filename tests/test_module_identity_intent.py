@@ -292,13 +292,15 @@ def isolated_import_state():
         sys.modules.pop(name, None)
 
 
-def test_the_loader_imports_the_namespace_module_with_a_real_package(tmp_path, isolated_import_state):
+def test_the_loader_imports_the_namespace_module_with_a_real_package(
+    tmp_path, isolated_import_state, monkeypatch
+):
     root = _namespace_project(tmp_path, with_routed_test=False)
     from Detective.engine import _load_failure_reason, _load_original
 
     # The live session puts the project root on sys.path; the loader reads what it can import.
-    sys.path.insert(0, str(root))
-    sys.path.insert(0, str(root / "tools" / "voice"))
+    monkeypatch.syspath_prepend(str(root))
+    monkeypatch.syspath_prepend(str(root / "tools" / "voice"))
     fn = _load_original(str(root / "tools" / "voice" / "references.py"), "partition_verdict")
     assert fn is not None, "the namespace module could not be loaded"
     assert fn.__globals__["__name__"] == "tools.voice.references"
@@ -311,7 +313,9 @@ def test_the_loader_imports_the_namespace_module_with_a_real_package(tmp_path, i
     assert _load_failure_reason(str(root / "tools" / "voice" / "references.py")) is None
 
 
-def test_the_loader_matches_a_symlinked_path_entry_and_keeps_its_spelling(tmp_path, isolated_import_state):
+def test_the_loader_matches_a_symlinked_path_entry_and_keeps_its_spelling(
+    tmp_path, isolated_import_state, monkeypatch
+):
     (tmp_path / "real").mkdir()
     real_root = _namespace_project(tmp_path / "real", with_routed_test=False)
     link = tmp_path / "link"
@@ -323,13 +327,15 @@ def test_the_loader_matches_a_symlinked_path_entry_and_keeps_its_spelling(tmp_pa
 
     from Detective.engine import _load_original
 
-    sys.path.insert(0, str(link))
+    monkeypatch.syspath_prepend(str(link))
     fn = _load_original(target, "versioned")
     assert fn is not None and fn("a b c") == "v3:3"
     assert sys.path.count(str(link)) == 1, "the root was re-added under another spelling"
 
 
-def test_a_namespace_name_that_resolves_to_another_file_is_never_measured(tmp_path, isolated_import_state):
+def test_a_namespace_name_that_resolves_to_another_file_is_never_measured(
+    tmp_path, isolated_import_state, monkeypatch
+):
     # Two portions of one namespace package: `other/tools/voice/references.py` precedes the project on
     # sys.path, so `tools.voice.references` imports THAT file. Measuring it would measure another
     # program; the loader must refuse it rather than return its function.
@@ -341,8 +347,8 @@ def test_a_namespace_name_that_resolves_to_another_file_is_never_measured(tmp_pa
     from Detective.engine import _load_original
 
     target = str(root / "tools" / "voice" / "references.py")
-    sys.path.insert(0, str(root))
-    sys.path.insert(0, str(tmp_path / "other"))
+    monkeypatch.syspath_prepend(str(root))
+    monkeypatch.syspath_prepend(str(tmp_path / "other"))
     fn = _load_original(target, "partition_verdict")
     assert fn is None or os.path.samefile(fn.__code__.co_filename, target)
 

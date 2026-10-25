@@ -3746,7 +3746,7 @@ def _witness_property_for(func_key: str, witness, context: _WitnessContext):
             owner=context.owner,
             factory_import=context.import_stmt,
         )
-    if witness.original.startswith("<raised"):
+    if witness.original.startswith(_RAISED_PREFIX):
         return _raises_witness_property(
             func_key,
             witness,
@@ -4076,17 +4076,17 @@ def _converge_action(
         route = d.route
         if route == "execution_budget":
             return [
-                "INCOMPLETE:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                _INCOMPLETE_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
                 _row("· Unresolved", "the execution bound did not establish a suite verdict."),
-                _row("· Resolve", "inspect the execution and its allowance before re-measuring."),
+                _row(_RESOLVE_ROW, "inspect the execution and its allowance before re-measuring."),
             ]
         if route == "write_authority":
             return [
-                "INCOMPLETE:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                _INCOMPLETE_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
                 "",
                 _row("· Unresolved", "the prevented write left those mutants without a suite verdict."),
-                _row("· Resolve", "keep the test's writes inside its temporary directory, then re-measure."),
+                _row(_RESOLVE_ROW, "keep the test's writes inside its temporary directory, then re-measure."),
             ]
         if route == "fix_collection":
             # No --trace-budget / --deadline fixes an import error: name the collection failure and
@@ -4187,7 +4187,7 @@ def _converge_action(
                 *_not_entered_rows(
                     tuple(getattr(getattr(result, "validity", None), "not_entered", ()) or ())
                 ),
-                _row("· Resolve", "the reason above names the repair; re-run once it is resolved."),
+                _row(_RESOLVE_ROW, "the reason above names the repair; re-run once it is resolved."),
             ]
         if route == "inspect_refusal":
             from .validity import CUT_REASONS
@@ -4219,7 +4219,7 @@ def _converge_action(
                 # ENGINE failure that need not exist: `mutant_not_entered` means the engine worked
                 # and no test called the mutant. The typed sentence already carries the remedy; this
                 # row's job is what remains true of every cut, not a second, vaguer diagnosis (S7).
-                _row("· Resolve", "the reason above names the repair. Keep the proof basis fixed and"),
+                _row(_RESOLVE_ROW, "the reason above names the repair. Keep the proof basis fixed and"),
                 _row("", "re-run only once that cause is resolved — more budget is not a generic fix."),
                 *_also_live_rows(reasons, route),
             ]
@@ -4427,7 +4427,13 @@ _SIGNATURE_ROW = "· Signature"
 _THEN_ROW = "· Then"
 _WHY_IT_MATTERS_ROW = "· Why it matters"
 _WHY_NOT_INPUT_ROW = "· Why not --input"
+_RESOLVE_ROW = "· Resolve"
 _STOP_PREFIX = "STOP:  "
+# The block head for a run whose measurement withholds the verdict, named once like `_STOP_PREFIX`.
+_INCOMPLETE_PREFIX = "INCOMPLETE:  "
+# The engine's own encoding of an outcome that RAISED (`<raised …>`, see ``equivalence``): a
+# witness side carrying it is an exception, never a value an ``==`` could pin.
+_RAISED_PREFIX = "<raised"
 # The state directory's name, which several messages quote back to the reader.
 _STATE_DIR = ".detective"
 # Load-failure prose. Several renderers say these and must say them IDENTICALLY: the advice works
@@ -4990,7 +4996,7 @@ def _outcome_needs_hand_pin(original: str, mutant: str) -> bool:
     ``==`` is exactly the thing that separates them and advice to pin a repr is a non-sequitur
     printed under evidence that contradicts it.
     """
-    return original.startswith("<raised") or mutant.startswith("<raised") or original == mutant
+    return original.startswith(_RAISED_PREFIX) or mutant.startswith(_RAISED_PREFIX) or original == mutant
 
 
 def line_gap_rationale(unclassified: int, killable: int) -> str:
@@ -6046,9 +6052,9 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
     kind = decision.code
     if kind == "repair_measurement":
         return [
-            "INCOMPLETE:  " + "; ".join(cut_reason_sentence(r) for r in a.cut_reasons),
+            _INCOMPLETE_PREFIX + "; ".join(cut_reason_sentence(r) for r in a.cut_reasons),
             "",
-            _row("· Resolve", "the reported measurement causes before acting on suite gaps or redundancy."),
+            _row(_RESOLVE_ROW, "the reported measurement causes before acting on suite gaps or redundancy."),
         ]
     if decision is not None and decision.two_sign and decision.kind == "run":
         return [

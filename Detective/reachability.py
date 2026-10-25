@@ -221,6 +221,37 @@ def _build_graph(
     return graph, paths, opaque
 
 
+def _dotted_under(base: str, full: str) -> str:
+    """``full``'s dotted module name under the import root ``base``, or "" when it is not under it
+    (D#129, pure). A package's ``__init__`` names the package itself."""
+    try:
+        if os.path.commonpath((base, full)) != base:
+            return ""
+    except ValueError:
+        return ""
+    stem = os.path.relpath(full, base)
+    stem = stem[:-3] if stem.endswith(".py") else stem
+    parts = [x for x in stem.split(os.sep) if x not in ("", ".")]
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _canonical_spelling(dep: str, graph: dict[str, set[str]], aliases: dict[str, str]) -> str | None:
+    """The canonical name a dependency spelled through an alias also carries, or None (D#129, pure).
+
+    The longest prefix decides: one the graph already knows needs nothing, and one that is an alias
+    is rewritten to its file's canonical name with the rest of the dotted path kept."""
+    pieces = dep.split(".")
+    for i in range(len(pieces), 0, -1):
+        prefix = ".".join(pieces[:i])
+        if prefix in graph:
+            return None
+        if prefix in aliases:
+            return ".".join([aliases[prefix], *pieces[i:]])
+    return None
+
+
 def _resolve_aliases(
     root: str,
     import_roots: tuple[str, ...],
@@ -241,33 +272,13 @@ def _resolve_aliases(
     for canonical, p in paths.items():
         full = os.path.abspath(p)
         for base in bases:
-            try:
-                if os.path.commonpath((base, full)) != base:
-                    continue
-            except ValueError:
-                continue
-            stem = os.path.relpath(full, base)
-            stem = stem[:-3] if stem.endswith(".py") else stem
-            parts = [x for x in stem.split(os.sep) if x not in ("", ".")]
-            if parts and parts[-1] == "__init__":
-                parts = parts[:-1]
-            alias = ".".join(parts)
+            alias = _dotted_under(base, full)
             if alias and alias != canonical and alias not in graph:
                 aliases.setdefault(alias, canonical)
     if not aliases:
         return
     for deps in graph.values():
-        extra: set[str] = set()
-        for dep in deps:
-            pieces = dep.split(".")
-            for i in range(len(pieces), 0, -1):
-                prefix = ".".join(pieces[:i])
-                if prefix in graph:
-                    break
-                if prefix in aliases:
-                    extra.add(".".join([aliases[prefix], *pieces[i:]]))
-                    break
-        deps |= extra
+        deps |= {c for dep in deps if (c := _canonical_spelling(dep, graph, aliases)) is not None}
 
 
 def _reaches(start: str, target: str, graph: dict[str, set[str]], opaque: set[str]) -> bool:

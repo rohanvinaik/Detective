@@ -188,6 +188,16 @@ def unscored_record_reason(record: dict) -> str:
     return UNSCORED_DISPOSITION_REASONS.get(disposition, "engine_refused_unspecified")
 
 
+def holder_names(record: dict) -> list[str]:
+    """What holds the original, as one not-entered record names it: ``"<kind> <where>"`` per holder
+    Wesker recorded, in its order (#77, pure — pinned). A holder that is not a mapping names nothing."""
+    return [
+        f"{holder.get('kind', '?')} {holder.get('where', '?')}"
+        for holder in record.get("holders") or ()
+        if isinstance(holder, dict)
+    ]
+
+
 def not_entered_detail(unscored_records: Iterable[object]) -> tuple[dict, ...]:
     """Per named cause: its reason, the mutants it accounts for, and what holds the original (#77).
 
@@ -213,11 +223,7 @@ def not_entered_detail(unscored_records: Iterable[object]) -> tuple[dict, ...]:
             },
         )
         entry["mutants"].append(str(record.get("mutant_id", "?")))
-        for holder in record.get("holders") or ():
-            if isinstance(holder, dict):
-                named = f"{holder.get('kind', '?')} {holder.get('where', '?')}"
-                if named not in entry["holders"]:
-                    entry["holders"].append(named)
+        entry["holders"] = list(dict.fromkeys([*entry["holders"], *holder_names(record)]))
         scan = str(record.get("holder_scan") or "complete")
         if entry["holder_scan"] == "complete" and scan != "complete":
             entry["holder_scan"] = scan
