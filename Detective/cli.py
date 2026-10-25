@@ -2215,15 +2215,18 @@ def universe_tail(fast: bool, cut_reasons: list[str]) -> str:
       "truncated"              the run stopped before every mutant was tested (budget or cut) — no
                                completeness claim of either kind, fast or exhaustive
       "greedy_floor"           a fast run: the proven (1−1/e) per-pass floor is the claim
-      "exhaustive_unresolved"  every operator-universe mutant tested, some without a verdict (a wall
-                               bound fired or a step budget was exceeded)
+      "exhaustive_unresolved"  every operator-universe mutant tested, some without a verdict — any
+                               `validity.PER_MUTANT_REASONS` member: a wall bound fired, a step budget
+                               was exceeded, or a write outside the test's authority was prevented
       "exhaustive"             every operator-universe mutant tested, each to a verdict
     """
+    from .validity import PER_MUTANT_REASONS
+
     if "budget_exhausted" in cut_reasons or "coverage_truncated" in cut_reasons:
         return "truncated"
     if fast:
         return "greedy_floor"
-    if any(reason in ("mutant_wall_undetermined", "step_budget_exceeded") for reason in cut_reasons):
+    if any(reason in PER_MUTANT_REASONS for reason in cut_reasons):
         return "exhaustive_unresolved"
     return "exhaustive"
 
@@ -3061,6 +3064,9 @@ def repair_measurement_route(
                              ``cut_reason_sentence``; the render defers to them rather than inventing a
                              fourth. Distinct from ``inspect_refusal``, which means the opposite: the
                              engine refused and named nothing we understand.
+      * ``write_authority`` — a test run under some mutant tried to write outside its write authority
+                             and was prevented (#105): those mutants have no verdict, and the remedy is
+                             in the test (keep its writes in its temporary directory), never a re-run.
 
     ``has_collection_conflicts`` / ``budget_exhausted`` are raw-field fallbacks for a result whose engine
     reports the boolean but not the typed reason (older Wesker, #60): they only ADD their route, never
@@ -3129,6 +3135,10 @@ def repair_measurement_route(
         or "nested_measurement" in cut_reasons
     ):
         return "isolate"
+    # A prevented write (#105) is a per-mutant outcome like the two below, with its own remedy: the
+    # TEST must keep its writes inside its temporary directory; no budget or isolation changes it.
+    if "write_outside_authority" in cut_reasons:
+        return "write_authority"
     if "step_budget_exceeded" in cut_reasons or "mutant_wall_undetermined" in cut_reasons:
         return "execution_budget"
     if "budget_exhausted" in cut_reasons or budget_exhausted:
@@ -3423,6 +3433,7 @@ def converge_step(
             "mutant_phase",
             "inspect_refusal",
             "execution_budget",
+            "write_authority",
         ):
             return "stop", route
         return "run", ""
@@ -3619,7 +3630,7 @@ def _converge_commands(
     if code == "repair_measurement":
         if route in ("fix_collection", "fix_load", "fix_routing"):
             return None, rerun
-        if route in ("mutant_phase", "inspect_refusal", "execution_budget"):
+        if route in ("mutant_phase", "inspect_refusal", "execution_budget", "write_authority"):
             return None, None
         if route in ("reprofile", "isolate"):
             return (*rerun, *inputs, "--isolated"), None
@@ -4069,6 +4080,13 @@ def _converge_action(
                 "",
                 _row("· Unresolved", "the execution bound did not establish a suite verdict."),
                 _row("· Resolve", "inspect the execution and its allowance before re-measuring."),
+            ]
+        if route == "write_authority":
+            return [
+                "INCOMPLETE:  " + "; ".join(cut_reason_sentence(r) for r in reasons),
+                "",
+                _row("· Unresolved", "the prevented write left those mutants without a suite verdict."),
+                _row("· Resolve", "keep the test's writes inside its temporary directory, then re-measure."),
             ]
         if route == "fix_collection":
             # No --trace-budget / --deadline fixes an import error: name the collection failure and

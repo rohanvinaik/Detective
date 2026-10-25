@@ -50,6 +50,8 @@ if TYPE_CHECKING:
 # 8: `mutant_not_entered` splits by the cause Wesker names (#77, Wesker#18) into six reasons, one per
 #    cause, and keeps its own name only for a not-entered mutant whose cause is absent or unknown. A
 #    reader that switched on the one code has to learn the family.
+#    And `write_outside_authority` (#105: a test run under a mutant tried to write outside its write
+#    authority, and the write was prevented) joins the vocabulary as a per-mutant reason.
 MEASUREMENT_VALIDITY_SCHEMA = 8
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
@@ -63,6 +65,7 @@ CUT_REASONS: tuple[str, ...] = (
     "containment_unknown",
     "step_budget_exceeded",
     "mutant_wall_undetermined",
+    "write_outside_authority",
     "coverage_truncated",
     "sampled_universe",
     "collection_incomplete",
@@ -118,13 +121,17 @@ UNSCORED_DISPOSITION_REASONS: dict[str, str] = {
     "diverged": "step_budget_exceeded",
     "undetermined": "mutant_wall_undetermined",
     "nested_measurement": "nested_measurement",
+    "write_outside_authority": "write_outside_authority",
 }
 _KNOWN_UNSCORED = frozenset(UNSCORED_DISPOSITION_REASONS) | {"cut"}
 
 # The reasons that describe SOME mutants rather than the run: every mutant was evaluated, and these
 # name the ones that reached no verdict. Classification of the OTHER survivors stands beside them
-# (`classification_standing`); a certificate does not.
-PER_MUTANT_REASONS: frozenset[str] = frozenset({"mutant_wall_undetermined", "step_budget_exceeded"})
+# (`classification_standing`); a certificate does not. A prevented write (#105) is one of them: it
+# happened under ONE mutant's run, and the other mutants' verdicts were measured as before.
+PER_MUTANT_REASONS: frozenset[str] = frozenset(
+    {"mutant_wall_undetermined", "step_budget_exceeded", "write_outside_authority"}
+)
 
 # Wesker's named not-entered causes (`engine.not_entered_cause`) -> the reason each one cuts the run
 # with (#77). A cause this version does not know, or a record that carries none (an engine before
@@ -300,6 +307,7 @@ def measurement_cut_reasons(
     nested_measurement: bool = False,
     unrecognised_unscored: bool = False,
     not_entered_causes: tuple[str, ...] | list[str] = (),
+    write_outside_authority: bool = False,
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -371,6 +379,8 @@ def measurement_cut_reasons(
         reasons.append("step_budget_exceeded")
     if mutant_wall_undetermined:
         reasons.append("mutant_wall_undetermined")
+    if write_outside_authority:
+        reasons.append("write_outside_authority")
     if coverage_depth == "cut":
         reasons.append("coverage_truncated")
     elif coverage_depth == "sampled":
@@ -448,6 +458,12 @@ def cut_reason_sentence(reason: str) -> str:
         "mutant_wall_undetermined": "one or more mutants reached a wall-clock execution bound without"
         " a verdict; this is neither a kill nor survival evidence — inspect the execution and its"
         " allowance before re-measuring",
+        "write_outside_authority": "one or more mutants made a test try to write outside its write"
+        " authority (the session's pytest temporary directory, or a temporary entry the test created)"
+        " — the working directory is the project root, so the write was prevented before it landed,"
+        " and those mutants are neither killed nor survived; keep the test's writes inside its"
+        " temporary directory (resolve relative paths there, e.g. monkeypatch.chdir(tmp_path)) to"
+        " measure them",
         "coverage_truncated": "the profile was cut before the universe was measured",
         "sampled_universe": "the universe was sampled, not enumerated",
         "collection_incomplete": "one or more test files failed to collect (an import error), so the"
@@ -723,6 +739,7 @@ def normalize_validity(
         nested_measurement=_unscored_by(result, "nested_measurement"),
         unrecognised_unscored=_unrecognised_unscored(result),
         not_entered_causes=not_entered_causes,
+        write_outside_authority=_unscored_by(result, "write_outside_authority"),
     )
     return MeasurementValidity(
         gateable=gateable,

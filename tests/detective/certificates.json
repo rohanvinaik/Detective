@@ -252,7 +252,7 @@
   },
   "Detective/cli.py::repair_measurement_route": {
     "cut_reasons": [],
-    "function_digest": "b9c46e0d64118810",
+    "function_digest": "0309a9d67e61a7f9",
     "refusal": "",
     "standing": "complete"
   },
@@ -293,7 +293,7 @@
   },
   "Detective/cli.py::universe_tail": {
     "cut_reasons": [],
-    "function_digest": "cd74bc591f185fa2",
+    "function_digest": "20c1980ea76e3e61",
     "refusal": "",
     "standing": "complete"
   },
@@ -712,7 +712,7 @@
   },
   "Detective/validity.py::cut_reason_sentence": {
     "cut_reasons": [],
-    "function_digest": "5df031f8792fcf77",
+    "function_digest": "79854d9cc3c3341c",
     "refusal": "",
     "standing": "complete"
   },
