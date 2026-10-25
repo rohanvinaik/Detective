@@ -238,7 +238,7 @@ def audit_check_failed(killable_gaps: int, missing_lines: int, failing_tests: in
     return bool(killable_gaps) or bool(missing_lines) or bool(failing_tests) or bool(fence)
 
 
-def audit_measurement_incomplete(unclassified: int, errored: int = 0) -> bool:
+def audit_measurement_incomplete(unclassified: int, errored: int = 0, unresolved: int = 0) -> bool:
     """Whether the audit's MEASUREMENT was incomplete — honest tool-side uncertainty, not a code gap.
 
     An UNCLASSIFIED survivor (issue #50) is one the equivalence search could not evaluate — it may be
@@ -250,9 +250,41 @@ def audit_measurement_incomplete(unclassified: int, errored: int = 0) -> bool:
     An ERRORED test (Wesker#17, `function_errored_tests`) is the same class from the other side: it
     reaches this function, but its setup or teardown failed, so it never ran to a verdict and its
     evidence is absent rather than clean. Not a code gap, so never a ``1``. But "could not measure"
-    must not pass the strict gate as "measured no gap" (COMMUNICATING_DETERMINISM §3.1). The two causes
-    share the strict gate's ``2``; the gate's ``--json`` payload names which (``unmeasured``)."""
-    return unclassified > 0 or errored > 0
+    must not pass the strict gate as "measured no gap" (COMMUNICATING_DETERMINISM §3.1).
+
+    An UNRESOLVED mutant (#80) is the third: one that reached no verdict for a cause the reader CAN
+    repair. ``unresolved`` counts only those (`unresolved_gate_standing`); a step-budget divergence or a
+    wall bound is named in the gate's payload but never fails it. The three causes share the strict
+    gate's ``2``; the gate's ``--json`` payload names which (``unmeasured``)."""
+    return unclassified > 0 or errored > 0 or unresolved > 0
+
+
+def unresolved_gate_standing(reason: str) -> str:
+    """Whether a mutant that reached no verdict fails ``--check-strict`` (#80, pure — pinned).
+
+    The founder's ruling (2026-10-25): the strict gate fails only on a cause the reader can fix. A
+    measurement that withheld a verdict is never silently clean. The gate's ``--json`` lists every
+    unresolved mutant with this standing, so a pipeline can choose. But a ratchet that reddens for
+    good, on a condition no edit can change, gets deleted from the pipeline and takes the real gate
+    with it (`audit_check_failed`). Measured: nearly every ``while`` loop has a mutant like
+    ``while n > 0 -> while True``, which the step budget stops deterministically.
+
+      "repairable"    ``write_outside_authority``: the test's write was prevented. The page names the
+                      repair (keep the test's writes inside its temporary directory). Fails the gate.
+      "budget_floor"  ``diverged``: the step budget stopped it, deterministically and for good. "No input
+                      or flag applies". Named, never gating.
+      "machine_bound" ``undetermined``: a wall-clock bound fired, so whether it does depends on the
+                      runner's speed until Wesker#27's calibrated liveness bound lands. Named, never gating.
+      "unknown"       a reason this version does not know: it cannot be called a floor, so it fails the
+                      gate as could-not-measure.
+    """
+    if reason == "write_outside_authority":
+        return "repairable"
+    if reason == "diverged":
+        return "budget_floor"
+    if reason == "undetermined":
+        return "machine_bound"
+    return "unknown"
 
 
 def audit_gate_exit(spec_gap: bool, measurement_incomplete: bool, strict: bool) -> int:

@@ -8826,19 +8826,23 @@ def _run_decompose(args, file, function) -> int:
     return exit_code
 
 
-def _unmeasured_clause(unclassified: int, errored: int) -> str:
+def _unmeasured_clause(unclassified: int, errored: int, unresolved: int = 0) -> str:
     """What left an audit's measurement incomplete, each cause in its own words (Wesker#17, pure — pinned).
 
     Split out because `audit_measurement_incomplete` answers only WHETHER, and since Wesker#17 an errored
     test alone makes it true. The gate's warning named one cause whatever the run held, so an errored
     fixture read as "0 survivor(s) the equivalence search could not classify": a false cause, with a
     repair (a longer search) that cannot fix a broken setup (COMMUNICATING_DETERMINISM §3). Each
-    present cause gets its own clause, in a fixed order; "" when neither is present."""
+    present cause gets its own clause, in a fixed order; "" when none is present. ``unresolved`` (#80)
+    counts mutants that reached no verdict for a cause the reader can repair (`unresolved_gate_standing`),
+    each named with its reason on the page above."""
     clauses = []
     if unclassified > 0:
         clauses.append(f"{unclassified} survivor(s) the equivalence search could not classify")
     if errored > 0:
         clauses.append(f"{errored} test(s) errored in setup or teardown, so they never ran to a verdict")
+    if unresolved > 0:
+        clauses.append(f"{unresolved} mutant(s) reached no verdict for a cause you can repair (named above)")
     return "; ".join(clauses)
 
 
@@ -8902,7 +8906,12 @@ def _run_audit(args, file, function) -> int:
     strict = getattr(args, "check_strict", False)
     payload = asdict(report)
     if check:
-        from .audit import audit_check_failed, audit_gate_exit, audit_measurement_incomplete
+        from .audit import (
+            audit_check_failed,
+            audit_gate_exit,
+            audit_measurement_incomplete,
+            unresolved_gate_standing,
+        )
 
         spec_gap = audit_check_failed(
             len(report.killable_gaps),
@@ -8912,12 +8921,22 @@ def _run_audit(args, file, function) -> int:
         )
         # An errored test is absent evidence, never clean evidence (Wesker#17): it never ran to a verdict.
         _errored = tuple(report.errored_tests)
-        meas_incomplete = audit_measurement_incomplete(report.unclassified, len(_errored))
+        # A mutant with no verdict (#80): every one is named in the payload, but only a cause the reader
+        # can repair fails the strict gate (`unresolved_gate_standing`, the founder's ruling 2026-10-25).
+        _unresolved = tuple(
+            (mid, reason, unresolved_gate_standing(reason)) for mid, reason in report.unresolved_mutants
+        )
+        _gating = tuple(u for u in _unresolved if u[2] in ("repairable", "unknown"))
+        meas_incomplete = audit_measurement_incomplete(report.unclassified, len(_errored), len(_gating))
         gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
         payload["gate"] = {
             "spec_gap": spec_gap,
             "measurement_incomplete": meas_incomplete,
-            "unmeasured": {"unclassified": report.unclassified, "errored_tests": list(_errored)},
+            "unmeasured": {
+                "unclassified": report.unclassified,
+                "errored_tests": list(_errored),
+                "unresolved_mutants": [list(entry) for entry in _unresolved],
+            },
             "strict": strict,
             "exit": gate_exit,
         }
@@ -8946,8 +8965,9 @@ def _run_audit(args, file, function) -> int:
             # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search or an
             # errored fixture is a measurement limit, not a finding — the default gate stays a claim
             # about the code. Each cause is named apart (`_unmeasured_clause`).
+            _why = _unmeasured_clause(report.unclassified, len(_errored), len(_gating))
             print(
-                f"  ⚠ measurement incomplete — {_unmeasured_clause(report.unclassified, len(_errored))}; "
+                f"  ⚠ measurement incomplete — {_why}; "
                 "NOT a specification gap. Use --check-strict to gate on it.",
                 file=sys.stderr,
             )

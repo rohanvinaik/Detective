@@ -43,6 +43,8 @@ from Wesker.interrupt import bounded_join as _bounded_join
 # Step budget from Wesker.monitoring for deterministic loop divergence detection. The declared floor
 # (wesker>=1.2.2) always provides it; a Wesker without it fails at import, as an unmet floor should.
 from Wesker.monitoring import (
+    STEP_BUDGET_FACTOR,
+    STEP_BUDGET_FLOOR,
     StepBudgetExceeded,
     is_budget_active,
     step_budget,
@@ -1922,7 +1924,10 @@ def _search_witness(
             continue
         # Each classification is bounded by the REMAINING aggregate wall, recomputed per call, so a
         # single non-terminating _outcome cannot overrun the command deadline by a full 5s cap (#31).
-        # We count original iterations and bound the mutant by a deterministic factor-and-floor step budget.
+        # We count original iterations and bound the mutant by Wesker's calibrated factor-and-floor step
+        # budget, one derivation (#80): restating 10/100 here filed a terminating `//` -> `/` halving loop,
+        # 1,075 iterations from an original's 1, step-budget-divergent, the very case the calibration
+        # names (Wesker docs/STEP_BUDGET_CALIBRATION_2026-10-25.md).
         orig_steps: list[int] = []
         original_observations: list[_ObservedOutcome] = []
         mutant_observations: list[_ObservedOutcome] = []
@@ -1935,7 +1940,11 @@ def _search_witness(
             observations=original_observations,
         )
         orig_it = orig_steps[0] if orig_steps else None
-        mut_cap = step_cap(orig_it, factor=10, floor=100) if orig_it is not None else None
+        mut_cap = (
+            step_cap(orig_it, factor=STEP_BUDGET_FACTOR, floor=STEP_BUDGET_FLOOR)
+            if orig_it is not None
+            else None
+        )
         mutant_outcome = _outcome(
             mutant,
             args,

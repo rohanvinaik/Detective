@@ -24,7 +24,7 @@
   },
   "Detective/audit.py::audit_measurement_incomplete": {
     "cut_reasons": [],
-    "function_digest": "41051d32d8d1ac4a",
+    "function_digest": "292d9bcf120f955f",
     "refusal": "",
     "standing": "complete"
   },
@@ -85,6 +85,12 @@
   "Detective/audit.py::removal_safety": {
     "cut_reasons": [],
     "function_digest": "167226588f041570",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::unresolved_gate_standing": {
+    "cut_reasons": [],
+    "function_digest": "01e4d9c187f1178d",
     "refusal": "",
     "standing": "complete"
   },
@@ -153,7 +159,7 @@
   },
   "Detective/cli.py::_unmeasured_clause": {
     "cut_reasons": [],
-    "function_digest": "aa14ad83c40510b7",
+    "function_digest": "a2b62418202f953c",
     "refusal": "",
     "standing": "complete"
   },
