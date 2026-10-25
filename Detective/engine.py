@@ -3285,7 +3285,13 @@ def classify_survivors(
     # treated as specified because the code merely raised under some test.
     survivors = result.value_survivor_records
     validity = normalize_validity(result)
-    if not validity.admits_certificate:
+    # A RUN-level refusal blocks every witness; a reason that names only some mutants (a wall bound,
+    # a step budget) does not — the other survivors are classified beside it (#80/#126), and the
+    # report stays `measurement_valid=False` so nothing downstream certifies on it.
+    from .validity import classification_standing
+
+    _standing = classification_standing(list(validity.cut_reasons))
+    if _standing == "blocked":
         from .validity import cut_reason_sentence
 
         return SurvivorReport(
@@ -3294,8 +3300,11 @@ def classify_survivors(
             note="; ".join(cut_reason_sentence(reason) for reason in validity.cut_reasons),
             measurement_valid=False,
         )
+    # Every report below carries the standing: under per-mutant reasons a valid-looking report would
+    # let a consumer (verify-rewrite) certify over mutants that reached no verdict.
+    _certifiable = _standing == "classify"
     if not survivors:
-        return SurvivorReport((), (), None)
+        return SurvivorReport((), (), None, measurement_valid=_certifiable)
 
     original = _load_original(full, qualname or function)
     if original is None:
@@ -3319,6 +3328,7 @@ def classify_survivors(
             manual_equivalent=manual_eq,
             authored_fence=fence_eq,
             load_failed=reason is not None,
+            measurement_valid=_certifiable,
         )
 
     # METHOD BINDING (issue #25): `_load_original` returns the UNBOUND method, so the witness search
@@ -3332,7 +3342,12 @@ def classify_survivors(
         unclassified_descs, manual_eq, fence_eq = _split(survivors)
         note = exb.refusal if unclassified_descs else None
         return SurvivorReport(
-            (), unclassified_descs, note=note, manual_equivalent=manual_eq, authored_fence=fence_eq
+            (),
+            unclassified_descs,
+            note=note,
+            manual_equivalent=manual_eq,
+            authored_fence=fence_eq,
+            measurement_valid=_certifiable,
         )
     original_call = wrap_callable(exb.underlying, exb.make_receiver)
 
@@ -3461,7 +3476,7 @@ def classify_survivors(
             deferred_shaped=_deferred_shaped_capture,
             not_consulted=_harvest_not_consulted,
             routing_error=_harvest_routing_error,
-            measurement_valid=_harvest_contained,
+            measurement_valid=_harvest_contained and _certifiable,
         )
 
     pure = _is_pure(node, is_method="." in (qualname or ""))
@@ -3866,5 +3881,5 @@ def classify_survivors(
         boundary_probe=boundary_probe,
         boundary_probes=len(probes_tried),
         routing_error=_harvest_routing_error,
-        measurement_valid=_harvest_contained,
+        measurement_valid=_harvest_contained and _certifiable,
     )

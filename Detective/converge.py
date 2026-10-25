@@ -88,7 +88,7 @@ from .synthesis.writer import (
     individual_test_names,
     render_module,
 )
-from .validity import MeasurementValidity, normalize_validity
+from .validity import MeasurementValidity, normalize_validity, unresolved_mutant_records
 from .verdict_cache import wesker_policy_id
 
 # Fast mode tests this many greedily-selected mutants per category per pass. Greedy
@@ -537,6 +537,11 @@ class ConvergeResult:
     # result's verdict by construction. converge's verdict stays `certificate_standing` (it adds the
     # orthogonal validity gates: stale / verification / gateable the sandwich basis does not carry).
     # None on an older/directly-built result. `asdict` carries it to `converge --json` for free.
+    # The mutants that reached NO verdict — `(mutant_id, disposition)` for each Wesker `undetermined`
+    # (a wall-clock bound fired) or `diverged` (a step budget was exceeded) record (#80/#126). Not
+    # survivors and not kills: carried by id so the page names them, instead of a cut reason saying
+    # "one or more mutants", and so no ask or flag offer is ever derived from them.
+    unresolved_mutants: tuple[tuple[str, str], ...] = ()
     function_basis: FunctionBasis | None = None
     # The target's content identity (`pins.function_digest`) at the time of THIS run (§14.1): the
     # key under which the certificate ledger records `standing`, so a later static reader can tell
@@ -2797,6 +2802,7 @@ def _converge_impl(
             getattr(survivor_report, "not_consulted", 0) if survivor_report is not None else 0,
         ),
         function_basis=_basis,
+        unresolved_mutants=unresolved_mutant_records(getattr(final_result, "unscored_records", None) or ()),
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(two_sign=two_sign),
         # Consumed from the engine's census, never re-derived — and DECIDED once here, so every

@@ -124,6 +124,9 @@ class SuiteAudit:
     candidate_equivalent: int = 0  # survivors with no distinguishing input found (UNPROVEN — flag to confirm)
     unclassified: int = 0  # survivors the search could not classify (may be killable OR equivalent)
     step_budget_divergent: int = 0  # survivors whose loop execution deterministically diverged (#80/#126)
+    # Mutants that reached NO verdict in the profile — `(mutant_id, disposition)`, the same derivation
+    # converge carries (`validity.unresolved_mutant_records`), so the two verbs name them alike (#126).
+    unresolved_mutants: tuple[tuple[str, str], ...] = ()
     # The candidate-equivalents' actual ids. `flag` takes an id, so a count alone cannot
     # produce a runnable command: the report said "`flag <mutant_id>`" and left the reader to
     # go find one. The classifier already has them; keeping only `len()` is what made the
@@ -510,7 +513,7 @@ def audit_suite(
     # crash-only SUBTRACTION made a crash-only-only run read `gap` where converge reads complete-modulo
     # — the review's crash-only inconsistency, ruled to modulo. Same `node` the line oracle used, so
     # the basis's line U_t agrees with `manually_unreachable`. 0 when classification did not run.
-    from .validity import normalize_validity
+    from .validity import normalize_validity, unresolved_mutant_records
 
     # `_load_failed` rides INTO the validity rather than being ANDed on top of it. The local
     # conjunction below was correct for audit and invisible to everyone else: converge read
@@ -565,6 +568,7 @@ def audit_suite(
         boundary_probe=boundary_probe,
         unclassified=unclassified,
         step_budget_divergent=step_budget_divergent,
+        unresolved_mutants=unresolved_mutant_records(getattr(result, "unscored_records", None) or ()),
         value_killed=result.value_killed,
         total_mutants=total,
         intent_tests=_origins["intent"],

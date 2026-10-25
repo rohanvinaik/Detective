@@ -27,6 +27,10 @@ References: S-codes = docs/CORRECTNESS_REPAIRS_2026-09-08.md
 from __future__ import annotations
 
 import dataclasses
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Bumped when the MEANING of a field changes, so a stored receipt cannot be read under a
 # different contract than the one that produced it. Additive fields do not require a bump;
@@ -39,7 +43,11 @@ import dataclasses
 # 5: execution bounds have distinct reasons: step exhaustion and unresolved wall time.
 # 6: shape hazard refusals (refuse_signal, refuse_subprocess, refuse_thread, refuse_collector,
 #    refuse_fixture) and containment_unknown join the vocabulary.
-MEASUREMENT_VALIDITY_SCHEMA = 6
+# 7: `nested_measurement` (Wesker #28's refusal) and `nondeterministic_baseline` (Wesker's opt-in
+#    determinism check) join the vocabulary; both used to surface as `engine_refused_unspecified`,
+#    or as nothing at all when a recognised reason stood beside them. An unscored disposition this
+#    version does not know now adds `engine_refused_unspecified` even beside known reasons.
+MEASUREMENT_VALIDITY_SCHEMA = 7
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
@@ -56,11 +64,13 @@ CUT_REASONS: tuple[str, ...] = (
     "sampled_universe",
     "collection_incomplete",
     "ambiguous_module_identity",
+    "nondeterministic_baseline",
     "refuse_signal",
     "refuse_subprocess",
     "refuse_thread",
     "refuse_collector",
     "refuse_fixture",
+    "nested_measurement",
     "nonreproducible_in_process",
     "invalid_verification",
     "cached_verification",
@@ -85,6 +95,64 @@ _HAZARD_TO_CUT_REASON = {
     "stateful_fixture": "refuse_fixture",
 }
 
+# Wesker's unscored dispositions (`engine.mutant_disposition`) -> the reason each one cuts the run
+# with. One table, read by `normalize_validity`'s completeness guard and by `flag`'s refusal of a
+# mutant with no verdict, so the two cannot name the same disposition differently. "cut" (an
+# uncontained mutant) is known but has no row: containment owns it (`uncontained_worker`).
+UNSCORED_DISPOSITION_REASONS: dict[str, str] = {
+    "harness_error": "mutant_construction_failed",
+    "not_installed": "mutant_not_installed",
+    "not_entered": "mutant_not_entered",
+    "diverged": "step_budget_exceeded",
+    "undetermined": "mutant_wall_undetermined",
+    "nested_measurement": "nested_measurement",
+}
+_KNOWN_UNSCORED = frozenset(UNSCORED_DISPOSITION_REASONS) | {"cut"}
+
+# The reasons that describe SOME mutants rather than the run: every mutant was evaluated, and these
+# name the ones that reached no verdict. Classification of the OTHER survivors stands beside them
+# (`classification_standing`); a certificate does not.
+PER_MUTANT_REASONS: frozenset[str] = frozenset({"mutant_wall_undetermined", "step_budget_exceeded"})
+
+
+def unresolved_mutant_records(unscored_records: Iterable[object]) -> tuple[tuple[str, str], ...]:
+    """``(mutant_id, disposition)`` for every mutant that reached NO verdict (#80/#126).
+
+    The mutants behind the per-mutant reasons, by id: Wesker's `unscored_records` whose disposition
+    maps to a PER_MUTANT_REASONS member. One derivation for converge and audit, so the two verbs name
+    the same mutants in the same class.
+    """
+    return tuple(
+        (str(r.get("mutant_id", "?")), str(r.get("disposition", "")))
+        for r in unscored_records
+        if isinstance(r, dict)
+        and UNSCORED_DISPOSITION_REASONS.get(str(r.get("disposition", ""))) in PER_MUTANT_REASONS
+    )
+
+
+def classification_standing(cut_reasons: list[str]) -> str:
+    """Whether the survivors of a measurement may be classified (Detective #80/#126, pure — pinned).
+
+    `classify_survivors` used to return EVERY survivor unclassified whenever the measurement did not
+    admit a certificate, for any reason. That is right for a RUN-level refusal — the module did not
+    load, routing failed, the run was cut or uncontained, the collection was incomplete, the identity
+    ambiguous, the baseline nondeterministic, a fast-mode shape hazard, a nested measurement, or any
+    reason this version does not recognise: nothing measured there can anchor a witness. It is wrong
+    for a reason that names SOME mutants: two that reached a wall-clock bound made a six-line loop
+    function's ten unrelated survivors "unclassified — the search could not run on them", and the
+    report then asked the operator to inspect an execution none of them was part of.
+
+      "classify"                    no reason: classify, and the measurement may certify.
+      "classify_beside_unresolved"  only per-mutant reasons: classify the survivors; the no-verdict
+                                    mutants stay named and the certificate stays withheld.
+      "blocked"                     any run-level (or unrecognised) reason: classify nothing.
+    """
+    if not cut_reasons:
+        return "classify"
+    if all(reason in PER_MUTANT_REASONS for reason in cut_reasons):
+        return "classify_beside_unresolved"
+    return "blocked"
+
 
 def measurement_cut_reasons(
     reported_gateable: bool,
@@ -103,6 +171,9 @@ def measurement_cut_reasons(
     mutant_wall_undetermined: bool = False,
     fast_mode: str = "",
     shape_hazards: tuple[dict, ...] | list[dict] = (),
+    nondeterministic_baseline: bool = False,
+    nested_measurement: bool = False,
+    unrecognised_unscored: bool = False,
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -146,6 +217,14 @@ def measurement_cut_reasons(
 
     Order is the declaration order of ``CUT_REASONS``, not discovery order, so two runs cut the
     same way produce byte-identical output on every surface.
+
+    ``nested_measurement`` (Wesker #28's refusal: a test that runs the engine inside a held
+    evaluation) and ``nondeterministic_baseline`` (Wesker's opt-in check saw the unmutated suite
+    disagree with itself) are Wesker gateability inputs with names of their own now. Unnamed, the
+    first read as `engine_refused_unspecified` and the second vanished whenever a per-mutant reason
+    stood beside it — a run-level fault hidden behind a mutant-level one. ``unrecognised_unscored``
+    closes the same hole for the future: an unscored disposition this version has never heard of
+    adds `engine_refused_unspecified` even when known reasons are present.
     """
     reasons: list[str] = []
     if target_load_failed:
@@ -170,6 +249,8 @@ def measurement_cut_reasons(
         reasons.append("collection_incomplete")
     if identity_ambiguous:
         reasons.append("ambiguous_module_identity")
+    if nondeterministic_baseline:
+        reasons.append("nondeterministic_baseline")
     hazard_reasons: set[str] = set()
     if fast_mode.startswith("refuse_"):
         hazard_reasons.add(fast_mode)
@@ -181,6 +262,8 @@ def measurement_cut_reasons(
     for hr in ("refuse_signal", "refuse_subprocess", "refuse_thread", "refuse_collector", "refuse_fixture"):
         if hr in hazard_reasons:
             reasons.append(hr)
+    if nested_measurement:
+        reasons.append("nested_measurement")
     # THREE reasons, not one. They were collapsed into `mutant_evaluation_failed` and rendered
     # "the harness failed" — which is true of construction and FALSE of the other two: an
     # un-installed mutant means the harness built it fine and the patch could not bind it, and an
@@ -192,7 +275,7 @@ def measurement_cut_reasons(
         reasons.append("mutant_not_installed")
     if not_entered:
         reasons.append("mutant_not_entered")
-    if reported_gateable and not gateable and not reasons:
+    if (reported_gateable and not gateable and not reasons) or unrecognised_unscored:
         reasons.append("engine_refused_unspecified")
     return tuple(reasons)
 
@@ -240,6 +323,12 @@ def cut_reason_sentence(reason: str) -> str:
         "collection_incomplete": "one or more test files failed to collect (an import error), so the"
         " routed suite is missing tests the layout implies — fix the collection errors and re-run",
         "ambiguous_module_identity": "the live collection resolved one module name to more than one file",
+        "nondeterministic_baseline": "the repeated baseline check saw the unmutated suite disagree with"
+        " itself, so no mutant verdict here is reproducible — remove the nondeterminism (time,"
+        " randomness, test order, shared state) and re-run",
+        "nested_measurement": "one or more mutants could not be measured in-process because a test"
+        " that reaches them runs the mutation engine itself — a measurement inside a measurement,"
+        " which is refused rather than waited into a deadlock; re-measure with --isolated",
         "refuse_signal": "one or more tests reference signal handling on the main thread; in-process"
         " execution cannot contain signal handlers — re-measure with --isolated",
         "refuse_subprocess": "one or more tests spawn a subprocess; in-process execution cannot contain"
@@ -322,6 +411,19 @@ def _unscored_by(result: object, disposition: str) -> bool:
     return any(
         bool(getattr(category, "unscored_by", {}).get(disposition, 0))
         for category in (getattr(result, "per_category", ()) or ())
+    )
+
+
+def _unrecognised_unscored(result: object) -> bool:
+    """Did any category leave a mutant unscored for a disposition this version does not know.
+
+    A known reason standing beside an unknown disposition used to hide it: the unknown reached no
+    reason of its own, and `engine_refused_unspecified` fires only when no other reason exists.
+    """
+    return any(
+        disposition not in _KNOWN_UNSCORED and bool(count)
+        for category in (getattr(result, "per_category", ()) or ())
+        for disposition, count in (getattr(category, "unscored_by", {}) or {}).items()
     )
 
 
@@ -443,6 +545,9 @@ def normalize_validity(
         mutant_wall_undetermined=_unscored_by(result, "undetermined"),
         fast_mode=fast_mode,
         shape_hazards=shape_hazards,
+        nondeterministic_baseline=getattr(result, "determinism", "") == "nondeterministic",
+        nested_measurement=_unscored_by(result, "nested_measurement"),
+        unrecognised_unscored=_unrecognised_unscored(result),
     )
     return MeasurementValidity(
         gateable=gateable,

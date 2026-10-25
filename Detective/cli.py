@@ -39,7 +39,7 @@ from Wesker.engine import (
     DEFAULT_TRACE_SESSION_BUDGET_S as _DEFAULT_TRACE_SESSION_BUDGET_S,
 )
 
-from Detective.validity import cut_reason_sentence
+from Detective.validity import CUT_REASONS, cut_reason_sentence
 
 from . import __version__
 from .equivalence import crash_only_status
@@ -2176,6 +2176,41 @@ def universe_claim(fast: bool, approximate_universe: bool) -> str:
     return "comprehensive_exact"
 
 
+def universe_tail(fast: bool, cut_reasons: list[str]) -> str:
+    """What the universe line may claim was TESTED, read off the run's own cut reasons (pure — pinned).
+
+    The tail said "exhaustive — every operator-universe mutant tested" for every non-fast run, so
+    the same report could print that beside "the profile was cut before the universe was measured"
+    (Detective #80). The two lines described one run from two different facts; this one derives the
+    tail from the reasons the verdict rests on, so they cannot disagree.
+
+      "truncated"              the run stopped before every mutant was tested (budget or cut) — no
+                               completeness claim of either kind, fast or exhaustive
+      "greedy_floor"           a fast run: the proven (1−1/e) per-pass floor is the claim
+      "exhaustive_unresolved"  every operator-universe mutant tested, some without a verdict (a wall
+                               bound fired or a step budget was exceeded)
+      "exhaustive"             every operator-universe mutant tested, each to a verdict
+    """
+    if "budget_exhausted" in cut_reasons or "coverage_truncated" in cut_reasons:
+        return "truncated"
+    if fast:
+        return "greedy_floor"
+    if any(reason in ("mutant_wall_undetermined", "step_budget_exceeded") for reason in cut_reasons):
+        return "exhaustive_unresolved"
+    return "exhaustive"
+
+
+def _no_verdict_text(pairs: tuple[tuple[str, str], ...]) -> str:
+    """The `⚠ no verdict` row: each mutant that reached no verdict, by id and disposition (#126).
+
+    Shared by converge and audit, so the two verbs name the same mutants in the same words. Never an
+    ask: these are not survivors, so neither an input request nor a `flag` offer is derived from them.
+    """
+    shown = ", ".join(f"{mid} ({disp})" for mid, disp in pairs[:5])
+    more = f", … +{len(pairs) - 5}" if len(pairs) > 5 else ""
+    return f"{len(pairs)} — {shown}{more}: not kills, not survivors; no input or flag applies"
+
+
 def _swap_budget_row(state: str, withheld: int) -> tuple[str, str] | None:
     """(label, text) for the argument-order budget disclosure, or None to stay silent.
 
@@ -2346,9 +2381,20 @@ def _format_converge(
         # semantic edit no operator expresses is outside them, and the tail must
         # not read as "no human edit can slip through" (one did: round ndigits,
         # before VALUE:int~off1 existed).
-        if result.fast:
+        _tail = universe_tail(
+            bool(result.fast),
+            list(getattr(result, "validity_cut_reasons", None) or getattr(result, "cut_reasons", ()) or ()),
+        )
+        if _tail == "truncated":
+            tail = "truncated — the run stopped before every operator-universe mutant was tested"
+        elif _tail == "greedy_floor":
             tail = (
                 f"greedy floor ≥ {result.coverage_guarantee:.0%} of coverable DOF (proven, (1−1/e) per pass)"
+            )
+        elif _tail == "exhaustive_unresolved":
+            tail = (
+                f"every operator-universe mutant tested — {max(universe - scored, 0)} reached no verdict"
+                " (see the reason below)"
             )
         else:
             tail = "exhaustive — every operator-universe mutant tested"
@@ -2616,6 +2662,8 @@ def _format_converge_terse(
                 f"{len(rep.step_budget_divergent)} — loop iterations exceeded step budget",
             )
         )
+    if _no_verdict := tuple(getattr(result, "unresolved_mutants", ()) or ()):
+        lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
     if rep is None and not result.functionally_complete:
         lines.append(
             _row("✗ unresolved", f"{result.final_survivors} — classification produced no survivor report")
@@ -2994,6 +3042,9 @@ def repair_measurement_route(
         return "mutant_phase"
     if "nonreproducible_in_process" in cut_reasons:
         return "reprofile"
+    # `nested_measurement` joins the in-process refusals (#80): a test that runs the engine inside a
+    # held evaluation is refused, not waited into a deadlock, and an isolated worker — whose parent
+    # holds no evaluation — measures it. Unrouted, it fell to `inspect_refusal` and was printed twice.
     if (
         "uncontained_worker" in cut_reasons
         or "containment_unknown" in cut_reasons
@@ -3002,6 +3053,7 @@ def repair_measurement_route(
         or "refuse_thread" in cut_reasons
         or "refuse_collector" in cut_reasons
         or "refuse_fixture" in cut_reasons
+        or "nested_measurement" in cut_reasons
     ):
         return "isolate"
     if "step_budget_exceeded" in cut_reasons or "mutant_wall_undetermined" in cut_reasons:
@@ -3033,7 +3085,13 @@ _ROUTE_ADDRESSES: dict[str, tuple[str, ...]] = {
         "refuse_thread",
         "refuse_collector",
         "refuse_fixture",
+        "nested_measurement",
     ),
+    # These two render EVERY reason in their own stop line (`"; ".join(... for r in reasons)`), so they
+    # address all of them; absent from this table they fell to the conservative default below and each
+    # reason printed twice (#80, measured on nested_measurement before it was routed to `isolate`).
+    "inspect_refusal": CUT_REASONS,
+    "reprofile": CUT_REASONS,
 }
 
 
@@ -3933,8 +3991,12 @@ def _converge_action(
                         hazard_tests.setdefault(h, []).append(tid)
                 for h, tids in hazard_tests.items():
                     hazard_rows.append(_row("· Affected", f"{h}: {', '.join(tids)}"))
+            # The stop line names the causes this remedy addresses and `_also_live_rows` the rest,
+            # as every other addressed route does — naming all of them here AND there printed each
+            # unaddressed cause twice (#80).
+            _led = [r for r in reasons if r in _ROUTE_ADDRESSES.get(route, reasons)] or list(reasons)
             return [
-                _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
+                _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in _led),
                 "",
                 _row("· Re-measure", _command_text(d.argv)),
                 _row("", "retain the original input, receiver, clock/environment and policy options."),
@@ -5587,6 +5649,8 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
                 f"{a.step_budget_divergent} — loop iterations exceeded step budget",
             )
         )
+    if _no_verdict := tuple(getattr(a, "unresolved_mutants", ()) or ()):
+        lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
     if a.manual_equivalent:
         lines.append(_row("✓ flagged equivalent", f"{a.manual_equivalent} (your oracle — not gaps)"))
     if a.redundant_tests:
@@ -9118,6 +9182,49 @@ def _flag_needs_two_sign(args) -> int:
     return 2
 
 
+def _unscored_flag_refusal(args, result) -> int | None:
+    """A NAMED refusal when the id names a mutant that reached no verdict (#80), else None.
+
+    Such a mutant is not a survivor: a wall-clock bound fired, a step budget was exceeded, a nested
+    measurement was refused, or the mutant was never entered or built. Neither `equivalent` nor
+    `--fence` applies — a fence is a claim about a SURVIVAL, and this mutant did not survive — and a
+    non-terminating mutant is never equivalent. `flag` used to answer "no surviving mutant", which is
+    true and names nothing; the refusal now says what the mutant is and why no claim fits it.
+    """
+    from .validity import UNSCORED_DISPOSITION_REASONS
+
+    rec = next(
+        (
+            r
+            for r in (getattr(result, "unscored_records", None) or ())
+            if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))
+        ),
+        None,
+    )
+    if rec is None:
+        return None
+    disposition = str(rec.get("disposition", ""))
+    reason = UNSCORED_DISPOSITION_REASONS.get(disposition, "engine_refused_unspecified")
+    msg = (
+        f"detective: cannot flag mutant '{args.mutant_id}' — it reached no verdict ({disposition}),"
+        f" so there is no survival to judge: {cut_reason_sentence(reason)}"
+    )
+    if args.json:
+        return _emit_json(
+            {
+                "verdict": "REFUSED",
+                "reason": "unscored_mutant",
+                "target": args.target,
+                "mutant_id": args.mutant_id,
+                "disposition": disposition,
+                "detail": msg,
+            },
+            1,
+        )
+    sys.stderr.write(msg + "\n")
+    return 1
+
+
 def _run_flag(args, file, function) -> int:
     from .atomic_store import StoreRefused
     from .engine import profile
@@ -9141,6 +9248,9 @@ def _run_flag(args, file, function) -> int:
     if admission == "needs_two_sign":
         return _flag_needs_two_sign(args)
     result = profile(file, function, args.project_root, two_sign=two_sign)
+    unscored = _unscored_flag_refusal(args, result)
+    if unscored is not None:
+        return unscored
     # Match against value-survivors — the SAME set audit/classify report from — so a
     # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-
     # survivor). Using survivor_records here would miss those and read "none surviving".
