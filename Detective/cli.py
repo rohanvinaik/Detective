@@ -4264,7 +4264,7 @@ def _plan_signature(plan: InputPlan) -> dict:
 
 def _pin_record(verdict, call_args: str, render_test: Callable[[Any], tuple[str | None, str]] | None) -> dict:
     """The typed item of a ``hand_pin`` / ``repeated`` plan: the call's args literal, both outcome reprs
-    IN FULL (the page's item cuts them at 28 characters; a record never does), the mutant, and
+    IN FULL (as the page's item prints them — #125: a cut ask cannot be written), the mutant, and
     Detective's own test for it with the status that says how it came to be (D1b §1): ``rendered`` (a
     test), ``declined`` (the writer returned None, or no renderer is reached where the item is built:
     ``test`` is None), or ``render_failed:<exception type>`` (rendering raised: ``test`` is None). A
@@ -4462,9 +4462,12 @@ def _derive_input_plan(
     # The exact input was accepted, executed, and returned as the same residual. Offering it again
     # is a proven loop, not guidance. Route to the existing terminating hand-pin action.
     repeated_inputs = [(v, rendered) for v, rendered in input_closes if rendered in attempted]
+    # The outcomes print WHOLE in every WRITE TEST item below (#125): the ask is to write a test
+    # pinning exactly these values, so a value cut to a prefix is an instruction that cannot be
+    # followed — and two outcomes sharing a prefix printed (and deduplicated) as one.
     if repeated_inputs:
         items = [
-            f"{rendered} — supplied already; real {v.witness.original[:28]} vs mutant {v.witness.mutant[:28]}"
+            f"{rendered} — supplied already; real {v.witness.original} vs mutant {v.witness.mutant}"
             for v, rendered in repeated_inputs
         ]
         return _input_plan(
@@ -4476,7 +4479,7 @@ def _derive_input_plan(
     hand_pin = [v for v, _ in commandable if _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)]
     if hand_pin:
         items = [
-            f"({_witness_args(v.witness)}) — real {v.witness.original[:28]} vs mutant {v.witness.mutant[:28]}"
+            f"({_witness_args(v.witness)}) — real {v.witness.original} vs mutant {v.witness.mutant}"
             for v in hand_pin
         ]
         return _input_plan(
@@ -4489,9 +4492,7 @@ def _derive_input_plan(
         # One description per witness, repeats included: `_input_plan` keeps the first of each, in
         # order, exactly as the `if d not in descs` dedupe here used to — and pairs every witness's
         # mutant id with the description it shares.
-        descs = [
-            ", ".join(f"a {type(a).__name__}: {repr(a)[:70]}" for a in v.witness.args) for v in witnesses
-        ]
+        descs = [", ".join(f"a {type(a).__name__}: {a!r}" for a in v.witness.args) for v in witnesses]
         return _input_plan(
             "test",
             descs,
@@ -4756,6 +4757,21 @@ def _residual_counts(rep) -> tuple[int, int]:
     return len(eq) - crash, crash
 
 
+def marked_cut(text: str, limit: int) -> str:
+    """``text`` whole, or its first ``limit`` characters with the cut MARKED (#125, pure — pinned).
+
+    An unmarked prefix made a cut value and a whole value of the same length print alike, and two
+    values sharing their first characters print as one (COMMUNICATING_DETERMINISM §3): the WRITE TEST
+    ask that reported #125 showed no distinction at all to pin. The mark names how many characters
+    were dropped, so an abbreviation can never be read as the value. For prose the reader does not
+    type only — a value a printed instruction asks the reader to type is never cut. A limit below 1
+    is no limit: the value prints whole.
+    """
+    if limit < 1 or len(text) <= limit:
+        return text
+    return f"{text[:limit]}…(+{len(text) - limit} chars)"
+
+
 def _derived_input(
     r,
     proof,
@@ -4833,7 +4849,8 @@ def _derived_input(
             else None
         )
         if pair is not None:
-            seen = f"{pair.original[:20]} vs {pair.mutant[:20]}"
+            # Prose the reader does not type, so it may be cut — but never unmarked (#125).
+            seen = f"{marked_cut(pair.original, 20)} vs {marked_cut(pair.mutant, 20)}"
             out.append(_row("", f"SUGGESTED — not written: unsound ({seen} observed)."))
         else:
             out.append(_row("", "SUGGESTED — not written for you, because the engine"))

@@ -173,6 +173,12 @@
     "refusal": "",
     "standing": "ungateable"
   },
+  "Detective/cli.py::marked_cut": {
+    "cut_reasons": [],
+    "function_digest": "3c83a4809b86148c",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::measurement_block_route": {
     "function_digest": "039a79c196da373c",
     "refusal": "",
