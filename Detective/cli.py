@@ -2777,6 +2777,7 @@ def _format_converge_terse(
         lines.append(_row("✗ still killable", f"{len(rep.killable)} — a witness exists for each"))
     if rep is not None and rep.unclassified:
         lines.append(_row("⚠ unclassified", f"{len(rep.unclassified)} — the search could not run on them"))
+        lines.extend(_write_refused_rows(len(rep.write_refused)))
     if rep is not None and getattr(rep, "step_budget_divergent", ()):
         lines.append(
             _row(
@@ -2979,6 +2980,7 @@ def converge_next_action(
     load_failed: bool = False,
     needs_sample: bool = False,
     has_diverged: bool = False,
+    write_refused_only: bool = False,
 ) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
@@ -3029,6 +3031,10 @@ def converge_next_action(
       still open. THE ORDER IS THE POINT: this outranks a line gap, because with no suite the gap
       is not closable by any argument the reader can supply. Ranking the gap first is the
       originally observed bug.
+    ``pin_write_refused`` — the only residual is survivors the search could not run because the
+      function writes files (#105). An `--input` is run speculatively like an invented one and its
+      write is refused the same way, so the gap ask below would be a loop. The person writes the
+      test, with paths under tmp_path.
     ``close_the_gap`` — the suite runs and a real residual remains. Witnesses and `--input` are
       the documented interface, and here they actually work.
 
@@ -3072,6 +3078,8 @@ def converge_next_action(
     # The latent case that argued for hoisting higher — a load-failed target with no line gap
     # reaching `settled` — is closed one layer up instead, where it belongs: `target_load_failed`
     # makes the measurement ungateable, so `standing` returns `repair_measurement` above (R1).
+    if write_refused_only:
+        return "pin_write_refused"
     _block = measurement_block_route(load_failed, inputs_expressible, needs_sample)
     if _block:
         return _block
@@ -3353,6 +3361,12 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         and bool(getattr(rep, "note", None))
     )
     _has_diverged = bool(rep is not None and getattr(rep, "step_budget_divergent", ()))
+    # The open residual is ONLY survivors a file write kept the search from (#105): nothing killable,
+    # no line gap, and every unclassified survivor write-refused. A mixed residual keeps its own route.
+    _refused = tuple(getattr(rep, "write_refused", ()) or ()) if rep is not None else ()
+    _write_refused_only = bool(
+        _refused and not rep.killable and len(_refused) == len(rep.unclassified) and not result.missing_lines
+    )
     return standing, converge_next_action(
         standing,
         session_reason,
@@ -3363,6 +3377,7 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         load_failed=_rep_load_failed,
         needs_sample=_needs_sample,
         has_diverged=_has_diverged,
+        write_refused_only=_write_refused_only,
     )
 
 
@@ -3495,6 +3510,8 @@ def converge_step(
         return "stop", code
     if code == "fix_failing_test":
         return "decide", "fix_failing_test"
+    if code == "pin_write_refused":
+        return "write_test", "pin_write_refused"
     if code == "fix_collection":
         if marker_declared and session_reason == "empty_collection":
             return "stop", "empty_collection"
@@ -3695,7 +3712,7 @@ def _converge_commands(
         if route == "deadline":
             return (*rerun, *inputs, "--deadline", "0"), None
         return (*rerun, *inputs, "--trace-budget", "0", "--trace-session-budget", "0"), None
-    if code in ("fix_verification", "fix_load", "provide_sample"):
+    if code in ("fix_verification", "fix_load", "provide_sample", "pin_write_refused"):
         return None, rerun
     if code == "fix_collection":
         if kind == "stop":
@@ -4326,6 +4343,8 @@ def _converge_action(
             _row("", "`regime --migrate` cannot fix a missing import."),
             *_load_fix_rows(reason, _command_text(d.then)),
         ]
+    if kind == "pin_write_refused":
+        return _write_refused_action(len(rep.write_refused), d.then)
     if kind == "provide_sample":
         # The module loaded and the search ran in-process, but no input reached the function — so
         # this is NOT a collection/regime problem migrate touches. Surface the report's OWN guidance
@@ -5839,6 +5858,7 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         )
     if a.unclassified:
         lines.append(_row("⚠ unclassified", f"{a.unclassified} — the search could not run on them"))
+        lines.extend(_write_refused_rows(a.write_refused))
     if getattr(a, "step_budget_divergent", 0):
         lines.append(
             _row(
@@ -5871,6 +5891,7 @@ def audit_next_action(
     unclassified: int,
     diverged: int = 0,
     errored: int = 0,
+    write_refused: int = 0,
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -5897,6 +5918,9 @@ def audit_next_action(
       "repair_errored_test" a test that reaches this function errors in setup or teardown, so it
                           never ran to a verdict (Wesker#17): its fixture is the repair, and every
                           ending below would claim more than the suite established
+      "pin_write_refused" survivors the search could not run because the function writes files
+                          (#105): no search or --input classifies them, so a hand-written test
+                          that writes under tmp_path is the next action, and no ending below has it
       "flag_equivalents"  every killable behaviour pinned; what remains is undecidable, and `flag`
                           is the one claim a human makes against the engine — never offered while
                           a real gap is open, which is why it ranks below all of them
@@ -5923,6 +5947,11 @@ def audit_next_action(
     invalidates every number; an errored one only withholds its own evidence), a sample request, real
     gaps (no test kills them now, and the tests converge writes are never wrong), and redundancy (a
     redundant test stays redundant when another test starts to run, because a cover only grows).
+
+    ``pin_write_refused`` ranks right below it, for the same reason: every ending below it claims the
+    next action is a human's flag or none at all, and a survivor the search could not run because the
+    function writes files has one, a test that writes under tmp_path. Nothing Detective runs on an
+    invented input can supply it (#105).
     """
     if block in ("fix_load", "repair_measurement"):
         return block
@@ -5936,6 +5965,8 @@ def audit_next_action(
         return "removing_now" if removing else "remove_redundant"
     if errored > 0:
         return "repair_errored_test"
+    if write_refused > 0:
+        return "pin_write_refused"
     if candidate_equivalent > 0 and has_equivalent_ids:
         return "flag_equivalents"
     if diverged > 0:
@@ -5956,6 +5987,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
       ("supply", "")                        provide_sample — a real sample, then converge
       ("decide", "fix_failing_test")        a failing test: whether the TEST or the CODE is wrong is a
                                             call only a person may make
+      ("write_test", "pin_write_refused")  survivors a file-writing function kept the search from (#105):
+                                            the person writes the test, then re-audit
       ("stop", "repair_errored_test")       an errored test: its fixture is repaired, then re-audit —
                                             under ``two_sign`` too, never ``run``: a setup with a
                                             broken fixture is not clean (Wesker#17)
@@ -5980,6 +6013,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
         return "decide", "fix_failing_test"
     if code == "repair_errored_test":
         return "stop", "repair_errored_test"
+    if code == "pin_write_refused":
+        return "write_test", "pin_write_refused"
     if code in ("close_the_gap", "remove_redundant"):
         return "run", ""
     if code == "done_divergent":
@@ -6029,6 +6064,7 @@ def _audit_code(a, removing: bool = False) -> str:
         diverged=int(getattr(a, "step_budget_divergent", 0) or 0),
         # A direct read (§9.7): a renamed field must raise, never read as "no errored test" and close DONE.
         errored=len(a.errored_tests),
+        write_refused=a.write_refused,
     )
 
 
@@ -6071,7 +6107,7 @@ def _audit_commands(
         return _converge_rerun(universe, fn), None
     if code == "remove_redundant":
         return _carried_argv(universe, "audit", fn, "--remove"), None
-    if code in ("fix_load", "fix_failing_test", "repair_errored_test"):
+    if code in ("fix_load", "fix_failing_test", "repair_errored_test", "pin_write_refused"):
         return None, _carried_argv(universe, "audit", fn)
     if code == "provide_sample":
         return None, _converge_rerun(universe, fn)
@@ -6095,6 +6131,23 @@ def _audit_decision(a, removing: bool = False, two_sign: bool = False) -> Decisi
     return Decision(
         "audit", code, route, kind, remedy, argv, then, plan, note, residual, (), state, two_sign=two_sign
     )
+
+
+def _audit_repair_action(a, kind: str, then: tuple[str, ...] | None) -> list[str] | None:
+    """The blocks for the codes whose next move is a repair before anything else is measured, ahead
+    of the two-sign line: an untrusted measurement, an errored fixture (Wesker#17), and survivors a
+    file write kept the search from (#105). ``None`` for every other code."""
+    if kind == "repair_measurement":
+        return [
+            _INCOMPLETE_PREFIX + "; ".join(cut_reason_sentence(r) for r in a.cut_reasons),
+            "",
+            _row(_RESOLVE_ROW, "the reported measurement causes before acting on suite gaps or redundancy."),
+        ]
+    if kind == "repair_errored_test":
+        return _errored_test_action(tuple(a.errored_tests), then)
+    if kind == "pin_write_refused":
+        return _write_refused_action(a.write_refused, then)
+    return None
 
 
 def _audit_action(a, removing: bool = False, decision: Decision | None = None) -> list[str]:
@@ -6126,14 +6179,8 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
     """
     decision = decision if decision is not None else _audit_decision(a, removing)
     kind = decision.code
-    if kind == "repair_measurement":
-        return [
-            _INCOMPLETE_PREFIX + "; ".join(cut_reason_sentence(r) for r in a.cut_reasons),
-            "",
-            _row(_RESOLVE_ROW, "the reported measurement causes before acting on suite gaps or redundancy."),
-        ]
-    if kind == "repair_errored_test":
-        return _errored_test_action(tuple(a.errored_tests), decision.then)
+    if (repair := _audit_repair_action(a, kind, decision.then)) is not None:
+        return repair
     if decision is not None and decision.two_sign and decision.kind == "run":
         return _two_sign_setup_action(len(a.errored_tests), decision.argv)
     if kind == "fix_load":
@@ -6220,6 +6267,25 @@ def _errored_test_action(errored_tests: tuple[str, ...], then: tuple[str, ...] |
     ]
     if then:
         rows.append(_row("· After fixing", _command_text(then)))
+    return rows
+
+
+def _write_refused_action(write_refused: int, then: tuple[str, ...] | None) -> list[str]:
+    """The block for survivors the search could not run because the function writes files (#105).
+
+    Never AUTHOR INPUT: an ``--input`` is run speculatively like any invented input, and its write is
+    refused the same way, so asking for one is a loop. The repair is a test the person writes, with
+    paths under tmp_path, which runs in the suite under its own write authority."""
+    rows = [
+        f"WRITE TEST:  pin the {write_refused} survivor(s) Detective could not run: "
+        "the function writes files",
+        "",
+        _row("· Why", "Detective never runs a file-writing function on an input it invented or"),
+        _row("", "replayed, so neither its search nor an --input can classify them."),
+        _row("· Write", "a test that calls it with paths under tmp_path and asserts what it wrote."),
+    ]
+    if then:
+        rows.append(_row("· Then", _command_text(then)))
     return rows
 
 
@@ -8824,6 +8890,18 @@ def _run_decompose(args, file, function) -> int:
     # (1); an applied extraction or a dry-run proposal is clean (0). CI must tell a refusal apart from
     # "nothing to decompose", which the prior `3 if budget else 0` collapsed into 0.
     return exit_code
+
+
+def _write_refused_rows(write_refused: int) -> list[str]:
+    """The continuation rows under ``⚠ unclassified`` naming the survivors a file write kept the search
+    from (#105). One renderer for audit and converge: their repair is a hand-written test, never a
+    longer search, so they must not read as the search's own limit."""
+    if not write_refused:
+        return []
+    return [
+        _row("", f"{write_refused} of them: the function writes files, and Detective never runs it on an"),
+        _row("", "input it invented or replayed; pin them with a test that writes under tmp_path."),
+    ]
 
 
 def _unmeasured_clause(unclassified: int, errored: int, unresolved: int = 0) -> str:

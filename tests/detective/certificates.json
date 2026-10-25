@@ -165,13 +165,13 @@
   },
   "Detective/cli.py::audit_next_action": {
     "cut_reasons": [],
-    "function_digest": "bab0a11e3e32ca9e",
+    "function_digest": "f994ace8da2580c3",
     "refusal": "",
     "standing": "complete"
   },
   "Detective/cli.py::audit_step": {
     "cut_reasons": [],
-    "function_digest": "ede4b129247b0118",
+    "function_digest": "a150778fd3491740",
     "refusal": "",
     "standing": "complete"
   },
@@ -183,7 +183,7 @@
   },
   "Detective/cli.py::converge_next_action": {
     "cut_reasons": [],
-    "function_digest": "352beb70aa2d00c4",
+    "function_digest": "8a2d590b072bf279",
     "refusal": "",
     "standing": "complete"
   },
@@ -195,7 +195,7 @@
   },
   "Detective/cli.py::converge_step": {
     "cut_reasons": [],
-    "function_digest": "9acc10bf0d99fbda",
+    "function_digest": "ac5a1d9a9a3015c2",
     "refusal": "",
     "standing": "complete"
   },
@@ -457,6 +457,12 @@
   },
   "Detective/engine.py::widen_admission": {
     "function_digest": "73cedde34adfb8a2",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/equivalence.py::_pair_disposition": {
+    "cut_reasons": [],
+    "function_digest": "9f27ded7a6978fca",
     "refusal": "",
     "standing": "complete"
   },

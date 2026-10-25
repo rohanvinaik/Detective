@@ -747,6 +747,32 @@ def _remaining_summary(survivor_records: list[dict]) -> tuple[str, ...]:
     return tuple(f"{n} {cat}" for cat, n in sorted(counts.items()))
 
 
+def _rendered_properties(
+    survivors: list[dict], func_key: str, node: Any, call_site_inputs: Any, root: str
+) -> list:
+    """The executable properties for ``survivors``, each rendered under its OWN write guard (#105).
+
+    Rendering may run the function on an input it invented. For a function that writes files, the
+    guard prevents the write and the observation is void, so that survivor gets no property here
+    and stays a survivor: the witness search then names it unclassified, write-refused. One guard
+    over the whole list turned one survivor's refused write into the end of the run.
+    """
+    from .capture import ObservationIncomplete
+    from .synthesis.characterization import block_fs_writes
+
+    rendered = []
+    for survivor in survivors:
+        try:
+            with block_fs_writes():
+                rendered.append(
+                    generate_executable_property(survivor, func_key, node, call_site_inputs, root)
+                )
+        except ObservationIncomplete as exc:
+            if exc.code != "filesystem_write_blocked":
+                raise
+    return rendered
+
+
 def _bounded_work[T](
     work: Callable[[], T], timeout_s: float | None, *, phase: str, guard_writes: bool = True
 ) -> T:
@@ -823,8 +849,17 @@ def property_holds(
                 if p in sys.path:
                     sys.path.remove(p)
 
+    from .capture import ObservationIncomplete
+
     try:
         return _bounded_work(check, timeout_s, phase="property")
+    except ObservationIncomplete as exc:
+        # A generated test whose check writes a file (#105) is NOT verified: the write was prevented, so
+        # the check observed nothing, and a test that writes from the project's cwd is not one to
+        # write. Any other incomplete observation still refuses the run.
+        if exc.code == "filesystem_write_blocked":
+            return False
+        raise
     except (KeyboardInterrupt, SystemExit, MonitoringUnavailable):
         raise
     # BLE001: pytest's Failed inherits BaseException rather than Exception
@@ -2096,12 +2131,14 @@ def _converge_impl(
         say(f"pass {_pass}: {survivors} value-survivor(s) — synthesizing killing tests…")
 
         props = _bounded_work(
-            lambda _result=result: [
-                generate_executable_property(s, func_key, node, call_site_inputs, root)
-                for s in _result.value_survivor_records
-            ],
+            lambda _result=result: _rendered_properties(
+                _result.value_survivor_records, func_key, node, call_site_inputs, root
+            ),
             _budget_s(),
             phase="property_render",
+            # Each survivor's rendering owns its write guard (#105), so one refused write skips that
+            # survivor's property rather than ending the run.
+            guard_writes=False,
         )
         # Pure functions also get golden-capture properties, which pin the exact
         # return value and kill the VALUE/ARITHMETIC survivors oracle-light can't.

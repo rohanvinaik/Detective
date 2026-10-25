@@ -125,6 +125,9 @@ class SuiteAudit:
     authored_fence: int = 0
     candidate_equivalent: int = 0  # survivors with no distinguishing input found (UNPROVEN — flag to confirm)
     unclassified: int = 0  # survivors the search could not classify (may be killable OR equivalent)
+    # How many of `unclassified` the search could not run because the function writes files (#105):
+    # their repair is a test that writes under tmp_path, which no longer search supplies.
+    write_refused: int = 0
     step_budget_divergent: int = 0  # survivors whose loop execution deterministically diverged (#80/#126)
     # Mutants that reached NO verdict in the profile — `(mutant_id, disposition)`, the same derivation
     # converge carries (`validity.unresolved_mutant_records`), so the two verbs name them alike (#126).
@@ -584,6 +587,7 @@ def audit_suite(
     crash_only_ids: tuple[str, ...] = ()
     boundary_probe = ""
     unclassified = 0
+    write_refused = 0
     classified = False
     # The measurement-block signals (Finding E), carried onto the audit so its next action names the
     # SAME escape converge does via `measurement_block_route`. Defaulted here so the advisory
@@ -620,6 +624,7 @@ def audit_suite(
         crash_only_ids = tuple(v.mutant_id for v in report.equivalent if v.crash_only)
         boundary_probe = str(getattr(report, "boundary_probe", "") or "")
         unclassified = len(report.unclassified)
+        write_refused = len(report.write_refused)
         step_budget_divergent = len(getattr(report, "step_budget_divergent", ()))
         # An authored fence is an UNENFORCED must-not (Q8) — a gap like killable/unclassified, so it
         # blocks mutant-completeness exactly as they do; never treated as a discharged equivalent.
@@ -741,6 +746,7 @@ def audit_suite(
         crash_only_ids=crash_only_ids,
         boundary_probe=boundary_probe,
         unclassified=unclassified,
+        write_refused=write_refused,
         step_budget_divergent=step_budget_divergent,
         unresolved_mutants=unresolved_mutant_records(getattr(result, "unscored_records", None) or ()),
         value_killed=result.value_killed,

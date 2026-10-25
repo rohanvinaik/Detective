@@ -35,7 +35,7 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 from Wesker.interrupt import JoinedWorker
 from Wesker.interrupt import bounded_join as _bounded_join
@@ -1383,6 +1383,10 @@ _OUTCOME_TIMEOUT = "<classifier-timeout>"
 _OUTCOME_WALL_UNDETERMINED = _OUTCOME_TIMEOUT
 _OUTCOME_DIVERGED = "<step-budget-divergent>"
 _OUTCOME_UNCOPYABLE = "<uncopyable-input>"
+# An input whose speculative run tried to write a file (#105, #30): `block_fs_writes` prevented the
+# write, so the run is no observation of the function. A FIXED marker, never the blocked path: two
+# sides refusing different paths must not read as a distinguishing outcome.
+_OUTCOME_WRITE_REFUSED = "<write-refused>"
 
 
 class UncopyableInputError(ValueError):
@@ -1493,6 +1497,7 @@ def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
         _OUTCOME_WALL_UNDETERMINED,
         _OUTCOME_DIVERGED,
         _OUTCOME_UNCOPYABLE,
+        _OUTCOME_WRITE_REFUSED,
     ):
         return "blocked"
     if mutant_outcome == _OUTCOME_DIVERGED:
@@ -1501,6 +1506,7 @@ def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
         _OUTCOME_TIMEOUT,
         _OUTCOME_WALL_UNDETERMINED,
         _OUTCOME_UNCOPYABLE,
+        _OUTCOME_WRITE_REFUSED,
     ):
         return "blocked"
     # An equal TRUNCATED iterator prefix is UNKNOWN, not equivalent: a suffix past the observed bound
@@ -1663,6 +1669,14 @@ def _outcome(
                         ) from exc
         except StepBudgetExceeded:
             box["v"] = _OUTCOME_DIVERGED
+        except ObservationIncomplete as exc:
+            # ONLY a prevented write is this input's own outcome (#105): the hook stopped it before it
+            # landed, and the run is no observation of the function. An uncontained or refused worker,
+            # or a failed snapshot, still invalidates the whole measurement below.
+            if exc.code == "filesystem_write_blocked":
+                box["v"] = _OUTCOME_WRITE_REFUSED
+            else:
+                observation_errors.append(exc)
         except MonitoringUnavailable as exc:
             observation_errors.append(exc)
         except Exception as exc:  # noqa: BLE001
@@ -1700,6 +1714,7 @@ def _outcome(
             _OUTCOME_UNCOPYABLE,
             _OUTCOME_DIVERGED,
             _OUTCOME_WALL_UNDETERMINED,
+            _OUTCOME_WRITE_REFUSED,
         )
     ):
         observations.append(_ObservedOutcome(box["args"], outcome, box.get("value"), box.get("state")))
@@ -1753,14 +1768,21 @@ def _reached_lines(
                 call(*_args)
 
         per_call = max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - time.monotonic()))
-        run = _run_for_effects(
-            trial,
-            timeout_s=per_call,
-            code=code,
-            event=sys.monitoring.events.LINE,
-            observer=observed,
-            deadline=deadline,
-        )
+        try:
+            run = _run_for_effects(
+                trial,
+                timeout_s=per_call,
+                code=code,
+                event=sys.monitoring.events.LINE,
+                observer=observed,
+                deadline=deadline,
+            )
+        except ObservationIncomplete as exc:
+            # A prevented write (#105) makes THIS trial no observation of reach; the diagnostic only ever
+            # adds a caveat, so the input is skipped. Every other incomplete observation still refuses.
+            if exc.code != "filesystem_write_blocked":
+                raise
+            continue
         if not run.contained:
             raise ObservationIncomplete(
                 "reach_uncontained",
@@ -1870,6 +1892,17 @@ def _binds(fn: Callable[..., Any], args: tuple) -> bool:
     return True
 
 
+class _WitnessSearch(NamedTuple):
+    """What one witness search established: `_search_witness`'s four facts, plus whether a refused
+    write (#105) is among the reasons it was ``blocked``."""
+
+    witness: Witness | None
+    crash_witness: Witness | None
+    blocked: bool
+    diverged: bool
+    write_refused: bool
+
+
 def _search_witness(
     original: Callable[..., Any],
     mutant: Callable[..., Any],
@@ -1877,6 +1910,76 @@ def _search_witness(
     *,
     deadline: float | None = None,
 ) -> tuple[Witness | None, Witness | None, bool, bool]:
+    """``(witness, crash_witness, blocked, diverged)``: the four facts of `_search_witness_detail`."""
+    search = _search_witness_detail(original, mutant, candidate_inputs, deadline=deadline)
+    return search.witness, search.crash_witness, search.blocked, search.diverged
+
+
+# What a pair carries where a side produced no observation (a timeout, a divergence, a refused write).
+# Never read: only a `witness` or `crash-only` pair renders a Witness, and those carry real observations.
+_NO_OBSERVATION = _ObservedOutcome((), "", None, None)
+
+
+class _PairObservation(NamedTuple):
+    """One input's paired observation: `_pair_disposition`'s code over the original's and the mutant's
+    outcomes, the observations that established it, and whether a refused write was one of them."""
+
+    disposition: str
+    original: _ObservedOutcome
+    mutant: _ObservedOutcome
+    write_refused: bool
+
+
+def _observe_pair(
+    original: Callable[..., Any], mutant: Callable[..., Any], args: tuple, deadline: float | None
+) -> _PairObservation:
+    """Run the original, then the mutant, on ``args`` and dispose of the pair (`_search_witness_detail`'s
+    one step, split out so the search stays one loop over dispositions).
+
+    Each run is bounded by the REMAINING aggregate wall, recomputed per call, so a single non-terminating
+    `_outcome` cannot overrun the command deadline by a full 5s cap (#31). We count the original's
+    iterations and bound the mutant by Wesker's calibrated factor-and-floor step budget, one derivation
+    (#80): restating 10/100 here filed a terminating `//` -> `/` halving loop, 1,075 iterations from an
+    original's 1, step-budget-divergent, the very case the calibration names (Wesker
+    docs/STEP_BUDGET_CALIBRATION_2026-10-25.md). A distinction whose observation payload did not survive
+    is `blocked`: no witness renders from evidence that is not there."""
+    orig_steps: list[int] = []
+    original_observations: list[_ObservedOutcome] = []
+    mutant_observations: list[_ObservedOutcome] = []
+    original_outcome = _outcome(
+        original,
+        args,
+        _outcome_budget_s(deadline),
+        cap=None,
+        step_count=orig_steps,
+        observations=original_observations,
+    )
+    orig_it = orig_steps[0] if orig_steps else None
+    mut_cap = (
+        step_cap(orig_it, factor=STEP_BUDGET_FACTOR, floor=STEP_BUDGET_FLOOR) if orig_it is not None else None
+    )
+    mutant_outcome = _outcome(
+        mutant, args, _outcome_budget_s(deadline), cap=mut_cap, observations=mutant_observations
+    )
+    refused = _OUTCOME_WRITE_REFUSED in (original_outcome, mutant_outcome)
+    disposition = _pair_disposition(original_outcome, mutant_outcome)
+    if disposition in ("witness", "crash-only") and not (original_observations and mutant_observations):
+        return _PairObservation("blocked", _NO_OBSERVATION, _NO_OBSERVATION, refused)
+    return _PairObservation(
+        disposition,
+        original_observations[0] if original_observations else _NO_OBSERVATION,
+        mutant_observations[0] if mutant_observations else _NO_OBSERVATION,
+        refused,
+    )
+
+
+def _search_witness_detail(
+    original: Callable[..., Any],
+    mutant: Callable[..., Any],
+    candidate_inputs: list[tuple],
+    *,
+    deadline: float | None = None,
+) -> _WitnessSearch:
     """``(witness, crash_witness, blocked, diverged)`` — the search `find_witness` runs, plus the
     three facts it used to throw away: a crash-only distinguishing input, whether classification
     TIMED OUT (#42), and whether loop execution deterministically diverged from the step budget (#80/#126).
@@ -1893,6 +1996,7 @@ def _search_witness(
     crash_witness: Witness | None = None
     blocked = False
     diverged = False
+    write_refused = False
     for args in candidate_inputs:
         # The aggregate wall (issue #31) is checked PER INPUT, not just per mutant: a
         # non-terminating mutant pays #42's 5s classifier timeout on EVERY candidate, so a
@@ -1922,54 +2026,20 @@ def _search_witness(
             # correctly left a survivor and surfaces as an `--input` residual — the I_solve ask,
             # where a human supplies the instance synthesis cannot build.
             continue
-        # Each classification is bounded by the REMAINING aggregate wall, recomputed per call, so a
-        # single non-terminating _outcome cannot overrun the command deadline by a full 5s cap (#31).
-        # We count original iterations and bound the mutant by Wesker's calibrated factor-and-floor step
-        # budget, one derivation (#80): restating 10/100 here filed a terminating `//` -> `/` halving loop,
-        # 1,075 iterations from an original's 1, step-budget-divergent, the very case the calibration
-        # names (Wesker docs/STEP_BUDGET_CALIBRATION_2026-10-25.md).
-        orig_steps: list[int] = []
-        original_observations: list[_ObservedOutcome] = []
-        mutant_observations: list[_ObservedOutcome] = []
-        original_outcome = _outcome(
-            original,
-            args,
-            _outcome_budget_s(deadline),
-            cap=None,
-            step_count=orig_steps,
-            observations=original_observations,
-        )
-        orig_it = orig_steps[0] if orig_steps else None
-        mut_cap = (
-            step_cap(orig_it, factor=STEP_BUDGET_FACTOR, floor=STEP_BUDGET_FLOOR)
-            if orig_it is not None
-            else None
-        )
-        mutant_outcome = _outcome(
-            mutant,
-            args,
-            _outcome_budget_s(deadline),
-            cap=mut_cap,
-            observations=mutant_observations,
-        )
-        disposition = _pair_disposition(original_outcome, mutant_outcome)
-        if disposition == "step-budget-divergent":
-            diverged = True
+        pair = _observe_pair(original, mutant, args, deadline)
+        # A refused write is `blocked`; it is recorded so the verdict can name the one repair no longer
+        # search supplies (#105).
+        write_refused = write_refused or pair.write_refused
+        if pair.disposition not in ("witness", "crash-only"):
+            # `step-budget-divergent` is recorded; `blocked` is #42's honest uncertainty (a timeout, an
+            # uncopyable input, a refused write, a missing payload): unclassified, never
+            # candidate-equivalent, and a value-witness on a LATER input still outranks it; `same`
+            # records nothing.
+            diverged = diverged or pair.disposition == "step-budget-divergent"
+            blocked = blocked or pair.disposition == "blocked"
             continue
-        if disposition == "blocked":
-            # #42: classification TIMED OUT on this input — record it and move on. The mutant is
-            # unclassified (honest uncertainty), never candidate-equivalent (a false claim that no
-            # input distinguishes it). A value-witness on a LATER input still outranks this.
-            blocked = True
-            continue
-        if disposition == "same":
-            continue
-        if not original_observations or not mutant_observations:
-            blocked = True
-            continue
-        original_observation = original_observations[0]
-        mutant_observation = mutant_observations[0]
-        if disposition == "crash-only":
+        original_observation, mutant_observation = pair.original, pair.mutant
+        if pair.disposition == "crash-only":
             # Crash-only kill — not a value-witness (see crash-as-spec), but not nothing
             # either: the input IS the fact that decides what a caller can do next (write a
             # golden capture at it, so a suite that never exercised the weakened guard at
@@ -1983,7 +2053,7 @@ def _search_witness(
                     original_observation.value,
                 )
             continue
-        return (
+        return _WitnessSearch(
             # Rendering payloads belong to the calls that established the
             # distinction, rather than unbounded re-executions of either arm.
             Witness(
@@ -1996,6 +2066,7 @@ def _search_witness(
             None,
             blocked,
             diverged,
+            write_refused,
         )
     # FALLBACK — receiver STATE (#25, "fallback only"): the value search found no witness, so retry
     # observing the receiver's post-call state. Extracted whole so this function's job (the value
@@ -2003,7 +2074,9 @@ def _search_witness(
     state_witness, state_blocked = _state_fallback_witness(
         original, mutant, candidate_inputs, deadline=deadline
     )
-    return state_witness, crash_witness, (blocked or state_blocked) and not diverged, diverged
+    return _WitnessSearch(
+        state_witness, crash_witness, (blocked or state_blocked) and not diverged, diverged, write_refused
+    )
 
 
 def _state_fallback_witness(
@@ -2094,6 +2167,12 @@ class MutantVerdict:
     # Never true when killable. Distinct from blocked (wall timeout): this records an established
     # exceedance of the declared step bound, not a proof of infinite execution.
     diverged: bool = False
+    # The search could not run on this mutant because the function WRITES FILES (#105): every input it
+    # tried made a speculative run write, which `block_fs_writes` prevented, so the run observed nothing.
+    # Set with ``blocked`` (the verdict stays unclassified), never alone, and never when killable. It
+    # is what lets a page name the repair a longer search cannot supply: a test that writes under
+    # tmp_path.
+    write_refused: bool = False
 
     @property
     def label(self) -> str:
@@ -2173,6 +2252,10 @@ class SurvivorReport:
     verdicts: tuple[MutantVerdict, ...]
     unclassified: tuple[str, ...]  # survivor descriptions with no verdict
     note: str | None = None  # function-level reason when the search could not run at all
+    # The members of ``unclassified`` whose search could not run because the function WRITES FILES
+    # (#105): every input made a speculative run write, which was prevented, so nothing was observed.
+    # Named apart because their repair is not a longer search: a test that writes under tmp_path.
+    write_refused: tuple[str, ...] = ()
     manual_equivalent: tuple[str, ...] = ()  # mutations manually flagged equivalent (the oracle)
     # Mutations manually flagged a FENCE — an authored MUST-NOT (Def. 12.1 `invalid`: this survival
     # is a bug). A fence with no distinguishing witness is an UNENFORCED negative degree of freedom,
@@ -2293,7 +2376,7 @@ def classify_survivor(
     ``deadline`` (absolute monotonic seconds) is the aggregate command wall (issue #31): the
     witness search stops when it passes, and the verdict comes back ``blocked`` — never a
     false candidate-equivalent from a search the budget cut short."""
-    witness, crash_witness, blocked, diverged = _search_witness(
+    witness, crash_witness, blocked, diverged, write_refused = _search_witness_detail(
         original, mutant, candidate_inputs, deadline=deadline
     )
     return MutantVerdict(
@@ -2308,4 +2391,5 @@ def classify_survivor(
         suite_detected=suite_detected,
         blocked=blocked and witness is None and not diverged,
         diverged=diverged and witness is None,
+        write_refused=write_refused and blocked and witness is None and not diverged,
     )
