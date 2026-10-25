@@ -2055,9 +2055,11 @@ def _final_banner_status(result) -> str:
     _floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
     if _floor:
         _more = f" (+{len(_floor) - 1} more)" if len(_floor) > 1 else ""
+        # The run that found the failing floor was measured under a receiver/capability set too, and
+        # the printed re-run carries it (#115); the FINAL names it so the two can be checked together.
         return (
             f"FINAL {result.function}: ⚠ FAILING NOW — {_floor[0]}{_more} reaches this function and fails "
-            "on current code; nothing written; certificate withheld"
+            f"on current code; nothing written; certificate withheld{_measurement_scope(result)}"
         )
     # A proof basis that RAN and did not pass (issue #38) is not a certificate either — the
     # mutation score can be perfect while the written suite is red or uncollectable under real
@@ -2108,8 +2110,10 @@ def _final_banner_status(result) -> str:
         # ✗ made a good result look like a broken run. State the residual plainly instead —
         # what is missing is already named in `bits`.
         status = "Incomplete" + (f": {' · '.join(bits)}" if bits else "")
-    if result.complete:
-        status += _measurement_scope(result)
+    # Every standing names the world it was measured in (#115). An Incomplete run is still a
+    # measurement under its receiver/capability set, and its printed re-run reproduces that set; a
+    # FINAL that dropped it left the reader unable to tell which world the residual belongs to.
+    status += _measurement_scope(result)
     # A COMPLETE whose LINE axis rested on the observed union is a weaker claim than one that
     # rested on admissible evidence (issue #59), and for the same reason the two lines above
     # exist: the certificate holds UNDER something, so it has to say what. The engine reports an

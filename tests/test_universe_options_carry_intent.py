@@ -249,7 +249,15 @@ def test_a_declared_environment_survives_into_the_rerun_and_the_rerun_runs(tmp_p
     )
     first = _cli(project, "converge", "m.py::mode", "--env", "MODE=prod")
     _skip_if_cut(first)
-    rerun = next(line for line in first.stdout.splitlines() if "Re-run" in line).split("Re-run", 1)[1].strip()
+    # `test_wrong` reaches `mode` and fails, so since #114 converge stops at the failing floor and
+    # prints its re-run as "After fixing" (the STOP block's "Re-run" belongs to other stops).
+    label, line = next(
+        (label, line)
+        for line in first.stdout.splitlines()
+        for label in ("Re-run", "After fixing")
+        if label in line
+    )
+    rerun = line.split(label, 1)[1].strip()
     argv = shlex.split(rerun)
     parsed = _build_parser().parse_args(argv[1:])
     assert parsed.env == ["MODE=prod"]
