@@ -305,6 +305,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/doctor.py::order_remedy": {
+    "cut_reasons": [],
+    "function_digest": "13b6ea8a899edaac",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/doctor.py::process_disposition": {
     "cut_reasons": [],
     "function_digest": "e61f1b00012ac05e",

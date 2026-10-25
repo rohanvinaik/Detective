@@ -579,6 +579,30 @@ def same_recorded_state(a: dict | None, b: dict | None) -> bool:
     ) in ("unchanged_exact", "unchanged_cheap")
 
 
+def order_remedy(target: str, unpinned_regions: list[str], region_count: int) -> tuple[str, str]:
+    """What doctor prescribes for an `order` finding: a named code and the region it names (#111,
+    pure — pinned).
+
+    `converge` accepts only `file.py::function`, while the yellow commands that raise this finding
+    (`plan`, `survey`) take a file or a tree; echoing their target into `converge` printed a command
+    converge refuses. So the remedy is one function, or a sentence that says why there is none:
+
+    * ``converge_target`` — the subject is already one function: converge it.
+    * ``converge_region`` — a path: the first region under it that no certificate records as pinned,
+      in the plan's own region order (``unpinned_regions`` arrives in that order).
+    * ``reread``          — every region under the path is pinned: nothing to converge; re-read it.
+    * ``no_function``     — the path holds no function Detective can read: no command can be named.
+    """
+    text = target.strip()
+    if "::" in text:
+        return "converge_target", text
+    if unpinned_regions:
+        return "converge_region", unpinned_regions[0]
+    if region_count > 0:
+        return "reread", ""
+    return "no_function", ""
+
+
 def red_facts(root: str, herb_of: dict | None = None) -> dict:
     """Read the ledger and answer RED's four questions about the operator (never raises).
 
@@ -632,8 +656,28 @@ def red_facts(root: str, herb_of: dict | None = None) -> dict:
 
     herb = (herb_of or COMMAND_HERB).get(verb, "")
     func_key = str(target) if target and "::" in str(target) else ""
-    measured = any(r.get("target") == target and r.get("verb") in ("converge", "audit") for r in subjects)
-    out["order"] = _L.order_disposition(herb, _target_ever_pinned(root, func_key), measured)
+    # A PATH target (a file or a tree — `plan`, `survey`) is measured and pinned through its REGIONS
+    # (#111): a converge of `m.py::double` measures `m.py`, and a taste read over the path
+    # presupposes every region under it pinned. Enumerated only for a yellow command on a path —
+    # the one subject an ordering finding about a path can come from.
+    if func_key:
+        own = {_region_key(root, func_key)}
+        unpinned = [] if _target_ever_pinned(root, func_key) else [func_key]
+        region_count = 1
+    else:
+        regions = _path_regions(root, str(target or "")) if herb == "yellow" else []
+        own = set(regions)
+        unpinned = [key for key in regions if not _target_ever_pinned(root, key)]
+        region_count = len(regions)
+    measured = any(
+        r.get("verb") in ("converge", "audit")
+        and (r.get("target") == target or _region_key(root, r.get("target")) in own)
+        for r in subjects
+    )
+    out["order"] = _L.order_disposition(herb, region_count > 0 and not unpinned, measured)
+    remedy, region = order_remedy(str(target or ""), unpinned, region_count)
+    out["order_remedy"], out["order_region"] = remedy, region
+    out["order_more"] = len(unpinned) - 1 if remedy == "converge_region" else 0
 
     mine, others, codes = _outcome_split(latest.get("outcome") or [], verb)
     out["outcome"] = _L.outcome_disposition(mine, others, len(codes) <= 1)
@@ -676,11 +720,46 @@ def _target_ever_pinned(root: str, func_key: str) -> bool:
     try:
         from .certificates import load_certificate
 
-        cert = load_certificate(root, func_key, "")
+        # The store converge writes (`tests/detective/`, certificates.DEFAULT_WRITE_DIR). An empty
+        # write_dir read `<root>/certificates.json`, which converge never writes — so no target ever
+        # read as pinned, and an ordering finding could never clear (#111).
+        cert = load_certificate(root, func_key)
         return bool(cert) and cert.get("standing") == "complete"
     # BLE001: an unreadable certificate is "not pinned", never a raised diagnostic
     except Exception:  # noqa: BLE001
         return False
+
+
+def _region_key(root: str, target: object) -> str:
+    """A ``file.py::function`` target in the form ``iter_functions`` yields — the file part
+    project-root-relative — so ``./m.py::f`` and an absolute spelling name the same region. Anything
+    without ``::`` comes back as given: it names no region."""
+    text = str(target or "")
+    file, sep, function = text.rpartition("::")
+    if not sep:
+        return text
+    root_abs = os.path.abspath(root)
+    full = file if os.path.isabs(file) else os.path.join(root_abs, file)
+    return f"{os.path.relpath(full, root_abs)}::{function}"
+
+
+def _path_regions(root: str, target: str) -> list[str]:
+    """Every region under a path target, in the plan's own order — the same walk `plan` reads
+    (`parsimony_map.iter_functions`). ``[]`` when the path holds none or cannot be read (never
+    raises): what cannot be read names no region."""
+    if not target:
+        return []
+    try:
+        from .parsimony_map import iter_functions
+
+        root_abs = os.path.abspath(root)
+        full = target if os.path.isabs(target) else os.path.join(root_abs, target)
+        if not os.path.exists(full):
+            return []
+        return [key for key, _node, _is_method in iter_functions(full, root_abs)]
+    # BLE001: a process read never raises; an unreadable path names no region
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def pytest_importable() -> bool:

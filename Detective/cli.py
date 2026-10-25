@@ -9943,6 +9943,32 @@ def _doctor_red(root: str) -> tuple[str, dict]:
     return process_disposition(facts["drift"], facts["spiral"], facts["order"]), facts
 
 
+def _order_remedy_rows(facts: dict, verb: str, target: str) -> list[str]:
+    """The ordering finding's "Do this" (#111), rendered from `doctor.order_remedy`'s code as
+    `red_facts` computed it: one function `converge` accepts, or a sentence naming why there is
+    none — never a path echoed into a verb that refuses it."""
+    remedy = facts.get("order_remedy") or "no_function"
+    region = facts.get("order_region") or ""
+    more = int(facts.get("order_more") or 0)
+    if remedy in ("converge_target", "converge_region"):
+        rows = [_row(_DO_THIS_ROW, f"detective converge '{region}'   # then re-read")]
+        if more:
+            rows.append(_row("", f"({more} more unpinned function(s) under {target} — converge each,"))
+            rows.append(_row("", "then re-read)"))
+        return rows
+    if remedy == "reread":
+        return [
+            _row(
+                _DO_THIS_ROW,
+                f"every function under {target} is pinned — re-read: detective {verb} '{target}'",
+            )
+        ]
+    return [
+        _row(_DO_THIS_ROW, f"no function under {target} can be named for converge — the path holds"),
+        _row("", "no Python function Detective can read, so nothing there was measured."),
+    ]
+
+
 def _render_doctor_red(code: str, facts: dict) -> list[str]:
     """RED's rows. Completes green rather than standing alone (§2): every row here is about what
     the OPERATOR did, and none of it is a claim about the code."""
@@ -9989,7 +10015,7 @@ def _render_doctor_red(code: str, facts: dict) -> list[str]:
             _row(_WHY_IT_MATTERS_ROW, "the style pass is CONDITIONAL on behaviour being pinned. A"),
             _row("", "seam proposed over an unpinned function cannot be proven"),
             _row("", "behaviour-preserving, so the read means less than it looks."),
-            _row(_DO_THIS_ROW, f"detective converge '{target}'   # then re-read"),
+            *_order_remedy_rows(facts, verb, target),
         ]
     elif code == "repeat_no_change":
         out += [
