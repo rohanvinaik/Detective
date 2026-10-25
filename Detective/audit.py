@@ -763,8 +763,9 @@ def candidate_reach(
     full = file if os.path.isabs(file) else os.path.join(root, file)
     callables = list(discover_test_callables(root, os.path.relpath(full, root), [function]))
     test_files = {os.path.realpath(o) for c in callables if (o := callable_origin(c))}
+    # Deduplicated (the three prefixes often coincide) in a deterministic order.
     interpreter = tuple(
-        {os.path.realpath(p) + os.sep for p in (sys.prefix, sys.base_prefix, sys.exec_prefix)}
+        dict.fromkeys(os.path.realpath(p) + os.sep for p in (sys.prefix, sys.base_prefix, sys.exec_prefix))
     )
     by_identity: dict[str, Any] = {}
     for c in callables:

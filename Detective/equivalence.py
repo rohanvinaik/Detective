@@ -40,29 +40,14 @@ from typing import Any
 from Wesker.interrupt import JoinedWorker
 from Wesker.interrupt import bounded_join as _bounded_join
 
-# Step budget from Wesker.monitoring for deterministic loop divergence detection
-try:
-    from Wesker.monitoring import (
-        StepBudgetExceeded,
-        is_budget_active,
-        step_budget,
-        step_cap,
-    )
-except ImportError:  # pragma: no cover
-    import contextlib
-
-    class StepBudgetExceeded(BaseException):
-        pass
-
-    def is_budget_active() -> bool:
-        return False
-
-    def step_budget(codes: Any, cap: int | None) -> Any:
-        return contextlib.nullcontext()
-
-    def step_cap(original_iterations: int, factor: int, floor: int) -> int:
-        return 5000
-
+# Step budget from Wesker.monitoring for deterministic loop divergence detection. The declared floor
+# (wesker>=1.2.2) always provides it; a Wesker without it fails at import, as an unmet floor should.
+from Wesker.monitoring import (
+    StepBudgetExceeded,
+    is_budget_active,
+    step_budget,
+    step_cap,
+)
 
 # What the tracers below may swallow. `Abandoned` derives from BaseException in Wesker BY DESIGN,
 # so a test's own `except Exception` cannot swallow the stop — which is why tracing has to reach

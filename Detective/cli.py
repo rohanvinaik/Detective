@@ -8318,7 +8318,12 @@ def _run_audit(args, file, function) -> int:
         # A refused removal is exit 3 (invalid_measurement_rerun): re-measure the target first. A re-check
         # that found an obligation newly open is exit 1 (gap_or_refusal): a removal may have broken it.
         reading = (record.get("after") or {}).get("reading", "")
-        removal_exit = 3 if record["gate"] != "proceed" else 1 if reading == "gap_new" else 0
+        if record["gate"] != "proceed":
+            removal_exit = 3
+        elif reading == "gap_new":
+            removal_exit = 1
+        else:
+            removal_exit = 0
         if args.json:
             payload["removal"] = record
             print(json.dumps(_with_exit(payload, removal_exit), indent=2, default=str))
