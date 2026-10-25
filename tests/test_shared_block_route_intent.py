@@ -120,6 +120,7 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
         cut_reasons=cut_reasons,
         collection_conflicts=(),
         budget_exhausted=False,
+        write_refused_survivors=(),  # a ConvergeResult's field (#105): none of these is write-refused
     )
 
 

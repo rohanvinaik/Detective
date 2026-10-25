@@ -362,6 +362,9 @@ class ConvergeResult:
     remaining: tuple[str, ...] = ()  # e.g. ("2 VALUE", "1 STATE") — the survivors and why
     wiring: PytestWiring | None = None  # how the written suite was wired to run under pytest
     survivor_report: SurvivorReport | None = None  # killable/equivalent/uncertain for leftovers
+    # Each survivor a file write kept the search from, as `(mutant_id, change, standing, killer)`
+    # (`audit.write_refused_survivors`, #105): only an `open` one is a residual a written test closes.
+    write_refused_survivors: tuple[tuple[str, str, str, str], ...] = ()
     functionally_complete: bool = False  # every KILLABLE mutant killed (equivalents may remain)
     # Second completeness axis + minimality (from Wesker's baseline line-coverage pass).
     line_complete: bool = True  # every executable target line covered by some test
@@ -1594,6 +1597,15 @@ def admissible_proof_coverage(result: Any) -> tuple[dict[str, list[int]], str]:
     )
     proof_coverage = result.line_coverage if basis == "observed" else reported
     return proof_coverage, basis
+
+
+def _named_write_refused(report: Any, result: Any) -> tuple[tuple[str, str, str, str], ...]:
+    """`audit.write_refused_survivors` over a converge's survivor report and final profile (#105): the
+    accessor unpacks the objects; the decision is audit's, so the two verbs name them alike."""
+    from .audit import write_refused_survivors
+
+    records = getattr(report, "write_refused_records", ()) if report is not None else ()
+    return write_refused_survivors([list(r) for r in records], dict(getattr(result, "kill_matrix", {}) or {}))
 
 
 def _missing_line_standings(result: Any, missing: list[int]) -> tuple[tuple[int, str], ...]:
@@ -2928,6 +2940,7 @@ def _converge_impl(
         remaining=_remaining_summary(final_result.value_survivor_records),
         wiring=wiring,
         survivor_report=survivor_report,
+        write_refused_survivors=_named_write_refused(survivor_report, final_result),
         functionally_complete=functionally_complete,
         line_complete=not missing,
         missing_lines=tuple(missing),

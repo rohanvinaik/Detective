@@ -2256,6 +2256,11 @@ class SurvivorReport:
     # (#105): every input made a speculative run write, which was prevented, so nothing was observed.
     # Named apart because their repair is not a longer search: a test that writes under tmp_path.
     write_refused: tuple[str, ...] = ()
+    # ``(mutant_id, mutant, change, killed_by)`` for each of ``write_refused``, in the same order (#105).
+    # The one-line change is what a person needs to write the test that pins it; ``killed_by`` (the
+    # suite's own kill reason, "" for none) says whether the suite already detects it, and ``mutant``
+    # (the description, the kill matrix's key) finds the test that does.
+    write_refused_records: tuple[tuple[str, str, str, str], ...] = ()
     manual_equivalent: tuple[str, ...] = ()  # mutations manually flagged equivalent (the oracle)
     # Mutations manually flagged a FENCE — an authored MUST-NOT (Def. 12.1 `invalid`: this survival
     # is a bug). A fence with no distinguishing witness is an UNENFORCED negative degree of freedom,

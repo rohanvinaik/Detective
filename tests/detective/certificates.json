@@ -100,6 +100,18 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/audit.py::write_refused_standing": {
+    "cut_reasons": [],
+    "function_digest": "1d7241f61704b25e",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::write_refused_survivors": {
+    "cut_reasons": [],
+    "function_digest": "62cd159d73d44f91",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/binding.py::classify_target": {
     "function_digest": "b23ec4f2f66218df",
     "refusal": "",
@@ -189,7 +201,7 @@
   },
   "Detective/cli.py::converge_next_action": {
     "cut_reasons": [],
-    "function_digest": "8a2d590b072bf279",
+    "function_digest": "40ad3c2d4642bb0e",
     "refusal": "",
     "standing": "complete"
   },
@@ -201,7 +213,7 @@
   },
   "Detective/cli.py::converge_step": {
     "cut_reasons": [],
-    "function_digest": "ac5a1d9a9a3015c2",
+    "function_digest": "69b304284663e883",
     "refusal": "",
     "standing": "complete"
   },
@@ -318,6 +330,12 @@
   "Detective/cli.py::universe_tail": {
     "cut_reasons": [],
     "function_digest": "20c1980ea76e3e61",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::write_refused_residual": {
+    "cut_reasons": [],
+    "function_digest": "a35744385f35683b",
     "refusal": "",
     "standing": "complete"
   },

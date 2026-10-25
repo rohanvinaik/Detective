@@ -102,11 +102,9 @@ def test_audits_ladder_names_the_write_refused_residual_where_done_would_be_fals
 
 
 def test_converges_ladder_hands_the_residual_to_a_test_never_to_an_input_ask():
-    assert converge_next_action("incomplete", "", True, False, write_refused_only=True) == "pin_write_refused"
+    assert converge_next_action("incomplete", "", True, False, write_refused="open") == "pin_write_refused"
     assert converge_next_action("incomplete", "", True, False) != "pin_write_refused"
-    assert (
-        converge_next_action("ungateable", "", True, False, write_refused_only=True) == "repair_measurement"
-    )
+    assert converge_next_action("ungateable", "", True, False, write_refused="open") == "repair_measurement"
 
 
 @pytest.mark.parametrize("two_sign", [False, True])
@@ -169,7 +167,7 @@ def test_a_file_writer_gets_a_full_page_naming_the_test_to_write_and_nothing_lan
     audit = _detective(project, "audit", "m.py::atomic_write_text")
     assert audit.returncode == 0, audit.stdout + audit.stderr
     assert "filesystem_write_blocked" not in audit.stdout, "one refused input ended the measurement"
-    assert "survivor(s) Detective could not run: the function writes files" in audit.stdout, audit.stdout
+    assert "survivor(s) nothing in the suite detects: the function writes files" in audit.stdout, audit.stdout
     assert "DONE" not in audit.stdout, "DONE over a residual a hand-written test reaches"
 
     converge = _detective(project, "converge", "m.py::atomic_write_text")

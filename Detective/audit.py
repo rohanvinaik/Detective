@@ -125,9 +125,13 @@ class SuiteAudit:
     authored_fence: int = 0
     candidate_equivalent: int = 0  # survivors with no distinguishing input found (UNPROVEN — flag to confirm)
     unclassified: int = 0  # survivors the search could not classify (may be killable OR equivalent)
-    # How many of `unclassified` the search could not run because the function writes files (#105):
-    # their repair is a test that writes under tmp_path, which no longer search supplies.
+    # How many of `unclassified` the search could not run because the function writes files AND nothing
+    # in the suite detects (#105): the residual a test written under tmp_path closes, and the count
+    # audit's ladder routes on. A crash-detected one is named in `write_refused_survivors`, never here.
     write_refused: int = 0
+    # Every write-refused survivor as `(mutant_id, change, standing, killer)` (`write_refused_survivors`):
+    # the page names the open ones to pin and the crash-detected ones with the test that detects them.
+    write_refused_survivors: tuple[tuple[str, str, str, str], ...] = ()
     step_budget_divergent: int = 0  # survivors whose loop execution deterministically diverged (#80/#126)
     # Mutants that reached NO verdict in the profile — `(mutant_id, disposition)`, the same derivation
     # converge carries (`validity.unresolved_mutant_records`), so the two verbs name them alike (#126).
@@ -505,6 +509,47 @@ def missing_line_standing(
     return "unexecuted"
 
 
+def write_refused_standing(killed_by: str) -> str:
+    """Whether the suite already detects a survivor whose search was refused because the function writes
+    files (#105, pure — pinned).
+
+    The search that would sort such a survivor into crash-only, killable or equivalent is exactly the one
+    refused for a writer, so #105's first route handed EVERY one back as "write a test". That loops:
+    measured on #105's own fixture (2026-10-25), a test written to the letter of that advice closed none
+    of the six, was then called redundant and `--remove`d, and the advice returned. The suite's own kill
+    is evidence that needs no speculative run:
+
+      "crash_detected"  the suite kills it, by a crash: detected, though no value assertion pins it, and
+                        whether one could was not searched. Named, never a hand-back that keeps returning.
+      "open"            no test in the suite fails under it (a timeout reads `undetermined` in Wesker's own
+                        disposition, never a detection): a test written to fail under its change closes it.
+    """
+    return "crash_detected" if killed_by == "crash" else "open"
+
+
+def write_refused_survivors(
+    records: list[list[str]],
+    kill_matrix: dict[str, list[str]],
+) -> tuple[tuple[str, str, str, str], ...]:
+    """Each write-refused survivor as ``(mutant_id, change, standing, killer)`` (#105, pure — pinned).
+
+    ``records`` are `SurvivorReport.write_refused_records` (``mutant_id, mutant, change, killed_by``),
+    and ``kill_matrix`` the profile's map from a mutant's description to the tests that kill it.
+    ``standing`` is `write_refused_standing`; ``killer`` names a test that kills a ``crash_detected``
+    one ("" for an open one), so the page can say WHICH test detects it: the first in sorted order where
+    the profile recorded several. A profile in first-killer mode records one, the first to kill in its
+    own run order, so audit and converge may name different tests; each detects it. One derivation,
+    read by audit's page, converge's page and both ladders: only an ``open`` one is a residual a
+    written test can close.
+    """
+    out: list[tuple[str, str, str, str]] = []
+    for mutant_id, mutant, change, killed_by in records:
+        standing = write_refused_standing(killed_by)
+        killers = sorted(kill_matrix.get(mutant, [])) if standing == "crash_detected" else []
+        out.append((mutant_id, change, standing, killers[0] if killers else ""))
+    return tuple(out)
+
+
 def baseline_typed_outcomes(result: Any) -> dict[str, str]:
     """The engine's typed baseline outcome per test id (#124), read off its trace ledger.
 
@@ -628,6 +673,7 @@ def audit_suite(
     boundary_probe = ""
     unclassified = 0
     write_refused = 0
+    write_refused_named: tuple[tuple[str, str, str, str], ...] = ()
     classified = False
     # The measurement-block signals (Finding E), carried onto the audit so its next action names the
     # SAME escape converge does via `measurement_block_route`. Defaulted here so the advisory
@@ -664,7 +710,10 @@ def audit_suite(
         crash_only_ids = tuple(v.mutant_id for v in report.equivalent if v.crash_only)
         boundary_probe = str(getattr(report, "boundary_probe", "") or "")
         unclassified = len(report.unclassified)
-        write_refused = len(report.write_refused)
+        write_refused_named = write_refused_survivors(
+            [list(r) for r in getattr(report, "write_refused_records", ())], result.kill_matrix
+        )
+        write_refused = sum(1 for s in write_refused_named if s[2] == "open")
         step_budget_divergent = len(getattr(report, "step_budget_divergent", ()))
         # An authored fence is an UNENFORCED must-not (Q8) — a gap like killable/unclassified, so it
         # blocks mutant-completeness exactly as they do; never treated as a discharged equivalent.
@@ -790,6 +839,7 @@ def audit_suite(
         boundary_probe=boundary_probe,
         unclassified=unclassified,
         write_refused=write_refused,
+        write_refused_survivors=write_refused_named,
         step_budget_divergent=step_budget_divergent,
         unresolved_mutants=unresolved_mutant_records(getattr(result, "unscored_records", None) or ()),
         value_killed=result.value_killed,

@@ -3559,9 +3559,11 @@ def classify_survivors(
         }
 
     # Survivors whose search the function's own file writes refused (#105), by the id `unclassified`
-    # carries. Gathered across every pool and narrowed to the FINAL unclassified list below, so a
-    # retry that classifies one drops it.
-    _write_refused_ids: set[str] = set()
+    # carries, each with `(mutant_id, mutant, change, killed_by)` from its record: what a person needs to
+    # pin it, and whether the suite already detects it (``mutant`` is the kill matrix's key). Gathered
+    # across every pool and narrowed to the FINAL unclassified list below, so a retry that classifies
+    # one drops it.
+    _write_refused_ids: dict[str, tuple[str, str, str, str]] = {}
 
     def _classify_pool(
         pool: list[tuple],
@@ -3587,7 +3589,12 @@ def classify_survivors(
             else:  # "unclassified" — no verdict to trust and no flag speaks for it
                 _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
                 if verdict is not None and verdict.write_refused:
-                    _write_refused_ids.add(_unclassified[-1])
+                    _write_refused_ids[_unclassified[-1]] = (
+                        str(rec.get("mutant_id", "") or ""),
+                        str(rec.get("mutant", "") or ""),
+                        str(rec.get("change", "") or ""),
+                        str(rec.get("killed_by", "") or ""),
+                    )
 
         for rec in survivors if records is None else records:
             # Aggregate wall exhausted (issue #31): stop starting new witness searches. Every
@@ -3916,6 +3923,7 @@ def classify_survivors(
         tuple(unclassified),
         note,
         write_refused=tuple(u for u in unclassified if u in _write_refused_ids),
+        write_refused_records=tuple(_write_refused_ids[u] for u in unclassified if u in _write_refused_ids),
         manual_equivalent=tuple(manual_equivalent),
         authored_fence=tuple(fence),
         inputs_expressible=expressible,

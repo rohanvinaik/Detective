@@ -2777,7 +2777,7 @@ def _format_converge_terse(
         lines.append(_row("✗ still killable", f"{len(rep.killable)} — a witness exists for each"))
     if rep is not None and rep.unclassified:
         lines.append(_row("⚠ unclassified", f"{len(rep.unclassified)} — the search could not run on them"))
-        lines.extend(_write_refused_rows(len(rep.write_refused)))
+        lines.extend(_write_refused_rows(result.write_refused_survivors))
     if rep is not None and getattr(rep, "step_budget_divergent", ()):
         lines.append(
             _row(
@@ -2973,6 +2973,11 @@ def candidate_equivalent_caveat(
     return "none"
 
 
+# `write_refused_residual`'s codes → the route converge takes for each (#105). Any other code, "none"
+# included, is no write-refused residual and falls through to the routes below.
+_WRITE_REFUSED_ROUTE = {"open": "pin_write_refused", "detected": "write_refused_detected"}
+
+
 def converge_next_action(
     standing: str,
     session_reason: str,
@@ -2983,7 +2988,7 @@ def converge_next_action(
     load_failed: bool = False,
     needs_sample: bool = False,
     has_diverged: bool = False,
-    write_refused_only: bool = False,
+    write_refused: str = "none",
 ) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
@@ -3035,9 +3040,14 @@ def converge_next_action(
       is not closable by any argument the reader can supply. Ranking the gap first is the
       originally observed bug.
     ``pin_write_refused`` — the only residual is survivors the search could not run because the
-      function writes files (#105). An `--input` is run speculatively like an invented one and its
-      write is refused the same way, so the gap ask below would be a loop. The person writes the
-      test, with paths under tmp_path.
+      function writes files (#105), and nothing in the suite detects at least one of them
+      (`write_refused_residual` reads ``open``). An `--input` is run speculatively like an invented one
+      and its write is refused the same way, so the gap ask below would be a loop. The person writes
+      the test, with paths under tmp_path, that fails under each named change.
+    ``write_refused_detected`` — the same residual, and the suite detects every one, by crash
+      (``detected``). Whether a value assertion could also pin one was not searched, and nothing
+      Detective runs or takes as input classifies them: a hand-back naming each, never DONE over the
+      Incomplete FINAL they leave, and never a `flag` offer for a survivor no search judged.
     ``close_the_gap`` — the suite runs and a real residual remains. Witnesses and `--input` are
       the documented interface, and here they actually work.
 
@@ -3081,8 +3091,8 @@ def converge_next_action(
     # The latent case that argued for hoisting higher — a load-failed target with no line gap
     # reaching `settled` — is closed one layer up instead, where it belongs: `target_load_failed`
     # makes the measurement ungateable, so `standing` returns `repair_measurement` above (R1).
-    if write_refused_only:
-        return "pin_write_refused"
+    if write_refused in _WRITE_REFUSED_ROUTE:
+        return _WRITE_REFUSED_ROUTE[write_refused]
     _block = measurement_block_route(load_failed, inputs_expressible, needs_sample)
     if _block:
         return _block
@@ -3318,6 +3328,31 @@ def _converge_blocked(result, rep) -> bool:
     return not result.functionally_complete
 
 
+def write_refused_residual(
+    standings: list[str], unclassified: int, has_killable: bool, has_line_gap: bool
+) -> str:
+    """Whether converge's open residual is ONLY survivors a file write kept the search from, and whether
+    the suite already detects them (#105, pure — pinned).
+
+    ``standings`` are `audit.write_refused_survivors`' standings over the final survivor report, and
+    ``unclassified`` that report's unclassified count. #105's first route sent every write-refused
+    residual to WRITE TEST. On its own fixture (measured 2026-10-25) five of the six were already
+    detected by crash, and the advice looped: a test written to its letter closed none of them, was
+    called redundant and removed, and the advice returned. Split so the route tells the two apart:
+
+      "open"      every unclassified survivor is write-refused, nothing is killable, no line is
+                  uncovered, and nothing in the suite detects at least one: a test that fails under its
+                  change closes it
+      "detected"  the same residual, and the suite detects every one, by crash: whether a value pins
+                  one was not searched, and nothing Detective runs or takes as input classifies them
+      "none"      anything else: no write-refused survivor, or a mixed residual, which keeps its own
+                  route
+    """
+    if not standings or has_killable or has_line_gap or len(standings) != unclassified:
+        return "none"
+    return "open" if "open" in standings else "detected"
+
+
 def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
     """``(standing, next_action)`` — the certificate standing and `converge_next_action`'s code, read off
     a converge result once, for the decision record (`_converge_decision`).
@@ -3364,11 +3399,18 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         and bool(getattr(rep, "note", None))
     )
     _has_diverged = bool(rep is not None and getattr(rep, "step_budget_divergent", ()))
-    # The open residual is ONLY survivors a file write kept the search from (#105): nothing killable,
-    # no line gap, and every unclassified survivor write-refused. A mixed residual keeps its own route.
-    _refused = tuple(getattr(rep, "write_refused", ()) or ()) if rep is not None else ()
-    _write_refused_only = bool(
-        _refused and not rep.killable and len(_refused) == len(rep.unclassified) and not result.missing_lines
+    # Whether the open residual is ONLY survivors a file write kept the search from (#105), and whether
+    # the suite detects them, read off the one derivation both verbs name them from. Read only where an
+    # unclassified survivor exists, and then directly (§9.7): a renamed field must raise, never route.
+    _write_refused = (
+        write_refused_residual(
+            [standing_ for _mid, _change, standing_, _killer in result.write_refused_survivors],
+            len(rep.unclassified),
+            bool(rep.killable),
+            bool(result.missing_lines),
+        )
+        if rep is not None and rep.unclassified
+        else "none"
     )
     return standing, converge_next_action(
         standing,
@@ -3380,7 +3422,7 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         load_failed=_rep_load_failed,
         needs_sample=_needs_sample,
         has_diverged=_has_diverged,
-        write_refused_only=_write_refused_only,
+        write_refused=_write_refused,
     )
 
 
@@ -3483,6 +3525,9 @@ def converge_step(
                             repair_measurement that runs nothing; the code itself for
                             fix_verification / fix_load / install_pytest; `empty_collection` for a
                             migrated regime that still collects no test
+      ("hand_back", "crash_detected")
+                            write_refused_detected: survivors a file write kept the search from, every one
+                            detected by crash (#105); nothing Detective runs classifies them
       ("decide", "fix_failing_test")
                             a test that is this function's business fails on current code (#114):
                             whether the TEST or the CODE is wrong is a person's call — audit_step's
@@ -3515,6 +3560,8 @@ def converge_step(
         return "decide", "fix_failing_test"
     if code == "pin_write_refused":
         return "write_test", "pin_write_refused"
+    if code == "write_refused_detected":
+        return "hand_back", "crash_detected"
     if code == "fix_collection":
         if marker_declared and session_reason == "empty_collection":
             return "stop", "empty_collection"
@@ -4347,7 +4394,9 @@ def _converge_action(
             *_load_fix_rows(reason, _command_text(d.then)),
         ]
     if kind == "pin_write_refused":
-        return _write_refused_action(len(rep.write_refused), d.then)
+        return _write_refused_action(result.write_refused_survivors, d.then)
+    if kind == "write_refused_detected":
+        return _write_refused_detected_action(result.write_refused_survivors)
     if kind == "provide_sample":
         # The module loaded and the search ran in-process, but no input reached the function — so
         # this is NOT a collection/regime problem migrate touches. Surface the report's OWN guidance
@@ -5950,7 +5999,7 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         )
     if a.unclassified:
         lines.append(_row("⚠ unclassified", f"{a.unclassified} — the search could not run on them"))
-        lines.extend(_write_refused_rows(a.write_refused))
+        lines.extend(_write_refused_rows(a.write_refused_survivors))
     if getattr(a, "step_budget_divergent", 0):
         lines.append(
             _row(
@@ -6238,7 +6287,7 @@ def _audit_repair_action(a, kind: str, then: tuple[str, ...] | None) -> list[str
     if kind == "repair_errored_test":
         return _errored_test_action(tuple(a.errored_tests), then)
     if kind == "pin_write_refused":
-        return _write_refused_action(a.write_refused, then)
+        return _write_refused_action(a.write_refused_survivors, then)
     return None
 
 
@@ -6362,23 +6411,51 @@ def _errored_test_action(errored_tests: tuple[str, ...], then: tuple[str, ...] |
     return rows
 
 
-def _write_refused_action(write_refused: int, then: tuple[str, ...] | None) -> list[str]:
-    """The block for survivors the search could not run because the function writes files (#105).
+def _write_refused_action(
+    survivors: tuple[tuple[str, str, str, str], ...], then: tuple[str, ...] | None
+) -> list[str]:
+    """The block for survivors the search could not run because the function writes files and nothing in
+    the suite detects (#105): each named with its change, which is what the test that pins it needs.
 
     Never AUTHOR INPUT: an ``--input`` is run speculatively like any invented input, and its write is
     refused the same way, so asking for one is a loop. The repair is a test the person writes, with
-    paths under tmp_path, which runs in the suite under its own write authority."""
+    paths under tmp_path, that fails under the change, and it runs in the suite under its own write
+    authority. A survivor the suite detects by crash is never handed back here: that advice looped
+    (#105's reopen), and the rows above name it with the test that detects it."""
+    named = [(mid, change) for mid, change, standing, _killer in survivors if standing == "open"]
     rows = [
-        f"WRITE TEST:  pin the {write_refused} survivor(s) Detective could not run: "
+        f"WRITE TEST:  pin the {len(named)} survivor(s) nothing in the suite detects: "
         "the function writes files",
         "",
         _row("· Why", "Detective never runs a file-writing function on an input it invented or"),
         _row("", "replayed, so neither its search nor an --input can classify them."),
-        _row("· Write", "a test that calls it with paths under tmp_path and asserts what it wrote."),
+        *_survivor_rows("· Pin", named),
+        _row("· Write", "a test that calls it with paths under tmp_path and fails under each change."),
     ]
     if then:
         rows.append(_row("· Then", _command_text(then)))
     return rows
+
+
+def _write_refused_detected_action(survivors: tuple[tuple[str, str, str, str], ...]) -> list[str]:
+    """Converge's block when the only residual is write-refused survivors the suite detects, every one,
+    by crash (#105): a hand-back with no command.
+
+    INCOMPLETE, never DONE: none of them is classified, so the FINAL line below reads Incomplete, and a
+    DONE block above it is the contradiction `_converge_blocked` records. No `flag`: a survivor a value
+    assertion might pin was never judged equivalent. The rows above name each, with its test."""
+    return [
+        f"INCOMPLETE:  {len(survivors)} survivor(s) the suite detects only by crash: "
+        "the function writes files.",
+        "",
+        _row("· Detected", "a test fails under each change, by crash (named above); whether a value"),
+        _row("", "assertion could also pin one was not searched."),
+        _row("· Why", "Detective never runs a file-writing function on an input it invented or"),
+        _row("", "replayed, so neither its search nor an --input can classify them."),
+        _row("· By hand", "a test that asserts what the function wrote pins any whose change a value"),
+        _row("", "shows; one that always raises is already detected as fully as it can be."),
+        _row("", "Nothing to `flag`, and no Detective command closes them."),
+    ]
 
 
 def _two_sign_setup_action(errored: int, argv: tuple[str, ...] | None) -> list[str]:
@@ -8984,16 +9061,58 @@ def _run_decompose(args, file, function) -> int:
     return exit_code
 
 
-def _write_refused_rows(write_refused: int) -> list[str]:
-    """The continuation rows under ``⚠ unclassified`` naming the survivors a file write kept the search
-    from (#105). One renderer for audit and converge: their repair is a hand-written test, never a
-    longer search, so they must not read as the search's own limit."""
-    if not write_refused:
-        return []
-    return [
-        _row("", f"{write_refused} of them: the function writes files, and Detective never runs it on an"),
-        _row("", "input it invented or replayed; pin them with a test that writes under tmp_path."),
+# How many survivors a write-refused group names on the terse page before it discloses the rest.
+_WRITE_REFUSED_NAMED = 6
+
+
+def _survivor_rows(label: str, named: list[tuple[str, str]], indent: str = "") -> list[str]:
+    """``id  change`` rows for named survivors, the first under ``label``, cut at `_WRITE_REFUSED_NAMED`
+    with the cut said: a list that stops with no marker reads as the whole list (`_first_n`)."""
+    rows = [
+        _row(label if i == 0 else "", f"{indent}{mid}  {change}")
+        for i, (mid, change) in enumerate(named[:_WRITE_REFUSED_NAMED])
     ]
+    if len(named) > _WRITE_REFUSED_NAMED:
+        rows.append(_row("", f"{indent}(+{len(named) - _WRITE_REFUSED_NAMED} more — --json names every one)"))
+    return rows
+
+
+def _write_refused_rows(survivors: tuple[tuple[str, str, str, str], ...]) -> list[str]:
+    """The continuation rows under ``⚠ unclassified`` naming the survivors a file write kept the search
+    from (#105), from `audit.write_refused_survivors`. One renderer for audit and converge: their repair
+    is never a longer search, so they must not read as the search's own limit.
+
+    Each standing is named apart. Those nothing in the suite detects are open; those the suite detects
+    by crash carry the test that detects them, and no block hands them back as a test to write, which
+    is what looped (#105's reopen)."""
+    if not survivors:
+        return []
+    rows = [
+        _row("", f"{len(survivors)} of them: the function writes files, and Detective never runs it on an"),
+        _row("", "input it invented or replayed, so no search or --input classifies them."),
+    ]
+    named_open = [(mid, change) for mid, change, standing, _killer in survivors if standing == "open"]
+    if named_open:
+        rows.append(_row("", f"{len(named_open)} nothing in the suite detects:"))
+        rows += _survivor_rows("", named_open, "  ")
+    detected = [(mid, change, killer) for mid, change, standing, killer in survivors if standing != "open"]
+    if detected:
+        killers = sorted({killer for _mid, _change, killer in detected})
+        single = killers[0] if len(killers) == 1 else ""
+        rows.append(
+            _row("", f"{len(detected)} detected by crash; whether a value pins them was not searched:")
+        )
+        if single:
+            rows.append(_row("", f"  (by {single})"))
+        rows += _survivor_rows(
+            "",
+            [
+                (mid, change if single else f"{change}  (by {killer or 'an unnamed test'})")
+                for mid, change, killer in detected
+            ],
+            "  ",
+        )
+    return rows
 
 
 def _unmeasured_clause(unclassified: int, errored: int, unresolved: int = 0) -> str:
