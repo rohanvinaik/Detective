@@ -552,6 +552,12 @@
     "refusal": "",
     "standing": "ungateable"
   },
+  "Detective/rewrite.py::receipt_baseline_standing": {
+    "cut_reasons": [],
+    "function_digest": "7b7513eb75a7903c",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/rewrite.py::replay_selection": {
     "cut_reasons": [],
     "function_digest": "b682cbb6ec069dc8",

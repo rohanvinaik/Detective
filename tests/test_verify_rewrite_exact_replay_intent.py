@@ -144,3 +144,10 @@ def test_a_receipt_over_a_failing_floor_never_grounds_preserved(tmp_path):
     assert rec["proof_status"] == "floor_failing" and rec["_exit"] == 3, rec
     out = json.loads(verify.stdout)
     assert out["verdict"] != "PRESERVED" and verify.returncode != 0, verify.stdout + verify.stderr
+    # The abstention names its cause on every channel (#114, COMMUNICATING_DETERMINISM §3): re-running
+    # cannot repair a failing floor, so it must not share a sign with the ABSTAIN that says "re-run".
+    assert out["verdict"] == "ABSTAIN" and out["reason"] == "receipt_floor_failing", out
+    page = _cli(project, "verify-rewrite", str(project / "receipt.json"), "m.py::scale")
+    assert "NO BASELINE" in page.stdout and "Re-running will not change" in page.stdout, page.stdout
+    assert "review by hand" not in page.stdout, page.stdout
+    assert page.returncode == verify.returncode, "the page and --json report one exit"

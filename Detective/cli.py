@@ -8485,6 +8485,35 @@ def _format_rewrite(r) -> str:
             "STOP.  UNVERIFIED — this receipt predates argument-order budget recording, so what it\n"
             "       left unasked is unknown. Re-take the receipt to establish it."
         ),
+        # An ABSTAIN decided by the RECEIPT (`receipt_baseline_standing`, #114) never compared old with
+        # new at all, so the generic line's "could not be compared at every point" names a cause that
+        # did not happen. Each states its own remedy; the failing floor's says that re-running cannot
+        # help, because converge stops at the same floor every time.
+        "ABSTAIN:receipt_floor_failing": (
+            "STOP.  NO BASELINE — the receipt was taken while a test that reaches this function failed\n"
+            "       on current code, so there is no green proof to preserve. Re-running will not change\n"
+            "       this: fix the failing test or the code, converge until it completes, re-take the\n"
+            "       receipt, then verify the rewrite again."
+        ),
+        "ABSTAIN:receipt_incomplete": (
+            "STOP.  NO BASELINE — the receipt's original was not completely pinned, so its obligations\n"
+            "       do not cover the function. Converge the original until it completes, re-take the\n"
+            "       receipt, then verify the rewrite again."
+        ),
+        "ABSTAIN:receipt_proof_not_passed": (
+            "STOP.  NO BASELINE — the receipt's proof suite did not verify green under pytest when it\n"
+            "       was taken, so replaying it proves nothing. Make it pass on the original, re-take the\n"
+            "       receipt, then verify the rewrite again."
+        ),
+        "ABSTAIN:receipt_unfrozen": (
+            "STOP.  NO BASELINE — this older receipt froze no proof basis, so the files it names may\n"
+            "       have changed unseen. Re-take the receipt, then verify the rewrite again."
+        ),
+        "ABSTAIN:receipt_policy_unestablished": (
+            "STOP.  NO BASELINE — the receipt records no mutation policy, or this engine publishes\n"
+            "       none, so which questions it answered cannot be established. Re-take the receipt\n"
+            "       under an engine that publishes its policy, then verify the rewrite again."
+        ),
         "STALE_RECEIPT": (
             "DONE:  nothing was rewritten — the current source is identical to the receipt's original."
         ),

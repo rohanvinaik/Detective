@@ -2283,7 +2283,14 @@ def _converge_impl(
 
     # Authoritative final measurement — reflects every written test, including
     # the last pass's, and is the validation of what converge actually achieved.
-    say("finalizing — re-profiling the full mutant universe against the written suite…")
+    # Named by what is TRUE this run: under a failing floor (#114), or when every generated test was
+    # redundant, nothing was written, and "against the written suite" claimed a suite that is not there.
+    say(
+        "finalizing — re-profiling the full mutant universe against the written suite…"
+        if written_path
+        else "finalizing — re-profiling the full mutant universe against the existing suite "
+        "(nothing written this run)…"
+    )
     final_result = profile(
         file,
         function,

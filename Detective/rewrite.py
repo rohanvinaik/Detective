@@ -618,6 +618,68 @@ def replay_selection(node_ids: list[str], proof_suite: list[str]) -> str:
     return "none"
 
 
+# What each non-valid `receipt_baseline_standing` code says on verify-rewrite's progress channel:
+# one sentence per cause, so the progress line, the page (`_format_rewrite`) and `--json`'s `reason`
+# all tell the causes apart. Phrased as the CONSEQUENCE: the freeze and policy facts already have
+# their own lines above the verdict, and printing them twice would say one thing as two.
+_BASELINE_STANDING_SAID = {
+    "floor_failing": (
+        "the receipt was taken while a test that reaches this function failed on current code — it "
+        "is no baseline, and re-running will not make it one"
+    ),
+    "incomplete": (
+        "the receipt's original was not completely pinned — preservation cannot rest on obligations "
+        "that do not cover the function"
+    ),
+    "proof_not_passed": (
+        "the receipt's proof suite did not verify green when it was taken — replaying it proves nothing"
+    ),
+    "unfrozen": "a basis that was never frozen cannot ground preservation — re-take the receipt",
+    "policy_unestablished": (
+        "without an established policy the receipt cannot ground preservation — re-take it under an "
+        "engine that publishes one"
+    ),
+}
+
+
+def receipt_baseline_standing(
+    functionally_complete: bool, proof_status: str, freshness: str, policy_state: str
+) -> str:
+    """Why a receipt can, or cannot, ground a preservation verdict (#114, pure — pinned).
+
+    Why the split was needed. ``verify_rewrite`` folded these conditions into one ``receipt_valid``
+    bool, so every cause rendered as the same generic ABSTAIN, whose exit code promises "re-run".
+    That held while the causes shared a remedy. #114 added one that does not: a receipt taken while
+    a test that reaches the function FAILS records ``proof_status`` ``floor_failing``. Re-running
+    cannot repair it, because converge stops at the same floor every time, so the promised re-run
+    loops. Two states whose remedies differ must not share a sign (COMMUNICATING_DETERMINISM §3).
+
+      "valid"                 complete, verified green, basis frozen, policy matched
+      "floor_failing"         a test that is this function's business failed when the receipt was
+                              taken: fix the test or the code, then re-take the receipt
+      "incomplete"            the original was not fully pinned: converge it, then re-take
+      "proof_not_passed"      the proof suite did not verify green under pytest
+      "unfrozen"              an older receipt that froze no proof basis: re-take it
+      "policy_unestablished"  no policy recorded, or this engine publishes none
+
+    Ordered by which remedy must come FIRST: a failing floor blocks every other repair, and a
+    complete, green baseline is the precondition the freeze and policy checks refine. A ``moved``
+    basis or policy never reaches here; ``verify_rewrite`` returns BASIS_MOVED or POLICY_MOVED
+    before it asks.
+    """
+    if proof_status == "floor_failing":
+        return "floor_failing"
+    if not functionally_complete:
+        return "incomplete"
+    if proof_status != "passed":
+        return "proof_not_passed"
+    if freshness != "fresh":
+        return "unfrozen"
+    if policy_state != "match":
+        return "policy_unestablished"
+    return "valid"
+
+
 def verify_rewrite(
     receipt: RewriteReceipt,
     file: str,
@@ -806,12 +868,10 @@ def verify_rewrite(
     # A `fresh` frozen basis is now part of a valid baseline (#37): an `unfrozen` receipt cannot
     # ground PRESERVED (its basis may have moved unseen), so it abstains via this gate. A `moved`
     # basis already returned BASIS_MOVED above.
-    receipt_valid = (
-        receipt.functionally_complete
-        and receipt.proof_status == "passed"
-        and freshness == "fresh"
-        and policy_state == "match"
+    baseline = receipt_baseline_standing(
+        receipt.functionally_complete, receipt.proof_status, freshness, policy_state
     )
+    receipt_valid = baseline == "valid"
     if freshness == "unfrozen":
         say("⚠ this older receipt did not freeze its proof basis — cannot establish preservation")
     if policy_state == "unrecorded":
@@ -824,8 +884,8 @@ def verify_rewrite(
         bool(getattr(report, "measurement_valid", False)),
     )
     classification_ran = classification_status == "observed"
-    if not receipt_valid:
-        say("⚠ the receipt is not a complete, verified baseline — preservation cannot be established")
+    if baseline != "valid":
+        say(f"⚠ {_BASELINE_STANDING_SAID[baseline]}")
     if not classification_ran:
         say("⚠ survivor classification could not run on the rewritten source — abstaining")
     # The baseline's argument-order standing. NOT folded into `receipt_valid` — see
@@ -855,5 +915,13 @@ def verify_rewrite(
         # The cause rides only when it actually DECIDED the verdict. On a CHANGED result the
         # baseline's unasked questions are true but not why the answer came out that way, and
         # stamping them there would invite a reader to treat a proven difference as an evidence gap.
-        reason=order_standing if (verdict_str == "ABSTAIN" and order_standing != "clear") else "",
+        # An invalid receipt decides an ABSTAIN before argument order is consulted (`rewrite_verdict`
+        # checks it first), so its standing is the cause whenever it is not `valid` (#114).
+        reason=(
+            f"receipt_{baseline}"
+            if verdict_str == "ABSTAIN" and baseline != "valid"
+            else order_standing
+            if verdict_str == "ABSTAIN" and order_standing != "clear"
+            else ""
+        ),
     )
