@@ -47,6 +47,11 @@ from Detective.distinction import (
 )
 
 BY_DESIGN: dict[str, str] = {
+    "validity.measurement_cut_kind @ cli._audit_measurement_block": (
+        "Intended, and the comment says why: 'Only `repair` blocks. `reach_gap` and `none` share the "
+        "ladder below on purpose' — a run cut only because no consulted test calls the function is a "
+        "reach gap whose repair is a test (#77), so like an uncut run it is routed by its counts."
+    ),
     "equivalents.contract_disposition @ engine.classify_survivors._split": (
         "Cannot arise here. `_split` calls it with buildable=killable=blocked=False (its docstring: "
         "'contract_disposition with buildable=killable=blocked=False decides'), and with `buildable` "

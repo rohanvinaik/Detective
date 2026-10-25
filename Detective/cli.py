@@ -39,7 +39,7 @@ from Wesker.engine import (
     DEFAULT_TRACE_SESSION_BUDGET_S as _DEFAULT_TRACE_SESSION_BUDGET_S,
 )
 
-from Detective.validity import CUT_REASONS, cut_reason_sentence
+from Detective.validity import CUT_REASONS, NOT_ENTERED_REASONS, cut_reason_sentence, measurement_cut_kind
 
 from . import __version__
 from .equivalence import crash_only_status
@@ -2239,6 +2239,32 @@ def _no_verdict_text(pairs: tuple[tuple[str, str], ...]) -> str:
     return f"{len(pairs)} — {shown}{more}: not kills, not survivors; no input or flag applies"
 
 
+def _not_entered_rows(detail: tuple[dict, ...] | list[dict]) -> list[str]:
+    """The `⚠ not entered` rows: per cause, its mutants and what still holds the original (#77).
+
+    Shared by converge and audit, from the validity's `not_entered` detail. A captured or aliased
+    reference is repaired at WHERE it lives, which the cause code cannot carry; and a scan that stopped
+    early is named, because "no holder found" over a cut scan is not "no holder".
+    """
+    rows: list[str] = []
+    for entry in detail:
+        mutants = list(entry.get("mutants") or ())
+        shown = ", ".join(mutants[:4]) + (f", … +{len(mutants) - 4}" if len(mutants) > 4 else "")
+        rows.append(
+            _row("⚠ not entered", f"{len(mutants)} mutant(s), cause {entry.get('cause', '?')}: {shown}")
+        )
+        holders = list(entry.get("holders") or ())
+        if holders:
+            more = f", … +{len(holders) - 3}" if len(holders) > 3 else ""
+            rows.append(_row("· held by", ", ".join(holders[:3]) + more))
+        scan = str(entry.get("holder_scan", "complete") or "complete")
+        if scan != "complete":
+            rows.append(
+                _row("· holder scan", f"{scan} — it stopped early, so a holder it did not reach may exist")
+            )
+    return rows
+
+
 def _swap_budget_row(state: str, withheld: int) -> tuple[str, str] | None:
     """(label, text) for the argument-order budget disclosure, or None to stay silent.
 
@@ -3083,7 +3109,8 @@ def repair_measurement_route(
     if (
         "mutant_construction_failed" in cut_reasons
         or "mutant_not_installed" in cut_reasons
-        or "mutant_not_entered" in cut_reasons
+        # The whole not-entered family (#77): one reason per cause, each with its own repair sentence.
+        or any(reason in NOT_ENTERED_REASONS for reason in cut_reasons)
     ):
         return "mutant_phase"
     if "nonreproducible_in_process" in cut_reasons:
@@ -4139,6 +4166,9 @@ def _converge_action(
                 _row(_WHY_FIRST_ROW, "a mutant that was never built, never bound, or never called is"),
                 _row("", "not evidence about your suite — and not evidence about coverage depth,"),
                 _row("", "so no --trace-budget, --deadline or --isolated re-run addresses it."),
+                *_not_entered_rows(
+                    tuple(getattr(getattr(result, "validity", None), "not_entered", ()) or ())
+                ),
                 _row("· Resolve", "the reason above names the repair; re-run once it is resolved."),
             ]
         if route == "inspect_refusal":
@@ -5734,6 +5764,7 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         )
     if _no_verdict := tuple(getattr(a, "unresolved_mutants", ()) or ()):
         lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
+    lines += _not_entered_rows(tuple(getattr(a, "not_entered", ()) or ()))
     if a.manual_equivalent:
         lines.append(_row("✓ flagged equivalent", f"{a.manual_equivalent} (your oracle — not gaps)"))
     if a.redundant_tests:
@@ -5864,7 +5895,10 @@ def _audit_measurement_block(a) -> str:
     unloadable module to a converge that also could not run (Finding E).
     """
     load_failed = bool(getattr(a, "load_failed", False))
-    if getattr(a, "cut_reasons", ()) and not load_failed:
+    # Only `repair` blocks. `reach_gap` and `none` share the ladder below on purpose: a cut whose every
+    # reason is "no consulted test calls this function" is a REACH gap, not a measurement to repair
+    # (#77), so its gaps are real gaps and converge — which writes the test that calls it — is the move.
+    if measurement_cut_kind(list(getattr(a, "cut_reasons", ()) or ())) == "repair" and not load_failed:
         return "repair_measurement"
     expressible = getattr(a, "inputs_expressible", None)
     needs_sample = expressible is None and not load_failed and bool(getattr(a, "note", ""))
@@ -6035,6 +6069,9 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             "",
             _row("· Why", f"{why} — real gaps, not equivalents."),
             _row("· Writes", "the missing tests, and wires them into pytest."),
+            # A reach gap rides here, not as a measurement repair (#77): the test converge writes is
+            # the repair its sentence names.
+            *[_row("· Also", cut_reason_sentence(r)) for r in a.cut_reasons],
         ]
     return _audit_closing_action(a, kind, decision.two_sign)
 
@@ -9318,7 +9355,7 @@ def _unscored_flag_refusal(args, result) -> int | None:
     non-terminating mutant is never equivalent. `flag` used to answer "no surviving mutant", which is
     true and names nothing; the refusal now says what the mutant is and why no claim fits it.
     """
-    from .validity import UNSCORED_DISPOSITION_REASONS
+    from .validity import unscored_record_reason
 
     rec = next(
         (
@@ -9331,7 +9368,8 @@ def _unscored_flag_refusal(args, result) -> int | None:
     if rec is None:
         return None
     disposition = str(rec.get("disposition", ""))
-    reason = UNSCORED_DISPOSITION_REASONS.get(disposition, "engine_refused_unspecified")
+    # The record's OWN reason (#77): a not-entered mutant names its cause's repair, not the family's.
+    reason = unscored_record_reason(rec)
     msg = (
         f"detective: cannot flag mutant '{args.mutant_id}' — it reached no verdict ({disposition}),"
         f" so there is no survival to judge: {cut_reason_sentence(reason)}"

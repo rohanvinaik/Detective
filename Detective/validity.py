@@ -47,7 +47,10 @@ if TYPE_CHECKING:
 #    determinism check) join the vocabulary; both used to surface as `engine_refused_unspecified`,
 #    or as nothing at all when a recognised reason stood beside them. An unscored disposition this
 #    version does not know now adds `engine_refused_unspecified` even beside known reasons.
-MEASUREMENT_VALIDITY_SCHEMA = 7
+# 8: `mutant_not_entered` splits by the cause Wesker names (#77, Wesker#18) into six reasons, one per
+#    cause, and keeps its own name only for a not-entered mutant whose cause is absent or unknown. A
+#    reader that switched on the one code has to learn the family.
+MEASUREMENT_VALIDITY_SCHEMA = 8
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
@@ -83,6 +86,15 @@ CUT_REASONS: tuple[str, ...] = (
     # the first. See `cut_reason_sentence` for why the other two are not harness failures at all.
     "mutant_construction_failed",
     "mutant_not_installed",
+    # One reason per cause Wesker names for a not-entered mutant (`engine.not_entered_cause`), in
+    # its order, then the cause-free fallback. They were one reason whose sentence named a
+    # decorator/registry capture whatever the cause, on plain functions that had neither (#77).
+    "mutant_not_entered_not_reached",
+    "mutant_not_entered_decorator_wrapper",
+    "mutant_not_entered_captured_at_import",
+    "mutant_not_entered_pre_bound_reference",
+    "mutant_not_entered_holder_not_found",
+    "mutant_not_entered_no_reach_data",
     "mutant_not_entered",
     "engine_refused_unspecified",
 )
@@ -113,6 +125,115 @@ _KNOWN_UNSCORED = frozenset(UNSCORED_DISPOSITION_REASONS) | {"cut"}
 # name the ones that reached no verdict. Classification of the OTHER survivors stands beside them
 # (`classification_standing`); a certificate does not.
 PER_MUTANT_REASONS: frozenset[str] = frozenset({"mutant_wall_undetermined", "step_budget_exceeded"})
+
+# Wesker's named not-entered causes (`engine.not_entered_cause`) -> the reason each one cuts the run
+# with (#77). A cause this version does not know, or a record that carries none (an engine before
+# Wesker#18, `not_entered_causes`' own ``unclassified``), falls back to `mutant_not_entered`.
+NOT_ENTERED_CAUSE_REASONS: dict[str, str] = {
+    "not_reached": "mutant_not_entered_not_reached",
+    "decorator_wrapper": "mutant_not_entered_decorator_wrapper",
+    "captured_at_import": "mutant_not_entered_captured_at_import",
+    "pre_bound_reference": "mutant_not_entered_pre_bound_reference",
+    "holder_not_found": "mutant_not_entered_holder_not_found",
+    "no_reach_data": "mutant_not_entered_no_reach_data",
+}
+NOT_ENTERED_REASONS: frozenset[str] = frozenset(NOT_ENTERED_CAUSE_REASONS.values()) | {"mutant_not_entered"}
+
+# The reasons beside which the OTHER survivors may still be classified. A not-entered mutant names
+# itself, exactly as a no-verdict one does: it was installed and no test called it, which says
+# nothing about a survivor some test did enter — and the witness search calls the original directly,
+# so no install topology reaches it. Kept apart from PER_MUTANT_REASONS, which also decides what
+# reads as "no verdict" (`unresolved_mutant_records`): a not-entered mutant has its own rows.
+CLASSIFY_BESIDE_REASONS: frozenset[str] = PER_MUTANT_REASONS | NOT_ENTERED_REASONS
+
+
+def not_entered_reasons(causes: list[str]) -> tuple[str, ...]:
+    """The cut reasons a run's not-entered mutants earn, one per named cause (#77, pure — pinned).
+
+    `mutant_not_entered` was ONE reason whose sentence named "the decorator/registry capture" and
+    told the operator to "route a test through the patched name, or pin the caller". Wesker#18 now
+    decides the cause from the baseline's reach and a scan of module-level holders, and on a plain
+    function no consulted test called — no decorator, no registry — the sentence still named one.
+    So each cause has its own reason and its own repair.
+
+    ``causes`` are the causes Wesker named (`ProfilingResult.not_entered_causes`' keys). A cause this
+    version does not know, ``unclassified``, or an empty list (a not-entered mutant from an engine that
+    names none) is `mutant_not_entered`, whose sentence names no mechanism: falling back to the old
+    decorator wording would assert a cause nobody observed. Declaration order, so two runs cut the same
+    way read the same.
+    """
+    named = {NOT_ENTERED_CAUSE_REASONS.get(cause, "mutant_not_entered") for cause in causes} or {
+        "mutant_not_entered"
+    }
+    return tuple(reason for reason in CUT_REASONS if reason in named)
+
+
+def unscored_record_reason(record: dict) -> str:
+    """The reason ONE unscored mutant record carries (#77, pure — pinned).
+
+    The disposition's reason (`UNSCORED_DISPOSITION_REASONS`), refined for a not-entered record by the
+    cause Wesker named on it, so `flag`'s refusal of that mutant names its own repair and not the
+    family's. A disposition this version does not know is `engine_refused_unspecified`.
+    """
+    disposition = str(record.get("disposition", ""))
+    if disposition == "not_entered":
+        return not_entered_reasons([str(record.get("cause") or "unclassified")])[0]
+    return UNSCORED_DISPOSITION_REASONS.get(disposition, "engine_refused_unspecified")
+
+
+def not_entered_detail(unscored_records: Iterable[object]) -> tuple[dict, ...]:
+    """Per named cause: its reason, the mutants it accounts for, and what holds the original (#77).
+
+    A cause code cannot carry WHERE the original is held, and "print what still holds the original" is
+    the repair a captured or aliased reference needs (#77). Wesker puts each holder's ``kind`` and
+    ``where`` on the record, and the scan's own status beside them: ``budget_cut`` / ``limit_reached``
+    mean the scan stopped early, so "no holder found" there is NOT "no holder", and the entry carries
+    the first status that was not ``complete`` so a renderer can say so.
+    """
+    by_cause: dict[str, dict] = {}
+    for record in unscored_records:
+        if not isinstance(record, dict) or record.get("disposition") != "not_entered":
+            continue
+        cause = str(record.get("cause") or "unclassified")
+        entry = by_cause.setdefault(
+            cause,
+            {
+                "cause": cause,
+                "reason": unscored_record_reason(record),
+                "mutants": [],
+                "holders": [],
+                "holder_scan": "complete",
+            },
+        )
+        entry["mutants"].append(str(record.get("mutant_id", "?")))
+        for holder in record.get("holders") or ():
+            if isinstance(holder, dict):
+                named = f"{holder.get('kind', '?')} {holder.get('where', '?')}"
+                if named not in entry["holders"]:
+                    entry["holders"].append(named)
+        scan = str(record.get("holder_scan") or "complete")
+        if entry["holder_scan"] == "complete" and scan != "complete":
+            entry["holder_scan"] = scan
+    return tuple(sorted(by_cause.values(), key=lambda e: (CUT_REASONS.index(e["reason"]), e["cause"])))
+
+
+def measurement_cut_kind(cut_reasons: list[str]) -> str:
+    """Whether a cut run needs its MEASUREMENT repaired, or a test written (#77, pure — pinned).
+
+    "none"       no reason: nothing is cut.
+    "reach_gap"  every reason is `mutant_not_entered_not_reached`: each test that ran against those
+                 mutants was traced in full and none executed a line of the function, so no install
+                 topology explains the silence — the suite has no test that calls it. The repair is
+                 a test that does (converge writes one), and the gaps beside it are real gaps: a
+                 re-measurement changes nothing, which is what the old "resolve the measurement
+                 causes" left the operator with — a next step that was not one.
+    "repair"     anything else: the measurement itself is the thing to fix.
+    """
+    if not cut_reasons:
+        return "none"
+    if all(reason == "mutant_not_entered_not_reached" for reason in cut_reasons):
+        return "reach_gap"
+    return "repair"
 
 
 def unresolved_mutant_records(unscored_records: Iterable[object]) -> tuple[tuple[str, str], ...]:
@@ -146,10 +267,14 @@ def classification_standing(cut_reasons: list[str]) -> str:
       "classify_beside_unresolved"  only per-mutant reasons: classify the survivors; the no-verdict
                                     mutants stay named and the certificate stays withheld.
       "blocked"                     any run-level (or unrecognised) reason: classify nothing.
+
+    A not-entered mutant is per-mutant too (#77, `CLASSIFY_BESIDE_REASONS`): two default-argument
+    mutants that no consulted test entered left thirteen unrelated survivors of a plain function
+    "unclassified — the search could not run on them", when the search ran fine.
     """
     if not cut_reasons:
         return "classify"
-    if all(reason in PER_MUTANT_REASONS for reason in cut_reasons):
+    if all(reason in CLASSIFY_BESIDE_REASONS for reason in cut_reasons):
         return "classify_beside_unresolved"
     return "blocked"
 
@@ -174,6 +299,7 @@ def measurement_cut_reasons(
     nondeterministic_baseline: bool = False,
     nested_measurement: bool = False,
     unrecognised_unscored: bool = False,
+    not_entered_causes: tuple[str, ...] | list[str] = (),
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -225,6 +351,10 @@ def measurement_cut_reasons(
     stood beside it — a run-level fault hidden behind a mutant-level one. ``unrecognised_unscored``
     closes the same hole for the future: an unscored disposition this version has never heard of
     adds `engine_refused_unspecified` even when known reasons are present.
+
+    ``not_entered_causes`` (#77) are the causes Wesker named for its not-entered mutants; each earns its
+    own reason (`not_entered_reasons`). ``not_entered`` with no cause named is the cause-free
+    `mutant_not_entered` — an engine that names none is never read as one that named a decorator.
     """
     reasons: list[str] = []
     if target_load_failed:
@@ -273,8 +403,8 @@ def measurement_cut_reasons(
         reasons.append("mutant_construction_failed")
     if not_installed:
         reasons.append("mutant_not_installed")
-    if not_entered:
-        reasons.append("mutant_not_entered")
+    if not_entered or not_entered_causes:
+        reasons.extend(not_entered_reasons(list(not_entered_causes)))
     if (reported_gateable and not gateable and not reasons) or unrecognised_unscored:
         reasons.append("engine_refused_unspecified")
     return tuple(reasons)
@@ -360,10 +490,43 @@ def cut_reason_sentence(reason: str) -> str:
         " so their survival is a PATCH blind spot rather than a specification gap — a target hidden"
         " behind a wrapper with no __code__ (lru_cache, partial, a decorator) lands here; unwrap it"
         " or pin the wrapped callable directly",
-        "mutant_not_entered": "one or more mutants were installed but no test ever called them, so"
-        " their survival measures REACH, not specification — the namespace holds the mutant while"
-        " the caller holds the original (the decorator/registry capture); route a test through the"
-        " patched name, or pin the caller",
+        # One sentence per not-entered CAUSE (#77). The single sentence named "the decorator/registry
+        # capture" for every cause, on plain functions with neither; each now names its own repair,
+        # and a captured copy is stated as what it is — a floor with its reason, not a suite gap.
+        "mutant_not_entered_not_reached": "one or more mutants were installed but no consulted test"
+        " calls this function by any route — every test that ran against them was traced in full and"
+        " none executed a line of it — so their survival is a REACH gap, not a specification verdict;"
+        " write a test that calls the function (converge writes one)",
+        "mutant_not_entered_decorator_wrapper": "one or more mutants were installed but the consulted"
+        " tests reach the function through a decorator's WRAPPER, which calls the original from inside"
+        " its closure; the install rebinds module names, never the closure, so no test through that"
+        " wrapper can enter a mutant — a floor of this measurement, not a gap in your suite: pin the"
+        " undecorated callable (its __wrapped__) directly, or measure the wrapper's caller",
+        "mutant_not_entered_captured_at_import": "one or more mutants were installed but the consulted"
+        " tests reach the function through a copy CAPTURED at import — a module-level constant,"
+        " registry, container, field, default argument or partial holding the original; the install"
+        " replaces only module attributes, never the captured copy, so no test calling through it can"
+        " enter a mutant — a floor of this measurement with this reason, not a gap in your suite: to"
+        " measure them, call the function through its module attribute (module.fn(...)) in a test",
+        "mutant_not_entered_pre_bound_reference": "one or more mutants were installed but the consulted"
+        " tests reach the function through an ALIAS — a module binds the original under another name"
+        " (from m import fn as alias), and the install rebinds by NAME, so callers through the alias run"
+        " the original; call the function by its own name in a test (import m; m.fn(...)), or pin the"
+        " alias's caller",
+        "mutant_not_entered_holder_not_found": "one or more mutants were installed and the consulted"
+        " tests reached the function on the baseline, yet none entered a mutant and no module-level"
+        " holder of the original was found — the reference lives where the bounded scan does not look"
+        " (a closure, an instance, a local); call the function through its module attribute in a test,"
+        " or pin the caller that holds it",
+        "mutant_not_entered_no_reach_data": "one or more mutants were installed but never entered, no"
+        " holder of the original was found, and no test that ran against them has a complete baseline"
+        " trace (one cut by its budget, a thread that outlived its test, or a child process the tracer"
+        " cannot follow), so whether any of them reaches the function is UNKNOWN, not negative —"
+        " re-measure with --trace-budget 0 if a trace was cut, otherwise call the function in-process"
+        " from a test",
+        "mutant_not_entered": "one or more mutants were installed but no test ever called them, and the"
+        " engine named no cause, so their survival measures REACH, not specification — route a test"
+        " through the function's module attribute (module.fn(...)), or pin its caller",
         "engine_refused_unspecified": "the engine refused to gate this measurement without naming a reason",
     }.get(reason, f"an unrecognised engine refusal ({reason})")
 
@@ -387,6 +550,9 @@ class MeasurementValidity:
     capability_flags: tuple[str, ...] = ()
     policy_id: str = ""
     shape_hazards: tuple[dict, ...] = ()
+    # Per not-entered cause: its reason, mutants, and the holders of the original Wesker named, with
+    # where they live (`not_entered_detail`, #77). The cause codes alone cannot say WHERE.
+    not_entered: tuple[dict, ...] = ()
 
     @property
     def admits_certificate(self) -> bool:
@@ -527,6 +693,14 @@ def normalize_validity(
     fast_mode = str(fast_mode_raw) if fast_mode_raw is not _ABSENT else ""
     shape_hazards = tuple(getattr(result, "shape_hazards", ()) or ())
 
+    # The causes Wesker named for its not-entered mutants (#77): `not_entered_causes` is derived from
+    # `unscored_records`, so a cache hit recomputes it. Absent (an engine before Wesker#18) leaves the
+    # cause-free reason, never a guessed mechanism.
+    causes_raw = getattr(result, "not_entered_causes", _ABSENT)
+    not_entered_causes = (
+        tuple(sorted(c for c, n in causes_raw.items() if n)) if isinstance(causes_raw, dict) else ()
+    )
+
     reasons = measurement_cut_reasons(
         reported_gateable=reports_gateable,
         gateable=gateable,
@@ -548,6 +722,7 @@ def normalize_validity(
         nondeterministic_baseline=getattr(result, "determinism", "") == "nondeterministic",
         nested_measurement=_unscored_by(result, "nested_measurement"),
         unrecognised_unscored=_unrecognised_unscored(result),
+        not_entered_causes=not_entered_causes,
     )
     return MeasurementValidity(
         gateable=gateable,
@@ -560,4 +735,5 @@ def normalize_validity(
         capability_flags=tuple([f"absent:{name}" for name in missing] + approximate),
         policy_id=str(getattr(result, "policy_id", "") or ""),
         shape_hazards=shape_hazards,
+        not_entered=not_entered_detail(getattr(result, "unscored_records", None) or ()),
     )

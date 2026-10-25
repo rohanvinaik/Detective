@@ -189,6 +189,9 @@ class SuiteAudit:
     note: str = ""
     # Preserve the engine's refusal through the report and its closing action.
     cut_reasons: tuple[str, ...] = ()
+    # Per not-entered cause, its mutants and what still holds the original (`validity.not_entered`,
+    # #77) — the cause code alone cannot say where a captured or aliased reference lives.
+    not_entered: tuple[dict, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -649,6 +652,7 @@ def audit_suite(
         inputs_expressible=_report_expressible,
         note=_report_note,
         cut_reasons=validity.cut_reasons,
+        not_entered=validity.not_entered,
     )
 
 

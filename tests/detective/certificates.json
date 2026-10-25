@@ -688,7 +688,7 @@
   },
   "Detective/validity.py::classification_standing": {
     "cut_reasons": [],
-    "function_digest": "2819b29b8715fc8d",
+    "function_digest": "491382b1f2974fee",
     "refusal": "",
     "standing": "complete"
   },
@@ -698,15 +698,39 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/validity.py::measurement_cut_kind": {
+    "cut_reasons": [],
+    "function_digest": "d6eea9f4e0d7558b",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/validity.py::measurement_cut_reasons": {
     "cut_reasons": [],
-    "function_digest": "795ab26b131831b2",
+    "function_digest": "1c52ad50b8404fed",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/validity.py::not_entered_detail": {
+    "cut_reasons": [],
+    "function_digest": "4047062e00992a1d",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/validity.py::not_entered_reasons": {
+    "cut_reasons": [],
+    "function_digest": "28910ebd426fc4c2",
     "refusal": "",
     "standing": "complete"
   },
   "Detective/validity.py::unresolved_mutant_records": {
     "cut_reasons": [],
     "function_digest": "669053c7526624a5",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/validity.py::unscored_record_reason": {
+    "cut_reasons": [],
+    "function_digest": "d271f06b78bbfb06",
     "refusal": "",
     "standing": "complete"
   }
