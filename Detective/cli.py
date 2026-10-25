@@ -8859,6 +8859,61 @@ def _flag_line_add(args, func_key: str, node, function: str) -> int:
     return 0
 
 
+def flag_id_admission(mutant_id: str | None, two_sign: bool) -> str:
+    """Whether `flag` may look a mutant id up under the policy it was given (#128, pure — pinned).
+
+    An OUTPUT (μ⁻) mutant exists only in the two-sign universe σ(P, μ ∪ μ⁻); the default one-sign
+    policy never generates one. So an OUTPUT id under the one-sign policy cannot be found, and the
+    reason is the POLICY, not the mutant: answering "no surviving mutant" sent the reader to doubt a
+    proof whose only fault was a missing flag, after profiling the wrong universe to say so.
+
+    * ``no_mutant_id``   — absent or blank: nothing to look up (an empty id is not an id).
+    * ``needs_two_sign`` — an ``OUTPUT_`` id under the one-sign policy: refuse BEFORE profiling,
+      and name the policy that holds it.
+    * ``look_up``        — profile under the given policy and match the id against its survivors.
+    """
+    text = (mutant_id or "").strip()
+    if not text:
+        return "no_mutant_id"
+    if text.startswith("OUTPUT_") and not two_sign:
+        return "needs_two_sign"
+    return "look_up"
+
+
+def _flag_needs_two_sign(args) -> int:
+    """The `needs_two_sign` refusal (#128): name the policy, and print the SAME command under it —
+    note, fence, JSON and project root kept — so the repair can be run as printed."""
+    mutant_id = args.mutant_id.strip()
+    repair = (
+        "flag",
+        args.target,
+        mutant_id,
+        "--two-sign",
+        *(("--fence",) if args.fence else ()),
+        *(("--note", args.note) if args.note else ()),
+        *(("--project-root", args.project_root) if args.project_root not in ("", ".") else ()),
+        *(("--json",) if args.json else ()),
+    )
+    msg = (
+        f"detective: {mutant_id} is an OUTPUT (μ⁻) mutant, and OUTPUT mutants exist only under the "
+        "two-sign policy — this command measured the one-sign universe, where it cannot appear. "
+        f"Re-run: {_command_text(repair)}"
+    )
+    if args.json:
+        return _emit_json(
+            {
+                "verdict": "REFUSED",
+                "reason": "needs_two_sign",
+                "target": args.target,
+                "detail": msg,
+                "argv": list(repair),
+            },
+            2,
+        )
+    sys.stderr.write(msg + "\n")
+    return 2
+
+
 def _run_flag(args, file, function) -> int:
     from .atomic_store import StoreRefused
     from .engine import profile
@@ -8866,7 +8921,9 @@ def _run_flag(args, file, function) -> int:
 
     if getattr(args, "style", False):
         return _run_flag_style(args, file, function)
-    if args.mutant_id is None:
+    two_sign = getattr(args, "two_sign", False)
+    admission = flag_id_admission(args.mutant_id, two_sign)
+    if admission == "no_mutant_id":
         msg = (
             "detective: flag needs a surviving mutant id (from `audit`/`diagnose`) — "
             "or --style to judge the region"
@@ -8877,7 +8934,8 @@ def _run_flag(args, file, function) -> int:
             )
         sys.stderr.write(msg + "\n")
         return 2
-    two_sign = getattr(args, "two_sign", False)
+    if admission == "needs_two_sign":
+        return _flag_needs_two_sign(args)
     result = profile(file, function, args.project_root, two_sign=two_sign)
     # Match against value-survivors — the SAME set audit/classify report from — so a
     # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-

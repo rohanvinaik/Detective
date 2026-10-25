@@ -163,6 +163,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::flag_id_admission": {
+    "cut_reasons": [],
+    "function_digest": "a7d4abb7aac537cb",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::line_gap_rationale": {
     "function_digest": "2cbb8cd2939a9b50",
     "refusal": "",
