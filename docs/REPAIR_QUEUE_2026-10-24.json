@@ -395,7 +395,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "2a4d04ffb3109a98141312f22cc7694b281db461adc9fb474ff647b2d605a414",
-      "latest_body_sha256": "94bc9515b80c3e1f5a2aea7abbf004bdd0a55e106d978bcf5f33ceba2fc81b02",
+      "latest_body_sha256": "fc9bbe132bbe932423fe07f2e2a50afca9854fd164c9f05a7d9fb246d867eccc",
       "latest_state": "open"
     },
     {
@@ -407,7 +407,7 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "0c3dad7114fc226d7312f9ab846ad6cd1e3d9f2eb280bb7c1247839b307ada88",
-      "latest_body_sha256": "04071ed60b34b84016df63480eb1f1513b23c2907b31e8be7712511b7e1723a3",
+      "latest_body_sha256": "ddecbc20741822a6f9b866b8f92c9aa4563fd3bce99341f649e7061133d78642",
       "latest_state": "open"
     },
     {
@@ -796,7 +796,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "1a0b868eb2f907e7b460a7725a0919e3dc874b482676b8169cb547f7c2b31c47",
-      "latest_body_sha256": "c074047d34ef7c813a52df597dff59fda944e77edd17e5a28b83223e352547e8",
+      "latest_body_sha256": "2065580e1f63365b68b9eff91155373741787873b3cff68bef740e8a9600b623",
       "latest_state": "open"
     },
     {
@@ -951,7 +951,7 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "d767526353a62316adbfc3611ad195db4aff94577bc290d1ad0fcb2d096ca244",
-      "latest_body_sha256": "b2783b04d42b2d979ea4b6392fca96da54780012a3cf9c09e1261f251fdc8861",
+      "latest_body_sha256": "63e0a760b441e4b00e552e6cfba8a2bd20d0199452d1213380dd966d24c85788",
       "latest_state": "open"
     },
     {
@@ -1330,7 +1330,7 @@
     {
       "repository": "Detective",
       "number": 127,
-      "title": "converge: a mutant that writes into its argument alters a written pin's arguments for the mutants run after it, so --isolated counts a kill from the altered input",
+      "title": "converge: a mutant that writes into its argument alters a written pin's arguments for the mutants run after it, so --isolated can print COMPLETE over mutants no test can kill (Wesker#55)",
       "url": "https://github.com/rohanvinaik/Detective/issues/127",
       "scope": "REPAIR",
       "work_packages": [
@@ -1339,7 +1339,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "05c002932d4eafbfd4e6403fecf6d8fddf968f5decfdee8bbe484e7a62060ed7",
-      "latest_body_sha256": "94163c5497ae04600e33796bf6834c3fbcf73e294cd0a011eac80e4a06be8532",
+      "latest_body_sha256": "c9fe11f6121539861d2242becc2a7f0fe122bea61a7b288ebef3a76052798da6",
       "latest_state": "open"
     },
     {
@@ -1426,7 +1426,7 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "259ee9d3380546c9be1c5063adfe4ea99a8e45ed4bc5cda0cef247f8863842f4",
-      "latest_body_sha256": "9407dfd9a52caa6036eb5436249214f790973759a78e625708c886797c3d8502",
+      "latest_body_sha256": "15fdf0bf3e128556dd6bd63665806e9a0dbf41cd39cf2a191825071c40884705",
       "latest_state": "open"
     },
     {
@@ -1696,6 +1696,20 @@
       "acceptance_state": "filed_2026_10_26",
       "latest_body_sha256": "fe12a02c05058bf027b7026ea0c7704493eb7f05c68346e92c8cf29698145c5b",
       "latest_state": "open"
+    },
+    {
+      "repository": "Wesker",
+      "number": 55,
+      "title": "Isolated evaluation: a mutant that writes into a test's arguments corrupts them for every later mutant, and those failures count as kills: an identical mutant is reported killed",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/55",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B02",
+        "B07"
+      ],
+      "acceptance_state": "filed_2026_10_26",
+      "latest_body_sha256": "4eb55164795b219ea7a2d863f92c8782de16d28009c7d3dcd86e730a5ddc5aa0",
+      "latest_state": "open"
     }
   ],
   "owner_decisions": [
@@ -1942,10 +1956,14 @@
       "Detective#144",
       "Detective#145",
       "Wesker#53",
-      "Wesker#54"
+      "Wesker#54",
+      "Wesker#55"
     ],
     "records_synced": "Every issue record's latest_state, title and latest_body_sha256 now match GitHub; issues filed after the snapshot have records (Wesker#47, #52-#54; Detective#138, #141-#145).",
     "release_fact": "Detective main imports Wesker.monitoring.STEP_BUDGET_FACTOR/FLOOR (equivalence.py:45), which arrived in Wesker 3ca7531 after v1.2.2; pyproject still declares Wesker>=1.2.2. A static check of all 55 Wesker names Detective imports finds only these two absent at v1.2.2.",
-    "note": "A body or comment dated 2026-10-26 is a measurement on these heads; anything it marks 'not re-run' or 'not verified' is carried as such."
+    "note": "A body or comment dated 2026-10-26 is a measurement on these heads; anything it marks 'not re-run' or 'not verified' is carried as such.",
+    "escalated": {
+      "Detective#127": "Under --isolated, a mutant that writes into its argument alters a shared parametrize row, and later failures count as kills. On a variant with a max(2, 2) site, the identical mutant, `tag = 2` and `min(2, 2)` were reported killed by assertion, and `converge --isolated` printed COMPLETE 27/28. The Wesker side is Wesker#55."
+    }
   }
 }

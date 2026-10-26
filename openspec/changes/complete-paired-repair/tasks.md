@@ -160,6 +160,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
   - 45 bodies were rewritten to their current state, and 27 were re-verified as written with a dated comment;
   - closed with re-verified evidence: Wesker#47, Wesker#31 and D#112;
   - D#115 was reopened, because `diagnose --two-sign` drops `--two-sign`;
-  - filed: D#145, plus D#142 item 4.
+  - filed: D#145, plus D#142 item 4;
+  - filed Wesker#55, which escalates D#127: under `--isolated`, an argument-writing mutant alters a shared parametrize row, and later failures count as kills. An identical mutant was reported killed, and `converge --isolated` printed COMPLETE.
 
   The queue's issue records are synced with GitHub (`issue_audit_2026_10_26`), and the index issues carry the 2026-10-26 checkpoint. Not accepted by this: anything a body marks "not re-run" or "not verified".
