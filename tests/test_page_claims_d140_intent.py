@@ -22,8 +22,9 @@ the two apart (`crash_only_status`) already existed, and the full report used it
 the verdict line and the DONE sentence ("They are detected, not equivalent") did not.
 
 THE RULING:
-- Classification establishes whether the function takes any argument besides a method's receiver
-  (`SurvivorReport.takes_arguments`), once. Both verbs read it:
+- Classification establishes whether the function takes any argument, a method's receiver included
+  (`SurvivorReport.takes_arguments`), once. The receiver counts: a receiver factory and the
+  receiver-state search both vary it. Both verbs read it:
   - no structural or fixture caveat (`candidate_equivalent_caveat`);
   - no --input ask (`rescue_disposition` → `no_input`);
   - a DONE residual of its own (`residual_done_basis` → `single_call`), which still offers `flag`,
@@ -100,6 +101,20 @@ def test_a_crash_no_test_runs_is_never_called_detected():
 
 # ── end to end ──────────────────────────────────────────────────────────────────────────────────
 
+_BASKET = (
+    "class Basket:\n"
+    "    def __init__(self, items=None):\n"
+    "        self.items = list(items or [])\n\n"
+    "    def total(self):\n"
+    "        if not self.items:\n"
+    "            return 0\n"
+    "        return sum(self.items)\n"
+)
+_BASKET_TEST = (
+    "from basket import Basket\n\n\n"
+    "def test_total_adds_the_items():\n"
+    "    assert Basket([2, 3]).total() == 5\n"
+)
 _TAG = 'def tag(n: int) -> str | None:\n    if n < 0:\n        return None\n    return f"#{n}"\n'
 _TAG_TEST = 'from tagging import tag\n\n\ndef test_tag_formats_a_count():\n    assert tag(3) == "#3"\n'
 _VERSION = 'def version():\n    return "1.0"\n'
@@ -128,6 +143,8 @@ def project(tmp_path):
     (root / "versioning.py").write_text(_VERSION)
     (root / "tests" / "test_tagging.py").write_text(_TAG_TEST)
     (root / "tests" / "test_versioning.py").write_text(_VERSION_TEST)
+    (root / "basket.py").write_text(_BASKET)
+    (root / "tests" / "test_basket.py").write_text(_BASKET_TEST)
     assert _detective(root, "regime", "--migrate", "--project-root", str(root)).returncode == 0
     return root
 
@@ -150,3 +167,11 @@ def test_converge_never_asks_a_function_with_no_argument_for_an_input(project):
     assert "none can be supplied" in report and "template:" not in report, report
     assert "supply the distinguishing value(s) with --input" not in report, report
     assert "or add a distinguishing input" not in report, report
+
+
+def test_a_methods_receiver_is_an_input_so_its_one_call_is_never_every_input(project):
+    # The correction: `Basket.total(self)` read "it takes no arguments, so its one call is every input
+    # there is" over survivors a different receiver reaches, and was offered `flag` for them.
+    converge = _detective(project, "converge", "basket.py::Basket.total", "--two-sign")
+    assert converge.returncode == 0, converge.stdout + converge.stderr
+    assert "takes no arguments" not in converge.stdout, converge.stdout

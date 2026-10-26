@@ -155,7 +155,7 @@ class SuiteAudit:
     # How many of `crash_only_equivalent` NO current test reaches (D#140, `crash_only_status`): the crash
     # is the witness search's observation, not the suite's, so the page must not call them detected.
     crash_only_undetected: int = 0
-    # Whether the function takes any argument besides a method's receiver, as classification
+    # Whether the function takes any argument, a method's receiver included, as classification
     # established it (`SurvivorReport.takes_arguments`, D#140); None, not established.
     takes_arguments: bool | None = None
     # Whether the classifier's boundary-probe pass ran over the residual (#71) — the

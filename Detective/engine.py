@@ -3263,13 +3263,18 @@ def classify_survivors(
     qualname, node = _resolve(tree, function)
     if node is None:
         raise LookupError(f"function {function!r} not found in {file}")
-    # Whether a call can carry any input at all (D#140): with no parameter but a method's own receiver,
-    # the one call is every input there is, and no page may ask for an --input.
+    # Whether a call can carry any input at all (D#140): with no parameter whatever, the one call is every
+    # input there is, and no page may ask for an --input. A method's receiver COUNTS: a receiver factory
+    # and the receiver-state search both vary it, and `Basket.total(self)` read "its one call is every
+    # input there is" over survivors a different receiver reaches (measured 2026-10-25).
     _arguments = node.args
-    _positional = [*_arguments.posonlyargs, *_arguments.args]
-    if _positional and "." in (qualname or "") and _positional[0].arg in ("self", "cls"):
-        _positional = _positional[1:]
-    _takes_arguments = bool(_positional or _arguments.vararg or _arguments.kwonlyargs or _arguments.kwarg)
+    _takes_arguments = bool(
+        _arguments.posonlyargs
+        or _arguments.args
+        or _arguments.vararg
+        or _arguments.kwonlyargs
+        or _arguments.kwarg
+    )
 
     # Human equivalence flags (the oracle execution cannot be) — keyed by the
     # mutation diff, which embeds the code, so a flag applies only to the exact
