@@ -865,5 +865,17 @@
     "function_digest": "d271f06b78bbfb06",
     "refusal": "",
     "standing": "complete"
+  },
+  "scripts/check_sdist.py::sdist_verdict": {
+    "cut_reasons": [],
+    "function_digest": "8fa08f8c4862a723",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "scripts/sync_repair_queue.py::record_disposition": {
+    "cut_reasons": [],
+    "function_digest": "2016681e2450e211",
+    "refusal": "",
+    "standing": "complete"
   }
 }

@@ -118,6 +118,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [ ] 9.2 Establish every required affected-obligation premise; retain tests when the code-kappa/domain basis or another required witness is unavailable.
 - [ ] 9.3 Verify the exact staged edit fresh, reject intervening edits, coordinate source/certificate/index acceptance and restore exact before images on failure.
 - [ ] 9.4 Reaccept cleanup C01–C18 and the joint final-witness case before any purge; failed recovery must stop the next edit.
+- [ ] 9.5 (2026-10-26, D#145) Make the redundant set and the cover count independent of execution order and trace-cache state. Today the kill matrix credits each mutant to its first killer, so the same tree reads a cover of 2 or 3.
 
 ## 10. B09 — Measured same-answer work elimination
 
@@ -164,3 +165,4 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
   - filed Wesker#55, which escalates D#127: under `--isolated`, an argument-writing mutant alters a shared parametrize row, and later failures count as kills. An identical mutant was reported killed, and `converge --isolated` printed COMPLETE.
 
   The queue's issue records are synced with GitHub (`issue_audit_2026_10_26`), and the index issues carry the 2026-10-26 checkpoint. Not accepted by this: anything a body marks "not re-run" or "not verified".
+- [x] 14.6 (2026-10-26) `docs/REPAIR_WORKFLOW_2026-10-26.md` orders the 84 open issues into waves and lanes, with the founder decisions each one waits on. `scripts/sync_repair_queue.py` keeps the queue's records equal to the trackers; it refuses to write while an open issue is unplaced. Its decision is pinned COMPLETE 34/34 over `tests/test_sync_repair_queue_intent.py`.
