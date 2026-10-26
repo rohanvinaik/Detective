@@ -19,6 +19,17 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [ ] 2.4 Verify child-thread/subprocess uncertainty and foreign coverage/profiler coexistence across 3.12–3.14; retain per-TestId line, arc, capture and outcome equality.
 - [ ] 2.5 Reproduce W#29's six self-measurement containment failures with an unmutated containing parent; do not infer success from the ordinary CI suite.
 - [ ] 2.5a (2026-10-25, not accepted) The spec-full self-measurement on Wesker 6ba533d hit its 180-minute bound. The stall dumps locate a permanent hang: the main thread in `Thread.start()` -> `_started.wait()` from `_run_test_with_timeout`, from 14:57 to 17:27, with no other Python thread (W#29 comment). It is not the `with`-stranding fixed in 91c3b93/b1fd0e1.
+- [ ] 2.5b (2026-10-26, not accepted) The hang's cause and its fixes:
+  - **Cause:** the equivalence check ran `_apply_mem_limit`'s original in the measuring process, setting RLIMIT_AS=(1, 1).
+  - **Fixes:** Wesker f1598bf (`contain_speculation`) and eb6a17a (`worker_lost`, a named refusal).
+  - **Run 40237240506 (f99281c):** passed the hang point, then went silent.
+  - **Run 40254151337:** on 2fbd029, whose fix (W#52) stops the measured tests from removing the stall dump. It measured `_isolated_worker.py` (0/301) and `action.py` (109/324, 51 s), then crashed: `OSError: [Errno 9] Bad file descriptor` on the measuring process's stdout.
+
+  Not accepted:
+  - the nested Action's stream code killing stdout (W#52);
+  - `_isolated_worker.py::_build_mutant` exceeding its budget (0/62);
+  - the original six (2.5);
+  - whether 180 minutes can hold the run (founder decision, W#29).
 - [ ] 2.6 Validate original-measurement warrants for mutant step caps and propagate named wall/observer/arm failures through every gate.
 - [x] 2.6a (2026-10-25) The witness search budgets a mutant with Wesker's calibrated STEP_BUDGET_FACTOR/FLOOR (Detective 01337aa): the `//` -> `/` halving mutant (1,075 iterations) is distinguished, never filed divergent. The strict gate names every no-verdict mutant and fails only on a repairable one (founder ruling). Not accepted: the original's probe cap (STEP_PROBE_CAP), the steps_140m wall split (W#27), and the harvest step budget (D#80 (3)).
 
@@ -35,7 +46,14 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
   - 6e10cf8: a file-writing function's speculative classification refuses the input instead of aborting the run, and write-refused survivors route to a WRITE TEST.
   - e341b25 (D#105 reopened): that WRITE TEST looped on survivors the suite already detected by crash. Each write-refused survivor is now named by standing, WRITE TEST names only those nothing detects, and a detected-only residual is converge's INCOMPLETE hand-back `write_refused_detected`. Accepted over three rounds on the c1 fixture: the advised test closes the open survivor and is never called redundant.
   - Wesker fc661d0 (Wesker#51): the CLI rollup counts and names write_outside_authority.
-  Not accepted: a writer with an always-raising mutant cannot reach COMPLETE, since its value search is the refused one (D#141).
+  Not accepted: a writer with an always-raising mutant cannot reach COMPLETE, since its value search is the refused one (D#143).
+- [x] 3.4b (2026-10-26) D#141 (157510e): a speculative call can no longer change Detective's own process.
+  - **Refused:** resource limits, spawns, signals, cwd and env, by Detective's ContextVar-scoped hook (Wesker's list, kept one by a fence test).
+  - **The outcome:** `<effect-refused>`, through `speculative_refusal`.
+  - **The survivor:** joins #105's family under its named cause ("calls subprocess.Popen").
+  - **Accepted:** the RLIMIT_NOFILE target, with the limit unchanged; converge on a spawning function spawns nothing, and the advised stubbed-call test reaches COMPLETE 6/6.
+
+  Not accepted: the residuals in D#143 (unclassifiable refused survivors, `--check-strict`, the refusal's boundary).
 - [ ] 3.5 Re-run D#108/#127 original CLI reproductions, including slow copy/repr/rendering and cancellation, then accept only the demonstrated deadline and authored-input obligations.
 - [ ] 3.6 Verify nonfinite literal round trips, evaluated distinctions and NaN assertions through written tests and public reports; leave unrelated D#76 reporting work in B05.
 - [x] 3.7 Reject harvest observations/snapshots admitted after the absolute deadline, include setup/startup in the remaining budget, and reap startup/pre-join cancellation (Detective e5f7c98/bf3f87b, ten controlled regressions; exact 1.2.2 CI). This accepts the added boundary subset, not 3.4–3.6 or the full D#108 field reproduction.
@@ -67,6 +85,15 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
   - no false "every mutant killed";
   - write-refused survivors' WRITE TEST.
   Filed: D#139 (uncovered vs failing-only lines) and D#140 (μ⁻ survivor rendering).
+- [x] 6.1b (2026-10-26) D#139 closed (fc87423). D#140 items 2 and 4 (fe57369; correction d2750f7):
+  - a function that takes no argument is never asked for an --input, and a method's receiver counts as an input;
+  - "detected by crash" appears only where a current test detects it.
+
+  Not accepted: D#140 items 1, 3, 5 and 6. Filed:
+  - D#142: an incomplete observation names no next command; an unchanged mutant renders an empty diff and is offered flag; a divergent residual is recorded as flaggable; under a step-budget floor, the uncovered row points at an action that names nothing.
+  - Wesker#53: SWAP of identical arguments.
+  - Wesker#54: harness dispositions unnamed in the rollup.
+  - D#144: a containment intent test that fails intermittently on CI's macOS runners.
 - [ ] 6.2 Verify human stdout, full report, JSON, ledger and certificate agreement for unknown/multiple refusals, absent/unknown containment and provenance-bearing shape hazards.
 - [ ] 6.3 Round-trip printed witness/mutant identity, full usable outcomes, nonfinite spellings, valid next targets and clock/environment/two-sign context.
 - [ ] 6.4 Complete decision-code/field-consumption guards, foreign missing-evidence handling, plugin disclosure and nested invocation-ledger finalization.
@@ -129,3 +156,10 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [x] 14.2 Update GitHub tracking/release/affected issue records with exact accepted subsets and residual work; never close an umbrella issue from a green suite alone (W#32/#35/#36; D#88/#99/#105/#108/#127/#133).
 - [ ] 14.3 Keep Type (2) additions in their existing issues and record missing owner premises. Each accepted work wave updates this plan, queue and relevant issue receipt together.
 - [x] 14.4 Save a resumable checkpoint with the complete live 89-issue mapping, accepted/subset versus outstanding work, the preserved certificate worktree edit, publication receipts, owner premises, dependency order and a procedure for newly discovered defects (docs/RESUME_PAIRED_REPAIR_2026-10-24.md).
+- [x] 14.5 (2026-10-26) Every open issue in both trackers was checked against Detective d2750f7 / Wesker 2fbd029:
+  - 45 bodies were rewritten to their current state, and 27 were re-verified as written with a dated comment;
+  - closed with re-verified evidence: Wesker#47, Wesker#31 and D#112;
+  - D#115 was reopened, because `diagnose --two-sign` drops `--two-sign`;
+  - filed: D#145, plus D#142 item 4.
+
+  The queue's issue records are synced with GitHub (`issue_audit_2026_10_26`), and the index issues carry the 2026-10-26 checkpoint. Not accepted by this: anything a body marks "not re-run" or "not verified".

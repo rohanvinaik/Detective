@@ -191,7 +191,7 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "1b7db2c01c1115fb02696b16be13e706c5b301074798334a0bbdb9741fd881ae",
-      "latest_body_sha256": "1b7db2c01c1115fb02696b16be13e706c5b301074798334a0bbdb9741fd881ae",
+      "latest_body_sha256": "86c93a62e93c27eab141a5b4f47412ba0a3c7a4ff8e17091381c37984d7c2fae",
       "latest_state": "open",
       "acceptance_receipt": "Partial 2026-10-25: (1) and (2) met through the CLI; (3) not met (a pre-existing pool thread reads as reach=complete with no lines)."
     },
@@ -206,7 +206,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "19c3bd6d71a0e3cf36c843e4401475fcd50e5a71d82f1a6376ae520e04770fcc",
-      "latest_body_sha256": "19c3bd6d71a0e3cf36c843e4401475fcd50e5a71d82f1a6376ae520e04770fcc",
+      "latest_body_sha256": "e8852b0639f130da0d54d4c6a0162b6bfcb69a72b2d7a79d1d15da57b142af72",
       "latest_state": "open"
     },
     {
@@ -220,7 +220,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "e13a5b073ebe586c0d6494ae96dada27a37e191be6b256bea07ffd63a5e2bf50",
-      "latest_body_sha256": "e13a5b073ebe586c0d6494ae96dada27a37e191be6b256bea07ffd63a5e2bf50",
+      "latest_body_sha256": "92a21c8cbfb4c913fafc8bcff765227889151906604933bfe01078272eaca482",
       "latest_state": "open"
     },
     {
@@ -234,7 +234,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "01c654b6dbcd82a48e9c08023806dcb46d31d4441af0a21f8b2f74d7647d6c15",
-      "latest_body_sha256": "01c654b6dbcd82a48e9c08023806dcb46d31d4441af0a21f8b2f74d7647d6c15",
+      "latest_body_sha256": "513ace09f75d07d446fdafd40bfcf6caf816f2668e25fbc8243b18b99c2709da",
       "latest_state": "open"
     },
     {
@@ -248,7 +248,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "a8e2d1356ec65bb43da84c304a4ef07f382586dde370ef20f866f11f2de567cd",
-      "latest_body_sha256": "a8e2d1356ec65bb43da84c304a4ef07f382586dde370ef20f866f11f2de567cd",
+      "latest_body_sha256": "8860213989b61af83ea334b3f2e97982e1c573ca99d1cb5571107948f2c4ffb0",
       "latest_state": "open"
     },
     {
@@ -263,7 +263,7 @@
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "6604795ce3b08cf199fcf9457e5c7b0d32604e47dbfa8f82a7148f0c5d3d8336",
       "scope_note": "Repair presentation consumption; defer separately warranted static proof pruning.",
-      "latest_body_sha256": "6604795ce3b08cf199fcf9457e5c7b0d32604e47dbfa8f82a7148f0c5d3d8336",
+      "latest_body_sha256": "e59cd90834340d81f42dd977b68d562d9800403e6586c5009e875d206727c6d5",
       "latest_state": "open"
     },
     {
@@ -277,14 +277,14 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "4a0ff78451db96d607cdb29891dad9d4517f355134ba2d7c86e7a668cb010073",
-      "latest_body_sha256": "4a0ff78451db96d607cdb29891dad9d4517f355134ba2d7c86e7a668cb010073",
+      "latest_body_sha256": "b7373744fae95335c05459acffc8fb73d4df90c2392c37552c1ac9f22bc9cba3",
       "latest_state": "open",
       "acceptance_receipt": "Partial 2026-10-25: the SAME check holds except steps_140m (a fixed 10 s isolated wall: P-cores COMPLETE vs taskpolicy -b UNGATEABLE). (c) the Mac Pro is not verifiable here. No timeout is counted as a kill."
     },
     {
       "repository": "Wesker",
       "number": 28,
-      "title": "A test that runs the engine, evaluated inside a held evaluation, deadlocks on the execution lock and orphans it — prevent the cycle, don't just detect it",
+      "title": "A test that runs the engine inside a held evaluation is refused by name before the wait (D1); in-process measurement (D2) and cycles through threads the code under test starts remain open",
       "url": "https://github.com/rohanvinaik/Wesker/issues/28",
       "scope": "REPAIR",
       "work_packages": [
@@ -292,13 +292,13 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "c8d4d848e9f14616dddbe43ec92377cc47c3f5b87578c6dc5a4ad5fc833541ab",
-      "latest_body_sha256": "c8d4d848e9f14616dddbe43ec92377cc47c3f5b87578c6dc5a4ad5fc833541ab",
+      "latest_body_sha256": "3ae378af67db70bd2aca2192e9dd9e128cb07d12d5f965a66908a852dbddc78e",
       "latest_state": "open"
     },
     {
       "repository": "Wesker",
       "number": 29,
-      "title": "The weekly whole-codebase self-measurement (Specification (full)) refuses on main — 6 functions had a test that could not be stopped",
+      "title": "Specification (full) does not complete on main — the Thread.start hang is fixed; the run now dies on a dead stdout (#52)",
       "url": "https://github.com/rohanvinaik/Wesker/issues/29",
       "scope": "REPAIR",
       "work_packages": [
@@ -306,14 +306,14 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "85c5e374eeeb1c4b71b0d4d8dd8671429476f051d12e23077d5ce9507c2bf9df",
-      "latest_body_sha256": "85c5e374eeeb1c4b71b0d4d8dd8671429476f051d12e23077d5ce9507c2bf9df",
+      "latest_body_sha256": "0d3edb618145061b11205e0aa63cce9f34757bc142982b240845747940e4e2ba",
       "latest_state": "open",
       "acceptance_receipt": "Not met 2026-10-25: the 6ba533d spec-full timed out at 180 min; the stack dumps locate a permanent hang in Thread.start() -> _started.wait() from _run_test_with_timeout (issue comment)."
     },
     {
       "repository": "Wesker",
       "number": 30,
-      "title": "Annotation sites in the mutant universe — decide the policy and land it at a release boundary",
+      "title": "Annotation sites are outside the mutant universe (option A, policy 8); the census does not yet count them as withheld",
       "url": "https://github.com/rohanvinaik/Wesker/issues/30",
       "scope": "REPAIR",
       "work_packages": [
@@ -322,7 +322,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "9cd9867dad99b71be25f332f1d87259a951137c9fc6655c3e5e498d1936c8e6f",
-      "latest_body_sha256": "9cd9867dad99b71be25f332f1d87259a951137c9fc6655c3e5e498d1936c8e6f",
+      "latest_body_sha256": "344e155c814829306f7898f2974f8902f70bdd9e339da8bd5113e5884d56f83b",
       "latest_state": "open"
     },
     {
@@ -334,15 +334,16 @@
       "work_packages": [
         "B03"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_26",
       "body_sha256": "59a202f0acb8b4ba2272e551dbe57de90d8262af426ddf5235b9908d566d00e0",
-      "latest_body_sha256": "59a202f0acb8b4ba2272e551dbe57de90d8262af426ddf5235b9908d566d00e0",
-      "latest_state": "open"
+      "latest_body_sha256": "64816229547e86c96b2086b4d532bce65b3c640e4e934c7fb3959845692eb6bf",
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/31#issuecomment-6412931894"
     },
     {
       "repository": "Wesker",
       "number": 32,
-      "title": "One owner of interpreter instrumentation — move every settrace/setprofile site onto Wesker/monitoring.py",
+      "title": "One owner of interpreter instrumentation: every settrace/setprofile site is on Wesker/monitoring.py; the guard test, SAME check and coexistence acceptance remain",
       "url": "https://github.com/rohanvinaik/Wesker/issues/32",
       "scope": "REPAIR",
       "work_packages": [
@@ -350,7 +351,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "bd89557be863706a1a5f166b2fe436e2850e3a5f1bf9882ed876b040df07876a",
-      "latest_body_sha256": "bd89557be863706a1a5f166b2fe436e2850e3a5f1bf9882ed876b040df07876a",
+      "latest_body_sha256": "9c393c91b5e79fc08bf473b6957386eb6435ea0bfc1f2fdeb9231427e61bae41",
       "latest_state": "open"
     },
     {
@@ -376,10 +377,11 @@
       "work_packages": [
         "B09"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "06c4dffa2d707707af8f5b12d7e29ea319d1299567f062ffc80bc52cd141630c",
       "latest_body_sha256": "06c4dffa2d707707af8f5b12d7e29ea319d1299567f062ffc80bc52cd141630c",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/34#issuecomment-6395036084"
     },
     {
       "repository": "Wesker",
@@ -393,7 +395,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "2a4d04ffb3109a98141312f22cc7694b281db461adc9fb474ff647b2d605a414",
-      "latest_body_sha256": "ba783d05b4c2da748530c7b7cb8db4530d48f24b41e53fb7f02655b359e28052",
+      "latest_body_sha256": "94bc9515b80c3e1f5a2aea7abbf004bdd0a55e106d978bcf5f33ceba2fc81b02",
       "latest_state": "open"
     },
     {
@@ -405,7 +407,7 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "0c3dad7114fc226d7312f9ab846ad6cd1e3d9f2eb280bb7c1247839b307ada88",
-      "latest_body_sha256": "94620195066cfd12b095a079ab1b8b56c0269da7406baa734c1fdbcee71a3e91",
+      "latest_body_sha256": "04071ed60b34b84016df63480eb1f1513b23c2907b31e8be7712511b7e1723a3",
       "latest_state": "open"
     },
     {
@@ -441,7 +443,7 @@
     {
       "repository": "Wesker",
       "number": 39,
-      "title": "itertoolz.py: OOM kill due to unbounded mutant + missing CLI flag for isolated execution",
+      "title": "itertoolz.py: an unbounded mutant can still OOM the process (no memory bound on the CLI's default path; --mem-limit-mb's cap is not applied on macOS)",
       "url": "https://github.com/rohanvinaik/Wesker/issues/39",
       "scope": "REPAIR",
       "work_packages": [
@@ -450,7 +452,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "3d5fefa027230450e9797907674a5255755123955eacbe3b0cc7d2b239ca8dc2",
-      "latest_body_sha256": "3d5fefa027230450e9797907674a5255755123955eacbe3b0cc7d2b239ca8dc2",
+      "latest_body_sha256": "3a70ecc1a2e0c9b96b305f77b0893cec63f25ac5d038ef5e390788e92c4f8cda",
       "latest_state": "open"
     },
     {
@@ -464,7 +466,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "b4077196ded8b4f86efa76c76aa2185c9edea8dab8feeca6e69eca678990852e",
-      "latest_body_sha256": "b4077196ded8b4f86efa76c76aa2185c9edea8dab8feeca6e69eca678990852e",
+      "latest_body_sha256": "d052c710f3a49ced4170fcd63e84af06d5320f0c685ab5155ec6857ee517c76e",
       "latest_state": "open"
     },
     {
@@ -479,7 +481,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "b617e2207bf1dfaef700a6eb236890291b5b0d528d4410bbcd0203b538fc5b6a",
-      "latest_body_sha256": "b617e2207bf1dfaef700a6eb236890291b5b0d528d4410bbcd0203b538fc5b6a",
+      "latest_body_sha256": "ef422e8e3805eeb46a57a1da44ae3fa539d54ca7c564f418cf54c90eda0ee764",
       "latest_state": "open"
     },
     {
@@ -493,7 +495,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "128b10e17f527e0525dd39634c5f8ac86868a659ad27fc1d677ae8219ca713c1",
-      "latest_body_sha256": "128b10e17f527e0525dd39634c5f8ac86868a659ad27fc1d677ae8219ca713c1",
+      "latest_body_sha256": "e7c6827fb23751e8050baa594b367628673fa1bc4236cc7ae41fc20780b0eb74",
       "latest_state": "open"
     },
     {
@@ -521,14 +523,14 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "e76ac1d8e5ae345ee388c2889f6404eb0b330b4a214d7af8dd90e70596954b90",
-      "latest_body_sha256": "e76ac1d8e5ae345ee388c2889f6404eb0b330b4a214d7af8dd90e70596954b90",
+      "latest_body_sha256": "14d0562ba401b1e719f354369b10d5245c0e297cc94728388efbc246ac987613",
       "latest_state": "open",
       "acceptance_receipt": "Partial 2026-10-25: of 38 operators, 30 built, 2 partial, 2 realized by others, 4 unsupported; families (i)-(iv) accepted; AC1-AC3 not met as written."
     },
     {
       "repository": "Wesker",
       "number": 45,
-      "title": "Expose --isolated and --mem-limit-mb flags on Wesker CLI (addresses #39)",
+      "title": "Wesker CLI: a --mem-limit-mb cap the OS refuses (macOS) is never reported, and Linux interception is unmeasured (addresses #39)",
       "url": "https://github.com/rohanvinaik/Wesker/issues/45",
       "scope": "REPAIR",
       "work_packages": [
@@ -537,13 +539,13 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "4a2ee1d5138b32a4cc0da1f2e30fe08cacfffd9bbdaa93456c09e7c868e67049",
-      "latest_body_sha256": "4a2ee1d5138b32a4cc0da1f2e30fe08cacfffd9bbdaa93456c09e7c868e67049",
+      "latest_body_sha256": "9af0c9c9d77c16e4f9b42b5bdd95c9edd297847a9402c82b87f4ab690f8679fd",
       "latest_state": "open"
     },
     {
       "repository": "Wesker",
       "number": 46,
-      "title": "Preserve __package__ in mutant execution namespace for relative-import targets",
+      "title": "Isolated worker: a target no collected test imports is loaded without its package, so its relative imports fail",
       "url": "https://github.com/rohanvinaik/Wesker/issues/46",
       "scope": "REPAIR",
       "work_packages": [
@@ -552,7 +554,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "06a98f6484a11250b4accc3612b2f5c7df1cc99455cf407b3abc0d8064cb3cf3",
-      "latest_body_sha256": "06a98f6484a11250b4accc3612b2f5c7df1cc99455cf407b3abc0d8064cb3cf3",
+      "latest_body_sha256": "e05bbf950c0a70768dc214bb2a771b4b74cb558deb8207a6df635de5baf3cdff",
       "latest_state": "open"
     },
     {
@@ -620,13 +622,13 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "3d73c8706712460d96719cf83a4607501c2df59d21133ed577a46e8cbf0d282e",
-      "latest_body_sha256": "3d73c8706712460d96719cf83a4607501c2df59d21133ed577a46e8cbf0d282e",
+      "latest_body_sha256": "1f605e4399758cb2e8b1885ece9dcfff7c15b4c62ce73f02932f477af24db265",
       "latest_state": "open"
     },
     {
       "repository": "Detective",
       "number": 77,
-      "title": "UNGATEABLE (REACH) on plain functions with no decorator/registry capture; the prescribed caller-pin repair does not change the verdict; the test's import form looks like the real cause",
+      "title": "A test that reaches its target only through an alias or a module constant is not consulted, and decorator_wrapper's printed repair (its __wrapped__) cannot work",
       "url": "https://github.com/rohanvinaik/Detective/issues/77",
       "scope": "REPAIR",
       "work_packages": [
@@ -634,7 +636,7 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "8035a8cb4498d565735618864977aac498a853bea20969f07c239e3ae706e668",
-      "latest_body_sha256": "8035a8cb4498d565735618864977aac498a853bea20969f07c239e3ae706e668",
+      "latest_body_sha256": "4fcf345f008a6985067a0683a0d972384ee03cecfeb261760b5ab4c2c392279c",
       "latest_state": "open",
       "acceptance_receipt": "Partial 2026-10-25: item 1 met for four causes; item 2's premise no longer holds; items 3 and 5 not met on natural forms (routing); the decorator_wrapper repair cannot work."
     },
@@ -647,10 +649,11 @@
       "work_packages": [
         "B05"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "456031337c667bf4373f1a6edca0bf62b473789fce3b90eeaef1e4ae7afccd9c",
       "latest_body_sha256": "456031337c667bf4373f1a6edca0bf62b473789fce3b90eeaef1e4ae7afccd9c",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/78#issuecomment-6395035057"
     },
     {
       "repository": "Detective",
@@ -663,7 +666,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "286d8ae425755c9740a216f3b8d06e12063ef578efa6edc1d51e16c850bd5136",
-      "latest_body_sha256": "286d8ae425755c9740a216f3b8d06e12063ef578efa6edc1d51e16c850bd5136",
+      "latest_body_sha256": "48d0399bfea4709837837118bcb54764603c14d58f0b60fb7b4cda98fdb97568",
       "latest_state": "open"
     },
     {
@@ -678,7 +681,7 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "a7bcc9eb98da22ab662785510f3744a63d85321714d2a4816213b2c443bc7153",
-      "latest_body_sha256": "a7bcc9eb98da22ab662785510f3744a63d85321714d2a4816213b2c443bc7153",
+      "latest_body_sha256": "eefd9bdcc10e5792f111503c2d7ee7fd89e2e187a5530e03c6a7891edccf0d89",
       "latest_state": "open",
       "acceptance_receipt": "Partial 2026-10-25: (1) the strict gate fails only on a repairable no-verdict cause (founder ruling) and (2) the witness budget uses Wesker's calibrated constants (01337aa). Open: the original's probe cap, the named outcomes, and (3) the harvest step budget."
     },
@@ -721,7 +724,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "1825a8dc081f0d1fee5ac43a057ef48424e0759a5ae25b2eea69720b03129143",
-      "latest_body_sha256": "1825a8dc081f0d1fee5ac43a057ef48424e0759a5ae25b2eea69720b03129143",
+      "latest_body_sha256": "324e55527c623c17fe2ee97da7150885f4914d93913ea8207d5d5713e168f143",
       "latest_state": "open"
     },
     {
@@ -750,7 +753,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "971b118003de834c5d45637f70f77cf1455fe827c6430472eff4e610f5331574",
-      "latest_body_sha256": "971b118003de834c5d45637f70f77cf1455fe827c6430472eff4e610f5331574",
+      "latest_body_sha256": "0794f8eeaa42ae12ea4949ed982a6bb2b70b7e4faf0434c36c82108ff7fdb740",
       "latest_state": "open"
     },
     {
@@ -793,7 +796,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "1a0b868eb2f907e7b460a7725a0919e3dc874b482676b8169cb547f7c2b31c47",
-      "latest_body_sha256": "4fd2bc412dfb2c02a74adbc8e1f6db1221520c039f6b15d81e33881c654dc9a3",
+      "latest_body_sha256": "c074047d34ef7c813a52df597dff59fda944e77edd17e5a28b83223e352547e8",
       "latest_state": "open"
     },
     {
@@ -807,7 +810,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "31deeee4440e39a23dfdfbefafc3eb0f3797a6eee027bc3a3052181e0449abc1",
-      "latest_body_sha256": "31deeee4440e39a23dfdfbefafc3eb0f3797a6eee027bc3a3052181e0449abc1",
+      "latest_body_sha256": "b9d44662f49785c231a303b4ecc162c60fea7c2c3cb15479ce18ebf853debc55",
       "latest_state": "open"
     },
     {
@@ -820,7 +823,7 @@
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "5fb6fb187c5707fa1016fe105068440ba2ea62c9dc7469992ba8950f85784202",
       "deferred_scope": "Effect archetypes and explicit world models",
-      "latest_body_sha256": "5fb6fb187c5707fa1016fe105068440ba2ea62c9dc7469992ba8950f85784202",
+      "latest_body_sha256": "d6c60c59b8d6fab417769b00ca99e7632ac5ce71025a7a1f459952299d0706d3",
       "latest_state": "open"
     },
     {
@@ -833,10 +836,11 @@
         "B00",
         "B05"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "1697386feacb0899f9d434dee9d2d258ea2f7647fd1f79e7bf0b6b0e5a3f12ed",
       "latest_body_sha256": "1697386feacb0899f9d434dee9d2d258ea2f7647fd1f79e7bf0b6b0e5a3f12ed",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/91#issuecomment-6395035370"
     },
     {
       "repository": "Detective",
@@ -849,10 +853,11 @@
         "B04",
         "B07"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "d86c26aca97a05272cb771fa78383e2f45c4b6073468d7b1f3556111012d9fb4",
       "latest_body_sha256": "d86c26aca97a05272cb771fa78383e2f45c4b6073468d7b1f3556111012d9fb4",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/92#issuecomment-6395035635"
     },
     {
       "repository": "Detective",
@@ -946,7 +951,7 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "d767526353a62316adbfc3611ad195db4aff94577bc290d1ad0fcb2d096ca244",
-      "latest_body_sha256": "aa24b76a366a8d7cde20e80dda031bb213a01e03fab313e5ee8d356144a73ad4",
+      "latest_body_sha256": "b2783b04d42b2d979ea4b6392fca96da54780012a3cf9c09e1261f251fdc8861",
       "latest_state": "open"
     },
     {
@@ -960,7 +965,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "3a8f82e934ad89df1901837d895627c3a0bd85bda47f2ca7b6c456b4905ceab8",
-      "latest_body_sha256": "3a8f82e934ad89df1901837d895627c3a0bd85bda47f2ca7b6c456b4905ceab8",
+      "latest_body_sha256": "8e3e773c2a9ab0c205ea4dd87f0853308c3c3e29690ab08efd7645402d4ded88",
       "latest_state": "open"
     },
     {
@@ -974,13 +979,13 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "9364170350e8987e4d9ad0cd49ed2b0008442340fa11a5929fc57655298bdebd",
-      "latest_body_sha256": "9364170350e8987e4d9ad0cd49ed2b0008442340fa11a5929fc57655298bdebd",
+      "latest_body_sha256": "01d8516c608ccf20d9ac13cb63b77951a8074198fa6e3be581b7bff9140b16a9",
       "latest_state": "open"
     },
     {
       "repository": "Detective",
       "number": 102,
-      "title": "Index — native killability, knowable removal at sweep scale, and the operator's path (2026-10-02 build) — start here",
+      "title": "Index (historical) — native killability, knowable removal at sweep scale, and the operator's path (2026-10-02 build); the current index is #99",
       "url": "https://github.com/rohanvinaik/Detective/issues/102",
       "scope": "MIXED",
       "work_packages": [
@@ -990,7 +995,7 @@
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "c9c0dd77c8d35f060a687516443f10f48cd74cbbf608fc93b8cc485400bd5d86",
       "scope_note": "Repair existing identity, transaction and action/ledger paths; defer new scope to #135/#136.",
-      "latest_body_sha256": "c9c0dd77c8d35f060a687516443f10f48cd74cbbf608fc93b8cc485400bd5d86",
+      "latest_body_sha256": "40b292361482ea0ad58e8334aba43a799c7c8ff9ebb3ca17944a8decad8ab72c",
       "latest_state": "open"
     },
     {
@@ -1005,7 +1010,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "43fa3a9f7422c36d8334121ce3c56db00d71050101250b51178d430b85fd4d2b",
-      "latest_body_sha256": "43fa3a9f7422c36d8334121ce3c56db00d71050101250b51178d430b85fd4d2b",
+      "latest_body_sha256": "f3dcbf078e1ad853c957c1df18f101e914494c1a2ddc36520f9fe295197a92a5",
       "latest_state": "open"
     },
     {
@@ -1049,7 +1054,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "d23d616a2f04086a1bc5e883cf837f6d31b13b54c6da0fd136e1b894203555b8",
-      "latest_body_sha256": "d23d616a2f04086a1bc5e883cf837f6d31b13b54c6da0fd136e1b894203555b8",
+      "latest_body_sha256": "f3ab3b3577effd4416b9c7cbbe77bb145147100e137f256bc4398219946e369b",
       "latest_state": "open"
     },
     {
@@ -1077,7 +1082,7 @@
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "c061f26afabd0fc5ec67a00a797149293031564cf62388635e19f769b987f4b8",
       "scope_note": "Repair crash-only reporting/flag eligibility; defer expanded search capability with #109.",
-      "latest_body_sha256": "c061f26afabd0fc5ec67a00a797149293031564cf62388635e19f769b987f4b8",
+      "latest_body_sha256": "f890eaa7e073d0b2e3a77ef8e6a1f3d36be480db44e23ca45f3e168300864432",
       "latest_state": "open"
     },
     {
@@ -1089,10 +1094,11 @@
       "work_packages": [
         "B05"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "8901886cc83126d973ddf50878a0874f751aee8ac937acb068e9c9939abae88c",
       "latest_body_sha256": "8901886cc83126d973ddf50878a0874f751aee8ac937acb068e9c9939abae88c",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/111#issuecomment-6395512235"
     },
     {
       "repository": "Detective",
@@ -1104,10 +1110,11 @@
         "B03",
         "B08"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_26",
       "body_sha256": "e3159914c7d6efe60a09e4d625ae399bbc20761f208027aaac426bca165a776e",
-      "latest_body_sha256": "e3159914c7d6efe60a09e4d625ae399bbc20761f208027aaac426bca165a776e",
-      "latest_state": "open"
+      "latest_body_sha256": "44e5aa3005dd5a6ea7fcfcf86d0fca132dda5e7ee7038f784d5240daac61b403",
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/112#issuecomment-6413725743"
     },
     {
       "repository": "Detective",
@@ -1120,7 +1127,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "8054a7f66b2bb8e78352e680fb119d97f36df9373e0d40933321b2fb3ede8887",
-      "latest_body_sha256": "8054a7f66b2bb8e78352e680fb119d97f36df9373e0d40933321b2fb3ede8887",
+      "latest_body_sha256": "780cbbce1935b86c8cac8b9c54446a3838e340acd9c363378e4df7aa928a732a",
       "latest_state": "open"
     },
     {
@@ -1148,10 +1155,11 @@
         "B00",
         "B04"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "reopened_2026_10_26",
       "body_sha256": "a69d20a7e2d435ec33c214187c083b5cd76d2729b9285cb11b769b104258c750",
       "latest_body_sha256": "a69d20a7e2d435ec33c214187c083b5cd76d2729b9285cb11b769b104258c750",
-      "latest_state": "open"
+      "latest_state": "open",
+      "acceptance_receipt": "Closed 2026-10-25 (2253c2b); reopened 2026-10-26: diagnose --two-sign prints its next commands without --two-sign, so the Expected is not met. https://github.com/rohanvinaik/Detective/issues/115#issuecomment-6413845109"
     },
     {
       "repository": "Detective",
@@ -1216,7 +1224,7 @@
     {
       "repository": "Detective",
       "number": 120,
-      "title": "μ⁻ container family: drop, dup, singleton, ctype and dict are not generated (Def. 11.8 (v))",
+      "title": "μ⁻ container family: dict's key/value swap is not generated, and ctype converts no sequence to or from a set (Def. 11.8 (v))",
       "url": "https://github.com/rohanvinaik/Detective/issues/120",
       "scope": "REPAIR",
       "work_packages": [
@@ -1224,7 +1232,7 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "bc351d17ca2689681f8265729b227efca49293d506115f04ccfb18f5c6b26de5",
-      "latest_body_sha256": "bc351d17ca2689681f8265729b227efca49293d506115f04ccfb18f5c6b26de5",
+      "latest_body_sha256": "a228ceb177d6ba671416a4afa52833c70f1105ae3576b3c2e1572f13fb189b19",
       "latest_state": "open",
       "acceptance_receipt": "Progress 2026-10-25 in the issue: built / partial / unsupported members listed (Wesker 6ba533d)."
     },
@@ -1239,14 +1247,14 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "b4f27b6c473c4be52877bc360eb1e5504611a0fe608d46dc65cd3eca8493e4fc",
-      "latest_body_sha256": "b4f27b6c473c4be52877bc360eb1e5504611a0fe608d46dc65cd3eca8493e4fc",
+      "latest_body_sha256": "6b3df2838de38977b9cd5734da652631c0a0d2c451c99c1f1d0dc04117ea6c01",
       "latest_state": "open",
       "acceptance_receipt": "Progress 2026-10-25 in the issue: built / partial / unsupported members listed (Wesker 6ba533d)."
     },
     {
       "repository": "Detective",
       "number": 122,
-      "title": "μ⁻ ordered family: adj, clamp and sortbreak are not generated (Def. 11.8 (vii))",
+      "title": "μ⁻ ordered family: clamp is not generated (Def. 11.8 (vii))",
       "url": "https://github.com/rohanvinaik/Detective/issues/122",
       "scope": "REPAIR",
       "work_packages": [
@@ -1254,14 +1262,14 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "253a5ccc3bc8734c402cd939eb282bf53480fe9509b927693db17e4feff3d932",
-      "latest_body_sha256": "253a5ccc3bc8734c402cd939eb282bf53480fe9509b927693db17e4feff3d932",
+      "latest_body_sha256": "78adf84c14683858ca74fb5557045fd3dbe818ca12aaa5c67c410697c7b9f643",
       "latest_state": "open",
       "acceptance_receipt": "Progress 2026-10-25 in the issue: built / partial / unsupported members listed (Wesker 6ba533d)."
     },
     {
       "repository": "Detective",
       "number": 123,
-      "title": "μ⁻ effect family: raise, state-noop and state-extra are not generated (Def. 11.8 (viii))",
+      "title": "μ⁻ effect family: raise-inject and state-extra are not generated, and state-noop has no OUTPUT sub-mode (Def. 11.8 (viii))",
       "url": "https://github.com/rohanvinaik/Detective/issues/123",
       "scope": "REPAIR",
       "work_packages": [
@@ -1269,7 +1277,7 @@
       ],
       "acceptance_state": "partial_2026_10_25",
       "body_sha256": "9cefa83f2038be0f0a719c58eac7bc77caa9280dc92d835bf8ec9add805222aa",
-      "latest_body_sha256": "9cefa83f2038be0f0a719c58eac7bc77caa9280dc92d835bf8ec9add805222aa",
+      "latest_body_sha256": "ba00ecc62e582df113582e6683ec05142bfe7cbd586f480ee22118ed55763209",
       "latest_state": "open",
       "acceptance_receipt": "Progress 2026-10-25 in the issue: built / partial / unsupported members listed (Wesker 6ba533d)."
     },
@@ -1297,10 +1305,11 @@
       "work_packages": [
         "B05"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "52198d91bc8ccd4e1a1e796fb97ce811396b297e93e97e75307d89495e7df741",
       "latest_body_sha256": "52198d91bc8ccd4e1a1e796fb97ce811396b297e93e97e75307d89495e7df741",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/125#issuecomment-6395511646"
     },
     {
       "repository": "Detective",
@@ -1312,15 +1321,16 @@
         "B00",
         "B01"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "15a28fe01312e3dc4c3fa91108cead963c9758a694c34dd0f58d147bd8546dae",
       "latest_body_sha256": "15a28fe01312e3dc4c3fa91108cead963c9758a694c34dd0f58d147bd8546dae",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/126#issuecomment-6395512796"
     },
     {
       "repository": "Detective",
       "number": 127,
-      "title": "converge: a mutant that writes into its argument alters the supplied --input for later runs, so the written pin records an input other than the one authored",
+      "title": "converge: a mutant that writes into its argument alters a written pin's arguments for the mutants run after it, so --isolated counts a kill from the altered input",
       "url": "https://github.com/rohanvinaik/Detective/issues/127",
       "scope": "REPAIR",
       "work_packages": [
@@ -1329,7 +1339,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "05c002932d4eafbfd4e6403fecf6d8fddf968f5decfdee8bbe484e7a62060ed7",
-      "latest_body_sha256": "05c002932d4eafbfd4e6403fecf6d8fddf968f5decfdee8bbe484e7a62060ed7",
+      "latest_body_sha256": "94163c5497ae04600e33796bf6834c3fbcf73e294cd0a011eac80e4a06be8532",
       "latest_state": "open"
     },
     {
@@ -1342,10 +1352,11 @@
         "B00",
         "B04"
       ],
-      "acceptance_state": "not_reaccepted_by_this_inventory",
+      "acceptance_state": "accepted_2026_10_25",
       "body_sha256": "a7c0aa168c6edd22970e16173eec56069ada4007a82f92dfcc81c27358e9a3b6",
       "latest_body_sha256": "a7c0aa168c6edd22970e16173eec56069ada4007a82f92dfcc81c27358e9a3b6",
-      "latest_state": "open"
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/128#issuecomment-6395511969"
     },
     {
       "repository": "Detective",
@@ -1374,13 +1385,13 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "77d99af7eb94d5d96ab2848176c67882150bf23039ce52c62c372711aa53de17",
-      "latest_body_sha256": "77d99af7eb94d5d96ab2848176c67882150bf23039ce52c62c372711aa53de17",
+      "latest_body_sha256": "4ad8d72628db987abd5d445f6324c0978b4747fa0aee099882daef9887d450cb",
       "latest_state": "open"
     },
     {
       "repository": "Detective",
       "number": 131,
-      "title": "Execute native ruff binary directly in _ruff_format instead of python -m ruff",
+      "title": "_ruff_format runs the native ruff binary, but a call takes ~8 ms, not ~2 ms",
       "url": "https://github.com/rohanvinaik/Detective/issues/131",
       "scope": "REPAIR",
       "work_packages": [
@@ -1389,7 +1400,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "38e4a91c6c8ea301caa30f8a2bb3784a496cd19a44c3b2bf531253d12b8a1654",
-      "latest_body_sha256": "38e4a91c6c8ea301caa30f8a2bb3784a496cd19a44c3b2bf531253d12b8a1654",
+      "latest_body_sha256": "09ef807681877b8a248e2f86eb9fd47bf52900de388c27f7189b1cec4df22566",
       "latest_state": "open"
     },
     {
@@ -1415,7 +1426,7 @@
       "work_packages": [],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "259ee9d3380546c9be1c5063adfe4ea99a8e45ed4bc5cda0cef247f8863842f4",
-      "latest_body_sha256": "d504a27802fe1925d5f63a0b03502ec22d62d3bfb8aeda47d2f2c1336149a5de",
+      "latest_body_sha256": "9407dfd9a52caa6036eb5436249214f790973759a78e625708c886797c3d8502",
       "latest_state": "open"
     },
     {
@@ -1429,7 +1440,7 @@
       ],
       "acceptance_state": "not_reaccepted_by_this_inventory",
       "body_sha256": "54bdfb2757b7b5c900d4b553412a5996e0c5ee2827805deef224304cdc68e4c2",
-      "latest_body_sha256": "54bdfb2757b7b5c900d4b553412a5996e0c5ee2827805deef224304cdc68e4c2",
+      "latest_body_sha256": "77b0ea2e0e9034bc85ec80ab6c6dc11d1460fb99196582eda674a14ec1d0090d",
       "latest_state": "open"
     },
     {
@@ -1481,13 +1492,15 @@
       "work_packages": [
         "B05"
       ],
-      "acceptance_state": "filed_2026_10_25",
-      "latest_state": "open"
+      "acceptance_state": "accepted_2026_10_25",
+      "latest_state": "closed",
+      "latest_body_sha256": "df2cb6c736f292572c89c13ffca0c5ed6c8ecae239b963e4c291d5a7bba5c4fa",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/139#issuecomment-6402339280"
     },
     {
       "repository": "Detective",
       "number": 140,
-      "title": "Two-sign pages misname μ⁻ survivors: stale class, zero-argument --input, unbuilt operators unnamed, \"detected by crash\" on unexecuted lines",
+      "title": "Two-sign pages: a stale has no history-dependent class, unbuilt operators are never named, a killable abs is offered flag, a generator's --input loops (items 2 and 4 fixed)",
       "url": "https://github.com/rohanvinaik/Detective/issues/140",
       "scope": "REPAIR",
       "work_packages": [
@@ -1495,7 +1508,8 @@
         "B06"
       ],
       "acceptance_state": "filed_2026_10_25",
-      "latest_state": "open"
+      "latest_state": "open",
+      "latest_body_sha256": "92fa5ebf7ebcb31d7ff0fa77ac32ba08b78e0e41ba3143f1a4c434d24671e64b"
     },
     {
       "repository": "Wesker",
@@ -1507,7 +1521,8 @@
         "B04"
       ],
       "acceptance_state": "filed_2026_10_25",
-      "latest_state": "open"
+      "latest_state": "open",
+      "latest_body_sha256": "e4ae5fa7fbb605cddd8ade5c7f945e41d54e96db01cec728a3421d58c5e530ed"
     },
     {
       "repository": "Wesker",
@@ -1519,7 +1534,8 @@
         "B06"
       ],
       "acceptance_state": "filed_2026_10_25",
-      "latest_state": "open"
+      "latest_state": "open",
+      "latest_body_sha256": "0e2f6d5af1e96880e419c2579576b707070ef5dae0cebf53bde689a5b9f7ad13"
     },
     {
       "repository": "Wesker",
@@ -1531,7 +1547,8 @@
         "B03"
       ],
       "acceptance_state": "filed_2026_10_25",
-      "latest_state": "open"
+      "latest_state": "open",
+      "latest_body_sha256": "78a19ecac6889a552f76df0a0b585e54bd011824f868b72304d545a4b828a7ed"
     },
     {
       "repository": "Wesker",
@@ -1542,7 +1559,142 @@
       "work_packages": [
         "B02"
       ],
-      "acceptance_state": "filed_2026_10_25",
+      "acceptance_state": "accepted_2026_10_25",
+      "latest_state": "closed",
+      "latest_body_sha256": "73a95e2b3868998b58f1d21db0a2881a88fbca0d4c9c4c817774e25f9e816e6b",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/51#issuecomment-6403804495"
+    },
+    {
+      "repository": "Wesker",
+      "number": 47,
+      "title": "Repair: do not retry a test after a body-raised TypeError in the unpatched fallback",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/47",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B02"
+      ],
+      "acceptance_state": "accepted_2026_10_26",
+      "latest_body_sha256": "2566c9c55c3e79f7ab4a7b56ba0d145a4ea1411d30e8193602c16d7bfa29de68",
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/47#issuecomment-6412850991"
+    },
+    {
+      "repository": "Wesker",
+      "number": 52,
+      "title": "Self-measuring action.py runs action.main inside the measuring process: a nested Action's stream code kills the run's stdout (the stall-dump half is fixed)",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/52",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B01"
+      ],
+      "acceptance_state": "filed_2026_10_26",
+      "latest_body_sha256": "d5bd85db2a64d73f1481f19f76a5e4e837f1093e6244ed500537ed652e612e32",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Wesker",
+      "number": 53,
+      "title": "SWAP transposes two identical arguments, generating a mutant identical to its original",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/53",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B04"
+      ],
+      "acceptance_state": "filed_2026_10_26",
+      "latest_body_sha256": "41b529afccb228e0bcc52723ce0acd905c5685efbd291246795c345eec9b55b1",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Wesker",
+      "number": 54,
+      "title": "A harness disposition leaves the kill ratio unnamed: the rollup counts unresolved and truncated mutants, never not_entered or nested_measurement ones",
+      "url": "https://github.com/rohanvinaik/Wesker/issues/54",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B04"
+      ],
+      "acceptance_state": "filed_2026_10_26",
+      "latest_body_sha256": "73c6b887821f62204029a25f5a8301374030137cb18de14f350504c461c19e0b",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Detective",
+      "number": 138,
+      "title": "Investigate CI-only invalid measurement in receiver-factory finalization on macOS 3.14",
+      "url": "https://github.com/rohanvinaik/Detective/issues/138",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B10"
+      ],
+      "acceptance_state": "filed_2026_10_24",
+      "latest_body_sha256": "1da0103df5e669e9b90ad718807f88ad1701cba9f33ca65ed5bc400fbe289b9e",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Detective",
+      "number": 141,
+      "title": "Speculative runs refuse writes but not process effects: an invented input can lower Detective's own resource limits, spawn processes or send signals",
+      "url": "https://github.com/rohanvinaik/Detective/issues/141",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B02"
+      ],
+      "acceptance_state": "accepted_2026_10_25",
+      "latest_body_sha256": "843e4a512a07af69190a987809d884b0e63e8dba619a8c0a69c16b43458a6392",
+      "latest_state": "closed",
+      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/141#issuecomment-6404766881"
+    },
+    {
+      "repository": "Detective",
+      "number": 142,
+      "title": "Page defects: an incomplete observation names no next command, an unchanged mutant renders an empty diff and is offered flag, a divergent residual's ids are recorded as flaggable, an uncovered row points at an action that names nothing",
+      "url": "https://github.com/rohanvinaik/Detective/issues/142",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B05"
+      ],
+      "acceptance_state": "filed_2026_10_26",
+      "latest_body_sha256": "5187fbc384c23d00d1b3763a6c50cc0f651b10507d9771a63ef77abe40c0f5c2",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Detective",
+      "number": 143,
+      "title": "A survivor whose search was refused (a write or a process effect) is never classified, so a writer with an always-raising mutant never reaches COMPLETE",
+      "url": "https://github.com/rohanvinaik/Detective/issues/143",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B02"
+      ],
+      "acceptance_state": "filed_2026_10_26",
+      "latest_body_sha256": "4db6e81c53d7ab48c150d2e5628845289240eb315dcf6ce1e33dbbf3d6734ad2",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Detective",
+      "number": 144,
+      "title": "test_uncontained_execution_marks_contained_false is intermittent on CI's macOS runners: the injected exception can land outside the stubborn worker's try",
+      "url": "https://github.com/rohanvinaik/Detective/issues/144",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B01",
+        "B10"
+      ],
+      "acceptance_state": "filed_2026_10_26",
+      "latest_body_sha256": "ea15ee5b50c4bae91dda21760088c6473ad8d7af7a5b680cf97b4b41a3f24e41",
+      "latest_state": "open"
+    },
+    {
+      "repository": "Detective",
+      "number": 145,
+      "title": "audit's redundant set and minimal cover follow the order tests ran: the kill matrix credits each mutant to its first killer, and the order follows the trace cache's warmth",
+      "url": "https://github.com/rohanvinaik/Detective/issues/145",
+      "scope": "REPAIR",
+      "work_packages": [
+        "B08"
+      ],
+      "acceptance_state": "filed_2026_10_26",
+      "latest_body_sha256": "fe12a02c05058bf027b7026ea0c7704493eb7f05c68346e92c8cf29698145c5b",
       "latest_state": "open"
     }
   ],
@@ -1768,9 +1920,32 @@
     }
   ],
   "session_checkpoint_2026_10_25": {
-    "Detective_main": "e341b25 (D#105 reopened and closed again; pushed after its gate)",
-    "Wesker_main": "f99281c (W#51 fc661d0; W#29 prevention f1598bf and safety net eb6a17a; pushed after its gate)",
-    "Detective_uv_lock_pins_Wesker": "6ba533d",
-    "note": "Development state after the 2026-10-25 verification wave. It does not replace current_checkpoint's 1.2.2 publication receipts. The spec-full run on 7e61cd3 (40216925036) hung in Thread.start exactly as W#29's root cause predicts. Run 40237240506 on f99281c is W#29's acceptance run; W#29 stays open until a spec-full run is green."
+    "Detective_main": "d2750f7 (D#105 e341b25; D#141 157510e; D#140 items 2 and 4 fe57369 with its receiver correction d2750f7; pushed after their gates)",
+    "Wesker_main": "2fbd029 (W#51 fc661d0; W#29 prevention f1598bf and safety net eb6a17a; #18 test budget f99281c; W#52 stall-dump half 2fbd029; pushed after their gates)",
+    "Detective_uv_lock_pins_Wesker": "f99281c (c4a014f)",
+    "note": "Development state after the 2026-10-25/26 waves. It does not replace current_checkpoint's 1.2.2 publication receipts. Spec-full on f99281c (40237240506) passed W#29's hang point and went silent; on 2fbd029 (40254151337) it measured _isolated_worker.py and action.py, then crashed on a dead stdout (W#52). W#29 stays open until a spec-full run is green. Filed this wave: D#140, D#141 (closed), D#142, D#143, D#144, Wesker#52, #53, #54."
+  },
+  "issue_audit_2026_10_26": {
+    "heads": "Detective d2750f7, Wesker 2fbd029 (Detective uv.lock pins Wesker f99281c)",
+    "scope": "Every open issue in both trackers, checked against the heads: 45 bodies rewritten (current-state block on top, previous text kept in <details>), 27 re-verified as written with a dated comment naming the live check, 6 filed, 5 index checkpoints.",
+    "closed_with_reverified_evidence": [
+      "Wesker#47",
+      "Wesker#31",
+      "Detective#112"
+    ],
+    "reopened": {
+      "Detective#115": "diagnose --two-sign prints its next commands without --two-sign (_diagnose_action, cli.py:903)"
+    },
+    "filed": [
+      "Detective#142 (item 4 added)",
+      "Detective#143",
+      "Detective#144",
+      "Detective#145",
+      "Wesker#53",
+      "Wesker#54"
+    ],
+    "records_synced": "Every issue record's latest_state, title and latest_body_sha256 now match GitHub; issues filed after the snapshot have records (Wesker#47, #52-#54; Detective#138, #141-#145).",
+    "release_fact": "Detective main imports Wesker.monitoring.STEP_BUDGET_FACTOR/FLOOR (equivalence.py:45), which arrived in Wesker 3ca7531 after v1.2.2; pyproject still declares Wesker>=1.2.2. A static check of all 55 Wesker names Detective imports finds only these two absent at v1.2.2.",
+    "note": "A body or comment dated 2026-10-26 is a measurement on these heads; anything it marks 'not re-run' or 'not verified' is carried as such."
   }
 }
