@@ -2185,7 +2185,9 @@ def _safely_fresh(candidate: tuple, pool: Sequence[tuple]) -> bool:
         return True
 
 
-def rescue_disposition(expressible: bool, rescuable: bool, has_inexpressible_witness: bool) -> str:
+def rescue_disposition(
+    expressible: bool, rescuable: bool, has_inexpressible_witness: bool, takes_arguments: bool = True
+) -> str:
     """Whether the pool-poverty rescue — an expensive capture that RUNS the covering tests — is
     worth running, or the run should terminate early and ask for ``--input`` (pure — pinned).
 
@@ -2198,11 +2200,15 @@ def rescue_disposition(expressible: bool, rescuable: bool, has_inexpressible_wit
     contract as elsewhere. A named code, never a bool:
 
       "nothing"         not rescuable — no residual to rescue
+      "no_input"        the function takes no arguments (D#140): its one call is every input there is,
+                        so there is nothing to ask for, and the suite's calls are that same call
       "skip_ask_input"  grid-friendly + no inexpressible witness — skip the capture, ask for --input
       "run"             a non-literal (structured/object) input is in play — the capture may help
     """
     if not rescuable:
         return "nothing"
+    if not takes_arguments:
+        return "no_input"
     if expressible and not has_inexpressible_witness:
         return "skip_ask_input"
     return "run"
@@ -3257,6 +3263,13 @@ def classify_survivors(
     qualname, node = _resolve(tree, function)
     if node is None:
         raise LookupError(f"function {function!r} not found in {file}")
+    # Whether a call can carry any input at all (D#140): with no parameter but a method's own receiver,
+    # the one call is every input there is, and no page may ask for an --input.
+    _arguments = node.args
+    _positional = [*_arguments.posonlyargs, *_arguments.args]
+    if _positional and "." in (qualname or "") and _positional[0].arg in ("self", "cls"):
+        _positional = _positional[1:]
+    _takes_arguments = bool(_positional or _arguments.vararg or _arguments.kwonlyargs or _arguments.kwarg)
 
     # Human equivalence flags (the oracle execution cannot be) — keyed by the
     # mutation diff, which embeds the code, so a flag applies only to the exact
@@ -3707,7 +3720,7 @@ def classify_survivors(
     # verdicts rather than starting a second search it cannot finish.
     rescuable = any((not v.killable and not v.crash_only) or _inexpressible_witness(v) for v in verdicts)
     _rescue = rescue_disposition(
-        bool(expressible), rescuable, any(_inexpressible_witness(v) for v in verdicts)
+        bool(expressible), rescuable, any(_inexpressible_witness(v) for v in verdicts), _takes_arguments
     )
     if _rescue == "skip_ask_input":
         # Grid-friendly survivors no synthesized input discriminates: the distinguishing value is a
@@ -3923,6 +3936,7 @@ def classify_survivors(
         tuple(verdicts),
         tuple(unclassified),
         note,
+        takes_arguments=_takes_arguments,
         write_refused=tuple(u for u in unclassified if u in _write_refused_ids),
         write_refused_records=tuple(_write_refused_ids[u] for u in unclassified if u in _write_refused_ids),
         manual_equivalent=tuple(manual_equivalent),

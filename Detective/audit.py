@@ -152,6 +152,12 @@ class SuiteAudit:
     # WHICH of `candidate_equivalent_ids` are crash-only (#71): an input distinguishes them, so the
     # closing action never offers `flag` (an equivalence claim) for one. Defaulted — additive.
     crash_only_ids: tuple[str, ...] = ()
+    # How many of `crash_only_equivalent` NO current test reaches (D#140, `crash_only_status`): the crash
+    # is the witness search's observation, not the suite's, so the page must not call them detected.
+    crash_only_undetected: int = 0
+    # Whether the function takes any argument besides a method's receiver, as classification
+    # established it (`SurvivorReport.takes_arguments`, D#140); None, not established.
+    takes_arguments: bool | None = None
     # Whether the classifier's boundary-probe pass ran over the residual (#71) — the
     # `engine.boundary_probe_gate` code the report carried, "" when it never reached the gate. The
     # closing action names an unprobed residual as possible search budget instead of a frontier.
@@ -673,6 +679,8 @@ def audit_suite(
     candidate_equivalent_ids: tuple[str, ...] = ()
     crash_only_equivalent = 0
     crash_only_ids: tuple[str, ...] = ()
+    crash_only_undetected = 0
+    takes_arguments: bool | None = None
     boundary_probe = ""
     unclassified = 0
     write_refused = 0
@@ -711,6 +719,10 @@ def audit_suite(
         candidate_equivalent_ids = tuple(v.mutant_id for v in report.equivalent)
         crash_only_equivalent = sum(1 for v in report.equivalent if v.crash_only)
         crash_only_ids = tuple(v.mutant_id for v in report.equivalent if v.crash_only)
+        from .equivalence import crash_only_status
+
+        crash_only_undetected = crash_only_status([v for v in report.equivalent if v.crash_only])[1]
+        takes_arguments = report.takes_arguments
         boundary_probe = str(getattr(report, "boundary_probe", "") or "")
         unclassified = len(report.unclassified)
         write_refused_named = write_refused_survivors(
@@ -839,6 +851,8 @@ def audit_suite(
         candidate_equivalent_ids=candidate_equivalent_ids,
         crash_only_equivalent=crash_only_equivalent,
         crash_only_ids=crash_only_ids,
+        crash_only_undetected=crash_only_undetected,
+        takes_arguments=takes_arguments,
         boundary_probe=boundary_probe,
         unclassified=unclassified,
         write_refused=write_refused,

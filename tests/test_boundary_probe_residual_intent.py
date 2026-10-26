@@ -396,6 +396,8 @@ def test_audit_closes_with_the_same_basis_and_never_flags_a_crash_only_mutant():
         candidate_equivalent=2,
         candidate_equivalent_ids=("CRASH_x", "VALUE_y"),
         crash_only_ids=("CRASH_x",),
+        crash_only_undetected=0,  # a SuiteAudit's fields (D#140): the suite detects the crash-only one
+        takes_arguments=True,
         boundary_probe="skip_effects",
     )
     out = "\n".join(_audit_closing_action(audit, "flag_equivalents"))

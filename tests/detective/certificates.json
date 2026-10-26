@@ -193,6 +193,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::candidate_equivalent_caveat": {
+    "cut_reasons": [],
+    "function_digest": "78cf2e850d270d0c",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::converge_exit_code": {
     "cut_reasons": [],
     "function_digest": "db49e5bae48b7d44",
@@ -294,13 +300,13 @@
   },
   "Detective/cli.py::residual_done_basis": {
     "cut_reasons": [],
-    "function_digest": "b25d62efe889d068",
+    "function_digest": "9cf69846722b4584",
     "refusal": "",
     "standing": "complete"
   },
   "Detective/cli.py::residual_done_why": {
     "cut_reasons": [],
-    "function_digest": "fb72413bd4e6c0f9",
+    "function_digest": "eaa566a2497e2915",
     "refusal": "",
     "standing": "complete"
   },
@@ -464,6 +470,12 @@
   "Detective/engine.py::codomain_source": {
     "cut_reasons": [],
     "function_digest": "f3610075faf17f77",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/engine.py::rescue_disposition": {
+    "cut_reasons": [],
+    "function_digest": "af8de461f032c52f",
     "refusal": "",
     "standing": "complete"
   },

@@ -47,6 +47,13 @@ from Detective.distinction import (
 )
 
 BY_DESIGN: dict[str, str] = {
+    "engine.rescue_disposition @ engine.classify_survivors": (
+        "`nothing` and `no_input` both mean neither the --input ask nor the capture rescue runs, which is "
+        "all this site decides: with no residual there is nothing to rescue, and a function that takes "
+        "no argument (D#140) has no input to ask for while the suite's calls are its one call. Neither "
+        "sets a note; the zero-argument fact itself reaches the pages through "
+        "`SurvivorReport.takes_arguments`, which `residual_done_basis` reads as `single_call`."
+    ),
     "equivalence.speculative_refusal @ equivalence._reached_lines": (
         "Either refusal means one thing here (D#141): the trial's write or process effect was refused, "
         "so it observed no reach, and the diagnostic, which only ever adds a caveat, skips the input "

@@ -2387,6 +2387,10 @@ class SurvivorReport:
     # starved search can never stand as an equivalence claim about the code.
     routing_error: str = ""
 
+    # Whether the function takes any argument besides a method's receiver (D#140): False means its one
+    # call is every input there is, so no page may ask for an --input; None, not established.
+    takes_arguments: bool | None = None
+
     @property
     def killable(self) -> tuple[MutantVerdict, ...]:
         return tuple(v for v in self.verdicts if v.killable)
