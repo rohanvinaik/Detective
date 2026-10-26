@@ -164,8 +164,13 @@ PYTHONPATH=$PP .venv/bin/detective converge 'Detective/certify.py::write_disposi
 - `modulo N unproven-equivalent` **counts as done**. Candidate-equivalents are undecidable and get resolved by
   `detective flag`, never by grinding.
 - A stale generated golden is **regenerated, not hand-patched**: `rm` the `*_synth.py` and re-run converge.
-- Clear the caches between runs, so that neither a cached verdict nor a recalled `--input` can mask a change:
-  `rm -f .detective/inputs.json .detective/pins.json .detective/verdict_cache.json`.
+- Between runs, keep a cached verdict or a recalled `--input` from masking a change, without destroying user data:
+  - `pins.json` and `verdict_cache.json` are regeneratable (`Detective/pins.py`), so clear them:
+    `rm -f .detective/pins.json .detective/verdict_cache.json`.
+  - `inputs.json` is **user data**: `Detective/samples.py` says supplied inputs are never purged, and `.detective/` is
+    gitignored, so a deletion cannot be recovered. **Never delete it in place.** To measure without recall, run in a
+    disposable copy of the project, or move it aside and put it back:
+    `mv .detective/inputs.json <scratch>/inputs.json.bak` … `mv <scratch>/inputs.json.bak .detective/inputs.json`.
   - These are **FILES, not directories**. The old `.detective/pins` / `.detective/samples` PATHS DO NOT EXIST, so
     `rm -rf`-ing them is a silent no-op that leaves supplied inputs recalled.
   - Measured: converge kept re-applying stale `--input`s across runs, masking the true no-input behaviour.

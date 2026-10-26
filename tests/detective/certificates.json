@@ -874,7 +874,7 @@
   },
   "scripts/sync_repair_queue.py::record_disposition": {
     "cut_reasons": [],
-    "function_digest": "2016681e2450e211",
+    "function_digest": "d385594a9c97001a",
     "refusal": "",
     "standing": "complete"
   }

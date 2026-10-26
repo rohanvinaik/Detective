@@ -338,7 +338,17 @@
       "body_sha256": "59a202f0acb8b4ba2272e551dbe57de90d8262af426ddf5235b9908d566d00e0",
       "latest_body_sha256": "64816229547e86c96b2086b4d532bce65b3c640e4e934c7fb3959845692eb6bf",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/31#issuecomment-6412931894"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_26",
+          "receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/31#issuecomment-6412931894",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-26 on Wesker 2fbd029: fix 87ebdd3; attribution_standing and mutant_scope_route complete at that day's digests; tests/test_unscreened_fallback_intent.py 19 passed. Evidence: https://github.com/rohanvinaik/Wesker/issues/31#issuecomment-6412931894",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-26T09:43:22Z",
+      "closing_comment": "https://github.com/rohanvinaik/Wesker/issues/31#issuecomment-6412931894"
     },
     {
       "repository": "Wesker",
@@ -381,7 +391,17 @@
       "body_sha256": "06c4dffa2d707707af8f5b12d7e29ea319d1299567f062ffc80bc52cd141630c",
       "latest_body_sha256": "06c4dffa2d707707af8f5b12d7e29ea319d1299567f062ffc80bc52cd141630c",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/34#issuecomment-6395036084"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/34#issuecomment-6395036084",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25 (Wesker 9362bc5, Detective 26741de): the isolated worker installs the cheap failure repr for every item (test_isolated_worker_cheap_repr_intent green); SAME check plus A/B on shipping_cost --isolated gave identical FINAL (34/36), synth and certificates. Evidence: https://github.com/rohanvinaik/Wesker/issues/34#issuecomment-6395036084",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T07:46:29Z",
+      "closing_comment": "https://github.com/rohanvinaik/Wesker/issues/34#issuecomment-6395036084"
     },
     {
       "repository": "Wesker",
@@ -438,7 +458,10 @@
       "body_sha256": "6828c93056fc778c75a3db341f34e4d303773d551f568257ef3b4548ab3833fc",
       "latest_body_sha256": "6828c93056fc778c75a3db341f34e4d303773d551f568257ef3b4548ab3833fc",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25: the pre-fix crash reproduced on toolz 1.2.0 at d0c1e41^; post-fix the CLI completes in both modes (d0c1e41). Residual filed: Wesker#50 (refused binding reads not_entered)."
+      "acceptance_receipt": "Closed 2026-10-25: the pre-fix crash reproduced on toolz 1.2.0 at d0c1e41^; post-fix the CLI completes in both modes (d0c1e41). Residual filed: Wesker#50 (refused binding reads not_entered).",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T16:22:54Z",
+      "closing_comment": "https://github.com/rohanvinaik/Wesker/issues/38#issuecomment-6400110074"
     },
     {
       "repository": "Wesker",
@@ -653,7 +676,17 @@
       "body_sha256": "456031337c667bf4373f1a6edca0bf62b473789fce3b90eeaef1e4ae7afccd9c",
       "latest_body_sha256": "456031337c667bf4373f1a6edca0bf62b473789fce3b90eeaef1e4ae7afccd9c",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/78#issuecomment-6395035057"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/78#issuecomment-6395035057",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25 (Detective 26741de, Wesker 9362bc5): nan, inf, -inf and float('nan') are accepted by --input on a target importing nothing; converge nan_gate COMPLETE 22/24; the written suite pins parser-accepted spellings, and a bare re-run recalls them with an identical FINAL. Evidence: https://github.com/rohanvinaik/Detective/issues/78#issuecomment-6395035057",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T07:46:22Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/78#issuecomment-6395035057"
     },
     {
       "repository": "Detective",
@@ -840,7 +873,17 @@
       "body_sha256": "1697386feacb0899f9d434dee9d2d258ea2f7647fd1f79e7bf0b6b0e5a3f12ed",
       "latest_body_sha256": "1697386feacb0899f9d434dee9d2d258ea2f7647fd1f79e7bf0b6b0e5a3f12ed",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/91#issuecomment-6395035370"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/91#issuecomment-6395035370",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25 (Detective 26741de): with _route_tests forced to raise, the real CLI exits 3 with a STOP naming the routing failure and FINAL UNGATEABLE; --json route fix_routing; a not-consulted marker test never ran; test_routing_failure_is_named_intent green. Evidence: https://github.com/rohanvinaik/Detective/issues/91#issuecomment-6395035370",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T07:46:24Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/91#issuecomment-6395035370"
     },
     {
       "repository": "Detective",
@@ -857,7 +900,17 @@
       "body_sha256": "d86c26aca97a05272cb771fa78383e2f45c4b6073468d7b1f3556111012d9fb4",
       "latest_body_sha256": "d86c26aca97a05272cb771fa78383e2f45c4b6073468d7b1f3556111012d9fb4",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/92#issuecomment-6395035635"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/92#issuecomment-6395035635",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25 (Detective 26741de): cold then warm converge --two-sign on clamp gave an identical FINAL (COMPLETE 31/33); the warm run recalled 3 pins; a marker test never ran; test_two_sign_codomain_carried_intent green; the testpaths residual was carried to #89. Evidence: https://github.com/rohanvinaik/Detective/issues/92#issuecomment-6395035635",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T07:46:26Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/92#issuecomment-6395035635"
     },
     {
       "repository": "Detective",
@@ -1026,7 +1079,10 @@
       "body_sha256": "bb8fd985a1a7d7cf306e4647d96d10002c44a9e5f5992ac054454ee5bd80357a",
       "latest_body_sha256": "bb8fd985a1a7d7cf306e4647d96d10002c44a9e5f5992ac054454ee5bd80357a",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25 on 6e10cf8: write authority prevents every out-of-authority write (nothing landed in 13 fresh-folder runs); a prevented mutant is named per mutant and never scored, in plain and two-sign modes; a file-writing function's classification refuses the input instead of aborting, and its write-refused survivors route to a WRITE TEST. Residual filed: Wesker#51 (the CLI rollup)."
+      "acceptance_receipt": "Closed 2026-10-25 on 6e10cf8: write authority prevents every out-of-authority write (nothing landed in 13 fresh-folder runs); a prevented mutant is named per mutant and never scored, in plain and two-sign modes; a file-writing function's classification refuses the input instead of aborting, and its write-refused survivors route to a WRITE TEST. Residual filed: Wesker#51 (the CLI rollup).",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T22:03:51Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/105#issuecomment-6403968088"
     },
     {
       "repository": "Detective",
@@ -1098,7 +1154,17 @@
       "body_sha256": "8901886cc83126d973ddf50878a0874f751aee8ac937acb068e9c9939abae88c",
       "latest_body_sha256": "8901886cc83126d973ddf50878a0874f751aee8ac937acb068e9c9939abae88c",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/111#issuecomment-6395512235"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/111#issuecomment-6395512235",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25: fixed in 549e075; through the real CLI, doctor names the first unpinned function (converge 'm.py::double') instead of a file target converge refuses. Evidence: https://github.com/rohanvinaik/Detective/issues/111#issuecomment-6395512235",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T08:40:39Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/111#issuecomment-6395512235"
     },
     {
       "repository": "Detective",
@@ -1114,7 +1180,17 @@
       "body_sha256": "e3159914c7d6efe60a09e4d625ae399bbc20761f208027aaac426bca165a776e",
       "latest_body_sha256": "44e5aa3005dd5a6ea7fcfcf86d0fca132dda5e7ee7038f784d5240daac61b403",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/112#issuecomment-6413725743"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_26",
+          "receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/112#issuecomment-6413725743",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-26 on Detective d2750f7: fix 09aa3a4; removal_measurement_state complete at af12de8d9666f62f; on a fixture with the RoleCodebook.get name collision plus a real neighbour, --remove kept test_epa_big 'for scale' and named no unexecuted function; test_removal_measurement_intent 13 passed. Evidence: https://github.com/rohanvinaik/Detective/issues/112#issuecomment-6413725743",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-26T10:24:46Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/112#issuecomment-6413725743"
     },
     {
       "repository": "Detective",
@@ -1143,7 +1219,10 @@
       "body_sha256": "3907adac23a0ba29d4dc3e2810b4c321eb6f80869a1ec3134e9ea0df8f2ca0b6",
       "latest_body_sha256": "3907adac23a0ba29d4dc3e2810b4c321eb6f80869a1ec3134e9ea0df8f2ca0b6",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25 on fcd3348: converge stops on a failing floor (FINAL ⚠ FAILING NOW, nothing written, standing floor_failing) in the issue's cases 1, 2 and 4; the printed pytest command selects the test (75dd394, edc872f, 03daf8c, ffdd41c, ddbd7c2, 8049510). Residual filed: D#139."
+      "acceptance_receipt": "Closed 2026-10-25 on fcd3348: converge stops on a failing floor (FINAL ⚠ FAILING NOW, nothing written, standing floor_failing) in the issue's cases 1, 2 and 4; the printed pytest command selects the test (75dd394, edc872f, 03daf8c, ffdd41c, ddbd7c2, 8049510). Residual filed: D#139.",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T15:56:54Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/114#issuecomment-6399828171"
     },
     {
       "repository": "Detective",
@@ -1174,7 +1253,10 @@
       "body_sha256": "0584a7e2e80890ff07f38b2384845608279b010c85b0a6ae5908655ec335350f",
       "latest_body_sha256": "0584a7e2e80890ff07f38b2384845608279b010c85b0a6ae5908655ec335350f",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25: zero-of / type / stale generated and measured (Wesker d5029f5, c20ad75). Consumption defects filed: D#140, Wesker#49."
+      "acceptance_receipt": "Closed 2026-10-25: zero-of / type / stale generated and measured (Wesker d5029f5, c20ad75). Consumption defects filed: D#140, Wesker#49.",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T16:15:47Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/116#issuecomment-6400033120"
     },
     {
       "repository": "Detective",
@@ -1189,7 +1271,10 @@
       "body_sha256": "36e203e3664eb2e43b723dacc8394790851b7d819919235e44dce4e3ac1cc374",
       "latest_body_sha256": "36e203e3664eb2e43b723dacc8394790851b7d819919235e44dce4e3ac1cc374",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25: not / true / false generated and measured (Wesker d5029f5)."
+      "acceptance_receipt": "Closed 2026-10-25: not / true / false generated and measured (Wesker d5029f5).",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T16:15:49Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/117#issuecomment-6400033513"
     },
     {
       "repository": "Detective",
@@ -1204,7 +1289,10 @@
       "body_sha256": "9686c2b834cc281ff51f7129112f90cf343a52ea53763c30b5d665bec2d08dcb",
       "latest_body_sha256": "9686c2b834cc281ff51f7129112f90cf343a52ea53763c30b5d665bec2d08dcb",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25: ±1 / ±ε / scale / round / inf generated; 0 is return_const (Wesker d5029f5)."
+      "acceptance_receipt": "Closed 2026-10-25: ±1 / ±ε / scale / round / inf generated; 0 is return_const (Wesker d5029f5).",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T16:15:51Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/118#issuecomment-6400033863"
     },
     {
       "repository": "Detective",
@@ -1219,7 +1307,10 @@
       "body_sha256": "126eb6d9c05661c6d38a63c84600a70ddef914442c47ee87c6e96c4ca9cb50a6",
       "latest_body_sha256": "126eb6d9c05661c6d38a63c84600a70ddef914442c47ee87c6e96c4ca9cb50a6",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25: trunc / case / ws (pad) / rev generated (Wesker d5029f5)."
+      "acceptance_receipt": "Closed 2026-10-25: trunc / case / ws (pad) / rev generated (Wesker d5029f5).",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T16:15:53Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/119#issuecomment-6400034236"
     },
     {
       "repository": "Detective",
@@ -1294,7 +1385,10 @@
       "body_sha256": "fea135029262cfb46079e0e22c893cd0dd3d5aef75a8954cc460cbc9b80ff321",
       "latest_body_sha256": "fea135029262cfb46079e0e22c893cd0dd3d5aef75a8954cc460cbc9b80ff321",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25 on fcd3348: audit --two-sign names order_total's three failing tests as FAILING NOW, with no AUTHOR INPUT (c27b8c4, ddbd7c2). Open question recorded: a callee page naming a caller's failure."
+      "acceptance_receipt": "Closed 2026-10-25 on fcd3348: audit --two-sign names order_total's three failing tests as FAILING NOW, with no AUTHOR INPUT (c27b8c4, ddbd7c2). Open question recorded: a callee page naming a caller's failure.",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T15:57:08Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/124#issuecomment-6399830673"
     },
     {
       "repository": "Detective",
@@ -1309,7 +1403,17 @@
       "body_sha256": "52198d91bc8ccd4e1a1e796fb97ce811396b297e93e97e75307d89495e7df741",
       "latest_body_sha256": "52198d91bc8ccd4e1a1e796fb97ce811396b297e93e97e75307d89495e7df741",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/125#issuecomment-6395511646"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/125#issuecomment-6395511646",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25: fixed in 08558cc; every value a WRITE TEST ask prints is whole, the plan no longer dedupes witnesses by printed prefix, and marked_cut is pinned COMPLETE. Evidence: https://github.com/rohanvinaik/Detective/issues/125#issuecomment-6395511646",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T08:40:35Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/125#issuecomment-6395511646"
     },
     {
       "repository": "Detective",
@@ -1325,7 +1429,17 @@
       "body_sha256": "15a28fe01312e3dc4c3fa91108cead963c9758a694c34dd0f58d147bd8546dae",
       "latest_body_sha256": "15a28fe01312e3dc4c3fa91108cead963c9758a694c34dd0f58d147bd8546dae",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/126#issuecomment-6395512796"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/126#issuecomment-6395512796",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25: fixed in 729d88e with Wesker 204a760; on #80's first_false fixture the loop mutants take a named no-verdict class, are never asked for input, and flag refuses them by name. Evidence: https://github.com/rohanvinaik/Detective/issues/126#issuecomment-6395512796",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T08:40:43Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/126#issuecomment-6395512796"
     },
     {
       "repository": "Detective",
@@ -1356,7 +1470,17 @@
       "body_sha256": "a7c0aa168c6edd22970e16173eec56069ada4007a82f92dfcc81c27358e9a3b6",
       "latest_body_sha256": "a7c0aa168c6edd22970e16173eec56069ada4007a82f92dfcc81c27358e9a3b6",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/128#issuecomment-6395511969"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/128#issuecomment-6395511969",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25: fixed in 974a039; flag --two-sign exists, every printed flag command carries the policy, and a one-sign flag of an OUTPUT id refuses before profiling (exit 2). Evidence: https://github.com/rohanvinaik/Detective/issues/128#issuecomment-6395511969",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T08:40:37Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/128#issuecomment-6395511969"
     },
     {
       "repository": "Detective",
@@ -1371,7 +1495,10 @@
       "body_sha256": "7f6f84c920bab77fde75c19523603485a39737ad113bbd92d1b3dae472546a2b",
       "latest_body_sha256": "7f6f84c920bab77fde75c19523603485a39737ad113bbd92d1b3dae472546a2b",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25 on f2be333: the namespace module loads as tools.voice.references in every verb (5efbfe0), and the load-failure Fix row names the repair its own error names (f2be333). Residuals recorded in the closing comment."
+      "acceptance_receipt": "Closed 2026-10-25 on f2be333: the namespace module loads as tools.voice.references in every verb (5efbfe0), and the load-failure Fix row names the repair its own error names (f2be333). Residuals recorded in the closing comment.",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T16:59:35Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/129#issuecomment-6400503173"
     },
     {
       "repository": "Detective",
@@ -1495,7 +1622,17 @@
       "acceptance_state": "accepted_2026_10_25",
       "latest_state": "closed",
       "latest_body_sha256": "df2cb6c736f292572c89c13ffca0c5ed6c8ecae239b963e4c291d5a7bba5c4fa",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/139#issuecomment-6402339280"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/139#issuecomment-6402339280",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25 on Detective fc87423: the issue's reproduction (scale with a failing intent test) prints '✗ unproven … run only by a failing test' and no '✗ uncovered', in audit and converge --two-sign. Evidence: https://github.com/rohanvinaik/Detective/issues/139#issuecomment-6402339280",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T19:47:42Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/139#issuecomment-6402339280"
     },
     {
       "repository": "Detective",
@@ -1562,7 +1699,17 @@
       "acceptance_state": "accepted_2026_10_25",
       "latest_state": "closed",
       "latest_body_sha256": "73a95e2b3868998b58f1d21db0a2881a88fbca0d4c9c4c817774e25f9e816e6b",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/51#issuecomment-6403804495"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/51#issuecomment-6403804495",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25 on Wesker f99281c: fix fc661d0; python -m Wesker store.py --json reads mutation.total_unresolved 1 and names store.py::save write_outside_authority SWAP_6dd88cc8. Evidence: https://github.com/rohanvinaik/Wesker/issues/51#issuecomment-6403804495",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T21:50:18Z",
+      "closing_comment": "https://github.com/rohanvinaik/Wesker/issues/51#issuecomment-6403804495"
     },
     {
       "repository": "Wesker",
@@ -1576,7 +1723,17 @@
       "acceptance_state": "accepted_2026_10_26",
       "latest_body_sha256": "2566c9c55c3e79f7ab4a7b56ba0d145a4ea1411d30e8193602c16d7bfa29de68",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/47#issuecomment-6412850991"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_26",
+          "receipt": "Closed 2026-10-26; the evidence is in the closing comment: https://github.com/rohanvinaik/Wesker/issues/47#issuecomment-6412850991",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-26 on Wesker 2fbd029: fixes ca215e4 and 3e98ad8; tests/test_single_invocation_intent.py 16 passed; the real-CLI @wraps wrapper fixture audits 4/4 value-pinned. Evidence: https://github.com/rohanvinaik/Wesker/issues/47#issuecomment-6412850991",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-26T09:39:00Z",
+      "closing_comment": "https://github.com/rohanvinaik/Wesker/issues/47#issuecomment-6412850991"
     },
     {
       "repository": "Wesker",
@@ -1642,7 +1799,17 @@
       "acceptance_state": "accepted_2026_10_25",
       "latest_body_sha256": "843e4a512a07af69190a987809d884b0e63e8dba619a8c0a69c16b43458a6392",
       "latest_state": "closed",
-      "acceptance_receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/141#issuecomment-6404766881"
+      "receipt_history": [
+        {
+          "acceptance_state": "accepted_2026_10_25",
+          "receipt": "Closed 2026-10-25; the evidence is in the closing comment: https://github.com/rohanvinaik/Detective/issues/141#issuecomment-6404766881",
+          "retired": "replaced by a new --accept"
+        }
+      ],
+      "acceptance_receipt": "Closed 2026-10-25 on Detective 157510e (CI green on 3.12-3.14, Ubuntu and macOS; uv.lock c4a014f -> Wesker f99281c): a speculative call cannot change Detective's own process; the RLIMIT_NOFILE target keeps its limit, a spawning function spawns nothing, and the advised stubbed-call test reaches COMPLETE 6/6. Evidence: https://github.com/rohanvinaik/Detective/issues/141#issuecomment-6404766881",
+      "tracker_close_reason": "completed",
+      "tracker_closed_at": "2026-10-25T23:16:18Z",
+      "closing_comment": "https://github.com/rohanvinaik/Detective/issues/141#issuecomment-6404766881"
     },
     {
       "repository": "Detective",
