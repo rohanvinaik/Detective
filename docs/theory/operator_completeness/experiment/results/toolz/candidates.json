@@ -1,0 +1,412 @@
+[
+ {
+  "name": "toolz.curried.exceptions:merge_with",
+  "file": "toolz/curried/exceptions.py",
+  "line": 8
+ },
+ {
+  "name": "toolz.curried.exceptions:merge",
+  "file": "toolz/curried/exceptions.py",
+  "line": 13
+ },
+ {
+  "name": "toolz.dicttoolz:merge",
+  "file": "toolz/dicttoolz.py",
+  "line": 19
+ },
+ {
+  "name": "toolz.dicttoolz:merge_with",
+  "file": "toolz/dicttoolz.py",
+  "line": 43
+ },
+ {
+  "name": "toolz.dicttoolz:valmap",
+  "file": "toolz/dicttoolz.py",
+  "line": 73
+ },
+ {
+  "name": "toolz.dicttoolz:keymap",
+  "file": "toolz/dicttoolz.py",
+  "line": 89
+ },
+ {
+  "name": "toolz.dicttoolz:itemmap",
+  "file": "toolz/dicttoolz.py",
+  "line": 105
+ },
+ {
+  "name": "toolz.dicttoolz:valfilter",
+  "file": "toolz/dicttoolz.py",
+  "line": 121
+ },
+ {
+  "name": "toolz.dicttoolz:keyfilter",
+  "file": "toolz/dicttoolz.py",
+  "line": 141
+ },
+ {
+  "name": "toolz.dicttoolz:itemfilter",
+  "file": "toolz/dicttoolz.py",
+  "line": 161
+ },
+ {
+  "name": "toolz.dicttoolz:assoc",
+  "file": "toolz/dicttoolz.py",
+  "line": 185
+ },
+ {
+  "name": "toolz.dicttoolz:dissoc",
+  "file": "toolz/dicttoolz.py",
+  "line": 201
+ },
+ {
+  "name": "toolz.dicttoolz:assoc_in",
+  "file": "toolz/dicttoolz.py",
+  "line": 230
+ },
+ {
+  "name": "toolz.dicttoolz:update_in",
+  "file": "toolz/dicttoolz.py",
+  "line": 245
+ },
+ {
+  "name": "toolz.dicttoolz:get_in",
+  "file": "toolz/dicttoolz.py",
+  "line": 303
+ },
+ {
+  "name": "toolz.functoolz:identity",
+  "file": "toolz/functoolz.py",
+  "line": 21
+ },
+ {
+  "name": "toolz.functoolz:apply",
+  "file": "toolz/functoolz.py",
+  "line": 30
+ },
+ {
+  "name": "toolz.functoolz:thread_first",
+  "file": "toolz/functoolz.py",
+  "line": 47
+ },
+ {
+  "name": "toolz.functoolz:thread_last",
+  "file": "toolz/functoolz.py",
+  "line": 81
+ },
+ {
+  "name": "toolz.functoolz:instanceproperty",
+  "file": "toolz/functoolz.py",
+  "line": 120
+ },
+ {
+  "name": "toolz.functoolz:curry.func",
+  "file": "toolz/functoolz.py",
+  "line": 232
+ },
+ {
+  "name": "toolz.functoolz:curry.args",
+  "file": "toolz/functoolz.py",
+  "line": 274
+ },
+ {
+  "name": "toolz.functoolz:curry.keywords",
+  "file": "toolz/functoolz.py",
+  "line": 278
+ },
+ {
+  "name": "toolz.functoolz:curry.func_name",
+  "file": "toolz/functoolz.py",
+  "line": 282
+ },
+ {
+  "name": "toolz.functoolz:curry.bind",
+  "file": "toolz/functoolz.py",
+  "line": 337
+ },
+ {
+  "name": "toolz.functoolz:curry.call",
+  "file": "toolz/functoolz.py",
+  "line": 340
+ },
+ {
+  "name": "toolz.functoolz:memoize",
+  "file": "toolz/functoolz.py",
+  "line": 394
+ },
+ {
+  "name": "toolz.functoolz:compose",
+  "file": "toolz/functoolz.py",
+  "line": 652
+ },
+ {
+  "name": "toolz.functoolz:compose_left",
+  "file": "toolz/functoolz.py",
+  "line": 678
+ },
+ {
+  "name": "toolz.functoolz:pipe",
+  "file": "toolz/functoolz.py",
+  "line": 699
+ },
+ {
+  "name": "toolz.functoolz:complement",
+  "file": "toolz/functoolz.py",
+  "line": 724
+ },
+ {
+  "name": "toolz.functoolz:do",
+  "file": "toolz/functoolz.py",
+  "line": 773
+ },
+ {
+  "name": "toolz.functoolz:flip",
+  "file": "toolz/functoolz.py",
+  "line": 800
+ },
+ {
+  "name": "toolz.functoolz:return_none",
+  "file": "toolz/functoolz.py",
+  "line": 826
+ },
+ {
+  "name": "toolz.functoolz:num_required_args",
+  "file": "toolz/functoolz.py",
+  "line": 958
+ },
+ {
+  "name": "toolz.functoolz:has_varargs",
+  "file": "toolz/functoolz.py",
+  "line": 968
+ },
+ {
+  "name": "toolz.functoolz:has_keywords",
+  "file": "toolz/functoolz.py",
+  "line": 976
+ },
+ {
+  "name": "toolz.functoolz:is_valid_args",
+  "file": "toolz/functoolz.py",
+  "line": 985
+ },
+ {
+  "name": "toolz.functoolz:is_partial_args",
+  "file": "toolz/functoolz.py",
+  "line": 997
+ },
+ {
+  "name": "toolz.functoolz:is_arity",
+  "file": "toolz/functoolz.py",
+  "line": 1009
+ },
+ {
+  "name": "toolz.itertoolz:remove",
+  "file": "toolz/itertoolz.py",
+  "line": 19
+ },
+ {
+  "name": "toolz.itertoolz:accumulate",
+  "file": "toolz/itertoolz.py",
+  "line": 30
+ },
+ {
+  "name": "toolz.itertoolz:groupby",
+  "file": "toolz/itertoolz.py",
+  "line": 71
+ },
+ {
+  "name": "toolz.itertoolz:merge_sorted",
+  "file": "toolz/itertoolz.py",
+  "line": 107
+ },
+ {
+  "name": "toolz.itertoolz:interleave",
+  "file": "toolz/itertoolz.py",
+  "line": 218
+ },
+ {
+  "name": "toolz.itertoolz:unique",
+  "file": "toolz/itertoolz.py",
+  "line": 242
+ },
+ {
+  "name": "toolz.itertoolz:isiterable",
+  "file": "toolz/itertoolz.py",
+  "line": 270
+ },
+ {
+  "name": "toolz.itertoolz:isdistinct",
+  "file": "toolz/itertoolz.py",
+  "line": 287
+ },
+ {
+  "name": "toolz.itertoolz:take",
+  "file": "toolz/itertoolz.py",
+  "line": 312
+ },
+ {
+  "name": "toolz.itertoolz:tail",
+  "file": "toolz/itertoolz.py",
+  "line": 325
+ },
+ {
+  "name": "toolz.itertoolz:drop",
+  "file": "toolz/itertoolz.py",
+  "line": 341
+ },
+ {
+  "name": "toolz.itertoolz:take_nth",
+  "file": "toolz/itertoolz.py",
+  "line": 354
+ },
+ {
+  "name": "toolz.itertoolz:first",
+  "file": "toolz/itertoolz.py",
+  "line": 363
+ },
+ {
+  "name": "toolz.itertoolz:second",
+  "file": "toolz/itertoolz.py",
+  "line": 372
+ },
+ {
+  "name": "toolz.itertoolz:nth",
+  "file": "toolz/itertoolz.py",
+  "line": 383
+ },
+ {
+  "name": "toolz.itertoolz:last",
+  "file": "toolz/itertoolz.py",
+  "line": 395
+ },
+ {
+  "name": "toolz.itertoolz:get",
+  "file": "toolz/itertoolz.py",
+  "line": 414
+ },
+ {
+  "name": "toolz.itertoolz:concat",
+  "file": "toolz/itertoolz.py",
+  "line": 471
+ },
+ {
+  "name": "toolz.itertoolz:concatv",
+  "file": "toolz/itertoolz.py",
+  "line": 489
+ },
+ {
+  "name": "toolz.itertoolz:mapcat",
+  "file": "toolz/itertoolz.py",
+  "line": 501
+ },
+ {
+  "name": "toolz.itertoolz:cons",
+  "file": "toolz/itertoolz.py",
+  "line": 511
+ },
+ {
+  "name": "toolz.itertoolz:interpose",
+  "file": "toolz/itertoolz.py",
+  "line": 520
+ },
+ {
+  "name": "toolz.itertoolz:frequencies",
+  "file": "toolz/itertoolz.py",
+  "line": 536
+ },
+ {
+  "name": "toolz.itertoolz:reduceby",
+  "file": "toolz/itertoolz.py",
+  "line": 552
+ },
+ {
+  "name": "toolz.itertoolz:iterate",
+  "file": "toolz/itertoolz.py",
+  "line": 632
+ },
+ {
+  "name": "toolz.itertoolz:sliding_window",
+  "file": "toolz/itertoolz.py",
+  "line": 662
+ },
+ {
+  "name": "toolz.itertoolz:partition",
+  "file": "toolz/itertoolz.py",
+  "line": 682
+ },
+ {
+  "name": "toolz.itertoolz:partition_all",
+  "file": "toolz/itertoolz.py",
+  "line": 707
+ },
+ {
+  "name": "toolz.itertoolz:count",
+  "file": "toolz/itertoolz.py",
+  "line": 757
+ },
+ {
+  "name": "toolz.itertoolz:pluck",
+  "file": "toolz/itertoolz.py",
+  "line": 772
+ },
+ {
+  "name": "toolz.itertoolz:getter",
+  "file": "toolz/itertoolz.py",
+  "line": 804
+ },
+ {
+  "name": "toolz.itertoolz:join",
+  "file": "toolz/itertoolz.py",
+  "line": 817
+ },
+ {
+  "name": "toolz.itertoolz:diff",
+  "file": "toolz/itertoolz.py",
+  "line": 929
+ },
+ {
+  "name": "toolz.itertoolz:topk",
+  "file": "toolz/itertoolz.py",
+  "line": 969
+ },
+ {
+  "name": "toolz.itertoolz:peek",
+  "file": "toolz/itertoolz.py",
+  "line": 990
+ },
+ {
+  "name": "toolz.itertoolz:peekn",
+  "file": "toolz/itertoolz.py",
+  "line": 1008
+ },
+ {
+  "name": "toolz.itertoolz:random_sample",
+  "file": "toolz/itertoolz.py",
+  "line": 1026
+ },
+ {
+  "name": "toolz.recipes:countby",
+  "file": "toolz/recipes.py",
+  "line": 8
+ },
+ {
+  "name": "toolz.recipes:partitionby",
+  "file": "toolz/recipes.py",
+  "line": 26
+ },
+ {
+  "name": "toolz.sandbox.core:unzip",
+  "file": "toolz/sandbox/core.py",
+  "line": 98
+ },
+ {
+  "name": "toolz.sandbox.parallel:fold",
+  "file": "toolz/sandbox/parallel.py",
+  "line": 13
+ },
+ {
+  "name": "toolz.utils:raises",
+  "file": "toolz/utils.py",
+  "line": 1
+ }
+]

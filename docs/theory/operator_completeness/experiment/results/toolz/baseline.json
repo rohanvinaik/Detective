@@ -1,0 +1,8 @@
+{
+ "tests_collected": 193,
+ "passed_run1": 191,
+ "passed_run2": 191,
+ "passed_pristine": 191,
+ "usable": 191,
+ "decorated_vs_pristine_disagreements": []
+}

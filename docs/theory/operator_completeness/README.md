@@ -43,3 +43,12 @@ That notion is not what mutation testing requires: killing a family's generators
 so "generates `T(R)`" does not characterize what a passing score certifies. `ADEQUACY_COMPLETENESS.md` replaces
 generation with adequacy. The archived finite algebra and cardinality impossibility remain correct; they are
 simply about a notion that does not track test adequacy.
+
+## Follow-up: Knowability II
+
+What a survivor of the **wider** regime (Wesker's program-text categories and the two-sign family) can say
+is the subject of `../knowability_ii/KNOWABILITY_II.md`: the theorem here is exact at every mutation site
+once the site's local value is the codomain (weak mutation), which reproduces the Kaminski sufficient ROR
+set and finds a gap in Wesker's BOUNDARY table; a survivor's residual becomes a typed state decided by an
+exact solver over the function's premises; and the teacher's questions are ordered by κ and surprise
+before they are asked. Build plan: `openspec/changes/implement-knowability-ii/`.

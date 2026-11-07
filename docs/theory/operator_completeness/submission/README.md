@@ -9,7 +9,8 @@ historical companion artifacts are not generated from KNOWABILITY.md. Venue and 
 notes in earlier drafts have not been reverified here.
 
 The seven previously missing theorems are restored in ../proofs/adequacy_completeness.lean.
-That development now has 29 checked theorems, including three audit counterexamples.
+That development now has 38 checked theorems, with an axiom audit (`../proofs/Audit.lean`) in the
+default build; `../THEOREM_LEDGER.md` maps each paper claim to its status.
 See ../proofs/README.md for the exact formal scope and pinned Lean/Mathlib environment.
 NEGATIVE_SPECIFICATION.md already contains a superseding note distinguishing
 adequacy-completeness from the archived monoid-generation analysis.

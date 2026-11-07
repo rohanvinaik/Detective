@@ -1,0 +1,12 @@
+freezegun==1.5.5
+humanize @ https://github.com/python-humanize/humanize.git@3c577d7650508d52aa2982e930b0e744c343082f (editable, decorated)
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+py-cpuinfo2==10.1.1
+pygments==2.21.0
+pytest==9.0.2
+pytest-benchmark==5.3.1
+pytest-timeout==2.4.0
+python-dateutil==4.0.0
+tzdata==2026.6

@@ -1,0 +1,34 @@
+{
+  "boltons": {
+    "repo": "https://github.com/mahmoud/boltons.git", "ref": "26.2.0",
+    "commit": "4332b35a278d694f30c99881faa61cde695c7a96",
+    "package_dir": "boltons", "module": "boltons",
+    "test_deps": ["pytest==9.0.2"],
+    "pytest_args": ["--doctest-modules", "tests", "boltons"],
+    "per_library": 40, "max_swaps": 12
+  },
+  "inflect": {
+    "repo": "https://github.com/jaraco/inflect.git", "ref": "v7.6.0",
+    "commit": "f51d6c43580a717c7a04b71779e61b9979851015",
+    "package_dir": "inflect", "module": "inflect",
+    "test_deps": ["pytest==9.0.2", "pygments"],
+    "pytest_args": ["--doctest-modules", "--import-mode", "importlib", "inflect", "tests"],
+    "per_library": 40, "max_swaps": 12
+  },
+  "toolz": {
+    "repo": "https://github.com/pytoolz/toolz.git", "ref": "1.2.0",
+    "commit": "451af60dec590a6010e2babdbf391ea8f815122f",
+    "package_dir": "toolz", "module": "toolz",
+    "test_deps": ["pytest==9.0.2"],
+    "pytest_args": ["toolz"],
+    "per_library": 40, "max_swaps": 12
+  },
+  "humanize": {
+    "repo": "https://github.com/python-humanize/humanize.git", "ref": "4.16.0",
+    "commit": "3c577d7650508d52aa2982e930b0e744c343082f",
+    "package_dir": "src/humanize", "module": "humanize",
+    "test_deps": ["pytest==9.0.2", "freezegun", "pytest-benchmark"],
+    "pytest_args": ["--benchmark-disable", "tests"],
+    "per_library": 40, "max_swaps": 12
+  }
+}

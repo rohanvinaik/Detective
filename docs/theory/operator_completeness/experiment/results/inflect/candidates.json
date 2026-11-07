@@ -1,0 +1,242 @@
+[
+ {
+  "name": "inflect:enclose",
+  "file": "inflect/__init__.py",
+  "line": 108
+ },
+ {
+  "name": "inflect:joinstem",
+  "file": "inflect/__init__.py",
+  "line": 112
+ },
+ {
+  "name": "inflect:bysize",
+  "file": "inflect/__init__.py",
+  "line": 133
+ },
+ {
+  "name": "inflect:make_pl_si_lists",
+  "file": "inflect/__init__.py",
+  "line": 150
+ },
+ {
+  "name": "inflect:get_si_pron",
+  "file": "inflect/__init__.py",
+  "line": 1735
+ },
+ {
+  "name": "inflect:engine.defnoun",
+  "file": "inflect/__init__.py",
+  "line": 2127
+ },
+ {
+  "name": "inflect:engine.defverb",
+  "file": "inflect/__init__.py",
+  "line": 2152
+ },
+ {
+  "name": "inflect:engine.defadj",
+  "file": "inflect/__init__.py",
+  "line": 2177
+ },
+ {
+  "name": "inflect:engine.defa",
+  "file": "inflect/__init__.py",
+  "line": 2188
+ },
+ {
+  "name": "inflect:engine.defan",
+  "file": "inflect/__init__.py",
+  "line": 2198
+ },
+ {
+  "name": "inflect:engine.checkpat",
+  "file": "inflect/__init__.py",
+  "line": 2207
+ },
+ {
+  "name": "inflect:engine.checkpatplural",
+  "file": "inflect/__init__.py",
+  "line": 2218
+ },
+ {
+  "name": "inflect:engine.ud_match",
+  "file": "inflect/__init__.py",
+  "line": 2225
+ },
+ {
+  "name": "inflect:engine.classical",
+  "file": "inflect/__init__.py",
+  "line": 2237
+ },
+ {
+  "name": "inflect:engine.num",
+  "file": "inflect/__init__.py",
+  "line": 2271
+ },
+ {
+  "name": "inflect:engine.gender",
+  "file": "inflect/__init__.py",
+  "line": 2293
+ },
+ {
+  "name": "inflect:engine.inflect",
+  "file": "inflect/__init__.py",
+  "line": 2361
+ },
+ {
+  "name": "inflect:engine.postprocess",
+  "file": "inflect/__init__.py",
+  "line": 2401
+ },
+ {
+  "name": "inflect:engine.partition_word",
+  "file": "inflect/__init__.py",
+  "line": 2446
+ },
+ {
+  "name": "inflect:engine.plural",
+  "file": "inflect/__init__.py",
+  "line": 2454
+ },
+ {
+  "name": "inflect:engine.plural_noun",
+  "file": "inflect/__init__.py",
+  "line": 2478
+ },
+ {
+  "name": "inflect:engine.plural_verb",
+  "file": "inflect/__init__.py",
+  "line": 2497
+ },
+ {
+  "name": "inflect:engine.plural_adj",
+  "file": "inflect/__init__.py",
+  "line": 2519
+ },
+ {
+  "name": "inflect:engine.compare",
+  "file": "inflect/__init__.py",
+  "line": 2538
+ },
+ {
+  "name": "inflect:engine.compare_nouns",
+  "file": "inflect/__init__.py",
+  "line": 2567
+ },
+ {
+  "name": "inflect:engine.compare_verbs",
+  "file": "inflect/__init__.py",
+  "line": 2583
+ },
+ {
+  "name": "inflect:engine.compare_adjs",
+  "file": "inflect/__init__.py",
+  "line": 2599
+ },
+ {
+  "name": "inflect:engine.singular_noun",
+  "file": "inflect/__init__.py",
+  "line": 2615
+ },
+ {
+  "name": "inflect:engine.get_count",
+  "file": "inflect/__init__.py",
+  "line": 2731
+ },
+ {
+  "name": "inflect:engine.a",
+  "file": "inflect/__init__.py",
+  "line": 3594
+ },
+ {
+  "name": "inflect:engine.no",
+  "file": "inflect/__init__.py",
+  "line": 3675
+ },
+ {
+  "name": "inflect:engine.present_participle",
+  "file": "inflect/__init__.py",
+  "line": 3713
+ },
+ {
+  "name": "inflect:engine.ordinal",
+  "file": "inflect/__init__.py",
+  "line": 3732
+ },
+ {
+  "name": "inflect:engine.millfn",
+  "file": "inflect/__init__.py",
+  "line": 3773
+ },
+ {
+  "name": "inflect:engine.unitfn",
+  "file": "inflect/__init__.py",
+  "line": 3778
+ },
+ {
+  "name": "inflect:engine.tenfn",
+  "file": "inflect/__init__.py",
+  "line": 3781
+ },
+ {
+  "name": "inflect:engine.hundfn",
+  "file": "inflect/__init__.py",
+  "line": 3793
+ },
+ {
+  "name": "inflect:engine.group1sub",
+  "file": "inflect/__init__.py",
+  "line": 3805
+ },
+ {
+  "name": "inflect:engine.group1bsub",
+  "file": "inflect/__init__.py",
+  "line": 3814
+ },
+ {
+  "name": "inflect:engine.group2sub",
+  "file": "inflect/__init__.py",
+  "line": 3821
+ },
+ {
+  "name": "inflect:engine.group3sub",
+  "file": "inflect/__init__.py",
+  "line": 3830
+ },
+ {
+  "name": "inflect:engine.hundsub",
+  "file": "inflect/__init__.py",
+  "line": 3848
+ },
+ {
+  "name": "inflect:engine.tensub",
+  "file": "inflect/__init__.py",
+  "line": 3855
+ },
+ {
+  "name": "inflect:engine.unitsub",
+  "file": "inflect/__init__.py",
+  "line": 3858
+ },
+ {
+  "name": "inflect:engine.enword",
+  "file": "inflect/__init__.py",
+  "line": 3861
+ },
+ {
+  "name": "inflect:engine.number_to_words",
+  "file": "inflect/__init__.py",
+  "line": 3934
+ },
+ {
+  "name": "inflect:engine.number_to_currency",
+  "file": "inflect/__init__.py",
+  "line": 4066
+ },
+ {
+  "name": "inflect:engine.join",
+  "file": "inflect/__init__.py",
+  "line": 4090
+ }
+]

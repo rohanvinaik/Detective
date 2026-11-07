@@ -1,0 +1,13 @@
+{
+ "tests_collected": 672,
+ "passed_run1": 668,
+ "passed_run2": 668,
+ "passed_pristine": 672,
+ "usable": 668,
+ "decorated_vs_pristine_disagreements": [
+  "tests/test_namedutils.py::test_namedlist_pickle",
+  "tests/test_namedutils.py::test_namedtuple_pickle",
+  "tests/test_tbutils.py::test_contextual",
+  "tests/test_typeutils.py::test_sentinel_pickle"
+ ]
+}

@@ -1,0 +1,11 @@
+{
+  "R": ["a", "b", "c"],
+  "Pi": {
+    "return a": {"a": "a", "b": "a", "c": "a"},
+    "return b": {"a": "b", "b": "b", "c": "b"},
+    "return c": {"a": "c", "b": "c", "c": "c"}
+  },
+  "Gamma": {
+    "guard c": {"a": "a", "b": "b", "c": "a"}
+  }
+}

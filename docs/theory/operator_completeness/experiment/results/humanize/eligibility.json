@@ -1,0 +1,32 @@
+{
+ "counts": {
+  "eligible": 17,
+  "unkeyable outputs": 2,
+  "returns only None (out of model scope)": 1
+ },
+ "eligible": 17,
+ "sampled": 17,
+ "seed": 20261106,
+ "by_function": {
+  "humanize.filesize:naturalsize": "eligible",
+  "humanize.i18n:get_translation": "unkeyable outputs",
+  "humanize.i18n:activate": "unkeyable outputs",
+  "humanize.i18n:deactivate": "returns only None (out of model scope)",
+  "humanize.i18n:thousands_separator": "eligible",
+  "humanize.i18n:decimal_separator": "eligible",
+  "humanize.lists:natural_list": "eligible",
+  "humanize.number:ordinal": "eligible",
+  "humanize.number:intcomma": "eligible",
+  "humanize.number:intword": "eligible",
+  "humanize.number:apnumber": "eligible",
+  "humanize.number:fractional": "eligible",
+  "humanize.number:scientific": "eligible",
+  "humanize.number:clamp": "eligible",
+  "humanize.number:metric": "eligible",
+  "humanize.time:naturaldelta": "eligible",
+  "humanize.time:naturaltime": "eligible",
+  "humanize.time:naturalday": "eligible",
+  "humanize.time:naturaldate": "eligible",
+  "humanize.time:precisedelta": "eligible"
+ }
+}

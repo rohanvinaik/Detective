@@ -1,0 +1,1436 @@
+[
+ {
+  "fn": "boltons.cacheutils:LRI.copy",
+  "tests": [
+   "tests/test_cacheutils.py::test_lru_basic"
+  ],
+  "observed_keys": [
+   "boltons.cacheutils.LRU:9d3758eb64f82e522a97"
+  ],
+  "observed_types": [
+   "boltons.cacheutils.LRU"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "boltons.cacheutils.LRU:9d3758eb64f82e522a97"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.cacheutils:LRI.popitem",
+  "tests": [
+   "tests/test_cacheutils.py::test_lru_basic"
+  ],
+  "observed_keys": [
+   "builtins.tuple:cc3b1c0977b899819141"
+  ],
+  "observed_types": [
+   "builtins.tuple"
+  ],
+  "constant_repr": "()",
+  "constant_key": "builtins.tuple:f9065fa7389750e16fe0",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.tuple:cc3b1c0977b899819141"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAUpLg=="
+ },
+ {
+  "fn": "boltons.cacheutils:LRI.setdefault",
+  "tests": [
+   "tests/test_cacheutils.py::test_lru_basic"
+  ],
+  "observed_keys": [
+   "builtins.int:da4b9237bacccdf19c07"
+  ],
+  "observed_types": [
+   "builtins.int"
+  ],
+  "constant_repr": "0",
+  "constant_key": "builtins.int:b6589fc6ab0dc82cf120",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.int:da4b9237bacccdf19c07"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVLAC4="
+ },
+ {
+  "fn": "boltons.cacheutils:ThresholdCounter.get_commonality",
+  "tests": [
+   "tests/test_cacheutils.py::test_threshold_counter"
+  ],
+  "observed_keys": [
+   "builtins.float:317ca354642bdd38636c"
+  ],
+  "observed_types": [
+   "builtins.float"
+  ],
+  "constant_repr": "0.0",
+  "constant_key": "builtins.float:38f6d7875e3195bdaee4",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.float:317ca354642bdd38636c"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVCgAAAAAAAABHAAAAAAAAAAAu"
+ },
+ {
+  "fn": "boltons.cacheutils:ThresholdCounter.values",
+  "tests": [
+   "tests/test_cacheutils.py::test_threshold_counter"
+  ],
+  "observed_keys": [
+   "builtins.list:a073c65f180755f7ba87"
+  ],
+  "observed_types": [
+   "builtins.list"
+  ],
+  "constant_repr": "[]",
+  "constant_key": "builtins.list:97d170e1550eee4afc0a",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.list:a073c65f180755f7ba87"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVdlC4="
+ },
+ {
+  "fn": "boltons.dictutils:OrderedMultiDict.copy",
+  "tests": [
+   "tests/test_dictutils.py::test_copy",
+   "tests/test_dictutils.py::test_update_basic"
+  ],
+  "observed_keys": [
+   "boltons.dictutils.OrderedMultiDict:390754e40cd2c9e73e65",
+   "boltons.dictutils.OrderedMultiDict:422abd75a7e375d4d544",
+   "boltons.dictutils.OrderedMultiDict:472f64132af78a69225c",
+   "boltons.dictutils.OrderedMultiDict:5a88000ec8d3518d2ed2",
+   "boltons.dictutils.OrderedMultiDict:ca38957b076e22edcf5c",
+   "boltons.dictutils.OrderedMultiDict:d02bab4f0af181fdff4d"
+  ],
+  "observed_types": [
+   "boltons.dictutils.OrderedMultiDict"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "boltons.dictutils.OrderedMultiDict:390754e40cd2c9e73e65",
+   "boltons.dictutils.OrderedMultiDict:422abd75a7e375d4d544",
+   "boltons.dictutils.OrderedMultiDict:472f64132af78a69225c",
+   "boltons.dictutils.OrderedMultiDict:5a88000ec8d3518d2ed2",
+   "boltons.dictutils.OrderedMultiDict:ca38957b076e22edcf5c",
+   "boltons.dictutils.OrderedMultiDict:d02bab4f0af181fdff4d"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.dictutils:OrderedMultiDict.inverted",
+  "tests": [
+   "boltons/dictutils.py::boltons.dictutils.OrderedMultiDict.inverted",
+   "tests/test_dictutils.py::test_invert"
+  ],
+  "observed_keys": [
+   "boltons.dictutils.OrderedMultiDict:1fba245bde94306f243f",
+   "boltons.dictutils.OrderedMultiDict:33bd0865b5762bf733ed",
+   "boltons.dictutils.OrderedMultiDict:472f64132af78a69225c",
+   "boltons.dictutils.OrderedMultiDict:577e64096ed492b11fc4",
+   "boltons.dictutils.OrderedMultiDict:8f710afa3fb0ba8c49bf",
+   "boltons.dictutils.OrderedMultiDict:d064618b462251236181",
+   "boltons.dictutils.OrderedMultiDict:d25fe981cf5a909a5f0f"
+  ],
+  "observed_types": [
+   "boltons.dictutils.OrderedMultiDict"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "boltons.dictutils.OrderedMultiDict:1fba245bde94306f243f",
+   "boltons.dictutils.OrderedMultiDict:33bd0865b5762bf733ed",
+   "boltons.dictutils.OrderedMultiDict:472f64132af78a69225c",
+   "boltons.dictutils.OrderedMultiDict:577e64096ed492b11fc4",
+   "boltons.dictutils.OrderedMultiDict:8f710afa3fb0ba8c49bf",
+   "boltons.dictutils.OrderedMultiDict:d064618b462251236181",
+   "boltons.dictutils.OrderedMultiDict:d25fe981cf5a909a5f0f"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.dictutils:OrderedMultiDict.setdefault",
+  "tests": [
+   "tests/test_dictutils.py::test_setdefault"
+  ],
+  "observed_keys": [
+   "builtins.NoneType:6eef6648406c333a4035",
+   "builtins.list:97d170e1550eee4afc0a"
+  ],
+  "observed_types": [
+   "builtins.NoneType",
+   "builtins.list"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.list:97d170e1550eee4afc0a"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.ecoutils:get_profile",
+  "tests": [
+   "tests/test_ecoutils.py::test_basic",
+   "tests/test_ecoutils.py::test_scrub",
+   "tests/test_ecoutils.py::test_scrub_does_not_read_the_cwd",
+   "tests/test_ecoutils.py::test_scrub_does_not_resolve_the_host"
+  ],
+  "observed_keys": [
+   "builtins.dict:472963289e691c3800d8",
+   "builtins.dict:bd082f2c8468dad2cfda"
+  ],
+  "observed_types": [
+   "builtins.dict"
+  ],
+  "constant_repr": "{}",
+  "constant_key": "builtins.dict:bf21a9e8fbc5a3846fb0",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.dict:472963289e691c3800d8",
+   "builtins.dict:bd082f2c8468dad2cfda"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAV9lC4="
+ },
+ {
+  "fn": "boltons.ecoutils:get_python_info",
+  "tests": [
+   "tests/test_ecoutils.py::test_basic",
+   "tests/test_ecoutils.py::test_scrub",
+   "tests/test_ecoutils.py::test_scrub_does_not_read_the_cwd",
+   "tests/test_ecoutils.py::test_scrub_does_not_resolve_the_host"
+  ],
+  "observed_keys": [
+   "builtins.dict:39a08164a35dc755edc9"
+  ],
+  "observed_types": [
+   "builtins.dict"
+  ],
+  "constant_repr": "{}",
+  "constant_key": "builtins.dict:bf21a9e8fbc5a3846fb0",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.dict:39a08164a35dc755edc9"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAV9lC4="
+ },
+ {
+  "fn": "boltons.formatutils:tokenize_format_str",
+  "tests": [
+   "tests/test_formatutils.py::test_tokenize_format_str"
+  ],
+  "observed_keys": [
+   "builtins.list:1819ecbbb9f7cd2a50a4",
+   "builtins.list:22f9a825c5c70865cdce",
+   "builtins.list:6adc966dbfc008b9b694",
+   "builtins.list:c0762ad5800959e3137d",
+   "builtins.list:f524e171f4dd9f17390d",
+   "builtins.list:fb4ac2691ae19a6b1800"
+  ],
+  "observed_types": [
+   "builtins.list"
+  ],
+  "constant_repr": "[]",
+  "constant_key": "builtins.list:97d170e1550eee4afc0a",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.list:1819ecbbb9f7cd2a50a4",
+   "builtins.list:22f9a825c5c70865cdce",
+   "builtins.list:6adc966dbfc008b9b694",
+   "builtins.list:c0762ad5800959e3137d",
+   "builtins.list:f524e171f4dd9f17390d",
+   "builtins.list:fb4ac2691ae19a6b1800"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVdlC4="
+ },
+ {
+  "fn": "boltons.ioutils:SpooledBytesIO.read",
+  "tests": [
+   "boltons/ioutils.py::boltons.ioutils.SpooledBytesIO",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_buf_property",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_getvalue_norollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_getvalue_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_rollover_custom_directory",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truncate_noargs_norollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truncate_noargs_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truncate_with_args_norollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truncate_with_args_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_use_as_context_mgr",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_writelines"
+  ],
+  "observed_keys": [
+   "builtins.bytes:2b681b22bfc5a1f40576",
+   "builtins.bytes:9645e4eb41d642995ae7",
+   "builtins.bytes:9aaf323ad40329e423b1",
+   "builtins.bytes:c43910966da6312fe43b",
+   "builtins.bytes:dfbcb7ae3c1dfe10e4db"
+  ],
+  "observed_types": [
+   "builtins.bytes"
+  ],
+  "constant_repr": "b'<omut>'",
+  "constant_key": "builtins.bytes:fa2f62f5ea47638b6458",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bytes:2b681b22bfc5a1f40576",
+   "builtins.bytes:9645e4eb41d642995ae7",
+   "builtins.bytes:9aaf323ad40329e423b1",
+   "builtins.bytes:c43910966da6312fe43b",
+   "builtins.bytes:dfbcb7ae3c1dfe10e4db"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVCgAAAAAAAABDBjxvbXV0PpQu"
+ },
+ {
+  "fn": "boltons.ioutils:SpooledIOBase.buf",
+  "tests": [
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_buf_property",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_buf_property"
+  ],
+  "observed_keys": [
+   "builtins.bytes:dfbcb7ae3c1dfe10e4db",
+   "builtins.str:b6ee60926c0a426addcb"
+  ],
+  "observed_types": [
+   "builtins.bytes",
+   "builtins.str"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bytes:dfbcb7ae3c1dfe10e4db",
+   "builtins.str:b6ee60926c0a426addcb"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.ioutils:SpooledIOBase.closed",
+  "tests": [
+   "boltons/ioutils.py::boltons.ioutils.SpooledBytesIO",
+   "boltons/ioutils.py::boltons.ioutils.SpooledStringIO",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_auto_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_buf_property",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_closed_file_method_valueerrors",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_closed_property",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_compare_different_instances",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_compare_err",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_compare_not_equal_instances",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_compare_two_equal_instances",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_flush_after_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_getvalue_norollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_getvalue_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_invalid_type",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_io_error_negative_truncate",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_isatty",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_iter",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_len_no_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_len_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_next",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_pos_property",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_readline",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_readlines",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_rollover_custom_directory",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truncate_noargs_norollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truncate_noargs_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truncate_with_args_norollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truncate_with_args_rollover",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_truthy",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_type_error_too_many_args",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_use_as_context_mgr",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_writelines",
+   "tests/test_ioutils.py::TestSpooledBytesIO::test_zip_compat",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_auto_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_buf_property",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_closed_file_method_valueerrors",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_closed_property",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_codepoints_all_enc",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_different_instances",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_err",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_not_equal_instances",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_two_equal_instances",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_getvalue_norollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_getvalue_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_invalid_type",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_io_error_negative_truncate",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_isatty",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_iter",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_len_no_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_len_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_next",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_pos_property",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_readline",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_readlines",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_rollover_custom_directory",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_SEEK_CUR",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_SEEK_END",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_SEEK_SET",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_large_SEEK_CUR",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_large_SEEK_END",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_large_SEEK_SET",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_encoded",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_tell_codepoints",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truncate_noargs_norollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truncate_noargs_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truncate_with_args_norollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truncate_with_args_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truthy",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_type_error_too_many_args",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_use_as_context_mgr",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_writelines",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_x80_codepoint"
+  ],
+  "observed_keys": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.bool"
+  ],
+  "constant_repr": "False",
+  "constant_key": "builtins.bool:97cdbdc7feff827efb08",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWJLg=="
+ },
+ {
+  "fn": "boltons.ioutils:SpooledStringIO.readline",
+  "tests": [
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_err",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_not_equal_instances",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_two_equal_instances",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_iter",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_next",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_readline"
+  ],
+  "observed_keys": [
+   "builtins.str:08960ad0c4edd3813ed3",
+   "builtins.str:1514bf21aae43aa3b940",
+   "builtins.str:5490fec8b446a0e6ac52",
+   "builtins.str:6649c5ecaa3267a30886",
+   "builtins.str:7985d32c802a82dc2dcc",
+   "builtins.str:8d3f755367a6304852c2",
+   "builtins.str:9e9ee12c36a33b58f354",
+   "builtins.str:b6ee60926c0a426addcb"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "'<omut>'",
+  "constant_key": "builtins.str:78bc31297bcbde409e03",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:08960ad0c4edd3813ed3",
+   "builtins.str:1514bf21aae43aa3b940",
+   "builtins.str:5490fec8b446a0e6ac52",
+   "builtins.str:6649c5ecaa3267a30886",
+   "builtins.str:7985d32c802a82dc2dcc",
+   "builtins.str:8d3f755367a6304852c2",
+   "builtins.str:9e9ee12c36a33b58f354",
+   "builtins.str:b6ee60926c0a426addcb"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVCgAAAAAAAACMBjxvbXV0PpQu"
+ },
+ {
+  "fn": "boltons.ioutils:SpooledStringIO.seek",
+  "tests": [
+   "boltons/ioutils.py::boltons.ioutils.SpooledStringIO",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_buf_property",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_codepoints_all_enc",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_err",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_not_equal_instances",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_compare_two_equal_instances",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_getvalue_norollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_getvalue_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_iter",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_next",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_readline",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_readlines",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_rollover_custom_directory",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_SEEK_CUR",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_SEEK_END",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_SEEK_SET",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_large_SEEK_CUR",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_large_SEEK_END",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_codepoints_large_SEEK_SET",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_seek_encoded",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_tell_codepoints",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truncate_noargs_norollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truncate_noargs_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truncate_with_args_norollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truncate_with_args_rollover",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_truthy",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_use_as_context_mgr",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_writelines",
+   "tests/test_ioutils.py::TestSpooledStringIO::test_x80_codepoint"
+  ],
+  "observed_keys": [
+   "builtins.int:17ba0791499db908433b",
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:438d1195c099df3a4d85",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:7f4c74dc10f61eef43e6",
+   "builtins.int:902ba3cda1883801594b",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:af3e133428b9e25c55bc",
+   "builtins.int:b1d5781111d84f7b3fe4",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.int:de0f11d5aa5c1565fe12",
+   "builtins.int:fe2ef495a11525615729"
+  ],
+  "observed_types": [
+   "builtins.int"
+  ],
+  "constant_repr": "-999983",
+  "constant_key": "builtins.int:76d8643523abb5e1c559",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.int:17ba0791499db908433b",
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:7f4c74dc10f61eef43e6",
+   "builtins.int:902ba3cda1883801594b",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:af3e133428b9e25c55bc",
+   "builtins.int:b1d5781111d84f7b3fe4",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.int:de0f11d5aa5c1565fe12",
+   "builtins.int:fe2ef495a11525615729"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAWVBgAAAAAAAABK0b3w/y4="
+ },
+ {
+  "fn": "boltons.iterutils:frange",
+  "tests": [
+   "boltons/iterutils.py::boltons.iterutils.frange",
+   "tests/test_iterutils.py::test_frange_inexact_boundary_counts",
+   "tests/test_iterutils.py::test_xfrange_matches_frange"
+  ],
+  "observed_keys": [
+   "builtins.list:174a7f44cccbf872870b",
+   "builtins.list:238ac7f4b76e1fe4a57c",
+   "builtins.list:3e63b4f10e61108cf83a",
+   "builtins.list:3ec5008c153c79158354",
+   "builtins.list:6e269376cc4827457c92",
+   "builtins.list:76dc4a4c324a1ac1ddcc",
+   "builtins.list:8f8195d04753f39dc7a3",
+   "builtins.list:97d170e1550eee4afc0a"
+  ],
+  "observed_types": [
+   "builtins.list"
+  ],
+  "constant_repr": "[None]",
+  "constant_key": "builtins.list:63f398e42ecffbc74be8",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.list:174a7f44cccbf872870b",
+   "builtins.list:238ac7f4b76e1fe4a57c",
+   "builtins.list:3e63b4f10e61108cf83a",
+   "builtins.list:3ec5008c153c79158354",
+   "builtins.list:6e269376cc4827457c92",
+   "builtins.list:76dc4a4c324a1ac1ddcc",
+   "builtins.list:8f8195d04753f39dc7a3",
+   "builtins.list:97d170e1550eee4afc0a"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBQAAAAAAAABdlE5hLg=="
+ },
+ {
+  "fn": "boltons.iterutils:is_scalar",
+  "tests": [
+   "boltons/iterutils.py::boltons.iterutils.is_scalar",
+   "boltons/iterutils.py::boltons.iterutils.split",
+   "boltons/iterutils.py::boltons.iterutils.split_iter"
+  ],
+  "observed_keys": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.bool"
+  ],
+  "constant_repr": "False",
+  "constant_key": "builtins.bool:97cdbdc7feff827efb08",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWJLg=="
+ },
+ {
+  "fn": "boltons.iterutils:pairwise",
+  "tests": [
+   "boltons/iterutils.py::boltons.iterutils.pairwise",
+   "tests/test_iterutils.py::test_pairwise_filled"
+  ],
+  "observed_keys": [
+   "builtins.list:0e06dada415223eb3e23",
+   "builtins.list:39872f3db93be12fa88d",
+   "builtins.list:728cf7b9e231f66e308d",
+   "builtins.list:97d170e1550eee4afc0a",
+   "builtins.list:b51d7bbf0d3e1c54d1e9",
+   "builtins.list:f4869eb9d654e5a82afa"
+  ],
+  "observed_types": [
+   "builtins.list"
+  ],
+  "constant_repr": "[None]",
+  "constant_key": "builtins.list:63f398e42ecffbc74be8",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.list:0e06dada415223eb3e23",
+   "builtins.list:39872f3db93be12fa88d",
+   "builtins.list:728cf7b9e231f66e308d",
+   "builtins.list:97d170e1550eee4afc0a",
+   "builtins.list:b51d7bbf0d3e1c54d1e9",
+   "builtins.list:f4869eb9d654e5a82afa"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBQAAAAAAAABdlE5hLg=="
+ },
+ {
+  "fn": "boltons.mathutils:Bits.as_hex",
+  "tests": [
+   "tests/test_mathutils.py::test_bits",
+   "tests/test_mathutils.py::test_empty_bits_conversions"
+  ],
+  "observed_keys": [
+   "builtins.str:b6ee60926c0a426addcb",
+   "builtins.str:c019d55248f1625f62ec",
+   "builtins.str:cee291164ac24e5b0ec2"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "'<omut>'",
+  "constant_key": "builtins.str:78bc31297bcbde409e03",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:b6ee60926c0a426addcb",
+   "builtins.str:c019d55248f1625f62ec",
+   "builtins.str:cee291164ac24e5b0ec2"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVCgAAAAAAAACMBjxvbXV0PpQu"
+ },
+ {
+  "fn": "boltons.setutils:IndexedSet.index",
+  "tests": [
+   "boltons/setutils.py::boltons.setutils.IndexedSet",
+   "tests/test_setutils.py::test_bulk_difference_update",
+   "tests/test_setutils.py::test_bulk_intersection_update",
+   "tests/test_setutils.py::test_iset_index_method"
+  ],
+  "observed_keys": [
+   "builtins.int:0ade7c2cf97f75d00997",
+   "builtins.int:17ba0791499db908433b",
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:902ba3cda1883801594b",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:b1d5781111d84f7b3fe4",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:ba30fd97b4127db56e9f",
+   "builtins.int:c1dfd96eea8cc2b62785",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.int:fe5dbbcea5ce7e2988b8"
+  ],
+  "observed_types": [
+   "builtins.int"
+  ],
+  "constant_repr": "-999983",
+  "constant_key": "builtins.int:76d8643523abb5e1c559",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.int:0ade7c2cf97f75d00997",
+   "builtins.int:17ba0791499db908433b",
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:b1d5781111d84f7b3fe4",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:ba30fd97b4127db56e9f",
+   "builtins.int:c1dfd96eea8cc2b62785",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.int:fe5dbbcea5ce7e2988b8"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAWVBgAAAAAAAABK0b3w/y4="
+ },
+ {
+  "fn": "boltons.setutils:complement",
+  "tests": [
+   "boltons/setutils.py::boltons.setutils.complement",
+   "tests/test_setutils.py::test_complement_set"
+  ],
+  "observed_keys": [
+   "boltons.setutils._ComplementSet:0c29d7456fa9477752c1",
+   "boltons.setutils._ComplementSet:21bb6a5367ba1b70b537",
+   "boltons.setutils._ComplementSet:34dc9aa9443e60534867",
+   "boltons.setutils._ComplementSet:38b74280f947a646e3cf",
+   "boltons.setutils._ComplementSet:407418cd06e99b8e7904",
+   "boltons.setutils._ComplementSet:85cef023f27460a23ae9",
+   "boltons.setutils._ComplementSet:90c42aad45fa70b2fe76",
+   "boltons.setutils._ComplementSet:bb063912427e7ba10112",
+   "boltons.setutils._ComplementSet:c3b401d7df61418377a4",
+   "boltons.setutils._ComplementSet:c6cc156cb9d7efe6fece",
+   "boltons.setutils._ComplementSet:cea53b67d4e829d5cae7",
+   "boltons.setutils._ComplementSet:e3b16ae9958a5d4cc21b",
+   "boltons.setutils._ComplementSet:ea6dc5d100c415f3a07c",
+   "boltons.setutils._ComplementSet:f3f1eb910a5abc2b8dcf"
+  ],
+  "observed_types": [
+   "boltons.setutils._ComplementSet"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "boltons.setutils._ComplementSet:0c29d7456fa9477752c1",
+   "boltons.setutils._ComplementSet:21bb6a5367ba1b70b537",
+   "boltons.setutils._ComplementSet:34dc9aa9443e60534867",
+   "boltons.setutils._ComplementSet:38b74280f947a646e3cf",
+   "boltons.setutils._ComplementSet:85cef023f27460a23ae9",
+   "boltons.setutils._ComplementSet:bb063912427e7ba10112",
+   "boltons.setutils._ComplementSet:c3b401d7df61418377a4",
+   "boltons.setutils._ComplementSet:c6cc156cb9d7efe6fece",
+   "boltons.setutils._ComplementSet:cea53b67d4e829d5cae7",
+   "boltons.setutils._ComplementSet:e3b16ae9958a5d4cc21b",
+   "boltons.setutils._ComplementSet:ea6dc5d100c415f3a07c",
+   "boltons.setutils._ComplementSet:f3f1eb910a5abc2b8dcf"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.socketutils:BufferedSocket.family",
+  "tests": [
+   "tests/test_socketutils.py::test_props"
+  ],
+  "observed_keys": [
+   "socket.AddressFamily:c81cf313e20aadaf3093"
+  ],
+  "observed_types": [
+   "socket.AddressFamily"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "socket.AddressFamily:c81cf313e20aadaf3093"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.socketutils:BufferedSocket.getrecvbuffer",
+  "tests": [
+   "tests/test_socketutils.py::test_buffers",
+   "tests/test_socketutils.py::test_client_disconnecting",
+   "tests/test_socketutils.py::test_socketutils_netstring"
+  ],
+  "observed_keys": [
+   "builtins.bytes:be1406b55f59ddcac673",
+   "builtins.bytes:dfbcb7ae3c1dfe10e4db"
+  ],
+  "observed_types": [
+   "builtins.bytes"
+  ],
+  "constant_repr": "b'<omut>'",
+  "constant_key": "builtins.bytes:fa2f62f5ea47638b6458",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bytes:be1406b55f59ddcac673",
+   "builtins.bytes:dfbcb7ae3c1dfe10e4db"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVCgAAAAAAAABDBjxvbXV0PpQu"
+ },
+ {
+  "fn": "boltons.statsutils:Stats.format_histogram",
+  "tests": [
+   "boltons/statsutils.py::boltons.statsutils.Stats.format_histogram",
+   "tests/test_statsutils_histogram.py::test_norm_regression"
+  ],
+  "observed_keys": [
+   "builtins.str:0d0569057d01d075edca",
+   "builtins.str:54cf0e0e47135f282c77",
+   "builtins.str:c36a85b5c0d56aac35ef",
+   "builtins.str:ea11faf89e2a1afd1326",
+   "builtins.str:f7ca0fb3381fc3179b38"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "''",
+  "constant_key": "builtins.str:b6ee60926c0a426addcb",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:0d0569057d01d075edca",
+   "builtins.str:54cf0e0e47135f282c77",
+   "builtins.str:c36a85b5c0d56aac35ef",
+   "builtins.str:ea11faf89e2a1afd1326",
+   "builtins.str:f7ca0fb3381fc3179b38"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBAAAAAAAAACMAJQu"
+ },
+ {
+  "fn": "boltons.statsutils:Stats.get_quantile",
+  "tests": [
+   "boltons/statsutils.py::boltons.statsutils.Stats.describe",
+   "boltons/statsutils.py::boltons.statsutils.Stats.format_histogram",
+   "boltons/statsutils.py::boltons.statsutils.Stats.get_quantile",
+   "boltons/statsutils.py::boltons.statsutils.describe",
+   "boltons/statsutils.py::boltons.statsutils.iqr",
+   "tests/test_statsutils.py::test_histogram_zero_interquartile_range",
+   "tests/test_statsutils_histogram.py::test_check_sum",
+   "tests/test_statsutils_histogram.py::test_norm_regression"
+  ],
+  "observed_keys": [
+   "builtins.float:2ce6ddc84d93a3a1dcd8",
+   "builtins.float:38f6d7875e3195bdaee4",
+   "builtins.float:509c078767ad639e818f",
+   "builtins.float:555a5c5c92b230dccab8",
+   "builtins.float:59a7597c10f2e831aaf8",
+   "builtins.float:5f66ffa0d783df84c67b",
+   "builtins.float:5fee00b66487523a76ac",
+   "builtins.float:6d41633ed10fb4792079",
+   "builtins.float:726d7c3be0d29a6987c3",
+   "builtins.float:743da23f34ee7adc1bc2",
+   "builtins.float:9199bab071b0c201ce90",
+   "builtins.float:aa8f289ebe6d4db1b4a1",
+   "builtins.float:c9a79ac93c358874ab99",
+   "builtins.float:eb3cb647b5951c1db15e",
+   "builtins.float:f7475b81fdc4723ec189",
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:404c735f21d00fee39a1",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:ba30fd97b4127db56e9f",
+   "builtins.int:da4b9237bacccdf19c07"
+  ],
+  "observed_types": [
+   "builtins.float",
+   "builtins.int"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.float:2ce6ddc84d93a3a1dcd8",
+   "builtins.float:38f6d7875e3195bdaee4",
+   "builtins.float:555a5c5c92b230dccab8",
+   "builtins.float:5f66ffa0d783df84c67b",
+   "builtins.float:6d41633ed10fb4792079",
+   "builtins.float:743da23f34ee7adc1bc2",
+   "builtins.float:c9a79ac93c358874ab99",
+   "builtins.float:f7475b81fdc4723ec189",
+   "builtins.int:404c735f21d00fee39a1",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:ba30fd97b4127db56e9f",
+   "builtins.int:da4b9237bacccdf19c07"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.strutils:camel2under",
+  "tests": [
+   "boltons/strutils.py::boltons.strutils.camel2under"
+  ],
+  "observed_keys": [
+   "builtins.str:29ba948d8864548ae6e8"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "''",
+  "constant_key": "builtins.str:b6ee60926c0a426addcb",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:29ba948d8864548ae6e8"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBAAAAAAAAACMAJQu"
+ },
+ {
+  "fn": "boltons.strutils:html2text",
+  "tests": [
+   "boltons/strutils.py::boltons.strutils.html2text"
+  ],
+  "observed_keys": [
+   "builtins.str:ff3c6a66033684e50a70"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "''",
+  "constant_key": "builtins.str:b6ee60926c0a426addcb",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:ff3c6a66033684e50a70"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBAAAAAAAAACMAJQu"
+ },
+ {
+  "fn": "boltons.strutils:is_uuid",
+  "tests": [
+   "boltons/strutils.py::boltons.strutils.is_uuid",
+   "tests/test_strutils.py::test_is_uuid"
+  ],
+  "observed_keys": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.bool"
+  ],
+  "constant_repr": "False",
+  "constant_key": "builtins.bool:97cdbdc7feff827efb08",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWJLg=="
+ },
+ {
+  "fn": "boltons.strutils:parse_int_list",
+  "tests": [
+   "boltons/strutils.py::boltons.strutils.complement_int_list",
+   "boltons/strutils.py::boltons.strutils.int_ranges_from_int_list",
+   "boltons/strutils.py::boltons.strutils.parse_int_list",
+   "tests/test_strutils.py::test_parse_int_list"
+  ],
+  "observed_keys": [
+   "builtins.list:5f14fc8722d863af659e",
+   "builtins.list:70c145264b6a445b89eb",
+   "builtins.list:97d170e1550eee4afc0a",
+   "builtins.list:caa8dd64624220341151",
+   "builtins.list:f629ae44b7b3dcfed444"
+  ],
+  "observed_types": [
+   "builtins.list"
+  ],
+  "constant_repr": "[None]",
+  "constant_key": "builtins.list:63f398e42ecffbc74be8",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.list:5f14fc8722d863af659e",
+   "builtins.list:70c145264b6a445b89eb",
+   "builtins.list:97d170e1550eee4afc0a",
+   "builtins.list:caa8dd64624220341151",
+   "builtins.list:f629ae44b7b3dcfed444"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBQAAAAAAAABdlE5hLg=="
+ },
+ {
+  "fn": "boltons.strutils:singularize",
+  "tests": [
+   "boltons/strutils.py::boltons.strutils.singularize",
+   "tests/test_strutils.py::test_singularize_double_s"
+  ],
+  "observed_keys": [
+   "builtins.str:04ee5f6268d7d77b04cb",
+   "builtins.str:47bcf3af1be828a50314",
+   "builtins.str:9e4e2fdadaa6d3745b64",
+   "builtins.str:a52c837d522fca710dad",
+   "builtins.str:bb04d7c2b81af979ec52",
+   "builtins.str:bdd8c879fed88124e975",
+   "builtins.str:c3fd5b39e0e4ffb0a5e1",
+   "builtins.str:c4ca05e54c67710dbf06",
+   "builtins.str:db833a0aafe83298f55d",
+   "builtins.str:e5c509b27ba5d676ea36",
+   "builtins.str:fc353d76cb24dcc67a53"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "''",
+  "constant_key": "builtins.str:b6ee60926c0a426addcb",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:04ee5f6268d7d77b04cb",
+   "builtins.str:47bcf3af1be828a50314",
+   "builtins.str:9e4e2fdadaa6d3745b64",
+   "builtins.str:a52c837d522fca710dad",
+   "builtins.str:bb04d7c2b81af979ec52",
+   "builtins.str:bdd8c879fed88124e975",
+   "builtins.str:c3fd5b39e0e4ffb0a5e1",
+   "builtins.str:c4ca05e54c67710dbf06",
+   "builtins.str:db833a0aafe83298f55d",
+   "builtins.str:e5c509b27ba5d676ea36",
+   "builtins.str:fc353d76cb24dcc67a53"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBAAAAAAAAACMAJQu"
+ },
+ {
+  "fn": "boltons.strutils:unit_len",
+  "tests": [
+   "boltons/strutils.py::boltons.strutils.unit_len"
+  ],
+  "observed_keys": [
+   "builtins.str:1f38bec8386afd706a61",
+   "builtins.str:558dd43a336792329342",
+   "builtins.str:f951cff59f149baf3ef2"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "''",
+  "constant_key": "builtins.str:b6ee60926c0a426addcb",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:1f38bec8386afd706a61",
+   "builtins.str:558dd43a336792329342",
+   "builtins.str:f951cff59f149baf3ef2"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBAAAAAAAAACMAJQu"
+ },
+ {
+  "fn": "boltons.tableutils:DictInputType.guess_headers",
+  "tests": [
+   "tests/test_tableutils.py::test_table_dicts"
+  ],
+  "observed_keys": [
+   "builtins.list:5709101a7f0e1d02a3f5"
+  ],
+  "observed_types": [
+   "builtins.list"
+  ],
+  "constant_repr": "[]",
+  "constant_key": "builtins.list:97d170e1550eee4afc0a",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.list:5709101a7f0e1d02a3f5"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVdlC4="
+ },
+ {
+  "fn": "boltons.tbutils:Callpoint.tb_frame_str",
+  "tests": [
+   "tests/test_tbutils.py::test_exception_info"
+  ],
+  "observed_keys": [
+   "builtins.str:0e64fc4799da3a6f5ec6",
+   "builtins.str:4658bfdd948f31e69921"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "''",
+  "constant_key": "builtins.str:b6ee60926c0a426addcb",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:0e64fc4799da3a6f5ec6",
+   "builtins.str:4658bfdd948f31e69921"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBAAAAAAAAACMAJQu"
+ },
+ {
+  "fn": "boltons.tbutils:TracebackInfo.from_traceback",
+  "tests": [
+   "tests/test_tbutils.py::test_exception_info"
+  ],
+  "observed_keys": [
+   "boltons.tbutils.TracebackInfo:72441ec5164bc875837a"
+  ],
+  "observed_types": [
+   "boltons.tbutils.TracebackInfo"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "boltons.tbutils.TracebackInfo:72441ec5164bc875837a"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.typeutils:get_all_subclasses",
+  "tests": [
+   "boltons/typeutils.py::boltons.typeutils.get_all_subclasses"
+  ],
+  "observed_keys": [
+   "builtins.list:63644208fde892d000f7",
+   "builtins.list:66490640854b16e0b164"
+  ],
+  "observed_types": [
+   "builtins.list"
+  ],
+  "constant_repr": "[]",
+  "constant_key": "builtins.list:97d170e1550eee4afc0a",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.list:63644208fde892d000f7",
+   "builtins.list:66490640854b16e0b164"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVdlC4="
+ },
+ {
+  "fn": "boltons.urlutils:URL.navigate",
+  "tests": [
+   "boltons/urlutils.py::boltons.urlutils.URL.navigate",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/a/b-https://host-paths2]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/a/b-https://host/a/-paths4]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/b-https://host-paths0]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/b-https://host-paths1]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/b-https://host-paths3]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/b-https://host/a-paths5]",
+   "tests/test_urlutils.py::test_navigate",
+   "tests/test_urlutils.py::test_rel_navigate"
+  ],
+  "observed_keys": [
+   "boltons.urlutils.URL:06c1de5e8c4a5aad0190",
+   "boltons.urlutils.URL:09cd4f7ed6e52d669b0f",
+   "boltons.urlutils.URL:0de179e7cd934fecffcf",
+   "boltons.urlutils.URL:11abad6b60a4ed763c1d",
+   "boltons.urlutils.URL:1c023fb4f5c5ab319639",
+   "boltons.urlutils.URL:1c2b225f09a969da943e",
+   "boltons.urlutils.URL:20c1f0d97b2f654b4db1",
+   "boltons.urlutils.URL:23ea6ba85e697b4d4d98",
+   "boltons.urlutils.URL:37fb01f4e1fa73ba6077",
+   "boltons.urlutils.URL:450150dab87049cd11a3",
+   "boltons.urlutils.URL:4856f34a4c6dbe3d3551",
+   "boltons.urlutils.URL:4f10f2ffb6dcdab211f7",
+   "boltons.urlutils.URL:7bee3ed75e49fbe5f901",
+   "boltons.urlutils.URL:7cc80952ce937049bbe0",
+   "boltons.urlutils.URL:87e12f623e2b483a550c",
+   "boltons.urlutils.URL:9038d9f7a74e431a6576",
+   "boltons.urlutils.URL:987bf1eb0fcc83100d8f",
+   "boltons.urlutils.URL:a5f992b67097cf7a97c4",
+   "boltons.urlutils.URL:ac7a94ce1dedffbd995d",
+   "boltons.urlutils.URL:bf870ae80ca825cfae5b",
+   "boltons.urlutils.URL:d0df2118d7964631b08b",
+   "boltons.urlutils.URL:d60e5a01417fba06840b",
+   "boltons.urlutils.URL:dcfb11d00fc0a117dc83",
+   "boltons.urlutils.URL:e47eb8bb79f9a125f20b",
+   "boltons.urlutils.URL:e51cca97a4678c015ab1",
+   "boltons.urlutils.URL:e898c3262eba455ec0b2",
+   "boltons.urlutils.URL:eb0c53b0bb412604215b",
+   "boltons.urlutils.URL:f00532ed57b4b5e4e9d5",
+   "boltons.urlutils.URL:f12f154b6f440fa44173",
+   "boltons.urlutils.URL:f2b63fc59db2d864e934",
+   "boltons.urlutils.URL:f5151dc48b6001fe44cd",
+   "boltons.urlutils.URL:fd3d0aa4fba271f6ea0b"
+  ],
+  "observed_types": [
+   "boltons.urlutils.URL"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "boltons.urlutils.URL:06c1de5e8c4a5aad0190",
+   "boltons.urlutils.URL:1c023fb4f5c5ab319639",
+   "boltons.urlutils.URL:20c1f0d97b2f654b4db1",
+   "boltons.urlutils.URL:37fb01f4e1fa73ba6077",
+   "boltons.urlutils.URL:450150dab87049cd11a3",
+   "boltons.urlutils.URL:4f10f2ffb6dcdab211f7",
+   "boltons.urlutils.URL:9038d9f7a74e431a6576",
+   "boltons.urlutils.URL:987bf1eb0fcc83100d8f",
+   "boltons.urlutils.URL:ac7a94ce1dedffbd995d",
+   "boltons.urlutils.URL:bf870ae80ca825cfae5b",
+   "boltons.urlutils.URL:dcfb11d00fc0a117dc83",
+   "boltons.urlutils.URL:f2b63fc59db2d864e934"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "boltons.urlutils:quote_query_part",
+  "tests": [
+   "boltons/urlutils.py::boltons.urlutils.QueryParamDict",
+   "tests/test_urlutils.py::test_find_all_links",
+   "tests/test_urlutils.py::test_iri_query",
+   "tests/test_urlutils.py::test_navigate",
+   "tests/test_urlutils.py::test_parse_equals_in_qp_value",
+   "tests/test_urlutils.py::test_query_params[http://example.com/foo!@$bar?b!@z=123]",
+   "tests/test_urlutils.py::test_query_params[http://example.com:8080/search?q=123&business=Nothing%20Special]",
+   "tests/test_urlutils.py::test_query_params[http://hatnote.com:9000?arg=1&arg=2&arg=3]",
+   "tests/test_urlutils.py::test_query_params[http://localhost/asd?a=asd%20sdf/345]",
+   "tests/test_urlutils.py::test_query_params[http://localhost/foo?n=/a/b]",
+   "tests/test_urlutils.py::test_query_params[http://localhost/foo?n=v]",
+   "tests/test_urlutils.py::test_query_params[http://localhost/foo?n]",
+   "tests/test_urlutils.py::test_query_params[https://[::101.45.75.219]:80/?hi=bye]",
+   "tests/test_urlutils.py::test_query_params[ldap://[::192.9.5.5]/dc=example,dc=com??sub?(sn=Jensen)]",
+   "tests/test_urlutils.py::test_query_params[magnet:?xt=urn:btih:1a42b9e04e122b97a5254e3df77ab3c4b7da725f&dn=Puppy%20Linux%20precise-5.7.1.iso&tr=udp://tracker.openbittorrent.com:80&tr=udp://tracker.publicbt.com:80&tr=udp://tracker.istole.it:6969&tr=udp://tracker.ccc.de:80&tr=udp://open.demonii.com:1337]",
+   "tests/test_urlutils.py::test_query_params[mailto:me@example.com?to=me@example.com&body=hi%20http://wikipedia.org]",
+   "tests/test_urlutils.py::test_rel_navigate",
+   "tests/test_urlutils.py::test_roundtrip[http://(%2525)/(%2525)?(%2525)&(%2525)=(%2525)#(%2525)]",
+   "tests/test_urlutils.py::test_roundtrip[http://(%C3%A9)/(%C3%A9)?(%C3%A9)&(%C3%A9)=(%C3%A9)#(%C3%A9)]",
+   "tests/test_urlutils.py::test_roundtrip[http://example.com/foo!@$bar?b!@z=123]",
+   "tests/test_urlutils.py::test_roundtrip[http://example.com:8080/search?q=123&business=Nothing%20Special]",
+   "tests/test_urlutils.py::test_roundtrip[http://hatnote.com:9000?arg=1&arg=2&arg=3]",
+   "tests/test_urlutils.py::test_roundtrip[http://localhost/asd?a=asd%20sdf/345]",
+   "tests/test_urlutils.py::test_roundtrip[http://localhost/foo?n=/a/b]",
+   "tests/test_urlutils.py::test_roundtrip[http://localhost/foo?n=v]",
+   "tests/test_urlutils.py::test_roundtrip[http://localhost/foo?n]",
+   "tests/test_urlutils.py::test_roundtrip[https://[::101.45.75.219]:80/?hi=bye]",
+   "tests/test_urlutils.py::test_roundtrip[ldap://[::192.9.5.5]/dc=example,dc=com??sub?(sn=Jensen)]",
+   "tests/test_urlutils.py::test_roundtrip[magnet:?xt=urn:btih:1a42b9e04e122b97a5254e3df77ab3c4b7da725f&dn=Puppy%20Linux%20precise-5.7.1.iso&tr=udp://tracker.openbittorrent.com:80&tr=udp://tracker.publicbt.com:80&tr=udp://tracker.istole.it:6969&tr=udp://tracker.ccc.de:80&tr=udp://open.demonii.com:1337]",
+   "tests/test_urlutils.py::test_roundtrip[mailto:me@example.com?to=me@example.com&body=hi%20http://wikipedia.org]",
+   "tests/test_urlutils.py::test_self_normalize",
+   "tests/test_urlutils.py::test_unicodey",
+   "tests/test_urlutils.py::test_url_copy"
+  ],
+  "observed_keys": [
+   "builtins.str:0e45abe255a5268c0b40",
+   "builtins.str:12e1ffc6fd5187492540",
+   "builtins.str:19ef22bb07e04b2bcb7d",
+   "builtins.str:2082cac9e9b6268fc86b",
+   "builtins.str:20ef924a97e45f94714d",
+   "builtins.str:21b11c327491b6d8cb78",
+   "builtins.str:23e6dc36f3bd951ce49b",
+   "builtins.str:41e711e69ecebfde008f",
+   "builtins.str:458ce590f2c506f4dd23",
+   "builtins.str:5173d0f8cea8f3b54d33",
+   "builtins.str:53b068d496733a153d49",
+   "builtins.str:586d5a2704e26e2f9d5e",
+   "builtins.str:5a826c26dafbcd13d6f2",
+   "builtins.str:6268363d92ce766e9578",
+   "builtins.str:6ab919ac065f412ecc7b",
+   "builtins.str:6d764d8a86ea78005cd7",
+   "builtins.str:7008a69f99f290ca687d",
+   "builtins.str:76350783501404f29d6a",
+   "builtins.str:78b53862f6a7b85c6ccb",
+   "builtins.str:79d412708ec25b5b80e1",
+   "builtins.str:7abf99dd85487ab89d3d",
+   "builtins.str:7d5e22f897ac5a3b0dfa",
+   "builtins.str:7f1d1dbfe6aa558e925d",
+   "builtins.str:818b94ca0f7a708e3b19",
+   "builtins.str:850d887793387455e960",
+   "builtins.str:8dc050bdc2f9eac86567",
+   "builtins.str:8e8133b09b19b3c8149f",
+   "builtins.str:94410db0870c54b678f6",
+   "builtins.str:952c209c8d94d0e02bd6",
+   "builtins.str:96c29a12eac216f86a21",
+   "builtins.str:984edb79f051ccb2e390",
+   "builtins.str:9a37bb23377d97d3a54c",
+   "builtins.str:a381c849a64d8a20de57",
+   "builtins.str:b0d700596f3b6455fe61",
+   "builtins.str:b6ee60926c0a426addcb",
+   "builtins.str:bd6b20f4f38b66bf967f",
+   "builtins.str:bded2d73852cc953e5e4",
+   "builtins.str:bf10af2e8e70b7a31802",
+   "builtins.str:c0140cfdada799fce08f",
+   "builtins.str:c24a9829e441028bbc57",
+   "builtins.str:c3d44e17dbc54b041e46",
+   "builtins.str:c3fd5b39e0e4ffb0a5e1",
+   "builtins.str:c6bb7b2d08dc7586dcb7",
+   "builtins.str:cc90fb2b895c290527f4",
+   "builtins.str:d0c0163a8df727e2e41a",
+   "builtins.str:d4895f570a3b9f7a8659",
+   "builtins.str:d8e44f922a3b63c107f0",
+   "builtins.str:db38eb083ab4b49f619e",
+   "builtins.str:dd3ad04b83e960ad8a9c",
+   "builtins.str:e3911c5868e95fac293d",
+   "builtins.str:e521e5442d0d2f31ad08",
+   "builtins.str:e9714ab6d1d15c4419e5",
+   "builtins.str:ebf6dc6ec42f6936aece",
+   "builtins.str:edcaba8fb4018e8f25db",
+   "builtins.str:eefd7153ace2607d1ec4",
+   "builtins.str:ef58fcc9fc9560336c26",
+   "builtins.str:f12b59a193956bc39b7e",
+   "builtins.str:f3bb9e887723bb5fc0b4",
+   "builtins.str:f7f348f5b35fc26cffbb",
+   "builtins.str:fa91375a3bba5bb9236f",
+   "builtins.str:fd36c72fb67455363467"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "'<omut>'",
+  "constant_key": "builtins.str:78bc31297bcbde409e03",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:12e1ffc6fd5187492540",
+   "builtins.str:23e6dc36f3bd951ce49b",
+   "builtins.str:5a826c26dafbcd13d6f2",
+   "builtins.str:7008a69f99f290ca687d",
+   "builtins.str:78b53862f6a7b85c6ccb",
+   "builtins.str:7f1d1dbfe6aa558e925d",
+   "builtins.str:8dc050bdc2f9eac86567",
+   "builtins.str:952c209c8d94d0e02bd6",
+   "builtins.str:a381c849a64d8a20de57",
+   "builtins.str:b6ee60926c0a426addcb",
+   "builtins.str:c24a9829e441028bbc57",
+   "builtins.str:ebf6dc6ec42f6936aece"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAWVCgAAAAAAAACMBjxvbXV0PpQu"
+ },
+ {
+  "fn": "boltons.urlutils:resolve_path_parts",
+  "tests": [
+   "boltons/urlutils.py::boltons.urlutils.URL.navigate",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/a/b-https://host-paths2]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/a/b-https://host/a/-paths4]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/b-https://host-paths0]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/b-https://host-paths1]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/b-https://host-paths3]",
+   "tests/test_urlutils.py::test_chained_navigate[https://host/b-https://host/a-paths5]",
+   "tests/test_urlutils.py::test_navigate",
+   "tests/test_urlutils.py::test_normalize_with_case",
+   "tests/test_urlutils.py::test_rel_navigate",
+   "tests/test_urlutils.py::test_self_normalize"
+  ],
+  "observed_keys": [
+   "builtins.list:07bf6b356f1c9016d5f4",
+   "builtins.list:0fb3d61d8daf362bd4b7",
+   "builtins.list:129e3c81272a1b4fcfcf",
+   "builtins.list:19f997aee95d5c8e7750",
+   "builtins.list:1c4c6fb3d2b3bc964528",
+   "builtins.list:2733c7d0e0507451b84e",
+   "builtins.list:2a978d99494e3a8b6352",
+   "builtins.list:39f1c08440b7e4c47029",
+   "builtins.list:520a13e5699f495ece43",
+   "builtins.list:57e758081481a5ae4983",
+   "builtins.list:7c75ceaaa82619d09d72",
+   "builtins.list:7fc1445b94c6e9333f80",
+   "builtins.list:8108dd3b42ef89789095",
+   "builtins.list:8a569d999fde0fb84f9a",
+   "builtins.list:8e495bb1855286a3a77b",
+   "builtins.list:911f7ab77f6c909b456e",
+   "builtins.list:9a8d34bc597b54ba39ab",
+   "builtins.list:9cb0abd8fa40c9813b4e",
+   "builtins.list:aaf3f256bedabb9adfec",
+   "builtins.list:adce4cec5d831b710535",
+   "builtins.list:bc66f974e45b6663192e",
+   "builtins.list:bd7b3f5112d92e5b3de5",
+   "builtins.list:c23a2193e42c0cc5ec8e",
+   "builtins.list:c4d8e677987c7b83e7c5",
+   "builtins.list:cb11027cad3008f8d2f5",
+   "builtins.list:ce4c2b63474afdf58c73",
+   "builtins.list:d434ac95e3ff618a5091",
+   "builtins.list:e3631d8e70f8d68a821e",
+   "builtins.list:e8b4822eacff0d3703b7",
+   "builtins.list:f6564baccc9533cf42f5",
+   "builtins.list:fa635018039ce6d5ddff",
+   "builtins.list:fb80be0f11a6ad0dd959"
+  ],
+  "observed_types": [
+   "builtins.list"
+  ],
+  "constant_repr": "[]",
+  "constant_key": "builtins.list:97d170e1550eee4afc0a",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.list:07bf6b356f1c9016d5f4",
+   "builtins.list:7fc1445b94c6e9333f80",
+   "builtins.list:8e495bb1855286a3a77b",
+   "builtins.list:911f7ab77f6c909b456e",
+   "builtins.list:9a8d34bc597b54ba39ab",
+   "builtins.list:aaf3f256bedabb9adfec",
+   "builtins.list:bd7b3f5112d92e5b3de5",
+   "builtins.list:c4d8e677987c7b83e7c5",
+   "builtins.list:cb11027cad3008f8d2f5",
+   "builtins.list:d434ac95e3ff618a5091",
+   "builtins.list:e3631d8e70f8d68a821e",
+   "builtins.list:fa635018039ce6d5ddff"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAVdlC4="
+ },
+ {
+  "fn": "boltons.urlutils:unquote_to_bytes",
+  "tests": [
+   "boltons/urlutils.py::boltons.urlutils.unquote",
+   "tests/test_urlutils.py::test_find_all_links",
+   "tests/test_urlutils.py::test_normalize_with_case",
+   "tests/test_urlutils.py::test_parse_qsl_encoding",
+   "tests/test_urlutils.py::test_query_params[http://(%2525)/(%2525)?(%2525)&(%2525)=(%2525)#(%2525)]",
+   "tests/test_urlutils.py::test_query_params[http://(%C3%A9)/(%C3%A9)?(%C3%A9)&(%C3%A9)=(%C3%A9)#(%C3%A9)]",
+   "tests/test_urlutils.py::test_query_params[http://example.com:8080/search?q=123&business=Nothing%20Special]",
+   "tests/test_urlutils.py::test_query_params[http://localhost/asd?a=asd%20sdf/345]",
+   "tests/test_urlutils.py::test_query_params[http://localhost/foo%20bar/]",
+   "tests/test_urlutils.py::test_query_params[http://localhost/foo%2Fbar/]",
+   "tests/test_urlutils.py::test_query_params[magnet:?xt=urn:btih:1a42b9e04e122b97a5254e3df77ab3c4b7da725f&dn=Puppy%20Linux%20precise-5.7.1.iso&tr=udp://tracker.openbittorrent.com:80&tr=udp://tracker.publicbt.com:80&tr=udp://tracker.istole.it:6969&tr=udp://tracker.ccc.de:80&tr=udp://open.demonii.com:1337]",
+   "tests/test_urlutils.py::test_query_params[mailto:me@example.com?to=me@example.com&body=hi%20http://wikipedia.org]",
+   "tests/test_urlutils.py::test_roundtrip[http://(%2525)/(%2525)?(%2525)&(%2525)=(%2525)#(%2525)]",
+   "tests/test_urlutils.py::test_roundtrip[http://(%C3%A9)/(%C3%A9)?(%C3%A9)&(%C3%A9)=(%C3%A9)#(%C3%A9)]",
+   "tests/test_urlutils.py::test_roundtrip[http://example.com:8080/search?q=123&business=Nothing%20Special]",
+   "tests/test_urlutils.py::test_roundtrip[http://localhost/asd?a=asd%20sdf/345]",
+   "tests/test_urlutils.py::test_roundtrip[http://localhost/foo%20bar/]",
+   "tests/test_urlutils.py::test_roundtrip[http://localhost/foo%2Fbar/]",
+   "tests/test_urlutils.py::test_roundtrip[magnet:?xt=urn:btih:1a42b9e04e122b97a5254e3df77ab3c4b7da725f&dn=Puppy%20Linux%20precise-5.7.1.iso&tr=udp://tracker.openbittorrent.com:80&tr=udp://tracker.publicbt.com:80&tr=udp://tracker.istole.it:6969&tr=udp://tracker.ccc.de:80&tr=udp://open.demonii.com:1337]",
+   "tests/test_urlutils.py::test_roundtrip[mailto:me@example.com?to=me@example.com&body=hi%20http://wikipedia.org]"
+  ],
+  "observed_keys": [
+   "builtins.bytes:056fbd2c68e74944144f",
+   "builtins.bytes:1435d3c6372b639a436e",
+   "builtins.bytes:4366d03b6e0cab56e0b3",
+   "builtins.bytes:75b4a5b963155a9918d8",
+   "builtins.bytes:8965a2caf92f7620e266",
+   "builtins.bytes:a0880cc89ea8178d2718",
+   "builtins.bytes:a8e13f921b4b1c4cd7b3",
+   "builtins.bytes:b019430d422594312d9d",
+   "builtins.bytes:cd2af5e2d90276926c50",
+   "builtins.bytes:ce58d57a56b91dff4182",
+   "builtins.bytes:ea1ac87d544df4156eec",
+   "builtins.bytes:fc79789b70e50debbcd1",
+   "builtins.bytes:fd356a50d3d077f5e67c"
+  ],
+  "observed_types": [
+   "builtins.bytes"
+  ],
+  "constant_repr": "b''",
+  "constant_key": "builtins.bytes:dfbcb7ae3c1dfe10e4db",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bytes:056fbd2c68e74944144f",
+   "builtins.bytes:1435d3c6372b639a436e",
+   "builtins.bytes:4366d03b6e0cab56e0b3",
+   "builtins.bytes:75b4a5b963155a9918d8",
+   "builtins.bytes:a0880cc89ea8178d2718",
+   "builtins.bytes:a8e13f921b4b1c4cd7b3",
+   "builtins.bytes:b019430d422594312d9d",
+   "builtins.bytes:cd2af5e2d90276926c50",
+   "builtins.bytes:ce58d57a56b91dff4182",
+   "builtins.bytes:ea1ac87d544df4156eec",
+   "builtins.bytes:fc79789b70e50debbcd1",
+   "builtins.bytes:fd356a50d3d077f5e67c"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAWVBAAAAAAAAABDAJQu"
+ }
+]

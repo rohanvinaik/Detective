@@ -1,0 +1,2482 @@
+[
+ {
+  "name": "boltons.cacheutils:LRI.get",
+  "file": "boltons/cacheutils.py",
+  "line": 248
+ },
+ {
+  "name": "boltons.cacheutils:LRI.pop",
+  "file": "boltons/cacheutils.py",
+  "line": 260
+ },
+ {
+  "name": "boltons.cacheutils:LRI.popitem",
+  "file": "boltons/cacheutils.py",
+  "line": 273
+ },
+ {
+  "name": "boltons.cacheutils:LRI.clear",
+  "file": "boltons/cacheutils.py",
+  "line": 279
+ },
+ {
+  "name": "boltons.cacheutils:LRI.copy",
+  "file": "boltons/cacheutils.py",
+  "line": 284
+ },
+ {
+  "name": "boltons.cacheutils:LRI.setdefault",
+  "file": "boltons/cacheutils.py",
+  "line": 287
+ },
+ {
+  "name": "boltons.cacheutils:LRI.update",
+  "file": "boltons/cacheutils.py",
+  "line": 296
+ },
+ {
+  "name": "boltons.cacheutils:make_cache_key",
+  "file": "boltons/cacheutils.py",
+  "line": 400
+ },
+ {
+  "name": "boltons.cacheutils:cached",
+  "file": "boltons/cacheutils.py",
+  "line": 534
+ },
+ {
+  "name": "boltons.cacheutils:cachedmethod",
+  "file": "boltons/cacheutils.py",
+  "line": 572
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.threshold",
+  "file": "boltons/cacheutils.py",
+  "line": 696
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.add",
+  "file": "boltons/cacheutils.py",
+  "line": 699
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.elements",
+  "file": "boltons/cacheutils.py",
+  "line": 717
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.most_common",
+  "file": "boltons/cacheutils.py",
+  "line": 724
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.get_common_count",
+  "file": "boltons/cacheutils.py",
+  "line": 735
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.get_uncommon_count",
+  "file": "boltons/cacheutils.py",
+  "line": 741
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.get_commonality",
+  "file": "boltons/cacheutils.py",
+  "line": 748
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.iterkeys",
+  "file": "boltons/cacheutils.py",
+  "line": 767
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.keys",
+  "file": "boltons/cacheutils.py",
+  "line": 770
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.itervalues",
+  "file": "boltons/cacheutils.py",
+  "line": 773
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.values",
+  "file": "boltons/cacheutils.py",
+  "line": 778
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.iteritems",
+  "file": "boltons/cacheutils.py",
+  "line": 781
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.items",
+  "file": "boltons/cacheutils.py",
+  "line": 786
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.get",
+  "file": "boltons/cacheutils.py",
+  "line": 789
+ },
+ {
+  "name": "boltons.cacheutils:ThresholdCounter.update",
+  "file": "boltons/cacheutils.py",
+  "line": 796
+ },
+ {
+  "name": "boltons.cacheutils:MinIDMap.get",
+  "file": "boltons/cacheutils.py",
+  "line": 830
+ },
+ {
+  "name": "boltons.cacheutils:MinIDMap.drop",
+  "file": "boltons/cacheutils.py",
+  "line": 845
+ },
+ {
+  "name": "boltons.cacheutils:MinIDMap.iteritems",
+  "file": "boltons/cacheutils.py",
+  "line": 865
+ },
+ {
+  "name": "boltons.debugutils:pdb_on_signal",
+  "file": "boltons/debugutils.py",
+  "line": 50
+ },
+ {
+  "name": "boltons.debugutils:pdb_on_exception",
+  "file": "boltons/debugutils.py",
+  "line": 78
+ },
+ {
+  "name": "boltons.debugutils:trace_print_hook",
+  "file": "boltons/debugutils.py",
+  "line": 115
+ },
+ {
+  "name": "boltons.debugutils:wrap_trace",
+  "file": "boltons/debugutils.py",
+  "line": 141
+ },
+ {
+  "name": "boltons.deprutils:deprecate_module_member",
+  "file": "boltons/deprutils.py",
+  "line": 58
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.add",
+  "file": "boltons/dictutils.py",
+  "line": 208
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.addlist",
+  "file": "boltons/dictutils.py",
+  "line": 216
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.get",
+  "file": "boltons/dictutils.py",
+  "line": 239
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.getlist",
+  "file": "boltons/dictutils.py",
+  "line": 248
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.clear",
+  "file": "boltons/dictutils.py",
+  "line": 261
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.setdefault",
+  "file": "boltons/dictutils.py",
+  "line": 266
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.copy",
+  "file": "boltons/dictutils.py",
+  "line": 276
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.fromkeys",
+  "file": "boltons/dictutils.py",
+  "line": 281
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.update",
+  "file": "boltons/dictutils.py",
+  "line": 287
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.update_extend",
+  "file": "boltons/dictutils.py",
+  "line": 317
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.pop",
+  "file": "boltons/dictutils.py",
+  "line": 386
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.popall",
+  "file": "boltons/dictutils.py",
+  "line": 398
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.poplast",
+  "file": "boltons/dictutils.py",
+  "line": 410
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.iteritems",
+  "file": "boltons/dictutils.py",
+  "line": 450
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.iterkeys",
+  "file": "boltons/dictutils.py",
+  "line": 465
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.itervalues",
+  "file": "boltons/dictutils.py",
+  "line": 487
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.todict",
+  "file": "boltons/dictutils.py",
+  "line": 496
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.sorted",
+  "file": "boltons/dictutils.py",
+  "line": 509
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.sortedvalues",
+  "file": "boltons/dictutils.py",
+  "line": 534
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.inverted",
+  "file": "boltons/dictutils.py",
+  "line": 576
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.counts",
+  "file": "boltons/dictutils.py",
+  "line": 593
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.keys",
+  "file": "boltons/dictutils.py",
+  "line": 603
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.values",
+  "file": "boltons/dictutils.py",
+  "line": 609
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.items",
+  "file": "boltons/dictutils.py",
+  "line": 615
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.viewkeys",
+  "file": "boltons/dictutils.py",
+  "line": 643
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.viewvalues",
+  "file": "boltons/dictutils.py",
+  "line": 647
+ },
+ {
+  "name": "boltons.dictutils:OrderedMultiDict.viewitems",
+  "file": "boltons/dictutils.py",
+  "line": 651
+ },
+ {
+  "name": "boltons.dictutils:FastIterOrderedMultiDict.iteritems",
+  "file": "boltons/dictutils.py",
+  "line": 731
+ },
+ {
+  "name": "boltons.dictutils:FastIterOrderedMultiDict.iterkeys",
+  "file": "boltons/dictutils.py",
+  "line": 739
+ },
+ {
+  "name": "boltons.dictutils:OneToOne.unique",
+  "file": "boltons/dictutils.py",
+  "line": 828
+ },
+ {
+  "name": "boltons.dictutils:OneToOne.clear",
+  "file": "boltons/dictutils.py",
+  "line": 860
+ },
+ {
+  "name": "boltons.dictutils:OneToOne.copy",
+  "file": "boltons/dictutils.py",
+  "line": 864
+ },
+ {
+  "name": "boltons.dictutils:OneToOne.pop",
+  "file": "boltons/dictutils.py",
+  "line": 867
+ },
+ {
+  "name": "boltons.dictutils:OneToOne.popitem",
+  "file": "boltons/dictutils.py",
+  "line": 875
+ },
+ {
+  "name": "boltons.dictutils:OneToOne.setdefault",
+  "file": "boltons/dictutils.py",
+  "line": 880
+ },
+ {
+  "name": "boltons.dictutils:OneToOne.update",
+  "file": "boltons/dictutils.py",
+  "line": 885
+ },
+ {
+  "name": "boltons.dictutils:ManyToMany.get",
+  "file": "boltons/dictutils.py",
+  "line": 932
+ },
+ {
+  "name": "boltons.dictutils:ManyToMany.update",
+  "file": "boltons/dictutils.py",
+  "line": 957
+ },
+ {
+  "name": "boltons.dictutils:ManyToMany.add",
+  "file": "boltons/dictutils.py",
+  "line": 979
+ },
+ {
+  "name": "boltons.dictutils:ManyToMany.remove",
+  "file": "boltons/dictutils.py",
+  "line": 987
+ },
+ {
+  "name": "boltons.dictutils:ManyToMany.replace",
+  "file": "boltons/dictutils.py",
+  "line": 995
+ },
+ {
+  "name": "boltons.dictutils:ManyToMany.iteritems",
+  "file": "boltons/dictutils.py",
+  "line": 1007
+ },
+ {
+  "name": "boltons.dictutils:ManyToMany.keys",
+  "file": "boltons/dictutils.py",
+  "line": 1012
+ },
+ {
+  "name": "boltons.dictutils:subdict",
+  "file": "boltons/dictutils.py",
+  "line": 1032
+ },
+ {
+  "name": "boltons.dictutils:FrozenDict.updated",
+  "file": "boltons/dictutils.py",
+  "line": 1083
+ },
+ {
+  "name": "boltons.dictutils:FrozenDict.fromkeys",
+  "file": "boltons/dictutils.py",
+  "line": 1093
+ },
+ {
+  "name": "boltons.easterutils:gobs_program",
+  "file": "boltons/easterutils.py",
+  "line": 33
+ },
+ {
+  "name": "boltons.ecoutils:get_python_info",
+  "file": "boltons/ecoutils.py",
+  "line": 261
+ },
+ {
+  "name": "boltons.ecoutils:get_profile",
+  "file": "boltons/ecoutils.py",
+  "line": 290
+ },
+ {
+  "name": "boltons.ecoutils:dumps",
+  "file": "boltons/ecoutils.py",
+  "line": 357
+ },
+ {
+  "name": "boltons.ecoutils:get_profile_json",
+  "file": "boltons/ecoutils.py",
+  "line": 363
+ },
+ {
+  "name": "boltons.ecoutils:main",
+  "file": "boltons/ecoutils.py",
+  "line": 373
+ },
+ {
+  "name": "boltons.excutils:ExceptionCauseMixin.get_str",
+  "file": "boltons/excutils.py",
+  "line": 102
+ },
+ {
+  "name": "boltons.excutils:whoops_math",
+  "file": "boltons/excutils.py",
+  "line": 261
+ },
+ {
+  "name": "boltons.excutils:math_lol",
+  "file": "boltons/excutils.py",
+  "line": 265
+ },
+ {
+  "name": "boltons.excutils:main",
+  "file": "boltons/excutils.py",
+  "line": 274
+ },
+ {
+  "name": "boltons.fileutils:mkdir_p",
+  "file": "boltons/fileutils.py",
+  "line": 55
+ },
+ {
+  "name": "boltons.fileutils:FilePerms.from_int",
+  "file": "boltons/fileutils.py",
+  "line": 163
+ },
+ {
+  "name": "boltons.fileutils:FilePerms.from_path",
+  "file": "boltons/fileutils.py",
+  "line": 179
+ },
+ {
+  "name": "boltons.fileutils:atomic_save",
+  "file": "boltons/fileutils.py",
+  "line": 248
+ },
+ {
+  "name": "boltons.fileutils:path_to_unicode",
+  "file": "boltons/fileutils.py",
+  "line": 264
+ },
+ {
+  "name": "boltons.fileutils:AtomicSaver.setup",
+  "file": "boltons/fileutils.py",
+  "line": 438
+ },
+ {
+  "name": "boltons.fileutils:iter_find_files",
+  "file": "boltons/fileutils.py",
+  "line": 492
+ },
+ {
+  "name": "boltons.fileutils:copy_tree",
+  "file": "boltons/fileutils.py",
+  "line": 555
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.close",
+  "file": "boltons/fileutils.py",
+  "line": 629
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.fileno",
+  "file": "boltons/fileutils.py",
+  "line": 632
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.flush",
+  "file": "boltons/fileutils.py",
+  "line": 635
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.next",
+  "file": "boltons/fileutils.py",
+  "line": 640
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.read",
+  "file": "boltons/fileutils.py",
+  "line": 643
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.readline",
+  "file": "boltons/fileutils.py",
+  "line": 648
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.readlines",
+  "file": "boltons/fileutils.py",
+  "line": 653
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.seek",
+  "file": "boltons/fileutils.py",
+  "line": 658
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.tell",
+  "file": "boltons/fileutils.py",
+  "line": 663
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.truncate",
+  "file": "boltons/fileutils.py",
+  "line": 668
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.write",
+  "file": "boltons/fileutils.py",
+  "line": 673
+ },
+ {
+  "name": "boltons.fileutils:DummyFile.writelines",
+  "file": "boltons/fileutils.py",
+  "line": 678
+ },
+ {
+  "name": "boltons.fileutils:rotate_file",
+  "file": "boltons/fileutils.py",
+  "line": 695
+ },
+ {
+  "name": "boltons.formatutils:construct_format_field_str",
+  "file": "boltons/formatutils.py",
+  "line": 82
+ },
+ {
+  "name": "boltons.formatutils:split_format_str",
+  "file": "boltons/formatutils.py",
+  "line": 99
+ },
+ {
+  "name": "boltons.formatutils:infer_positional_format_args",
+  "file": "boltons/formatutils.py",
+  "line": 115
+ },
+ {
+  "name": "boltons.formatutils:get_format_args",
+  "file": "boltons/formatutils.py",
+  "line": 148
+ },
+ {
+  "name": "boltons.formatutils:tokenize_format_str",
+  "file": "boltons/formatutils.py",
+  "line": 195
+ },
+ {
+  "name": "boltons.formatutils:BaseFormatField.set_fname",
+  "file": "boltons/formatutils.py",
+  "line": 230
+ },
+ {
+  "name": "boltons.formatutils:BaseFormatField.set_fspec",
+  "file": "boltons/formatutils.py",
+  "line": 240
+ },
+ {
+  "name": "boltons.formatutils:BaseFormatField.set_conv",
+  "file": "boltons/formatutils.py",
+  "line": 252
+ },
+ {
+  "name": "boltons.formatutils:BaseFormatField.fstr",
+  "file": "boltons/formatutils.py",
+  "line": 260
+ },
+ {
+  "name": "boltons.formatutils:DeferredValue.get_value",
+  "file": "boltons/formatutils.py",
+  "line": 315
+ },
+ {
+  "name": "boltons.funcutils:inspect_formatargspec",
+  "file": "boltons/funcutils.py",
+  "line": 56
+ },
+ {
+  "name": "boltons.funcutils:get_module_callables",
+  "file": "boltons/funcutils.py",
+  "line": 105
+ },
+ {
+  "name": "boltons.funcutils:mro_items",
+  "file": "boltons/funcutils.py",
+  "line": 134
+ },
+ {
+  "name": "boltons.funcutils:dir_dict",
+  "file": "boltons/funcutils.py",
+  "line": 146
+ },
+ {
+  "name": "boltons.funcutils:copy_function",
+  "file": "boltons/funcutils.py",
+  "line": 162
+ },
+ {
+  "name": "boltons.funcutils:partial_ordering",
+  "file": "boltons/funcutils.py",
+  "line": 193
+ },
+ {
+  "name": "boltons.funcutils:format_invocation",
+  "file": "boltons/funcutils.py",
+  "line": 310
+ },
+ {
+  "name": "boltons.funcutils:format_exp_repr",
+  "file": "boltons/funcutils.py",
+  "line": 341
+ },
+ {
+  "name": "boltons.funcutils:format_nonexp_repr",
+  "file": "boltons/funcutils.py",
+  "line": 402
+ },
+ {
+  "name": "boltons.funcutils:wraps",
+  "file": "boltons/funcutils.py",
+  "line": 459
+ },
+ {
+  "name": "boltons.funcutils:update_wrapper",
+  "file": "boltons/funcutils.py",
+  "line": 496
+ },
+ {
+  "name": "boltons.funcutils:FunctionBuilder.get_sig_str",
+  "file": "boltons/funcutils.py",
+  "line": 767
+ },
+ {
+  "name": "boltons.funcutils:FunctionBuilder.get_invocation_str",
+  "file": "boltons/funcutils.py",
+  "line": 786
+ },
+ {
+  "name": "boltons.funcutils:FunctionBuilder.from_func",
+  "file": "boltons/funcutils.py",
+  "line": 832
+ },
+ {
+  "name": "boltons.funcutils:FunctionBuilder.get_func",
+  "file": "boltons/funcutils.py",
+  "line": 871
+ },
+ {
+  "name": "boltons.funcutils:FunctionBuilder.get_defaults_dict",
+  "file": "boltons/funcutils.py",
+  "line": 921
+ },
+ {
+  "name": "boltons.funcutils:FunctionBuilder.get_arg_names",
+  "file": "boltons/funcutils.py",
+  "line": 932
+ },
+ {
+  "name": "boltons.funcutils:FunctionBuilder.add_arg",
+  "file": "boltons/funcutils.py",
+  "line": 939
+ },
+ {
+  "name": "boltons.funcutils:FunctionBuilder.remove_arg",
+  "file": "boltons/funcutils.py",
+  "line": 957
+ },
+ {
+  "name": "boltons.funcutils:noop",
+  "file": "boltons/funcutils.py",
+  "line": 1015
+ },
+ {
+  "name": "boltons.funcutils:once",
+  "file": "boltons/funcutils.py",
+  "line": 1041
+ },
+ {
+  "name": "boltons.gcutils:get_all",
+  "file": "boltons/gcutils.py",
+  "line": 68
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.read",
+  "file": "boltons/ioutils.py",
+  "line": 82
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.write",
+  "file": "boltons/ioutils.py",
+  "line": 86
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.seek",
+  "file": "boltons/ioutils.py",
+  "line": 90
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.readline",
+  "file": "boltons/ioutils.py",
+  "line": 94
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.readlines",
+  "file": "boltons/ioutils.py",
+  "line": 98
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.writelines",
+  "file": "boltons/ioutils.py",
+  "line": 101
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.rollover",
+  "file": "boltons/ioutils.py",
+  "line": 112
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.tell",
+  "file": "boltons/ioutils.py",
+  "line": 116
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.buffer",
+  "file": "boltons/ioutils.py",
+  "line": 120
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.len",
+  "file": "boltons/ioutils.py",
+  "line": 128
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.close",
+  "file": "boltons/ioutils.py",
+  "line": 143
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.flush",
+  "file": "boltons/ioutils.py",
+  "line": 146
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.isatty",
+  "file": "boltons/ioutils.py",
+  "line": 150
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.closed",
+  "file": "boltons/ioutils.py",
+  "line": 155
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.pos",
+  "file": "boltons/ioutils.py",
+  "line": 159
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.buf",
+  "file": "boltons/ioutils.py",
+  "line": 163
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.fileno",
+  "file": "boltons/ioutils.py",
+  "line": 166
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.truncate",
+  "file": "boltons/ioutils.py",
+  "line": 170
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.getvalue",
+  "file": "boltons/ioutils.py",
+  "line": 192
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.seekable",
+  "file": "boltons/ioutils.py",
+  "line": 201
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.readable",
+  "file": "boltons/ioutils.py",
+  "line": 204
+ },
+ {
+  "name": "boltons.ioutils:SpooledIOBase.writable",
+  "file": "boltons/ioutils.py",
+  "line": 207
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.read",
+  "file": "boltons/ioutils.py",
+  "line": 298
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.write",
+  "file": "boltons/ioutils.py",
+  "line": 302
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.seek",
+  "file": "boltons/ioutils.py",
+  "line": 313
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.readline",
+  "file": "boltons/ioutils.py",
+  "line": 317
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.readlines",
+  "file": "boltons/ioutils.py",
+  "line": 324
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.rollover",
+  "file": "boltons/ioutils.py",
+  "line": 327
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.buffer",
+  "file": "boltons/ioutils.py",
+  "line": 342
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.len",
+  "file": "boltons/ioutils.py",
+  "line": 350
+ },
+ {
+  "name": "boltons.ioutils:SpooledBytesIO.tell",
+  "file": "boltons/ioutils.py",
+  "line": 362
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.read",
+  "file": "boltons/ioutils.py",
+  "line": 389
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.write",
+  "file": "boltons/ioutils.py",
+  "line": 395
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.seek",
+  "file": "boltons/ioutils.py",
+  "line": 433
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.readline",
+  "file": "boltons/ioutils.py",
+  "line": 457
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.readlines",
+  "file": "boltons/ioutils.py",
+  "line": 463
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.buffer",
+  "file": "boltons/ioutils.py",
+  "line": 469
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.rollover",
+  "file": "boltons/ioutils.py",
+  "line": 480
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.tell",
+  "file": "boltons/ioutils.py",
+  "line": 491
+ },
+ {
+  "name": "boltons.ioutils:SpooledStringIO.len",
+  "file": "boltons/ioutils.py",
+  "line": 497
+ },
+ {
+  "name": "boltons.ioutils:is_text_fileobj",
+  "file": "boltons/ioutils.py",
+  "line": 511
+ },
+ {
+  "name": "boltons.ioutils:MultiFileReader.read",
+  "file": "boltons/ioutils.py",
+  "line": 559
+ },
+ {
+  "name": "boltons.ioutils:MultiFileReader.seek",
+  "file": "boltons/ioutils.py",
+  "line": 576
+ },
+ {
+  "name": "boltons.iterutils:is_iterable",
+  "file": "boltons/iterutils.py",
+  "line": 61
+ },
+ {
+  "name": "boltons.iterutils:is_scalar",
+  "file": "boltons/iterutils.py",
+  "line": 79
+ },
+ {
+  "name": "boltons.iterutils:is_collection",
+  "file": "boltons/iterutils.py",
+  "line": 95
+ },
+ {
+  "name": "boltons.iterutils:split",
+  "file": "boltons/iterutils.py",
+  "line": 109
+ },
+ {
+  "name": "boltons.iterutils:split_iter",
+  "file": "boltons/iterutils.py",
+  "line": 121
+ },
+ {
+  "name": "boltons.iterutils:lstrip",
+  "file": "boltons/iterutils.py",
+  "line": 193
+ },
+ {
+  "name": "boltons.iterutils:lstrip_iter",
+  "file": "boltons/iterutils.py",
+  "line": 205
+ },
+ {
+  "name": "boltons.iterutils:rstrip",
+  "file": "boltons/iterutils.py",
+  "line": 223
+ },
+ {
+  "name": "boltons.iterutils:rstrip_iter",
+  "file": "boltons/iterutils.py",
+  "line": 235
+ },
+ {
+  "name": "boltons.iterutils:strip",
+  "file": "boltons/iterutils.py",
+  "line": 262
+ },
+ {
+  "name": "boltons.iterutils:strip_iter",
+  "file": "boltons/iterutils.py",
+  "line": 274
+ },
+ {
+  "name": "boltons.iterutils:chunked",
+  "file": "boltons/iterutils.py",
+  "line": 286
+ },
+ {
+  "name": "boltons.iterutils:chunked_iter",
+  "file": "boltons/iterutils.py",
+  "line": 316
+ },
+ {
+  "name": "boltons.iterutils:chunk_ranges",
+  "file": "boltons/iterutils.py",
+  "line": 361
+ },
+ {
+  "name": "boltons.iterutils:pairwise",
+  "file": "boltons/iterutils.py",
+  "line": 415
+ },
+ {
+  "name": "boltons.iterutils:pairwise_iter",
+  "file": "boltons/iterutils.py",
+  "line": 439
+ },
+ {
+  "name": "boltons.iterutils:windowed",
+  "file": "boltons/iterutils.py",
+  "line": 464
+ },
+ {
+  "name": "boltons.iterutils:windowed_iter",
+  "file": "boltons/iterutils.py",
+  "line": 472
+ },
+ {
+  "name": "boltons.iterutils:xfrange",
+  "file": "boltons/iterutils.py",
+  "line": 513
+ },
+ {
+  "name": "boltons.iterutils:frange",
+  "file": "boltons/iterutils.py",
+  "line": 536
+ },
+ {
+  "name": "boltons.iterutils:backoff",
+  "file": "boltons/iterutils.py",
+  "line": 567
+ },
+ {
+  "name": "boltons.iterutils:backoff_iter",
+  "file": "boltons/iterutils.py",
+  "line": 584
+ },
+ {
+  "name": "boltons.iterutils:bucketize",
+  "file": "boltons/iterutils.py",
+  "line": 684
+ },
+ {
+  "name": "boltons.iterutils:partition",
+  "file": "boltons/iterutils.py",
+  "line": 764
+ },
+ {
+  "name": "boltons.iterutils:unique",
+  "file": "boltons/iterutils.py",
+  "line": 820
+ },
+ {
+  "name": "boltons.iterutils:unique_iter",
+  "file": "boltons/iterutils.py",
+  "line": 834
+ },
+ {
+  "name": "boltons.iterutils:redundant",
+  "file": "boltons/iterutils.py",
+  "line": 870
+ },
+ {
+  "name": "boltons.iterutils:one",
+  "file": "boltons/iterutils.py",
+  "line": 933
+ },
+ {
+  "name": "boltons.iterutils:first",
+  "file": "boltons/iterutils.py",
+  "line": 968
+ },
+ {
+  "name": "boltons.iterutils:flatten_iter",
+  "file": "boltons/iterutils.py",
+  "line": 997
+ },
+ {
+  "name": "boltons.iterutils:flatten",
+  "file": "boltons/iterutils.py",
+  "line": 1012
+ },
+ {
+  "name": "boltons.iterutils:same",
+  "file": "boltons/iterutils.py",
+  "line": 1023
+ },
+ {
+  "name": "boltons.iterutils:default_visit",
+  "file": "boltons/iterutils.py",
+  "line": 1050
+ },
+ {
+  "name": "boltons.iterutils:default_enter",
+  "file": "boltons/iterutils.py",
+  "line": 1059
+ },
+ {
+  "name": "boltons.iterutils:default_exit",
+  "file": "boltons/iterutils.py",
+  "line": 1075
+ },
+ {
+  "name": "boltons.iterutils:remap",
+  "file": "boltons/iterutils.py",
+  "line": 1098
+ },
+ {
+  "name": "boltons.iterutils:get_path",
+  "file": "boltons/iterutils.py",
+  "line": 1324
+ },
+ {
+  "name": "boltons.iterutils:research",
+  "file": "boltons/iterutils.py",
+  "line": 1385
+ },
+ {
+  "name": "boltons.iterutils:GUIDerator.reseed",
+  "file": "boltons/iterutils.py",
+  "line": 1482
+ },
+ {
+  "name": "boltons.iterutils:SequentialGUIDerator.reseed",
+  "file": "boltons/iterutils.py",
+  "line": 1531
+ },
+ {
+  "name": "boltons.iterutils:soft_sorted",
+  "file": "boltons/iterutils.py",
+  "line": 1549
+ },
+ {
+  "name": "boltons.iterutils:untyped_sorted",
+  "file": "boltons/iterutils.py",
+  "line": 1598
+ },
+ {
+  "name": "boltons.jsonutils:reverse_iter_lines",
+  "file": "boltons/jsonutils.py",
+  "line": 51
+ },
+ {
+  "name": "boltons.jsonutils:JSONLIterator.cur_byte_pos",
+  "file": "boltons/jsonutils.py",
+  "line": 168
+ },
+ {
+  "name": "boltons.jsonutils:JSONLIterator.next",
+  "file": "boltons/jsonutils.py",
+  "line": 208
+ },
+ {
+  "name": "boltons.listutils:BarrelList.insert",
+  "file": "boltons/listutils.py",
+  "line": 137
+ },
+ {
+  "name": "boltons.listutils:BarrelList.append",
+  "file": "boltons/listutils.py",
+  "line": 153
+ },
+ {
+  "name": "boltons.listutils:BarrelList.extend",
+  "file": "boltons/listutils.py",
+  "line": 156
+ },
+ {
+  "name": "boltons.listutils:BarrelList.pop",
+  "file": "boltons/listutils.py",
+  "line": 159
+ },
+ {
+  "name": "boltons.listutils:BarrelList.iter_slice",
+  "file": "boltons/listutils.py",
+  "line": 181
+ },
+ {
+  "name": "boltons.listutils:BarrelList.del_slice",
+  "file": "boltons/listutils.py",
+  "line": 188
+ },
+ {
+  "name": "boltons.listutils:BarrelList.from_iterable",
+  "file": "boltons/listutils.py",
+  "line": 220
+ },
+ {
+  "name": "boltons.listutils:BarrelList.sort",
+  "file": "boltons/listutils.py",
+  "line": 301
+ },
+ {
+  "name": "boltons.listutils:BarrelList.reverse",
+  "file": "boltons/listutils.py",
+  "line": 314
+ },
+ {
+  "name": "boltons.listutils:BarrelList.count",
+  "file": "boltons/listutils.py",
+  "line": 319
+ },
+ {
+  "name": "boltons.listutils:BarrelList.index",
+  "file": "boltons/listutils.py",
+  "line": 322
+ },
+ {
+  "name": "boltons.listutils:SplayList.shift",
+  "file": "boltons/listutils.py",
+  "line": 343
+ },
+ {
+  "name": "boltons.listutils:SplayList.swap",
+  "file": "boltons/listutils.py",
+  "line": 349
+ },
+ {
+  "name": "boltons.mathutils:clamp",
+  "file": "boltons/mathutils.py",
+  "line": 40
+ },
+ {
+  "name": "boltons.mathutils:ceil",
+  "file": "boltons/mathutils.py",
+  "line": 72
+ },
+ {
+  "name": "boltons.mathutils:floor",
+  "file": "boltons/mathutils.py",
+  "line": 97
+ },
+ {
+  "name": "boltons.mathutils:Bits.as_list",
+  "file": "boltons/mathutils.py",
+  "line": 207
+ },
+ {
+  "name": "boltons.mathutils:Bits.as_bin",
+  "file": "boltons/mathutils.py",
+  "line": 210
+ },
+ {
+  "name": "boltons.mathutils:Bits.as_hex",
+  "file": "boltons/mathutils.py",
+  "line": 215
+ },
+ {
+  "name": "boltons.mathutils:Bits.as_int",
+  "file": "boltons/mathutils.py",
+  "line": 223
+ },
+ {
+  "name": "boltons.mathutils:Bits.as_bytes",
+  "file": "boltons/mathutils.py",
+  "line": 226
+ },
+ {
+  "name": "boltons.mathutils:Bits.from_list",
+  "file": "boltons/mathutils.py",
+  "line": 230
+ },
+ {
+  "name": "boltons.mathutils:Bits.from_bin",
+  "file": "boltons/mathutils.py",
+  "line": 234
+ },
+ {
+  "name": "boltons.mathutils:Bits.from_hex",
+  "file": "boltons/mathutils.py",
+  "line": 238
+ },
+ {
+  "name": "boltons.mathutils:Bits.from_int",
+  "file": "boltons/mathutils.py",
+  "line": 248
+ },
+ {
+  "name": "boltons.mathutils:Bits.from_bytes",
+  "file": "boltons/mathutils.py",
+  "line": 252
+ },
+ {
+  "name": "boltons.mboxutils:mbox_readonlydir.flush",
+  "file": "boltons/mboxutils.py",
+  "line": 74
+ },
+ {
+  "name": "boltons.namedutils:namedtuple",
+  "file": "boltons/namedutils.py",
+  "line": 123
+ },
+ {
+  "name": "boltons.namedutils:namedlist",
+  "file": "boltons/namedutils.py",
+  "line": 282
+ },
+ {
+  "name": "boltons.pathutils:augpath",
+  "file": "boltons/pathutils.py",
+  "line": 53
+ },
+ {
+  "name": "boltons.pathutils:shrinkuser",
+  "file": "boltons/pathutils.py",
+  "line": 134
+ },
+ {
+  "name": "boltons.pathutils:expandpath",
+  "file": "boltons/pathutils.py",
+  "line": 165
+ },
+ {
+  "name": "boltons.queueutils:BasePriorityQueue.add",
+  "file": "boltons/queueutils.py",
+  "line": 124
+ },
+ {
+  "name": "boltons.queueutils:BasePriorityQueue.remove",
+  "file": "boltons/queueutils.py",
+  "line": 140
+ },
+ {
+  "name": "boltons.queueutils:BasePriorityQueue.peek",
+  "file": "boltons/queueutils.py",
+  "line": 158
+ },
+ {
+  "name": "boltons.queueutils:BasePriorityQueue.pop",
+  "file": "boltons/queueutils.py",
+  "line": 172
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.from_iterable",
+  "file": "boltons/setutils.py",
+  "line": 245
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.add",
+  "file": "boltons/setutils.py",
+  "line": 250
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.remove",
+  "file": "boltons/setutils.py",
+  "line": 256
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.discard",
+  "file": "boltons/setutils.py",
+  "line": 266
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.clear",
+  "file": "boltons/setutils.py",
+  "line": 273
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.isdisjoint",
+  "file": "boltons/setutils.py",
+  "line": 279
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.issubset",
+  "file": "boltons/setutils.py",
+  "line": 287
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.issuperset",
+  "file": "boltons/setutils.py",
+  "line": 296
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.union",
+  "file": "boltons/setutils.py",
+  "line": 306
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.iter_intersection",
+  "file": "boltons/setutils.py",
+  "line": 310
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.intersection",
+  "file": "boltons/setutils.py",
+  "line": 320
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.iter_difference",
+  "file": "boltons/setutils.py",
+  "line": 327
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.difference",
+  "file": "boltons/setutils.py",
+  "line": 337
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.symmetric_difference",
+  "file": "boltons/setutils.py",
+  "line": 344
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.update",
+  "file": "boltons/setutils.py",
+  "line": 359
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.intersection_update",
+  "file": "boltons/setutils.py",
+  "line": 370
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.difference_update",
+  "file": "boltons/setutils.py",
+  "line": 379
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.symmetric_difference_update",
+  "file": "boltons/setutils.py",
+  "line": 390
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.iter_slice",
+  "file": "boltons/setutils.py",
+  "line": 416
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.pop",
+  "file": "boltons/setutils.py",
+  "line": 446
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.count",
+  "file": "boltons/setutils.py",
+  "line": 462
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.reverse",
+  "file": "boltons/setutils.py",
+  "line": 468
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.sort",
+  "file": "boltons/setutils.py",
+  "line": 476
+ },
+ {
+  "name": "boltons.setutils:IndexedSet.index",
+  "file": "boltons/setutils.py",
+  "line": 486
+ },
+ {
+  "name": "boltons.setutils:complement",
+  "file": "boltons/setutils.py",
+  "line": 495
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.settimeout",
+  "file": "boltons/socketutils.py",
+  "line": 171
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.gettimeout",
+  "file": "boltons/socketutils.py",
+  "line": 175
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.setblocking",
+  "file": "boltons/socketutils.py",
+  "line": 178
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.setmaxsize",
+  "file": "boltons/socketutils.py",
+  "line": 181
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.getrecvbuffer",
+  "file": "boltons/socketutils.py",
+  "line": 187
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.getsendbuffer",
+  "file": "boltons/socketutils.py",
+  "line": 192
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.recv",
+  "file": "boltons/socketutils.py",
+  "line": 197
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.peek",
+  "file": "boltons/socketutils.py",
+  "line": 237
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.recv_close",
+  "file": "boltons/socketutils.py",
+  "line": 260
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.recv_until",
+  "file": "boltons/socketutils.py",
+  "line": 284
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.recv_size",
+  "file": "boltons/socketutils.py",
+  "line": 366
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.send",
+  "file": "boltons/socketutils.py",
+  "line": 421
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.sendall",
+  "file": "boltons/socketutils.py",
+  "line": 465
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.flush",
+  "file": "boltons/socketutils.py",
+  "line": 471
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.buffer",
+  "file": "boltons/socketutils.py",
+  "line": 477
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.getsockname",
+  "file": "boltons/socketutils.py",
+  "line": 487
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.getpeername",
+  "file": "boltons/socketutils.py",
+  "line": 493
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.getsockopt",
+  "file": "boltons/socketutils.py",
+  "line": 500
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.setsockopt",
+  "file": "boltons/socketutils.py",
+  "line": 509
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.type",
+  "file": "boltons/socketutils.py",
+  "line": 516
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.family",
+  "file": "boltons/socketutils.py",
+  "line": 523
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.proto",
+  "file": "boltons/socketutils.py",
+  "line": 533
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.fileno",
+  "file": "boltons/socketutils.py",
+  "line": 547
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.close",
+  "file": "boltons/socketutils.py",
+  "line": 559
+ },
+ {
+  "name": "boltons.socketutils:BufferedSocket.shutdown",
+  "file": "boltons/socketutils.py",
+  "line": 575
+ },
+ {
+  "name": "boltons.socketutils:NetstringSocket.fileno",
+  "file": "boltons/socketutils.py",
+  "line": 659
+ },
+ {
+  "name": "boltons.socketutils:NetstringSocket.settimeout",
+  "file": "boltons/socketutils.py",
+  "line": 662
+ },
+ {
+  "name": "boltons.socketutils:NetstringSocket.setmaxsize",
+  "file": "boltons/socketutils.py",
+  "line": 665
+ },
+ {
+  "name": "boltons.socketutils:NetstringSocket.read_ns",
+  "file": "boltons/socketutils.py",
+  "line": 672
+ },
+ {
+  "name": "boltons.socketutils:NetstringSocket.write_ns",
+  "file": "boltons/socketutils.py",
+  "line": 699
+ },
+ {
+  "name": "boltons.statsutils:Stats.clear_cache",
+  "file": "boltons/statsutils.py",
+  "line": 210
+ },
+ {
+  "name": "boltons.statsutils:Stats.get_quantile",
+  "file": "boltons/statsutils.py",
+  "line": 494
+ },
+ {
+  "name": "boltons.statsutils:Stats.get_zscore",
+  "file": "boltons/statsutils.py",
+  "line": 510
+ },
+ {
+  "name": "boltons.statsutils:Stats.trim_relative",
+  "file": "boltons/statsutils.py",
+  "line": 525
+ },
+ {
+  "name": "boltons.statsutils:Stats.get_histogram_counts",
+  "file": "boltons/statsutils.py",
+  "line": 588
+ },
+ {
+  "name": "boltons.statsutils:Stats.format_histogram",
+  "file": "boltons/statsutils.py",
+  "line": 638
+ },
+ {
+  "name": "boltons.statsutils:Stats.describe",
+  "file": "boltons/statsutils.py",
+  "line": 691
+ },
+ {
+  "name": "boltons.statsutils:describe",
+  "file": "boltons/statsutils.py",
+  "line": 759
+ },
+ {
+  "name": "boltons.statsutils:format_histogram_counts",
+  "file": "boltons/statsutils.py",
+  "line": 804
+ },
+ {
+  "name": "boltons.strutils:camel2under",
+  "file": "boltons/strutils.py",
+  "line": 69
+ },
+ {
+  "name": "boltons.strutils:under2camel",
+  "file": "boltons/strutils.py",
+  "line": 79
+ },
+ {
+  "name": "boltons.strutils:slugify",
+  "file": "boltons/strutils.py",
+  "line": 89
+ },
+ {
+  "name": "boltons.strutils:split_punct_ws",
+  "file": "boltons/strutils.py",
+  "line": 115
+ },
+ {
+  "name": "boltons.strutils:unit_len",
+  "file": "boltons/strutils.py",
+  "line": 126
+ },
+ {
+  "name": "boltons.strutils:ordinalize",
+  "file": "boltons/strutils.py",
+  "line": 150
+ },
+ {
+  "name": "boltons.strutils:cardinalize",
+  "file": "boltons/strutils.py",
+  "line": 186
+ },
+ {
+  "name": "boltons.strutils:singularize",
+  "file": "boltons/strutils.py",
+  "line": 201
+ },
+ {
+  "name": "boltons.strutils:pluralize",
+  "file": "boltons/strutils.py",
+  "line": 242
+ },
+ {
+  "name": "boltons.strutils:find_hashtags",
+  "file": "boltons/strutils.py",
+  "line": 324
+ },
+ {
+  "name": "boltons.strutils:a10n",
+  "file": "boltons/strutils.py",
+  "line": 341
+ },
+ {
+  "name": "boltons.strutils:strip_ansi",
+  "file": "boltons/strutils.py",
+  "line": 378
+ },
+ {
+  "name": "boltons.strutils:asciify",
+  "file": "boltons/strutils.py",
+  "line": 416
+ },
+ {
+  "name": "boltons.strutils:is_ascii",
+  "file": "boltons/strutils.py",
+  "line": 449
+ },
+ {
+  "name": "boltons.strutils:bytes2human",
+  "file": "boltons/strutils.py",
+  "line": 559
+ },
+ {
+  "name": "boltons.strutils:HTMLTextExtractor.handle_data",
+  "file": "boltons/strutils.py",
+  "line": 590
+ },
+ {
+  "name": "boltons.strutils:HTMLTextExtractor.handle_charref",
+  "file": "boltons/strutils.py",
+  "line": 593
+ },
+ {
+  "name": "boltons.strutils:HTMLTextExtractor.handle_entityref",
+  "file": "boltons/strutils.py",
+  "line": 600
+ },
+ {
+  "name": "boltons.strutils:HTMLTextExtractor.get_text",
+  "file": "boltons/strutils.py",
+  "line": 608
+ },
+ {
+  "name": "boltons.strutils:html2text",
+  "file": "boltons/strutils.py",
+  "line": 612
+ },
+ {
+  "name": "boltons.strutils:gunzip_bytes",
+  "file": "boltons/strutils.py",
+  "line": 630
+ },
+ {
+  "name": "boltons.strutils:gzip_bytes",
+  "file": "boltons/strutils.py",
+  "line": 645
+ },
+ {
+  "name": "boltons.strutils:iter_splitlines",
+  "file": "boltons/strutils.py",
+  "line": 672
+ },
+ {
+  "name": "boltons.strutils:indent",
+  "file": "boltons/strutils.py",
+  "line": 704
+ },
+ {
+  "name": "boltons.strutils:is_uuid",
+  "file": "boltons/strutils.py",
+  "line": 720
+ },
+ {
+  "name": "boltons.strutils:escape_shell_args",
+  "file": "boltons/strutils.py",
+  "line": 744
+ },
+ {
+  "name": "boltons.strutils:args2sh",
+  "file": "boltons/strutils.py",
+  "line": 773
+ },
+ {
+  "name": "boltons.strutils:args2cmd",
+  "file": "boltons/strutils.py",
+  "line": 807
+ },
+ {
+  "name": "boltons.strutils:parse_int_list",
+  "file": "boltons/strutils.py",
+  "line": 886
+ },
+ {
+  "name": "boltons.strutils:format_int_list",
+  "file": "boltons/strutils.py",
+  "line": 923
+ },
+ {
+  "name": "boltons.strutils:complement_int_list",
+  "file": "boltons/strutils.py",
+  "line": 1013
+ },
+ {
+  "name": "boltons.strutils:int_ranges_from_int_list",
+  "file": "boltons/strutils.py",
+  "line": 1101
+ },
+ {
+  "name": "boltons.strutils:MultiReplace.sub",
+  "file": "boltons/strutils.py",
+  "line": 1229
+ },
+ {
+  "name": "boltons.strutils:multi_replace",
+  "file": "boltons/strutils.py",
+  "line": 1241
+ },
+ {
+  "name": "boltons.strutils:unwrap_text",
+  "file": "boltons/strutils.py",
+  "line": 1258
+ },
+ {
+  "name": "boltons.strutils:removeprefix",
+  "file": "boltons/strutils.py",
+  "line": 1288
+ },
+ {
+  "name": "boltons.strutils:human_readable_list",
+  "file": "boltons/strutils.py",
+  "line": 1302
+ },
+ {
+  "name": "boltons.strutils:ellipsize",
+  "file": "boltons/strutils.py",
+  "line": 1333
+ },
+ {
+  "name": "boltons.tableutils:to_text",
+  "file": "boltons/tableutils.py",
+  "line": 84
+ },
+ {
+  "name": "boltons.tableutils:escape_html",
+  "file": "boltons/tableutils.py",
+  "line": 98
+ },
+ {
+  "name": "boltons.tableutils:InputType.get_entry_seq",
+  "file": "boltons/tableutils.py",
+  "line": 117
+ },
+ {
+  "name": "boltons.tableutils:DictInputType.check_type",
+  "file": "boltons/tableutils.py",
+  "line": 122
+ },
+ {
+  "name": "boltons.tableutils:DictInputType.guess_headers",
+  "file": "boltons/tableutils.py",
+  "line": 125
+ },
+ {
+  "name": "boltons.tableutils:DictInputType.get_entry",
+  "file": "boltons/tableutils.py",
+  "line": 128
+ },
+ {
+  "name": "boltons.tableutils:DictInputType.get_entry_seq",
+  "file": "boltons/tableutils.py",
+  "line": 131
+ },
+ {
+  "name": "boltons.tableutils:ObjectInputType.check_type",
+  "file": "boltons/tableutils.py",
+  "line": 136
+ },
+ {
+  "name": "boltons.tableutils:ObjectInputType.guess_headers",
+  "file": "boltons/tableutils.py",
+  "line": 139
+ },
+ {
+  "name": "boltons.tableutils:ObjectInputType.get_entry",
+  "file": "boltons/tableutils.py",
+  "line": 154
+ },
+ {
+  "name": "boltons.tableutils:ListInputType.check_type",
+  "file": "boltons/tableutils.py",
+  "line": 168
+ },
+ {
+  "name": "boltons.tableutils:ListInputType.guess_headers",
+  "file": "boltons/tableutils.py",
+  "line": 171
+ },
+ {
+  "name": "boltons.tableutils:ListInputType.get_entry",
+  "file": "boltons/tableutils.py",
+  "line": 174
+ },
+ {
+  "name": "boltons.tableutils:ListInputType.get_entry_seq",
+  "file": "boltons/tableutils.py",
+  "line": 177
+ },
+ {
+  "name": "boltons.tableutils:TupleInputType.check_type",
+  "file": "boltons/tableutils.py",
+  "line": 182
+ },
+ {
+  "name": "boltons.tableutils:TupleInputType.guess_headers",
+  "file": "boltons/tableutils.py",
+  "line": 185
+ },
+ {
+  "name": "boltons.tableutils:TupleInputType.get_entry",
+  "file": "boltons/tableutils.py",
+  "line": 188
+ },
+ {
+  "name": "boltons.tableutils:TupleInputType.get_entry_seq",
+  "file": "boltons/tableutils.py",
+  "line": 191
+ },
+ {
+  "name": "boltons.tableutils:NamedTupleInputType.check_type",
+  "file": "boltons/tableutils.py",
+  "line": 196
+ },
+ {
+  "name": "boltons.tableutils:NamedTupleInputType.guess_headers",
+  "file": "boltons/tableutils.py",
+  "line": 199
+ },
+ {
+  "name": "boltons.tableutils:NamedTupleInputType.get_entry",
+  "file": "boltons/tableutils.py",
+  "line": 202
+ },
+ {
+  "name": "boltons.tableutils:NamedTupleInputType.get_entry_seq",
+  "file": "boltons/tableutils.py",
+  "line": 205
+ },
+ {
+  "name": "boltons.tableutils:Table.extend",
+  "file": "boltons/tableutils.py",
+  "line": 275
+ },
+ {
+  "name": "boltons.tableutils:Table.from_dict",
+  "file": "boltons/tableutils.py",
+  "line": 306
+ },
+ {
+  "name": "boltons.tableutils:Table.from_list",
+  "file": "boltons/tableutils.py",
+  "line": 316
+ },
+ {
+  "name": "boltons.tableutils:Table.from_object",
+  "file": "boltons/tableutils.py",
+  "line": 326
+ },
+ {
+  "name": "boltons.tableutils:Table.from_data",
+  "file": "boltons/tableutils.py",
+  "line": 337
+ },
+ {
+  "name": "boltons.tableutils:Table.to_html",
+  "file": "boltons/tableutils.py",
+  "line": 427
+ },
+ {
+  "name": "boltons.tableutils:Table.get_cell_html",
+  "file": "boltons/tableutils.py",
+  "line": 497
+ },
+ {
+  "name": "boltons.tableutils:Table.to_text",
+  "file": "boltons/tableutils.py",
+  "line": 558
+ },
+ {
+  "name": "boltons.tbutils:Callpoint.to_dict",
+  "file": "boltons/tbutils.py",
+  "line": 99
+ },
+ {
+  "name": "boltons.tbutils:Callpoint.from_current",
+  "file": "boltons/tbutils.py",
+  "line": 112
+ },
+ {
+  "name": "boltons.tbutils:Callpoint.from_frame",
+  "file": "boltons/tbutils.py",
+  "line": 118
+ },
+ {
+  "name": "boltons.tbutils:Callpoint.from_tb",
+  "file": "boltons/tbutils.py",
+  "line": 130
+ },
+ {
+  "name": "boltons.tbutils:Callpoint.tb_frame_str",
+  "file": "boltons/tbutils.py",
+  "line": 154
+ },
+ {
+  "name": "boltons.tbutils:TracebackInfo.from_frame",
+  "file": "boltons/tbutils.py",
+  "line": 250
+ },
+ {
+  "name": "boltons.tbutils:TracebackInfo.from_traceback",
+  "file": "boltons/tbutils.py",
+  "line": 281
+ },
+ {
+  "name": "boltons.tbutils:TracebackInfo.from_dict",
+  "file": "boltons/tbutils.py",
+  "line": 314
+ },
+ {
+  "name": "boltons.tbutils:TracebackInfo.to_dict",
+  "file": "boltons/tbutils.py",
+  "line": 319
+ },
+ {
+  "name": "boltons.tbutils:TracebackInfo.get_formatted",
+  "file": "boltons/tbutils.py",
+  "line": 344
+ },
+ {
+  "name": "boltons.tbutils:ExceptionInfo.from_exc_info",
+  "file": "boltons/tbutils.py",
+  "line": 390
+ },
+ {
+  "name": "boltons.tbutils:ExceptionInfo.from_current",
+  "file": "boltons/tbutils.py",
+  "line": 404
+ },
+ {
+  "name": "boltons.tbutils:ExceptionInfo.to_dict",
+  "file": "boltons/tbutils.py",
+  "line": 411
+ },
+ {
+  "name": "boltons.tbutils:ExceptionInfo.get_formatted",
+  "file": "boltons/tbutils.py",
+  "line": 430
+ },
+ {
+  "name": "boltons.tbutils:ExceptionInfo.get_formatted_exception_only",
+  "file": "boltons/tbutils.py",
+  "line": 439
+ },
+ {
+  "name": "boltons.tbutils:ContextualCallpoint.from_frame",
+  "file": "boltons/tbutils.py",
+  "line": 459
+ },
+ {
+  "name": "boltons.tbutils:ContextualCallpoint.from_tb",
+  "file": "boltons/tbutils.py",
+  "line": 467
+ },
+ {
+  "name": "boltons.tbutils:ContextualCallpoint.to_dict",
+  "file": "boltons/tbutils.py",
+  "line": 499
+ },
+ {
+  "name": "boltons.tbutils:format_exception_only",
+  "file": "boltons/tbutils.py",
+  "line": 568
+ },
+ {
+  "name": "boltons.tbutils:print_exception",
+  "file": "boltons/tbutils.py",
+  "line": 635
+ },
+ {
+  "name": "boltons.tbutils:fix_print_exception",
+  "file": "boltons/tbutils.py",
+  "line": 657
+ },
+ {
+  "name": "boltons.tbutils:ParsedException.source_file",
+  "file": "boltons/tbutils.py",
+  "line": 689
+ },
+ {
+  "name": "boltons.tbutils:ParsedException.to_dict",
+  "file": "boltons/tbutils.py",
+  "line": 699
+ },
+ {
+  "name": "boltons.tbutils:ParsedException.to_string",
+  "file": "boltons/tbutils.py",
+  "line": 710
+ },
+ {
+  "name": "boltons.tbutils:ParsedException.from_string",
+  "file": "boltons/tbutils.py",
+  "line": 743
+ },
+ {
+  "name": "boltons.timeutils:dt_to_timestamp",
+  "file": "boltons/timeutils.py",
+  "line": 65
+ },
+ {
+  "name": "boltons.timeutils:isoparse",
+  "file": "boltons/timeutils.py",
+  "line": 97
+ },
+ {
+  "name": "boltons.timeutils:parse_timedelta",
+  "file": "boltons/timeutils.py",
+  "line": 149
+ },
+ {
+  "name": "boltons.timeutils:decimal_relative_time",
+  "file": "boltons/timeutils.py",
+  "line": 202
+ },
+ {
+  "name": "boltons.timeutils:relative_time",
+  "file": "boltons/timeutils.py",
+  "line": 251
+ },
+ {
+  "name": "boltons.timeutils:strpdate",
+  "file": "boltons/timeutils.py",
+  "line": 283
+ },
+ {
+  "name": "boltons.timeutils:daterange",
+  "file": "boltons/timeutils.py",
+  "line": 310
+ },
+ {
+  "name": "boltons.timeutils:ConstantTZInfo.utcoffset_hours",
+  "file": "boltons/timeutils.py",
+  "line": 445
+ },
+ {
+  "name": "boltons.timeutils:ConstantTZInfo.utcoffset",
+  "file": "boltons/timeutils.py",
+  "line": 448
+ },
+ {
+  "name": "boltons.timeutils:ConstantTZInfo.tzname",
+  "file": "boltons/timeutils.py",
+  "line": 451
+ },
+ {
+  "name": "boltons.timeutils:ConstantTZInfo.dst",
+  "file": "boltons/timeutils.py",
+  "line": 454
+ },
+ {
+  "name": "boltons.timeutils:LocalTZInfo.is_dst",
+  "file": "boltons/timeutils.py",
+  "line": 486
+ },
+ {
+  "name": "boltons.timeutils:LocalTZInfo.utcoffset",
+  "file": "boltons/timeutils.py",
+  "line": 492
+ },
+ {
+  "name": "boltons.timeutils:LocalTZInfo.dst",
+  "file": "boltons/timeutils.py",
+  "line": 497
+ },
+ {
+  "name": "boltons.timeutils:LocalTZInfo.tzname",
+  "file": "boltons/timeutils.py",
+  "line": 502
+ },
+ {
+  "name": "boltons.timeutils:USTimeZone.tzname",
+  "file": "boltons/timeutils.py",
+  "line": 560
+ },
+ {
+  "name": "boltons.timeutils:USTimeZone.utcoffset",
+  "file": "boltons/timeutils.py",
+  "line": 566
+ },
+ {
+  "name": "boltons.timeutils:USTimeZone.dst",
+  "file": "boltons/timeutils.py",
+  "line": 581
+ },
+ {
+  "name": "boltons.timeutils:USTimeZone.fromutc",
+  "file": "boltons/timeutils.py",
+  "line": 607
+ },
+ {
+  "name": "boltons.typeutils:make_sentinel",
+  "file": "boltons/typeutils.py",
+  "line": 42
+ },
+ {
+  "name": "boltons.typeutils:issubclass",
+  "file": "boltons/typeutils.py",
+  "line": 108
+ },
+ {
+  "name": "boltons.typeutils:get_all_subclasses",
+  "file": "boltons/typeutils.py",
+  "line": 133
+ },
+ {
+  "name": "boltons.urlutils:to_unicode",
+  "file": "boltons/urlutils.py",
+  "line": 123
+ },
+ {
+  "name": "boltons.urlutils:find_all_links",
+  "file": "boltons/urlutils.py",
+  "line": 136
+ },
+ {
+  "name": "boltons.urlutils:quote_path_part",
+  "file": "boltons/urlutils.py",
+  "line": 231
+ },
+ {
+  "name": "boltons.urlutils:quote_query_part",
+  "file": "boltons/urlutils.py",
+  "line": 242
+ },
+ {
+  "name": "boltons.urlutils:quote_fragment_part",
+  "file": "boltons/urlutils.py",
+  "line": 253
+ },
+ {
+  "name": "boltons.urlutils:quote_userinfo_part",
+  "file": "boltons/urlutils.py",
+  "line": 264
+ },
+ {
+  "name": "boltons.urlutils:unquote",
+  "file": "boltons/urlutils.py",
+  "line": 277
+ },
+ {
+  "name": "boltons.urlutils:unquote_to_bytes",
+  "file": "boltons/urlutils.py",
+  "line": 304
+ },
+ {
+  "name": "boltons.urlutils:register_scheme",
+  "file": "boltons/urlutils.py",
+  "line": 331
+ },
+ {
+  "name": "boltons.urlutils:resolve_path_parts",
+  "file": "boltons/urlutils.py",
+  "line": 370
+ },
+ {
+  "name": "boltons.urlutils:URL.from_parts",
+  "file": "boltons/urlutils.py",
+  "line": 521
+ },
+ {
+  "name": "boltons.urlutils:URL.query_params",
+  "file": "boltons/urlutils.py",
+  "line": 558
+ },
+ {
+  "name": "boltons.urlutils:URL.path",
+  "file": "boltons/urlutils.py",
+  "line": 572
+ },
+ {
+  "name": "boltons.urlutils:URL.uses_netloc",
+  "file": "boltons/urlutils.py",
+  "line": 584
+ },
+ {
+  "name": "boltons.urlutils:URL.default_port",
+  "file": "boltons/urlutils.py",
+  "line": 619
+ },
+ {
+  "name": "boltons.urlutils:URL.normalize",
+  "file": "boltons/urlutils.py",
+  "line": 633
+ },
+ {
+  "name": "boltons.urlutils:URL.navigate",
+  "file": "boltons/urlutils.py",
+  "line": 649
+ },
+ {
+  "name": "boltons.urlutils:URL.get_authority",
+  "file": "boltons/urlutils.py",
+  "line": 698
+ },
+ {
+  "name": "boltons.urlutils:URL.to_text",
+  "file": "boltons/urlutils.py",
+  "line": 745
+ },
+ {
+  "name": "boltons.urlutils:parse_host",
+  "file": "boltons/urlutils.py",
+  "line": 845
+ },
+ {
+  "name": "boltons.urlutils:parse_url",
+  "file": "boltons/urlutils.py",
+  "line": 885
+ },
+ {
+  "name": "boltons.urlutils:parse_qsl",
+  "file": "boltons/urlutils.py",
+  "line": 952
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.add",
+  "file": "boltons/urlutils.py",
+  "line": 1106
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.addlist",
+  "file": "boltons/urlutils.py",
+  "line": 1114
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.get",
+  "file": "boltons/urlutils.py",
+  "line": 1137
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.getlist",
+  "file": "boltons/urlutils.py",
+  "line": 1146
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.clear",
+  "file": "boltons/urlutils.py",
+  "line": 1159
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.setdefault",
+  "file": "boltons/urlutils.py",
+  "line": 1164
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.copy",
+  "file": "boltons/urlutils.py",
+  "line": 1174
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.fromkeys",
+  "file": "boltons/urlutils.py",
+  "line": 1179
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.update",
+  "file": "boltons/urlutils.py",
+  "line": 1185
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.update_extend",
+  "file": "boltons/urlutils.py",
+  "line": 1215
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.pop",
+  "file": "boltons/urlutils.py",
+  "line": 1284
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.popall",
+  "file": "boltons/urlutils.py",
+  "line": 1296
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.poplast",
+  "file": "boltons/urlutils.py",
+  "line": 1308
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.iteritems",
+  "file": "boltons/urlutils.py",
+  "line": 1348
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.iterkeys",
+  "file": "boltons/urlutils.py",
+  "line": 1363
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.itervalues",
+  "file": "boltons/urlutils.py",
+  "line": 1385
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.todict",
+  "file": "boltons/urlutils.py",
+  "line": 1394
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.sorted",
+  "file": "boltons/urlutils.py",
+  "line": 1407
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.sortedvalues",
+  "file": "boltons/urlutils.py",
+  "line": 1432
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.inverted",
+  "file": "boltons/urlutils.py",
+  "line": 1474
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.counts",
+  "file": "boltons/urlutils.py",
+  "line": 1491
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.keys",
+  "file": "boltons/urlutils.py",
+  "line": 1501
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.values",
+  "file": "boltons/urlutils.py",
+  "line": 1507
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.items",
+  "file": "boltons/urlutils.py",
+  "line": 1513
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.viewkeys",
+  "file": "boltons/urlutils.py",
+  "line": 1541
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.viewvalues",
+  "file": "boltons/urlutils.py",
+  "line": 1545
+ },
+ {
+  "name": "boltons.urlutils:OrderedMultiDict.viewitems",
+  "file": "boltons/urlutils.py",
+  "line": 1549
+ },
+ {
+  "name": "boltons.urlutils:QueryParamDict.from_text",
+  "file": "boltons/urlutils.py",
+  "line": 1585
+ },
+ {
+  "name": "boltons.urlutils:QueryParamDict.to_text",
+  "file": "boltons/urlutils.py",
+  "line": 1592
+ }
+]

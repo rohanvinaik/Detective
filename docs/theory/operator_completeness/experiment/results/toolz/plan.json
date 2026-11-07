@@ -1,0 +1,1293 @@
+[
+ {
+  "fn": "toolz.curried.exceptions:merge",
+  "tests": [
+   "toolz/tests/test_curried.py::test_merge"
+  ],
+  "observed_keys": [
+   "builtins.dict:0b50a71a2b8998222bee",
+   "collections.defaultdict:ff03c9f85718e566f14d"
+  ],
+  "observed_types": [
+   "builtins.dict",
+   "collections.defaultdict"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.dict:0b50a71a2b8998222bee",
+   "collections.defaultdict:ff03c9f85718e566f14d"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.curried.exceptions:merge_with",
+  "tests": [
+   "toolz/tests/test_curried.py::test_merge_with",
+   "toolz/tests/test_curried.py::test_merge_with_list"
+  ],
+  "observed_keys": [
+   "builtins.dict:d2b33e9c4bbe74eb4391",
+   "builtins.dict:e0091ce99929f54d71ea"
+  ],
+  "observed_types": [
+   "builtins.dict"
+  ],
+  "constant_repr": "{}",
+  "constant_key": "builtins.dict:bf21a9e8fbc5a3846fb0",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.dict:d2b33e9c4bbe74eb4391",
+   "builtins.dict:e0091ce99929f54d71ea"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAV9lC4="
+ },
+ {
+  "fn": "toolz.dicttoolz:get_in",
+  "tests": [
+   "toolz/tests/test_dicttoolz.py::test_get_in_returns_default_for_a_missing_path"
+  ],
+  "observed_keys": [
+   "builtins.NoneType:6eef6648406c333a4035",
+   "builtins.int:7984b0a0e139cabadb5a",
+   "builtins.int:902ba3cda1883801594b"
+  ],
+  "observed_types": [
+   "builtins.NoneType",
+   "builtins.int"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.int:7984b0a0e139cabadb5a",
+   "builtins.int:902ba3cda1883801594b"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:apply",
+  "tests": [
+   "toolz/tests/test_functoolz.py::test_apply"
+  ],
+  "observed_keys": [
+   "builtins.int:2c9a62c3748f484690d5",
+   "builtins.int:7c2b08a8ef93dcdfe7b3",
+   "builtins.int:91032ad7bbcb6cf72875",
+   "builtins.int:b1d5781111d84f7b3fe4"
+  ],
+  "observed_types": [
+   "builtins.int"
+  ],
+  "constant_repr": "0",
+  "constant_key": "builtins.int:b6589fc6ab0dc82cf120",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.int:2c9a62c3748f484690d5",
+   "builtins.int:7c2b08a8ef93dcdfe7b3",
+   "builtins.int:91032ad7bbcb6cf72875",
+   "builtins.int:b1d5781111d84f7b3fe4"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVLAC4="
+ },
+ {
+  "fn": "toolz.functoolz:curry.call",
+  "tests": [
+   "toolz/tests/test_functoolz.py::test_curry_call"
+  ],
+  "observed_keys": [
+   "builtins.int:77de68daecd823babbb5"
+  ],
+  "observed_types": [
+   "builtins.int"
+  ],
+  "constant_repr": "0",
+  "constant_key": "builtins.int:b6589fc6ab0dc82cf120",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.int:77de68daecd823babbb5"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVLAC4="
+ },
+ {
+  "fn": "toolz.functoolz:curry.func_name",
+  "tests": [
+   "toolz/tests/test_functoolz.py::test_curry_attributes_writable"
+  ],
+  "observed_keys": [
+   "builtins.str:1348e36633b6bb4816ff"
+  ],
+  "observed_types": [
+   "builtins.str"
+  ],
+  "constant_repr": "''",
+  "constant_key": "builtins.str:b6ee60926c0a426addcb",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.str:1348e36633b6bb4816ff"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBAAAAAAAAACMAJQu"
+ },
+ {
+  "fn": "toolz.functoolz:curry.keywords",
+  "tests": [
+   "toolz/tests/test_curried.py::test_curried_namespace",
+   "toolz/tests/test_curried.py::test_merge",
+   "toolz/tests/test_curried.py::test_merge_with",
+   "toolz/tests/test_curried.py::test_reduce",
+   "toolz/tests/test_curried.py::test_sorted",
+   "toolz/tests/test_curried.py::test_take",
+   "toolz/tests/test_curried_doctests.py::test_doctests",
+   "toolz/tests/test_functoolz.py::test_compose_annotations",
+   "toolz/tests/test_functoolz.py::test_curry_bind",
+   "toolz/tests/test_functoolz.py::test_curry_call",
+   "toolz/tests/test_functoolz.py::test_curry_comparable",
+   "toolz/tests/test_functoolz.py::test_curry_doesnot_transmogrify",
+   "toolz/tests/test_functoolz.py::test_curry_is_idempotent",
+   "toolz/tests/test_functoolz.py::test_curry_is_like_partial",
+   "toolz/tests/test_functoolz.py::test_curry_kwargs",
+   "toolz/tests/test_functoolz.py::test_curry_on_classmethods",
+   "toolz/tests/test_functoolz.py::test_curry_passes_errors",
+   "toolz/tests/test_functoolz.py::test_curry_simple",
+   "toolz/tests/test_functoolz.py::test_curry_subclassable",
+   "toolz/tests/test_functoolz.py::test_curry_unknown_args",
+   "toolz/tests/test_functoolz.py::test_memoize_curried",
+   "toolz/tests/test_functoolz.py::test_memoize_curry_cache",
+   "toolz/tests/test_functoolz.py::test_memoize_key",
+   "toolz/tests/test_inspect_args.py::test_introspect_builtin_modules",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_partial_py3",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_py3",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_valid_py3",
+   "toolz/tests/test_inspect_args.py::test_is_valid_curry",
+   "toolz/tests/test_serialization.py::test_curried_bad_qualname",
+   "toolz/tests/test_serialization.py::test_curried_exceptions",
+   "toolz/tests/test_serialization.py::test_curried_qualname",
+   "toolz/tests/test_serialization.py::test_curry",
+   "toolz/tests/test_serialization.py::test_flip",
+   "toolz/tests/test_tlz.py::test_tlz"
+  ],
+  "observed_keys": [
+   "builtins.dict:14e8c65219fa9e395a71",
+   "builtins.dict:2d2cf012e0513b805c8c",
+   "builtins.dict:370bc3c9fee2838115a1",
+   "builtins.dict:3fd62c979ce89c88e4fd",
+   "builtins.dict:82367b9b9550596c15bc",
+   "builtins.dict:98122f0a6711875edb27",
+   "builtins.dict:9be76c20be7b28641b60",
+   "builtins.dict:af52cd3757d52ba859ab",
+   "builtins.dict:bf21a9e8fbc5a3846fb0",
+   "builtins.dict:d3e73fdc4377e0ffdf92",
+   "builtins.dict:f72be2a44c6b1edfee85"
+  ],
+  "observed_types": [
+   "builtins.dict"
+  ],
+  "constant_repr": "{None: None}",
+  "constant_key": "builtins.dict:acd18d947d70fb205a2d",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.dict:14e8c65219fa9e395a71",
+   "builtins.dict:2d2cf012e0513b805c8c",
+   "builtins.dict:370bc3c9fee2838115a1",
+   "builtins.dict:3fd62c979ce89c88e4fd",
+   "builtins.dict:82367b9b9550596c15bc",
+   "builtins.dict:98122f0a6711875edb27",
+   "builtins.dict:9be76c20be7b28641b60",
+   "builtins.dict:af52cd3757d52ba859ab",
+   "builtins.dict:bf21a9e8fbc5a3846fb0",
+   "builtins.dict:d3e73fdc4377e0ffdf92",
+   "builtins.dict:f72be2a44c6b1edfee85"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBgAAAAAAAAB9lE5Ocy4="
+ },
+ {
+  "fn": "toolz.functoolz:do",
+  "tests": [
+   "toolz/tests/test_functoolz.py::test_do"
+  ],
+  "observed_keys": [
+   "builtins.int:356a192b7913b04c5457"
+  ],
+  "observed_types": [
+   "builtins.int"
+  ],
+  "constant_repr": "0",
+  "constant_key": "builtins.int:b6589fc6ab0dc82cf120",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.int:356a192b7913b04c5457"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVLAC4="
+ },
+ {
+  "fn": "toolz.functoolz:flip",
+  "tests": [
+   "toolz/tests/test_curried_doctests.py::test_doctests",
+   "toolz/tests/test_functoolz.py::test_flip",
+   "toolz/tests/test_serialization.py::test_flip"
+  ],
+  "observed_keys": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.tuple:876b2df1d6051d956771",
+   "builtins.tuple:8f4501c8b5599c080d7b"
+  ],
+  "observed_types": [
+   "builtins.bool",
+   "builtins.int",
+   "builtins.tuple"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.tuple:876b2df1d6051d956771",
+   "builtins.tuple:8f4501c8b5599c080d7b"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:has_keywords",
+  "tests": [
+   "toolz/tests/test_curried.py::test_curried_namespace",
+   "toolz/tests/test_curried.py::test_curried_operator",
+   "toolz/tests/test_curried_doctests.py::test_doctests",
+   "toolz/tests/test_functoolz.py::test_memoize",
+   "toolz/tests/test_functoolz.py::test_memoize_curried",
+   "toolz/tests/test_functoolz.py::test_memoize_curry_cache",
+   "toolz/tests/test_functoolz.py::test_memoize_key",
+   "toolz/tests/test_functoolz.py::test_memoize_key_signature",
+   "toolz/tests/test_functoolz.py::test_memoize_kwargs",
+   "toolz/tests/test_functoolz.py::test_memoize_on_classmethods",
+   "toolz/tests/test_functoolz.py::test_memoize_partial",
+   "toolz/tests/test_functoolz.py::test_memoize_wrapped",
+   "toolz/tests/test_inspect_args.py::test_has_keywords",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_py3",
+   "toolz/tests/test_inspect_args.py::test_is_arity",
+   "toolz/tests/test_signatures.py::test_for_coverage"
+  ],
+  "observed_keys": [
+   "builtins.NoneType:6eef6648406c333a4035",
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.NoneType",
+   "builtins.bool"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:has_varargs",
+  "tests": [
+   "toolz/tests/test_curried.py::test_merge",
+   "toolz/tests/test_curried.py::test_merge_with",
+   "toolz/tests/test_curried.py::test_reduce",
+   "toolz/tests/test_curried.py::test_sorted",
+   "toolz/tests/test_curried.py::test_take",
+   "toolz/tests/test_curried_doctests.py::test_doctests",
+   "toolz/tests/test_functoolz.py::test_curry_call",
+   "toolz/tests/test_functoolz.py::test_curry_comparable",
+   "toolz/tests/test_functoolz.py::test_curry_doesnot_transmogrify",
+   "toolz/tests/test_functoolz.py::test_curry_is_like_partial",
+   "toolz/tests/test_functoolz.py::test_curry_kwargs",
+   "toolz/tests/test_functoolz.py::test_curry_on_classmethods",
+   "toolz/tests/test_functoolz.py::test_curry_passes_errors",
+   "toolz/tests/test_functoolz.py::test_curry_simple",
+   "toolz/tests/test_functoolz.py::test_curry_subclassable",
+   "toolz/tests/test_functoolz.py::test_curry_unknown_args",
+   "toolz/tests/test_functoolz.py::test_memoize_curried",
+   "toolz/tests/test_functoolz.py::test_memoize_curry_cache",
+   "toolz/tests/test_functoolz.py::test_memoize_key_signature",
+   "toolz/tests/test_functoolz.py::test_memoize_kwargs",
+   "toolz/tests/test_functoolz.py::test_memoize_partial",
+   "toolz/tests/test_inspect_args.py::test_has_unknown_args",
+   "toolz/tests/test_inspect_args.py::test_has_varargs",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_partial_py3",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_py3",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_valid_py3",
+   "toolz/tests/test_inspect_args.py::test_is_arity",
+   "toolz/tests/test_inspect_args.py::test_is_valid_curry",
+   "toolz/tests/test_serialization.py::test_curried_qualname",
+   "toolz/tests/test_serialization.py::test_curry",
+   "toolz/tests/test_serialization.py::test_flip",
+   "toolz/tests/test_signatures.py::test_for_coverage"
+  ],
+  "observed_keys": [
+   "builtins.NoneType:6eef6648406c333a4035",
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.NoneType",
+   "builtins.bool"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:identity",
+  "tests": [
+   "toolz/tests/test_dicttoolz.py::test_environ",
+   "toolz/tests/test_functoolz.py::test_compose",
+   "toolz/tests/test_functoolz.py::test_compose_left",
+   "toolz/tests/test_recipes.py::test_partitionby"
+  ],
+  "observed_keys": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.str:01105b7bb9e38fe90b1d",
+   "builtins.str:013a4910d8a41d41a2be",
+   "builtins.str:014472b4e7a3d5757849",
+   "builtins.str:015b582b952cfc36a8d8",
+   "builtins.str:030fa3221d32ecda75c4",
+   "builtins.str:03a0f649d961e3813962",
+   "builtins.str:040630c2fe4e05466338",
+   "builtins.str:041a39aa3b1715f1d227",
+   "builtins.str:0512010f22251cc54b70",
+   "builtins.str:05999225dc1425b4eafc",
+   "builtins.str:066e6afda936e7fe0ed0",
+   "builtins.str:0706204f5796a5d6e90c",
+   "builtins.str:086c0085d40f40cdb370",
+   "builtins.str:09b259681f11c3a8afa6",
+   "builtins.str:0d85011ba723dd2aa522",
+   "builtins.str:0fc9aafe53b8c11faa04",
+   "builtins.str:1254f3e6a2eaa7317be3",
+   "builtins.str:12fe9d18625f1ff250a2",
+   "builtins.str:1393a8ac50aa6c5e601e",
+   "builtins.str:1454c975e8ba19e8cfda",
+   "builtins.str:14baf9bb4f22c895f7ae",
+   "builtins.str:1587ef8c27e0aa026c77",
+   "builtins.str:16552d9908dd73527c69",
+   "builtins.str:166b7206350729b4245f",
+   "builtins.str:19fa71040080508adbc2",
+   "builtins.str:1a296718648cf68e9b21",
+   "builtins.str:1e751be88bd5bd4b5873",
+   "builtins.str:1f94225421115e942fbc",
+   "builtins.str:1ffda7d7daa85638b3da",
+   "builtins.str:201cae89d7e37a4d85fe",
+   "builtins.str:2082cac9e9b6268fc86b",
+   "builtins.str:210c65f6fadf23dc22d9",
+   "builtins.str:248c6bd0eb69074853eb",
+   "builtins.str:25525609d8755fdb5ba2",
+   "builtins.str:29354f646e9a02100c24",
+   "builtins.str:297b3b5da1e546a345fc",
+   "builtins.str:2f30262fb86611f5cb0a",
+   "builtins.str:3009a121a5f3b9f8e280",
+   "builtins.str:309fca7ddff724fc1a65",
+   "builtins.str:31bb8b84323f2f5ab6a8",
+   "builtins.str:366ee636e1c9885733f1",
+   "builtins.str:39c550c18c4d410d220c",
+   "builtins.str:3b502cbb651101bcc589",
+   "builtins.str:3c9f7de483acad2cdb34",
+   "builtins.str:41e711e69ecebfde008f",
+   "builtins.str:45370d1f413ebf07731d",
+   "builtins.str:459b2717fdcdb14fb3f5",
+   "builtins.str:4729cc1f0d5b63dd723c",
+   "builtins.str:47d545d45b7f8ed39336",
+   "builtins.str:48892877ea919dd078fe",
+   "builtins.str:494001b8aa3d2b63a5ff",
+   "builtins.str:4996fd3c9bdaa5e9bff5",
+   "builtins.str:4c7a5626b827b341b1ba",
+   "builtins.str:4cdb1cfd34c71eff441f",
+   "builtins.str:4de5bc3950021b92ba86",
+   "builtins.str:501f0f1b99f1d7531bd2",
+   "builtins.str:507a53295efc86baf026",
+   "builtins.str:50c07bfda33ef0200cdf",
+   "builtins.str:520ebea19ea4a389f890",
+   "builtins.str:548c561d0ec0c8bcd127",
+   "builtins.str:56716bb2228f76c8907b",
+   "builtins.str:589e4145c516d6daafb0",
+   "builtins.str:5934c682882af3221022",
+   "builtins.str:59bfdd164dc5b7a32a66",
+   "builtins.str:5b8fb0e5eb3d6232b20c",
+   "builtins.str:5d0f3ffce156fd7230e6",
+   "builtins.str:60a1725349151a0ec412",
+   "builtins.str:62e4925eb963de67d5dd",
+   "builtins.str:63829de7c40d75ff12dd",
+   "builtins.str:6432f5b889e4b2d2a3f2",
+   "builtins.str:671495812c6d806a6b5b",
+   "builtins.str:6825fae875b63ff75a4f",
+   "builtins.str:69a57c4b79e0f5fe32dc",
+   "builtins.str:6bc1f086e333ad8db6a0",
+   "builtins.str:6bdace7d46eb7ce7c3ca",
+   "builtins.str:6d772832a0b2d3ed99cc",
+   "builtins.str:6e71cf422bd188fdade3",
+   "builtins.str:6f1c5b487f6418bb2e4b",
+   "builtins.str:6fc1286aab99f9fb8826",
+   "builtins.str:753b262c79996b4884cc",
+   "builtins.str:778bc6ea611534d50a11",
+   "builtins.str:778e9c790c4dae16c0e1",
+   "builtins.str:785f29b324103bf5401d",
+   "builtins.str:7b00ce11bad4a5e53aca",
+   "builtins.str:7b2c8b506b101e65297d",
+   "builtins.str:7c94c876d81277b7c4bb",
+   "builtins.str:7d29441f8d2c554911a1",
+   "builtins.str:7d5fb849903ae65e5515",
+   "builtins.str:7e71b62f7cd94d12a316",
+   "builtins.str:80c18ea82219aca554de",
+   "builtins.str:822ec93bc88bd774eed0",
+   "builtins.str:82350105f34b7c41bcef",
+   "builtins.str:840fb6df84d1dd4d131f",
+   "builtins.str:84882ad48c6fcba603e4",
+   "builtins.str:84a776537d196f43a084",
+   "builtins.str:850d887793387455e960",
+   "builtins.str:88b451a19674d3e94a60",
+   "builtins.str:8aac3f361ac7295f4e56",
+   "builtins.str:8b1994e98601c51ddada",
+   "builtins.str:8ebf2e677764a7d9fa75",
+   "builtins.str:9225f892e95a731e62a9",
+   "builtins.str:935f63273dec1208a10d",
+   "builtins.str:947bdd704bc5bc4cdcf8",
+   "builtins.str:98501471154941637d50",
+   "builtins.str:9ad3eb9cba4867f0c77e",
+   "builtins.str:9d6eac968c8546d1c564",
+   "builtins.str:9d79aadf900f235a0f02",
+   "builtins.str:9f1f353620a8375fbedf",
+   "builtins.str:a13a2a6151b256a9e5e3",
+   "builtins.str:a373f5acd807c49e20c3",
+   "builtins.str:a5fd46e556f9ff29d591",
+   "builtins.str:a678a4a1e32624fe9f3e",
+   "builtins.str:a9c021dd3ba2c94a569a",
+   "builtins.str:ab8b7527d2f49cdc1b81",
+   "builtins.str:ac11597b8df3ae78f563",
+   "builtins.str:ac39a929056d07d04209",
+   "builtins.str:ad36c579adcc845625c3",
+   "builtins.str:ae8e235af9fa6fc64dd4",
+   "builtins.str:b1d879e998410b121314",
+   "builtins.str:b24f0260453edcea5371",
+   "builtins.str:b2f760430bb04127f1c9",
+   "builtins.str:b38ec79fdb06c25159cf",
+   "builtins.str:b4780d5ae74aa04b063a",
+   "builtins.str:b6ee60926c0a426addcb",
+   "builtins.str:b9951c60ddf4a2db20e4",
+   "builtins.str:bc3994a958ce52d7917d",
+   "builtins.str:bc529ce54ebc20a2c248",
+   "builtins.str:bde4030b20942e4db8cc",
+   "builtins.str:c09d095ccd740c211f3a",
+   "builtins.str:c0a9efda5f4a3f209b02",
+   "builtins.str:c1ad382bacc38bc3f777",
+   "builtins.str:c2490b8c8538c5fc935a",
+   "builtins.str:c2a9ac7d9ee78a6c18a1",
+   "builtins.str:c33f85a0132818ea5ebb",
+   "builtins.str:c3d1ec81cb1efb0185b1",
+   "builtins.str:c46184510a99dcd301a1",
+   "builtins.str:c80d6e45145ced9c02a2",
+   "builtins.str:ca9c013fb179b16007fb",
+   "builtins.str:cb036e893a0ee4d66b79",
+   "builtins.str:cc39f1addcfc2c2c8df1",
+   "builtins.str:cd22c7a9f5d642bef7e9",
+   "builtins.str:cf1a8327cd9dd1a23ad8",
+   "builtins.str:cfd2e26bc1f6eca990ae",
+   "builtins.str:d19b0a3946c4061ea865",
+   "builtins.str:d2babda513e865b08e61",
+   "builtins.str:d934d166e2ec64c19b49",
+   "builtins.str:de0e5443593af3cb240d",
+   "builtins.str:e01af7aa8b9f6155f910",
+   "builtins.str:e2633ef7224177ad8054",
+   "builtins.str:e39e74f923ec71a93fca",
+   "builtins.str:e45745a67da8a26b80b8",
+   "builtins.str:e4bd929745f8b4afe92a",
+   "builtins.str:e521e5442d0d2f31ad08",
+   "builtins.str:e5b784a9dd8875798d1e",
+   "builtins.str:e609fb48d470d511496d",
+   "builtins.str:e6c871f25f15d126ccf7",
+   "builtins.str:ebb181f7a5b91dafc934",
+   "builtins.str:ebbf9f7a44bc618a37c4",
+   "builtins.str:ec0f5038f70e6ef4d699",
+   "builtins.str:ee4b96654a0049a789fe",
+   "builtins.str:f58c930ba8bc97c31e2b",
+   "builtins.str:f59d7a4f6e4b69aecbb6",
+   "builtins.str:f75878be008428192faf",
+   "builtins.str:f99d0fde8c7141151736",
+   "builtins.str:fca3634828226701b22f",
+   "builtins.str:fd9fedb1f96c2bbeb434"
+  ],
+  "observed_types": [
+   "builtins.int",
+   "builtins.str"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.str:0d85011ba723dd2aa522",
+   "builtins.str:0fc9aafe53b8c11faa04",
+   "builtins.str:1393a8ac50aa6c5e601e",
+   "builtins.str:2f30262fb86611f5cb0a",
+   "builtins.str:366ee636e1c9885733f1",
+   "builtins.str:63829de7c40d75ff12dd",
+   "builtins.str:80c18ea82219aca554de",
+   "builtins.str:88b451a19674d3e94a60",
+   "builtins.str:947bdd704bc5bc4cdcf8",
+   "builtins.str:9d79aadf900f235a0f02",
+   "builtins.str:c46184510a99dcd301a1",
+   "builtins.str:cf1a8327cd9dd1a23ad8"
+  ],
+  "swaps_partial": true,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:is_arity",
+  "tests": [
+   "toolz/tests/test_curried_doctests.py::test_doctests",
+   "toolz/tests/test_functoolz.py::test_memoize",
+   "toolz/tests/test_functoolz.py::test_memoize_curried",
+   "toolz/tests/test_functoolz.py::test_memoize_curry_cache",
+   "toolz/tests/test_functoolz.py::test_memoize_key",
+   "toolz/tests/test_functoolz.py::test_memoize_key_signature",
+   "toolz/tests/test_functoolz.py::test_memoize_kwargs",
+   "toolz/tests/test_functoolz.py::test_memoize_on_classmethods",
+   "toolz/tests/test_functoolz.py::test_memoize_partial",
+   "toolz/tests/test_functoolz.py::test_memoize_wrapped",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_py3",
+   "toolz/tests/test_inspect_args.py::test_is_arity",
+   "toolz/tests/test_signatures.py::test_for_coverage"
+  ],
+  "observed_keys": [
+   "builtins.NoneType:6eef6648406c333a4035",
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.NoneType",
+   "builtins.bool"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:is_partial_args",
+  "tests": [
+   "toolz/tests/test_curried.py::test_merge",
+   "toolz/tests/test_curried.py::test_merge_with",
+   "toolz/tests/test_curried.py::test_reduce",
+   "toolz/tests/test_curried.py::test_sorted",
+   "toolz/tests/test_curried.py::test_take",
+   "toolz/tests/test_curried_doctests.py::test_doctests",
+   "toolz/tests/test_functoolz.py::test_compose_annotations",
+   "toolz/tests/test_functoolz.py::test_curry_call",
+   "toolz/tests/test_functoolz.py::test_curry_comparable",
+   "toolz/tests/test_functoolz.py::test_curry_doesnot_transmogrify",
+   "toolz/tests/test_functoolz.py::test_curry_is_like_partial",
+   "toolz/tests/test_functoolz.py::test_curry_kwargs",
+   "toolz/tests/test_functoolz.py::test_curry_on_classmethods",
+   "toolz/tests/test_functoolz.py::test_curry_passes_errors",
+   "toolz/tests/test_functoolz.py::test_curry_simple",
+   "toolz/tests/test_functoolz.py::test_curry_subclassable",
+   "toolz/tests/test_functoolz.py::test_curry_unknown_args",
+   "toolz/tests/test_functoolz.py::test_memoize_curried",
+   "toolz/tests/test_functoolz.py::test_memoize_curry_cache",
+   "toolz/tests/test_functoolz.py::test_memoize_key",
+   "toolz/tests/test_inspect_args.py::test_func_keyword",
+   "toolz/tests/test_inspect_args.py::test_introspect_builtin_modules",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_partial_py3",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_py3",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_valid_py3",
+   "toolz/tests/test_inspect_args.py::test_is_partial",
+   "toolz/tests/test_inspect_args.py::test_is_valid_curry",
+   "toolz/tests/test_serialization.py::test_curried_qualname",
+   "toolz/tests/test_serialization.py::test_curry",
+   "toolz/tests/test_serialization.py::test_flip",
+   "toolz/tests/test_signatures.py::test_is_partial"
+  ],
+  "observed_keys": [
+   "builtins.NoneType:6eef6648406c333a4035",
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.NoneType",
+   "builtins.bool"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:is_valid_args",
+  "tests": [
+   "toolz/tests/test_curried.py::test_reduce",
+   "toolz/tests/test_curried.py::test_sorted",
+   "toolz/tests/test_curried.py::test_take",
+   "toolz/tests/test_curried_doctests.py::test_doctests",
+   "toolz/tests/test_functoolz.py::test_curry_call",
+   "toolz/tests/test_functoolz.py::test_curry_comparable",
+   "toolz/tests/test_functoolz.py::test_curry_doesnot_transmogrify",
+   "toolz/tests/test_functoolz.py::test_curry_is_like_partial",
+   "toolz/tests/test_functoolz.py::test_curry_kwargs",
+   "toolz/tests/test_functoolz.py::test_curry_on_classmethods",
+   "toolz/tests/test_functoolz.py::test_curry_passes_errors",
+   "toolz/tests/test_functoolz.py::test_curry_simple",
+   "toolz/tests/test_functoolz.py::test_curry_subclassable",
+   "toolz/tests/test_functoolz.py::test_memoize_curried",
+   "toolz/tests/test_functoolz.py::test_memoize_curry_cache",
+   "toolz/tests/test_functoolz.py::test_memoize_key",
+   "toolz/tests/test_inspect_args.py::test_func_keyword",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_partial_py3",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_valid_py3",
+   "toolz/tests/test_inspect_args.py::test_is_valid",
+   "toolz/tests/test_inspect_args.py::test_is_valid_curry",
+   "toolz/tests/test_inspect_args.py::test_is_valid_py3",
+   "toolz/tests/test_serialization.py::test_curried_qualname",
+   "toolz/tests/test_serialization.py::test_flip"
+  ],
+  "observed_keys": [
+   "builtins.NoneType:6eef6648406c333a4035",
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.NoneType",
+   "builtins.bool"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:num_required_args",
+  "tests": [
+   "toolz/tests/test_curried.py::test_curried_namespace",
+   "toolz/tests/test_curried.py::test_curried_operator",
+   "toolz/tests/test_curried_doctests.py::test_doctests",
+   "toolz/tests/test_functoolz.py::test_memoize",
+   "toolz/tests/test_functoolz.py::test_memoize_curried",
+   "toolz/tests/test_functoolz.py::test_memoize_curry_cache",
+   "toolz/tests/test_functoolz.py::test_memoize_key",
+   "toolz/tests/test_functoolz.py::test_memoize_key_signature",
+   "toolz/tests/test_functoolz.py::test_memoize_kwargs",
+   "toolz/tests/test_functoolz.py::test_memoize_on_classmethods",
+   "toolz/tests/test_functoolz.py::test_memoize_partial",
+   "toolz/tests/test_functoolz.py::test_memoize_wrapped",
+   "toolz/tests/test_inspect_args.py::test_inspect_signature_property",
+   "toolz/tests/test_inspect_args.py::test_inspect_wrapped_property",
+   "toolz/tests/test_inspect_args.py::test_introspect_curry_py3",
+   "toolz/tests/test_inspect_args.py::test_is_arity",
+   "toolz/tests/test_inspect_args.py::test_num_required_args",
+   "toolz/tests/test_signatures.py::test_for_coverage"
+  ],
+  "observed_keys": [
+   "builtins.NoneType:6eef6648406c333a4035",
+   "builtins.bool:97cdbdc7feff827efb08",
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:da4b9237bacccdf19c07"
+  ],
+  "observed_types": [
+   "builtins.NoneType",
+   "builtins.bool",
+   "builtins.int"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bool:97cdbdc7feff827efb08",
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:da4b9237bacccdf19c07"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:pipe",
+  "tests": [
+   "toolz/tests/test_functoolz.py::test_pipe"
+  ],
+  "observed_keys": [
+   "builtins.bool:97cdbdc7feff827efb08",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:da4b9237bacccdf19c07"
+  ],
+  "observed_types": [
+   "builtins.bool",
+   "builtins.int"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.bool:97cdbdc7feff827efb08",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:da4b9237bacccdf19c07"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.functoolz:thread_first",
+  "tests": [
+   "toolz/tests/test_functoolz.py::test_thread_first"
+  ],
+  "observed_keys": [
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.int:fa35e192121eabf3dabf"
+  ],
+  "observed_types": [
+   "builtins.int"
+  ],
+  "constant_repr": "0",
+  "constant_key": "builtins.int:b6589fc6ab0dc82cf120",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.int:fa35e192121eabf3dabf"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVLAC4="
+ },
+ {
+  "fn": "toolz.itertoolz:count",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_count"
+  ],
+  "observed_keys": [
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:b6589fc6ab0dc82cf120"
+  ],
+  "observed_types": [
+   "builtins.int"
+  ],
+  "constant_repr": "-999983",
+  "constant_key": "builtins.int:76d8643523abb5e1c559",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.int:1b6453892473a467d073",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:b6589fc6ab0dc82cf120"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBgAAAAAAAABK0b3w/y4="
+ },
+ {
+  "fn": "toolz.itertoolz:first",
+  "tests": [
+   "toolz/sandbox/tests/test_core.py::test_EqualityHashKey_callable_key",
+   "toolz/tests/test_itertoolz.py::test_first",
+   "toolz/tests/test_itertoolz.py::test_interpose",
+   "toolz/tests/test_itertoolz.py::test_join",
+   "toolz/tests/test_itertoolz.py::test_join_double_repeats",
+   "toolz/tests/test_itertoolz.py::test_join_missing_element",
+   "toolz/tests/test_recipes.py::test_partitionby"
+  ],
+  "observed_keys": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.str:194cc4ad39716d99a08e",
+   "builtins.str:2082cac9e9b6268fc86b",
+   "builtins.str:31bb8b84323f2f5ab6a8",
+   "builtins.str:501f0f1b99f1d7531bd2",
+   "builtins.str:850d887793387455e960",
+   "builtins.str:9d79aadf900f235a0f02"
+  ],
+  "observed_types": [
+   "builtins.int",
+   "builtins.str"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:77de68daecd823babbb5",
+   "builtins.int:b6589fc6ab0dc82cf120",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.str:194cc4ad39716d99a08e",
+   "builtins.str:2082cac9e9b6268fc86b",
+   "builtins.str:31bb8b84323f2f5ab6a8",
+   "builtins.str:501f0f1b99f1d7531bd2",
+   "builtins.str:850d887793387455e960",
+   "builtins.str:9d79aadf900f235a0f02"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.itertoolz:frequencies",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_frequencies",
+   "toolz/tests/test_recipes.py::test_countby"
+  ],
+  "observed_keys": [
+   "builtins.dict:66ce9d4f29e3621ab697",
+   "builtins.dict:983eb2cdd666c4930114",
+   "builtins.dict:bf21a9e8fbc5a3846fb0",
+   "builtins.dict:cbcf9cbe5d7989d46d3c",
+   "builtins.dict:e23ab9fb33cf0c90d24b",
+   "builtins.dict:f930b06f7e864b344f56"
+  ],
+  "observed_types": [
+   "builtins.dict"
+  ],
+  "constant_repr": "{None: None}",
+  "constant_key": "builtins.dict:acd18d947d70fb205a2d",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.dict:66ce9d4f29e3621ab697",
+   "builtins.dict:983eb2cdd666c4930114",
+   "builtins.dict:bf21a9e8fbc5a3846fb0",
+   "builtins.dict:cbcf9cbe5d7989d46d3c",
+   "builtins.dict:e23ab9fb33cf0c90d24b",
+   "builtins.dict:f930b06f7e864b344f56"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWVBgAAAAAAAAB9lE5Ocy4="
+ },
+ {
+  "fn": "toolz.itertoolz:get",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_get"
+  ],
+  "observed_keys": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.str:0a214b4adf5a2bd2b19d",
+   "builtins.str:6d764d8a86ea78005cd7",
+   "builtins.tuple:5bb1ecbae92d17f919f7",
+   "builtins.tuple:6144df7832c763e87390",
+   "builtins.tuple:63cca0f629ae5b6c7d0d",
+   "builtins.tuple:90cdbfffd8597bef2a31",
+   "builtins.tuple:f9065fa7389750e16fe0"
+  ],
+  "observed_types": [
+   "builtins.int",
+   "builtins.str",
+   "builtins.tuple"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.str:0a214b4adf5a2bd2b19d",
+   "builtins.str:6d764d8a86ea78005cd7",
+   "builtins.tuple:5bb1ecbae92d17f919f7",
+   "builtins.tuple:6144df7832c763e87390",
+   "builtins.tuple:63cca0f629ae5b6c7d0d",
+   "builtins.tuple:90cdbfffd8597bef2a31",
+   "builtins.tuple:f9065fa7389750e16fe0"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.itertoolz:groupby",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_groupby",
+   "toolz/tests/test_itertoolz.py::test_groupby_non_callable",
+   "toolz/tests/test_itertoolz.py::test_join",
+   "toolz/tests/test_itertoolz.py::test_join_double_repeats",
+   "toolz/tests/test_itertoolz.py::test_join_missing_element",
+   "toolz/tests/test_itertoolz.py::test_key_as_getter",
+   "toolz/tests/test_itertoolz.py::test_left_outer_join",
+   "toolz/tests/test_itertoolz.py::test_outer_join",
+   "toolz/tests/test_itertoolz.py::test_right_outer_join"
+  ],
+  "observed_keys": [
+   "builtins.dict:183aeeaa2804d27a47f1",
+   "builtins.dict:1b579b2bd5440c4d89d6",
+   "builtins.dict:2d98801e84145811b079",
+   "builtins.dict:58cdc5f47157e2106fb4",
+   "builtins.dict:5a8c94703961f3e20dc0",
+   "builtins.dict:6b8274ff0de5ce3f3d3e",
+   "builtins.dict:a7d37f691c90d03c6543",
+   "builtins.dict:ae35d093cb66b02b8026",
+   "builtins.dict:c6afac807c39115426db",
+   "builtins.dict:e447731f6b6e4c1e00c7"
+  ],
+  "observed_types": [
+   "builtins.dict"
+  ],
+  "constant_repr": "{}",
+  "constant_key": "builtins.dict:bf21a9e8fbc5a3846fb0",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.dict:183aeeaa2804d27a47f1",
+   "builtins.dict:1b579b2bd5440c4d89d6",
+   "builtins.dict:2d98801e84145811b079",
+   "builtins.dict:58cdc5f47157e2106fb4",
+   "builtins.dict:5a8c94703961f3e20dc0",
+   "builtins.dict:6b8274ff0de5ce3f3d3e",
+   "builtins.dict:a7d37f691c90d03c6543",
+   "builtins.dict:ae35d093cb66b02b8026",
+   "builtins.dict:c6afac807c39115426db",
+   "builtins.dict:e447731f6b6e4c1e00c7"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAV9lC4="
+ },
+ {
+  "fn": "toolz.itertoolz:isdistinct",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_isdistinct"
+  ],
+  "observed_keys": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.bool"
+  ],
+  "constant_repr": "False",
+  "constant_key": "builtins.bool:97cdbdc7feff827efb08",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWJLg=="
+ },
+ {
+  "fn": "toolz.itertoolz:isiterable",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_isiterable"
+  ],
+  "observed_keys": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.bool"
+  ],
+  "constant_repr": "False",
+  "constant_key": "builtins.bool:97cdbdc7feff827efb08",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWJLg=="
+ },
+ {
+  "fn": "toolz.itertoolz:last",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_last"
+  ],
+  "observed_keys": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.str:c0140cfdada799fce08f"
+  ],
+  "observed_types": [
+   "builtins.int",
+   "builtins.str"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.str:c0140cfdada799fce08f"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.itertoolz:nth",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_nth"
+  ],
+  "observed_keys": [
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.str:7658633f9a996e30c6c9",
+   "builtins.str:b5c42409eca957ece2ae",
+   "builtins.str:e5ebc32b6bbad336bf03"
+  ],
+  "observed_types": [
+   "builtins.int",
+   "builtins.str"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.str:7658633f9a996e30c6c9",
+   "builtins.str:b5c42409eca957ece2ae",
+   "builtins.str:e5ebc32b6bbad336bf03"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.itertoolz:reduceby",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_reduce_by_callable_default",
+   "toolz/tests/test_itertoolz.py::test_reduce_by_init",
+   "toolz/tests/test_itertoolz.py::test_reduceby"
+  ],
+  "observed_keys": [
+   "builtins.dict:7574bcf0df43494432ce",
+   "builtins.dict:7e3a338a97cff23c75bc",
+   "builtins.dict:98d7170caa6ba777bb45",
+   "builtins.dict:d9be4d6b49f839a71d0b",
+   "builtins.dict:f1fe04fbf017b142b28b"
+  ],
+  "observed_types": [
+   "builtins.dict"
+  ],
+  "constant_repr": "{}",
+  "constant_key": "builtins.dict:bf21a9e8fbc5a3846fb0",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.dict:7574bcf0df43494432ce",
+   "builtins.dict:7e3a338a97cff23c75bc",
+   "builtins.dict:98d7170caa6ba777bb45",
+   "builtins.dict:d9be4d6b49f839a71d0b",
+   "builtins.dict:f1fe04fbf017b142b28b"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAV9lC4="
+ },
+ {
+  "fn": "toolz.itertoolz:second",
+  "tests": [
+   "toolz/tests/test_curried.py::test_sorted",
+   "toolz/tests/test_itertoolz.py::test_join",
+   "toolz/tests/test_itertoolz.py::test_join_double_repeats",
+   "toolz/tests/test_itertoolz.py::test_join_missing_element",
+   "toolz/tests/test_itertoolz.py::test_second"
+  ],
+  "observed_keys": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.str:0a214b4adf5a2bd2b19d"
+  ],
+  "observed_types": [
+   "builtins.int",
+   "builtins.str"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.int:356a192b7913b04c5457",
+   "builtins.int:ac3478d69a3c81fa62e6",
+   "builtins.int:da4b9237bacccdf19c07",
+   "builtins.str:0a214b4adf5a2bd2b19d"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.itertoolz:tail",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_last",
+   "toolz/tests/test_itertoolz.py::test_tail"
+  ],
+  "observed_keys": [
+   "builtins.str:c0140cfdada799fce08f",
+   "builtins.str:c23e05896948d3de50fe",
+   "builtins.tuple:6f0def2831e9b52d61fc",
+   "builtins.tuple:876b2df1d6051d956771",
+   "builtins.tuple:e744faf73c5747fdcb74"
+  ],
+  "observed_types": [
+   "builtins.str",
+   "builtins.tuple"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.str:c0140cfdada799fce08f",
+   "builtins.str:c23e05896948d3de50fe",
+   "builtins.tuple:6f0def2831e9b52d61fc",
+   "builtins.tuple:876b2df1d6051d956771",
+   "builtins.tuple:e744faf73c5747fdcb74"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.itertoolz:topk",
+  "tests": [
+   "toolz/tests/test_itertoolz.py::test_topk",
+   "toolz/tests/test_itertoolz.py::test_topk_is_stable"
+  ],
+  "observed_keys": [
+   "builtins.tuple:2fac153efe00690928bb",
+   "builtins.tuple:70e64ebbb565b866c5e0",
+   "builtins.tuple:8c4ff289dc0c6da7ec08",
+   "builtins.tuple:90cdbfffd8597bef2a31",
+   "builtins.tuple:bb22aa52344e21e75aa6",
+   "builtins.tuple:c223a3af901e57f3dcfa"
+  ],
+  "observed_types": [
+   "builtins.tuple"
+  ],
+  "constant_repr": "()",
+  "constant_key": "builtins.tuple:f9065fa7389750e16fe0",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.tuple:2fac153efe00690928bb",
+   "builtins.tuple:70e64ebbb565b866c5e0",
+   "builtins.tuple:8c4ff289dc0c6da7ec08",
+   "builtins.tuple:90cdbfffd8597bef2a31",
+   "builtins.tuple:bb22aa52344e21e75aa6",
+   "builtins.tuple:c223a3af901e57f3dcfa"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAUpLg=="
+ },
+ {
+  "fn": "toolz.recipes:countby",
+  "tests": [
+   "toolz/tests/test_recipes.py::test_countby"
+  ],
+  "observed_keys": [
+   "builtins.dict:66ce9d4f29e3621ab697",
+   "builtins.dict:cbcf9cbe5d7989d46d3c",
+   "builtins.dict:e23ab9fb33cf0c90d24b"
+  ],
+  "observed_types": [
+   "builtins.dict"
+  ],
+  "constant_repr": "{}",
+  "constant_key": "builtins.dict:bf21a9e8fbc5a3846fb0",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.dict:66ce9d4f29e3621ab697",
+   "builtins.dict:cbcf9cbe5d7989d46d3c",
+   "builtins.dict:e23ab9fb33cf0c90d24b"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAV9lC4="
+ },
+ {
+  "fn": "toolz.sandbox.parallel:fold",
+  "tests": [
+   "toolz/sandbox/tests/test_parallel.py::test_fold"
+  ],
+  "observed_keys": [
+   "builtins.int:fb644351560d8296fe6d",
+   "builtins.set:46041c3872e263259e85"
+  ],
+  "observed_types": [
+   "builtins.int",
+   "builtins.set"
+  ],
+  "constant_repr": "None",
+  "constant_key": "builtins.NoneType:6eef6648406c333a4035",
+  "type_preserving": false,
+  "swap_from": [
+   "builtins.int:fb644351560d8296fe6d",
+   "builtins.set:46041c3872e263259e85"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAVOLg=="
+ },
+ {
+  "fn": "toolz.utils:raises",
+  "tests": [
+   "toolz/tests/test_dicttoolz.py::TestCustomMapping::test_factory",
+   "toolz/tests/test_dicttoolz.py::TestDefaultDict::test_factory",
+   "toolz/tests/test_dicttoolz.py::TestDict::test_factory",
+   "toolz/tests/test_dicttoolz.py::test_get_in_raises_when_no_default_is_set",
+   "toolz/tests/test_functoolz.py::test_apply",
+   "toolz/tests/test_functoolz.py::test_curry_attributes_readonly",
+   "toolz/tests/test_functoolz.py::test_curry_bad_types",
+   "toolz/tests/test_functoolz.py::test_curry_call",
+   "toolz/tests/test_functoolz.py::test_curry_comparable",
+   "toolz/tests/test_functoolz.py::test_curry_kwargs",
+   "toolz/tests/test_functoolz.py::test_curry_passes_errors",
+   "toolz/tests/test_functoolz.py::test_curry_simple",
+   "toolz/tests/test_functoolz.py::test_excepts",
+   "toolz/tests/test_functoolz.py::test_memoize",
+   "toolz/tests/test_functoolz.py::test_memoize_key_signature",
+   "toolz/tests/test_inspect_args.py::test_make_func",
+   "toolz/tests/test_itertoolz.py::test_diff",
+   "toolz/tests/test_itertoolz.py::test_get",
+   "toolz/tests/test_itertoolz.py::test_nth",
+   "toolz/tests/test_itertoolz.py::test_partition_all",
+   "toolz/tests/test_itertoolz.py::test_peek",
+   "toolz/tests/test_itertoolz.py::test_pluck",
+   "toolz/tests/test_itertoolz.py::test_random_sample",
+   "toolz/tests/test_serialization.py::test_curried_bad_qualname",
+   "toolz/tests/test_utils.py::test_raises"
+  ],
+  "observed_keys": [
+   "builtins.bool:88b33e4e12f75ac8bf79",
+   "builtins.bool:97cdbdc7feff827efb08"
+  ],
+  "observed_types": [
+   "builtins.bool"
+  ],
+  "constant_repr": "False",
+  "constant_key": "builtins.bool:97cdbdc7feff827efb08",
+  "type_preserving": true,
+  "swap_from": [
+   "builtins.bool:88b33e4e12f75ac8bf79"
+  ],
+  "swaps_partial": false,
+  "constant_pickle": "gAWJLg=="
+ }
+]

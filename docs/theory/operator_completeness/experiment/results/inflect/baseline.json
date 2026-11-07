@@ -1,0 +1,14 @@
+{
+ "tests_collected": 300,
+ "passed_run1": 279,
+ "passed_run2": 279,
+ "passed_pristine": 284,
+ "usable": 279,
+ "decorated_vs_pristine_disagreements": [
+  "inflect/__init__.py::inflect.engine.compare",
+  "tests/test_pwd.py::Test::test__pl_special_verb",
+  "tests/test_pwd.py::Test::test_a_alt",
+  "tests/test_pwd.py::Test::test_pl",
+  "tests/test_typing.py::test_word_annotation_keeps_runtime_validation"
+ ]
+}

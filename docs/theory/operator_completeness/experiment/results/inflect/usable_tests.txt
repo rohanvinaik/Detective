@@ -1,0 +1,279 @@
+inflect/__init__.py::inflect._group_thousands
+inflect/__init__.py::inflect._grouped_from_right
+inflect/__init__.py::inflect._passthrough_sign
+inflect/__init__.py::inflect.bysize
+inflect/__init__.py::inflect.engine._handle_long_compounds
+inflect/__init__.py::inflect.engine._handle_prepositional_phrase
+inflect/__init__.py::inflect.engine.number_to_currency
+inflect/__init__.py::inflect.engine.ordinal
+inflect/__init__.py::inflect.engine.singular_noun
+inflect/__init__.py::inflect.joinstem
+tests/test_an.py::test_an
+tests/test_an.py::test_an_abbreviation
+tests/test_classical_all.py::Test::test_classical
+tests/test_classical_ancient.py::test_ancient_1
+tests/test_classical_herd.py::test_ancient_1
+tests/test_classical_names.py::test_ancient_1
+tests/test_classical_person.py::test_ancient_1
+tests/test_classical_zero.py::test_ancient_1
+tests/test_compounds.py::test_capitalized_compound_with_lowercase_y_ending
+tests/test_compounds.py::test_compound_1
+tests/test_compounds.py::test_compound_2
+tests/test_compounds.py::test_compound_3
+tests/test_compounds.py::test_compound_4
+tests/test_compounds.py::test_singular_compound_with_singular_leader
+tests/test_compounds.py::test_unit_handling_combined
+tests/test_compounds.py::test_unit_handling_degree
+tests/test_compounds.py::test_unit_handling_fractional
+tests/test_compounds.py::test_unit_open_compound_nouns
+tests/test_compounds.py::test_unit_open_compound_nouns_classical
+tests/test_inflections.py::test_NameError_in_strings
+tests/test_inflections.py::test_decimal_ordinals
+tests/test_inflections.py::test_def
+tests/test_inflections.py::test_inflect_keyword_args
+tests/test_inflections.py::test_inflect_on_builtin_constants
+tests/test_inflections.py::test_inflect_on_tuples
+tests/test_inflections.py::test_inflect_rejects_nonliteral_numbers[-'2']
+tests/test_inflections.py::test_inflect_rejects_nonliteral_numbers[--2]
+tests/test_inflections.py::test_inflect_rejects_nonliteral_numbers[-missing]
+tests/test_inflections.py::test_inflect_rejects_nonliteral_numbers[1 + 2]
+tests/test_inflections.py::test_inflect_rejects_nonliteral_numbers[~2]
+tests/test_inflections.py::test_inflect_signed_numbers[no('error', -2)--2 errors]
+tests/test_inflections.py::test_inflect_signed_numbers[num(-2, False)no('error')--2 errors]
+tests/test_inflections.py::test_inflect_signed_numbers[number_to_words(+1.5)-one point five]
+tests/test_inflections.py::test_inflect_signed_numbers[number_to_words(+12)-twelve]
+tests/test_inflections.py::test_inflect_signed_numbers[number_to_words(-1.5)-minus one point five]
+tests/test_inflections.py::test_inflect_signed_numbers[number_to_words(-12)-minus twelve]
+tests/test_inflections.py::test_inflect_signed_numbers[number_to_words(num=+12)-twelve]
+tests/test_inflections.py::test_inflect_signed_numbers[number_to_words(num=-12)-minus twelve]
+tests/test_inflections.py::test_inflect_signed_numbers[plural('error', (-2, +1))-errors]
+tests/test_inflections.py::test_inflect_signed_numbers[plural('error', -2)-errors]
+tests/test_inflections.py::test_inflect_signed_numbers[plural('error', [-2, +1])-errors]
+tests/test_inflections.py::test_inflect_signed_numbers[plural('error', count=+1)-error]
+tests/test_inflections.py::test_many
+tests/test_inflections.py::test_negative_ordinals
+tests/test_inflections.py::test_ordinal
+tests/test_inflections.py::test_ordinal_malformed_input
+tests/test_inflections.py::test_prespart
+tests/test_join.py::test_join
+tests/test_numwords.py::test_array
+tests/test_numwords.py::test_issue_131
+tests/test_numwords.py::test_issue_217
+tests/test_numwords.py::test_issue_242
+tests/test_numwords.py::test_lines
+tests/test_numwords.py::test_loop
+tests/test_numwords.py::test_number_to_currency
+tests/test_numwords.py::test_number_to_currency_bad_value[inf]
+tests/test_numwords.py::test_number_to_currency_bad_value[nan]
+tests/test_numwords.py::test_number_to_currency_bad_value[ten]
+tests/test_numwords.py::test_number_to_currency_rounds_half_up
+tests/test_numwords.py::test_scientific_notation_float
+tests/test_pl_si.py::test_pl_si[classical off-Jones]
+tests/test_pl_si.py::test_pl_si[classical off-Times]
+tests/test_pl_si.py::test_pl_si[classical on-Jones]
+tests/test_pl_si.py::test_pl_si[classical on-Times]
+tests/test_pwd.py::Test::test__pl_check_plurals_N
+tests/test_pwd.py::Test::test__pl_check_plurals_adj
+tests/test_pwd.py::Test::test__pl_general_verb
+tests/test_pwd.py::Test::test__pl_reg_plurals
+tests/test_pwd.py::Test::test__pl_special_adjective['-False]
+tests/test_pwd.py::Test::test__pl_special_adjective[John's-Johns']
+tests/test_pwd.py::Test::test__pl_special_adjective[TUNA's-TUNA's]
+tests/test_pwd.py::Test::test__pl_special_adjective[a-some]
+tests/test_pwd.py::Test::test__pl_special_adjective[bad-False]
+tests/test_pwd.py::Test::test__pl_special_adjective[my-our]
+tests/test_pwd.py::Test::test__pl_special_adjective[tuna's-tuna's]
+tests/test_pwd.py::Test::test__plnoun
+tests/test_pwd.py::Test::test_a[C.O.D.-a C.O.D.]
+tests/test_pwd.py::Test::test_a[Euler number-an Euler number]
+tests/test_pwd.py::Test::test_a[FAQ-a FAQ]
+tests/test_pwd.py::Test::test_a[FJ-an FJ]
+tests/test_pwd.py::Test::test_a[FJO-a FJO]
+tests/test_pwd.py::Test::test_a[LCD-an LCD]
+tests/test_pwd.py::Test::test_a[LED-a LED]
+tests/test_pwd.py::Test::test_a[NASA-a NASA]
+tests/test_pwd.py::Test::test_a[OPEC-an OPEC]
+tests/test_pwd.py::Test::test_a[R.I.P.-an R.I.P.]
+tests/test_pwd.py::Test::test_a[RSPCA-an RSPCA]
+tests/test_pwd.py::Test::test_a[SONAR-a SONAR]
+tests/test_pwd.py::Test::test_a[T-square-a T-square]
+tests/test_pwd.py::Test::test_a[UN-a UN]
+tests/test_pwd.py::Test::test_a[UNESCO-a UNESCO]
+tests/test_pwd.py::Test::test_a[X-ray-an X-ray]
+tests/test_pwd.py::Test::test_a[XML-an XML]
+tests/test_pwd.py::Test::test_a[YWCA-a YWCA]
+tests/test_pwd.py::Test::test_a[a ant-an ant]
+tests/test_pwd.py::Test::test_a[a cat-a cat]
+tests/test_pwd.py::Test::test_a[a elephant-an elephant]
+tests/test_pwd.py::Test::test_a[a giraffe-a giraffe]
+tests/test_pwd.py::Test::test_a[a orangutan-an orangutan]
+tests/test_pwd.py::Test::test_a[a-an a]
+tests/test_pwd.py::Test::test_a[an ant-an ant]
+tests/test_pwd.py::Test::test_a[an cat-a cat]
+tests/test_pwd.py::Test::test_a[an ewe-a ewe]
+tests/test_pwd.py::Test::test_a[an-an an]
+tests/test_pwd.py::Test::test_a[ant-an ant]
+tests/test_pwd.py::Test::test_a[book-a book]
+tests/test_pwd.py::Test::test_a[cat-a cat]
+tests/test_pwd.py::Test::test_a[e-mail-an e-mail]
+tests/test_pwd.py::Test::test_a[euphemism-a euphemism]
+tests/test_pwd.py::Test::test_a[hour-an hour]
+tests/test_pwd.py::Test::test_a[houri-a houri]
+tests/test_pwd.py::Test::test_a[nth-an nth]
+tests/test_pwd.py::Test::test_a[rth-an rth]
+tests/test_pwd.py::Test::test_a[sth-an sth]
+tests/test_pwd.py::Test::test_a[xth-an xth]
+tests/test_pwd.py::Test::test_a[yak-a yak]
+tests/test_pwd.py::Test::test_a[yttrium-an yttrium]
+tests/test_pwd.py::Test::test_a_and_an_same_method
+tests/test_pwd.py::Test::test_classical
+tests/test_pwd.py::Test::test_classical_pl
+tests/test_pwd.py::Test::test_compare_adjectives[indexes'-indices'-p:p]
+tests/test_pwd.py::Test::test_compare_adjectives[my-my-eq]
+tests/test_pwd.py::Test::test_compare_adjectives[my-our-s:p]
+tests/test_pwd.py::Test::test_compare_adjectives[our-our-eq]
+tests/test_pwd.py::Test::test_compare_nouns[index-index-eq]
+tests/test_pwd.py::Test::test_compare_nouns[index-indexes-s:p]
+tests/test_pwd.py::Test::test_compare_nouns[index-indices-s:p]
+tests/test_pwd.py::Test::test_compare_nouns[indexes-index-p:s]
+tests/test_pwd.py::Test::test_compare_nouns[indexes-indices-p:p]
+tests/test_pwd.py::Test::test_compare_nouns[indices-index-p:s]
+tests/test_pwd.py::Test::test_compare_nouns[indices-indexes-p:p]
+tests/test_pwd.py::Test::test_compare_nouns[indices-indices-eq]
+tests/test_pwd.py::Test::test_compare_nouns[inverted index-inverted indices-s:p]
+tests/test_pwd.py::Test::test_compare_nouns[inverted indexes-inverted indices-p:p]
+tests/test_pwd.py::Test::test_compare_nouns[inverted indices-inverted index-p:s]
+tests/test_pwd.py::Test::test_compare_preserves_classical_mode
+tests/test_pwd.py::Test::test_compare_simple[base-basis-False]
+tests/test_pwd.py::Test::test_compare_simple[brothers-brethren-p:p]
+tests/test_pwd.py::Test::test_compare_simple[cats-cats-eq]
+tests/test_pwd.py::Test::test_compare_simple[courts martial-court martial-p:s]
+tests/test_pwd.py::Test::test_compare_simple[index-index-eq]
+tests/test_pwd.py::Test::test_compare_simple[index-indexes-s:p]
+tests/test_pwd.py::Test::test_compare_simple[index-indices-s:p]
+tests/test_pwd.py::Test::test_compare_simple[indexes-index-p:s]
+tests/test_pwd.py::Test::test_compare_simple[indexes-indices-p:p]
+tests/test_pwd.py::Test::test_compare_simple[indices-index-p:s]
+tests/test_pwd.py::Test::test_compare_simple[indices-indexes-p:p]
+tests/test_pwd.py::Test::test_compare_simple[indices-indices-eq]
+tests/test_pwd.py::Test::test_compare_simple[inverted index-inverted indices-s:p]
+tests/test_pwd.py::Test::test_compare_simple[inverted indexes-inverted indices-p:p]
+tests/test_pwd.py::Test::test_compare_simple[inverted indices-inverted index-p:s]
+tests/test_pwd.py::Test::test_compare_simple[my-my-eq]
+tests/test_pwd.py::Test::test_compare_simple[my-our-s:p]
+tests/test_pwd.py::Test::test_compare_simple[opera-opuses-p:p]
+tests/test_pwd.py::Test::test_compare_simple[opus-operas-False]
+tests/test_pwd.py::Test::test_compare_simple[opuses-opera-p:p]
+tests/test_pwd.py::Test::test_compare_simple[our-our-eq]
+tests/test_pwd.py::Test::test_compare_simple[she-he-False]
+tests/test_pwd.py::Test::test_compare_simple[syrinx-syringe-False]
+tests/test_pwd.py::Test::test_compare_simple[taxi-taxes-False]
+tests/test_pwd.py::Test::test_compare_simple[time-Times-False]
+tests/test_pwd.py::Test::test_compare_simple[time-times-s:p]
+tests/test_pwd.py::Test::test_compare_verbs[run-run-eq]
+tests/test_pwd.py::Test::test_compare_verbs[runs-run-s:p]
+tests/test_pwd.py::Test::test_compare_verbs[runs-runs-eq]
+tests/test_pwd.py::Test::test_count
+tests/test_pwd.py::Test::test_defnoun_case_normalize_discards_preservation
+tests/test_pwd.py::Test::test_doc_examples
+tests/test_pwd.py::Test::test_enclose
+tests/test_pwd.py::Test::test_enword
+tests/test_pwd.py::Test::test_gender
+tests/test_pwd.py::Test::test_hundfn
+tests/test_pwd.py::Test::test_inflect
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[num('invalid')-BadNumValueError-1]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[num('invalid')-BadNumValueError-2]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[num('invalid')-BadNumValueError-None]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[plural('cat', @)-SyntaxError-1]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[plural('cat', @)-SyntaxError-2]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[plural('cat', @)-SyntaxError-None]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[plural(missing_word)-NameError-1]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[plural(missing_word)-NameError-2]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_error[plural(missing_word)-NameError-None]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_success[1]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_success[2]
+tests/test_pwd.py::Test::test_inflect_restores_count_after_success[None]
+tests/test_pwd.py::Test::test_joinstem
+tests/test_pwd.py::Test::test_millfn
+tests/test_pwd.py::Test::test_no
+tests/test_pwd.py::Test::test_num
+tests/test_pwd.py::Test::test_numwords
+tests/test_pwd.py::Test::test_numwords_group[120-kwargs5-one, twenty]
+tests/test_pwd.py::Test::test_numwords_group[120-kwargs6-one, twenty]
+tests/test_pwd.py::Test::test_numwords_group[123.456-kwargs9-one, two, three, mark, four, five, six]
+tests/test_pwd.py::Test::test_numwords_group[12345-kwargs0-one, twenty-three, forty-five]
+tests/test_pwd.py::Test::test_numwords_group[12345-kwargs2-one, two, three, four, five]
+tests/test_pwd.py::Test::test_numwords_group[123456-kwargs1-one twenty-three, four fifty-six]
+tests/test_pwd.py::Test::test_numwords_group[1234th-kwargs3-one thousand, two hundred and thirty-fourth]
+tests/test_pwd.py::Test::test_numwords_group[1234th-kwargs4-one thousand, two hundred and thirty-fourth]
+tests/test_pwd.py::Test::test_numwords_group[555_1202-kwargs7-five, five, five, one, two, oh, two]
+tests/test_pwd.py::Test::test_numwords_group[555_1202-kwargs8-five, five, five, unity, two, zero, two]
+tests/test_pwd.py::Test::test_numwords_group_chunking_error
+tests/test_pwd.py::Test::test_ordinal[0-0th]
+tests/test_pwd.py::Test::test_ordinal[1-1st]
+tests/test_pwd.py::Test::test_ordinal[10-10th]
+tests/test_pwd.py::Test::test_ordinal[100-100th]
+tests/test_pwd.py::Test::test_ordinal[1000-1000th]
+tests/test_pwd.py::Test::test_ordinal[1001-1001st]
+tests/test_pwd.py::Test::test_ordinal[101-101st]
+tests/test_pwd.py::Test::test_ordinal[2-2nd]
+tests/test_pwd.py::Test::test_ordinal[28-28th]
+tests/test_pwd.py::Test::test_ordinal[3-3rd]
+tests/test_pwd.py::Test::test_ordinal[4-4th]
+tests/test_pwd.py::Test::test_ordinal[four-fourth]
+tests/test_pwd.py::Test::test_ordinal[n-nth]
+tests/test_pwd.py::Test::test_ordinal[one hundered and one-one hundered and first]
+tests/test_pwd.py::Test::test_ordinal[one hundered-one hunderedth]
+tests/test_pwd.py::Test::test_ordinal[one-first]
+tests/test_pwd.py::Test::test_ordinal[twenty-twentieth]
+tests/test_pwd.py::Test::test_ordinal[two-second]
+tests/test_pwd.py::Test::test_ordinal[zero-zeroth]
+tests/test_pwd.py::Test::test_partition_word
+tests/test_pwd.py::Test::test_plural_phrase_changing_word_count
+tests/test_pwd.py::Test::test_postprocess
+tests/test_pwd.py::Test::test_prespart[alibis-alibiing]
+tests/test_pwd.py::Test::test_prespart[are-being]
+tests/test_pwd.py::Test::test_prespart[bats-batting]
+tests/test_pwd.py::Test::test_prespart[dies-dying]
+tests/test_pwd.py::Test::test_prespart[eats-eating]
+tests/test_pwd.py::Test::test_prespart[eyes-eying]
+tests/test_pwd.py::Test::test_prespart[glues-gluing]
+tests/test_pwd.py::Test::test_prespart[had-having]
+tests/test_pwd.py::Test::test_prespart[hammers-hammering]
+tests/test_pwd.py::Test::test_prespart[has-having]
+tests/test_pwd.py::Test::test_prespart[hoes-hoeing]
+tests/test_pwd.py::Test::test_prespart[is-being]
+tests/test_pwd.py::Test::test_prespart[loves-loving]
+tests/test_pwd.py::Test::test_prespart[names-naming]
+tests/test_pwd.py::Test::test_prespart[runs-running]
+tests/test_pwd.py::Test::test_prespart[sees-seeing]
+tests/test_pwd.py::Test::test_prespart[skis-skiing]
+tests/test_pwd.py::Test::test_prespart[spies-spying]
+tests/test_pwd.py::Test::test_pronoun_I_case_preserved_by_default
+tests/test_pwd.py::Test::test_sinoun
+tests/test_pwd.py::Test::test_tenfn
+tests/test_pwd.py::Test::test_unitfn
+tests/test_pwd.py::Test::test_unknown_method
+tests/test_pwd.py::Test::test_uppercase_noun_can_keep_custom_plural_case
+tests/test_pwd.py::Test::test_user_input_defverb
+tests/test_pwd.py::Test::test_user_input_fns
+tests/test_pwd.py::Test::test_wordlist
+tests/test_singular_ss.py::test_singular_noun_ss_words[boss]
+tests/test_singular_ss.py::test_singular_noun_ss_words[cross]
+tests/test_singular_ss.py::test_singular_noun_ss_words[dress]
+tests/test_singular_ss.py::test_singular_noun_ss_words[glass]
+tests/test_singular_ss.py::test_singular_noun_ss_words[grass]
+tests/test_singular_ss.py::test_singular_noun_ss_words[loss]
+tests/test_singular_ss.py::test_singular_noun_ss_words[moss]
+tests/test_singular_ss.py::test_singular_noun_ss_words[stress]
+tests/test_singular_ss.py::test_singular_noun_ss_words[underpass]
+tests/test_singular_ss.py::test_singular_noun_sses_plurals[bosses-boss]
+tests/test_singular_ss.py::test_singular_noun_sses_plurals[crosses-cross]
+tests/test_singular_ss.py::test_singular_noun_sses_plurals[dresses-dress]
+tests/test_singular_ss.py::test_singular_noun_sses_plurals[glasses-glass]
+tests/test_singular_ss.py::test_singular_noun_sses_plurals[grasses-grass]
+tests/test_singular_ss.py::test_singular_noun_sses_plurals[losses-loss]
+tests/test_singular_ss.py::test_singular_noun_sses_plurals[mosses-moss]
+tests/test_uncountable_nouns.py::test_countable_nouns_still_pluralize
+tests/test_uncountable_nouns.py::test_mass_nouns_are_uninflected
+tests/test_unicode.py::TestUnicode::test_unicode_plural
