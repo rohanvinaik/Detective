@@ -78,6 +78,7 @@ from .equivalence import (
     structural_shape,
     synth_ast_input,
 )
+from .process_state import restores_process_state
 from .purity import is_pure as _is_pure
 from .purity import world_effects
 from .scope import ScopeMap, scope_from_profiling
@@ -989,6 +990,13 @@ class _CaptureOptions(TypedDict, total=False):
     deadline: float
 
 
+def _profile_roots(bound: inspect.BoundArguments) -> list[str]:
+    """The project roots a ``profile`` call imports from: its root and the extra test roots (#86)."""
+    args = bound.arguments
+    return [os.path.abspath(args["project_root"]), *(os.path.abspath(d) for d in args["extra_test_dirs"])]
+
+
+@restores_process_state(_profile_roots)
 def profile(
     file: str,
     function: str,
