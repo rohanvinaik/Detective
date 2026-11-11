@@ -153,6 +153,12 @@ class SuiteAudit:
     # WHICH of `candidate_equivalent_ids` are crash-only (#71): an input distinguishes them, so the
     # closing action never offers `flag` (an equivalence claim) for one. Defaulted — additive.
     crash_only_ids: tuple[str, ...] = ()
+    # ``(mutant id, test)`` for each crash-only mutant a current test detects by crash (D#110, D#113): "" for
+    # the test when the kill matrix named none. The page names them, so "detected by crash" says by what.
+    crash_detected_by: tuple[tuple[str, str], ...] = ()
+    # ``(mutant id, clause)`` for each mutant whose recorded `equivalent` flag an execution on record
+    # contradicts (D#110): kept on disk, not counted as flagged, named on the page with the fact.
+    contradicted_mutant_flags: tuple[tuple[str, str], ...] = ()
     # How many of `crash_only_equivalent` NO current test reaches (D#140, `crash_only_status`): the crash
     # is the witness search's observation, not the suite's, so the page must not call them detected.
     crash_only_undetected: int = 0
@@ -681,6 +687,8 @@ def audit_suite(
     candidate_equivalent_ids: tuple[str, ...] = ()
     crash_only_equivalent = 0
     crash_only_ids: tuple[str, ...] = ()
+    crash_detected_by: tuple[tuple[str, str], ...] = ()
+    contradicted_mutant_flags: tuple[tuple[str, str], ...] = ()
     crash_only_undetected = 0
     takes_arguments: bool | None = None
     boundary_probe = ""
@@ -724,6 +732,14 @@ def audit_suite(
         from .equivalence import crash_only_status
 
         crash_only_undetected = crash_only_status([v for v in report.equivalent if v.crash_only])[1]
+        from .equivalence import verdict_distinction
+
+        crash_detected_by = tuple(
+            (v.mutant_id, v.detecting_test) for v in report.equivalent if v.crash_only and v.suite_detected
+        )
+        contradicted_mutant_flags = tuple(
+            (v.mutant_id, verdict_distinction(v)[1]) for v in report.contradicted_flags
+        )
         takes_arguments = report.takes_arguments
         boundary_probe = str(getattr(report, "boundary_probe", "") or "")
         unclassified = len(report.unclassified)
@@ -853,6 +869,8 @@ def audit_suite(
         candidate_equivalent_ids=candidate_equivalent_ids,
         crash_only_equivalent=crash_only_equivalent,
         crash_only_ids=crash_only_ids,
+        crash_detected_by=crash_detected_by,
+        contradicted_mutant_flags=contradicted_mutant_flags,
         crash_only_undetected=crash_only_undetected,
         takes_arguments=takes_arguments,
         boundary_probe=boundary_probe,

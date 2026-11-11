@@ -71,6 +71,7 @@ from .equivalence import (
     classify_survivor,
     conditioning_edge,
     coupled_topologies,
+    distinguishing_fact,
     is_expressible,
     is_scalar_type,
     probe_rows,
@@ -2619,6 +2620,21 @@ def _boundary_probe_inputs(node: ast.FunctionDef | ast.AsyncFunctionDef, namespa
     return probe_rows(grids)
 
 
+def _detecting_test(kill_matrix: dict[str, list[str]], rec: dict) -> str:
+    """The first, in sorted order, of the tests the profile's kill matrix lists for this survivor ("" for
+    none) — the test a page names when it says a current test detects the mutant (D#110, D#113).
+
+    Looked up by the record's ``mutant`` (the matrix's key), then by the id's ``"<id>: "`` prefix, the
+    two spellings the engine and Wesker's matrices have used. A profile in first-killer mode records
+    one test, the first to kill in its own run order; any of several detects it, so the sorted first is
+    a stable name, not a claim that it is the only one."""
+    tests = kill_matrix.get(str(rec.get("mutant", "") or ""))
+    if not tests:
+        prefix = f"{rec.get('mutant_id', '')}: "
+        tests = next((t for k, t in kill_matrix.items() if k.startswith(prefix)), None)
+    return sorted(tests)[0] if tests else ""
+
+
 def _adopt_probe_verdicts(
     verdicts: list[MutantVerdict], manual: list[str], fence: list[str], probed: list[MutantVerdict]
 ) -> tuple[list[MutantVerdict], list[str], list[str]]:
@@ -2647,7 +2663,9 @@ def _adopt_probe_verdicts(
             merged.append(dataclasses.replace(v, searched=searched))
     manual_left, fence_left = list(manual), list(fence)
     for p in by_id.values():
-        if not p.killable:
+        # A crash-only probe verdict also leaves a flagged bucket (D#110): it is the flag's
+        # contradiction, not a candidate's upgrade.
+        if not (p.killable or (p.crash_only and p.flag_contradicted_by)):
             continue
         for bucket in (manual_left, fence_left):
             if p.diff_summary in bucket:
@@ -3285,7 +3303,7 @@ def classify_survivors(
     # mutation diff, which embeds the code, so a flag applies only to the exact
     # version it was made on. A flagged survivor is treated as equivalent UNLESS a
     # real distinguishing witness is found (proof outranks the flag).
-    from .equivalents import contract_disposition, flag_verdict, load_flags
+    from .equivalents import contract_disposition, contradicting_fact, flag_verdict, load_flags
 
     flags = load_flags(root)
     func_key = f"{os.path.relpath(full, root)}::{qualname}"
@@ -3342,6 +3360,7 @@ def classify_survivors(
     # value-distinguishing witness (or is judged equivalent), instead of being silently
     # treated as specified because the code merely raised under some test.
     survivors = result.value_survivor_records
+    _kill_matrix = getattr(result, "kill_matrix", None) or {}
     validity = normalize_validity(result)
     # A RUN-level refusal blocks every witness; a reason that names only some mutants (a wall bound,
     # a step budget) does not — the other survivors are classified beside it (#80/#126), and the
@@ -3607,6 +3626,11 @@ def classify_survivors(
                 _verdicts.append(verdict)
             elif disp == "equivalent":
                 _manual.append(rec.get("diff_summary", ""))
+            elif disp == "contradicted" and verdict is not None:
+                # D#110: flagged equivalent, yet an execution on record tells it from the original. The
+                # flag is not deleted; the mutant keeps the state its observation gives it (crash-only),
+                # carrying the fact that contradicts the flag for the page to name.
+                _verdicts.append(verdict)
             elif disp == "fence":
                 _fence.append(rec.get("diff_summary", ""))
             else:  # "unclassified" — no verdict to trust and no flag speaks for it
@@ -3652,13 +3676,31 @@ def classify_survivors(
                 suite_detected=rec.get("killed_by") in ("crash", "exception"),
                 deadline=_cls_abs_deadline,
             )
+            # D#110: name WHICH test detects it, and whether the recorded `equivalent` flag is contradicted
+            # by the execution on record. One fact (`distinguishing_fact`) feeds both, so no surface
+            # re-derives a narrower one.
+            _fact = distinguishing_fact(
+                verdict.killable, verdict.crash_witness is not None, verdict.suite_detected
+            )
+            verdict = dataclasses.replace(
+                verdict,
+                detecting_test=_detecting_test(_kill_matrix, rec) if verdict.suite_detected else "",
+                flag_contradicted_by=(
+                    "" if verdict.blocked or verdict.diverged else contradicting_fact(_fv(rec), _fact)
+                ),
+            )
             # A real witness is PROOF of killability and outranks the flag (contract_disposition
             # returns "killable"); a flag on a no-witness survivor is honored by its verdict —
             # "equivalent" suppressed, "fence" reported as an unenforced must-not, "diverged" → verdict,
             # "blocked" → unclassified.
             _route(
                 contract_disposition(
-                    True, verdict.killable, verdict.blocked, _fv(rec), diverged=verdict.diverged
+                    True,
+                    verdict.killable,
+                    verdict.blocked,
+                    _fv(rec),
+                    diverged=verdict.diverged,
+                    distinguished=verdict.crash_only,
                 ),
                 rec,
                 verdict,

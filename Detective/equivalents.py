@@ -138,6 +138,7 @@ def contract_disposition(
     blocked: bool,
     flag_verdict: str,
     diverged: bool = False,
+    distinguished: bool = False,
 ) -> str:
     """The two-sign contract's per-survivor disposition (§18 Q8, pure — pinned).
 
@@ -157,6 +158,12 @@ def contract_disposition(
       bound, so it cannot be flagged equivalent. This is not a proof of non-termination.
     * ``"unclassified"`` — no verdict to trust (the search was ``blocked``/timed out, or the
       mutant was un-buildable and no flag speaks for it): honest uncertainty.
+    * ``"contradicted"`` — flagged ``equivalent`` but ``distinguished`` (D#110): an execution on record
+      tells the mutant from the original without being a value witness (a current test fails by crash
+      under it, or the search crashed it). The flag is a judgement and the execution is proof, so the
+      mutant is NOT suppressed as equivalent: it keeps the state its observation gives it, and the flag
+      stays on disk, named contradicted. A ``fence`` is not contradicted — a crash-detected mutant whose
+      value nothing pins is exactly the gap a fence declares.
     * ``"equivalent"``   — flagged valid, no witness: the survivor computes the intended
       function; suppress it (the ``manual_equivalent`` bucket).
     * ``"fence"``        — flagged a must-not, no witness: the authored negative fence is
@@ -179,7 +186,18 @@ def contract_disposition(
     if blocked:
         return "unclassified"  # the witness search timed out: honest uncertainty, not equivalence
     if flag_verdict == "equivalent":
-        return "equivalent"
+        return "contradicted" if distinguished else "equivalent"
     if flag_verdict == "fence":
         return "fence"
     return "candidate"
+
+
+def contradicting_fact(flag_verdict: str, fact: str) -> str:
+    """The execution that contradicts a recorded ``equivalent`` flag, or ``""`` (D#110, pure — pinned).
+
+    ``fact`` is `equivalence.distinguishing_fact`'s code. Only an ``equivalent`` flag can be contradicted:
+    it claims no execution tells the mutant from the original, and any recorded one (value witness, a
+    test's crash, the search's crash) refutes that claim. A ``fence`` claims the opposite and a missing
+    flag claims nothing. Returned as the fact's own code so the page names what contradicts the flag
+    instead of re-deriving it."""
+    return fact if flag_verdict == "equivalent" and fact != "none" else ""

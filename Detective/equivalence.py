@@ -2205,12 +2205,14 @@ class MutantVerdict:
     killable: bool  # True iff a distinguishing input was found
     witness: Witness | None  # the distinguishing input, present iff killable
     searched: int  # how many candidate inputs were tried (context for 'equivalent')
-    # No VALUE-witness, but an input DID distinguish it by newly raising. Never true when
+    # No VALUE-witness, but an execution DID distinguish it by raising (D#110): the search's own input
+    # (`crash_witness`) or a current test that fails by crash under it (`suite_detected`). Never true when
     # `killable`. Defaulted so the field is additive for anyone constructing a verdict directly.
     crash_only: bool = False
-    # The crash-distinguishing input itself (original returns, mutant raises), present iff
-    # `crash_only`. It is what converge writes a golden capture AT, so a suite that never
-    # exercised the weakened guard at least crash-detects the mutant afterwards.
+    # The crash-distinguishing input itself (original returns, mutant raises), present iff the SEARCH
+    # found one. It is what converge writes a golden capture AT, so a suite that never
+    # exercised the weakened guard at least crash-detects the mutant afterwards. A `crash_only` verdict a
+    # test detects and the search cannot crash carries none.
     crash_witness: Witness | None = None
     # Does some CURRENT test already fail under this mutant (a crash/timeout kill in the
     # profile)? Decides the honest sentence: "your suite already detects this by crash" is
@@ -2240,6 +2242,16 @@ class MutantVerdict:
     # ``write_refused`` is: with ``blocked``, never when killable. A spawn, a signal or a limit is no
     # write, so it is named by its own event, and its repair is a test that stubs the call.
     refused_effects: tuple[str, ...] = ()
+    # The current test that detects this mutant by crash (D#110, D#113): the first, in sorted order, of
+    # the profile's kill matrix for it. "" when no test does, or when the caller had no matrix. Set by
+    # `engine.classify_survivors` beside `suite_detected`; it names WHICH test, the fact `suite_detected`
+    # only asserts.
+    detecting_test: str = ""
+    # The `distinguishing_fact` code that contradicts a recorded `equivalent` flag on this mutant (D#110),
+    # "" when none does. A flag is a judgement and an execution that tells the mutant from the original is
+    # proof, so the flag stays on disk but the mutant no longer reads as flagged-equivalent: it takes the
+    # state its observation gives it, and the page says the flag is contradicted, and by what.
+    flag_contradicted_by: str = ""
 
     @property
     def label(self) -> str:
@@ -2250,8 +2262,8 @@ class MutantVerdict:
             return "step-budget-divergent"
         if self.blocked:
             return "wall-undetermined"
-        # Not "equivalent-candidate": an input DOES distinguish this one, by crash. Saying no
-        # input does is simply false, and it is what sent callers hunting for an input that
+        # Not "equivalent-candidate": an execution DOES distinguish this one, by crash. Saying none
+        # does is simply false, and it is what sent callers hunting for an input that
         # cannot exist. `find_witness` names the real class; report ITS word, not a rounder one.
         return "value-equivalent (crash-only-distinguishable)" if self.crash_only else "equivalent-candidate"
 
@@ -2423,6 +2435,13 @@ class SurvivorReport:
         )
 
     @property
+    def contradicted_flags(self) -> tuple[MutantVerdict, ...]:
+        """Mutants whose recorded ``equivalent`` flag an execution on record contradicts (D#110): they are
+        in the partition their observation gives them (killable or crash-only), never in the flagged
+        count, and a page names the flag and the fact that overrides it. The store keeps the flag."""
+        return tuple(v for v in self.verdicts if v.flag_contradicted_by)
+
+    @property
     def step_budget_divergent(self) -> tuple[MutantVerdict, ...]:
         """Survivors whose loop execution deterministically diverged from the step budget (#80/#126)."""
         return tuple(v for v in self.verdicts if v.diverged)
@@ -2431,6 +2450,83 @@ class SurvivorReport:
     def wall_undetermined(self) -> tuple[MutantVerdict, ...]:
         """Survivors whose evaluation timed out on wall-clock bound without diverging."""
         return tuple(v for v in self.verdicts if v.blocked)
+
+
+def distinguishing_fact(killable: bool, has_crash_witness: bool, suite_detected: bool) -> str:
+    """Which recorded execution tells a mutant from the original, or ``none`` (D#110, pure — pinned).
+
+    A mutant is either equivalent or reachable-but-unobserved (KNOWABILITY §10): a witnessed execution
+    resolves the ambiguity positively, and an unsuccessful search never resolves it negatively. The
+    partition used to read only the search's OWN crash witness, so a mutant a current test already
+    detects by crash, which the search could not crash, stayed a candidate-equivalent and was offered to
+    `flag`. This is the one reading of the three facts every surface now consumes; the ranking is the
+    order the reader can act on them.
+
+    * ``value_witness`` — an input makes the mutant return a different value: a test can pin it.
+    * ``suite_crash``   — a current test fails by crash under the mutant (assertion kills never reach
+      here: a killed mutant is not a survivor). Names the test; the value is still unspecified.
+    * ``search_crash``  — the search found an input where the mutant raises and the original returns,
+      and no current test is known to run it.
+    * ``none``          — nothing distinguishes it: the only state that is a candidate-equivalent.
+
+    A named code, never a bool: each distinguished state has its own remedy, and all of them are
+    different from "none".
+    """
+    if killable:
+        return "value_witness"
+    if suite_detected:
+        return "suite_crash"
+    if has_crash_witness:
+        return "search_crash"
+    return "none"
+
+
+# Which `distinguishing_fact` codes are the crash-only class: a crash on record with no value witness (D#110).
+# Every code is spelled, so a code the decision gains is a KeyError here, never a silent fall-through.
+_FACT_IS_CRASH_ONLY: dict[str, bool] = {
+    "none": False,
+    "value_witness": False,
+    "suite_crash": True,
+    "search_crash": True,
+}
+
+
+def distinction_clause(fact: str, test: str, call: str) -> str:
+    """The clause that names the execution a ``distinguishing_fact`` code stands for (D#110, pure —
+    pinned), or ``""`` for ``none``.
+
+    One sentence per fact, read by `flag`'s refusal and by every page that says a flag is contradicted
+    or a crash-detected mutant is not a candidate, so they cannot word the same fact two ways. ``test``
+    is the detecting test's id ("" when the matrix named none) and ``call`` the input as source
+    (``f(...)``'s arguments, "" when none is recorded): an absent name is left out, never invented."""
+    if fact == "value_witness":
+        return (
+            f"the input ({call}) makes it return a different value"
+            if call
+            else ("an input makes it return a different value")
+        )
+    if fact == "suite_crash":
+        return (
+            f"the test {test} fails by crash under it" if test else "a current test fails by crash under it"
+        )
+    if fact == "search_crash":
+        return (
+            f"the input ({call}) makes it raise where the original returns"
+            if call
+            else "an input makes it raise where the original returns"
+        )
+    return ""
+
+
+def verdict_distinction(v: MutantVerdict) -> tuple[str, str]:
+    """``(fact, clause)`` for one verdict: `distinguishing_fact` over its recorded facts and the clause
+    that names them (D#110). Object handling only; the decisions are the two pure functions it calls.
+    A suite-detected verdict that the search also crashed names the TEST (the fact a person can act
+    on); the input is on the verdict's ``crash_witness`` for a page that wants it."""
+    fact = distinguishing_fact(v.killable, v.crash_witness is not None, v.suite_detected)
+    witness = v.witness if v.killable else v.crash_witness
+    call = ", ".join(literal_source(a) for a in witness.args) if witness is not None else ""
+    return fact, distinction_clause(fact, v.detecting_test, call)
 
 
 def classify_survivor(
@@ -2458,6 +2554,7 @@ def classify_survivor(
         original, mutant, candidate_inputs, deadline=deadline
     )
     unsearched = blocked and witness is None and not diverged
+    fact = distinguishing_fact(witness is not None, crash_witness is not None, suite_detected)
     return MutantVerdict(
         mutant_id=mutant_id,
         category=category,
@@ -2465,7 +2562,10 @@ def classify_survivor(
         killable=witness is not None,
         witness=witness,
         searched=len(candidate_inputs),
-        crash_only=crash_witness is not None,
+        # D#110: distinguished by a crash on record, the search's input OR a current test's. The class
+        # every renderer reads as "not a candidate-equivalent"; `crash_witness` stays the SEARCH's input
+        # (None when only a test detects it), so a page naming an input checks it, not this flag.
+        crash_only=_FACT_IS_CRASH_ONLY[fact],
         crash_witness=crash_witness,
         suite_detected=suite_detected,
         blocked=blocked and witness is None and not diverged,

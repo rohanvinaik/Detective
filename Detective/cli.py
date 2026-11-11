@@ -1113,6 +1113,30 @@ def _mutated_stmt(diff_summary: str) -> str:
     return _concise_diff(diff_summary)
 
 
+def _contradicted_flag_sentence(v) -> str:
+    """The sentence that says a recorded ``equivalent`` flag is contradicted, and by what (D#110): the
+    flag stays on disk, ignored, and the mutant is in the state its observation gives it."""
+    from .equivalence import verdict_distinction
+
+    return (
+        f"flagged equivalent, but CONTRADICTED — {verdict_distinction(v)[1]}; the flag is kept on record "
+        "and ignored (an execution outranks a judgement)"
+    )
+
+
+def _contradicted_flag_lines(rep) -> list[str]:
+    """One line per mutant whose ``equivalent`` flag is contradicted (D#110), for the report and the
+    survivor block — from the verdicts, the one place the fact is carried."""
+    verdicts = list(getattr(rep, "contradicted_flags", ()) or ()) if rep is not None else []
+    if not verdicts:
+        return []
+    return [
+        f"  ⚠ flag contradicted ({len(verdicts)}) — a recorded `equivalent` flag does not hold; the "
+        "mutant is NOT flagged-equivalent:",
+        *(f"    → mutant {v.mutant_id}: {_contradicted_flag_sentence(v)}" for v in verdicts),
+    ]
+
+
 def _survivor_lines(verdicts, verbose: bool, param_names: tuple[str, ...] | None = None) -> list[str]:
     """One survivor block — per-mutant under `verbose`, grouped by mutated statement otherwise.
 
@@ -1131,6 +1155,18 @@ def _survivor_lines(verdicts, verbose: bool, param_names: tuple[str, ...] | None
                 # current suite, and here is the input that exposes it — spelled so it parses (#78).
                 args = _call_args_source(v.crash_witness.args)
                 out.append(f"        ↳ reached by no current test — crash witness: f({args})")
+            if v.crash_only and v.suite_detected:
+                # D#110: its own state, named with the test that detects it. The search may or may not
+                # have an input of its own that crashes it; say which, so "no input" is never implied.
+                where = f"the test {v.detecting_test}" if v.detecting_test else "a current test"
+                tail = (
+                    ""
+                    if v.crash_witness is not None
+                    else " (no input the search tried crashes it — the suite's own run is the observation)"
+                )
+                out.append(f"        ↳ detected by crash: {where} fails under it{tail}")
+            if v.flag_contradicted_by:
+                out.append(f"        ⚠ {_contradicted_flag_sentence(v)}")
         return out
     groups: dict[str, list] = {}
     for v in verdicts:
@@ -1812,11 +1848,16 @@ def _format_survivor_report(
                 "NO current test — converge writes a golden capture at each crash witness "
                 "(↳ below) so they are at least crash-detected."
             )
-        # #71: an input distinguishes every one of these, so offering `flag` (an equivalence claim) here
-        # contradicted the evidence printed beside it.
-        head += " An input distinguishes each, so none is an equivalence candidate — nothing to `flag`:"
+        # #71: an execution distinguishes every one of these, so offering `flag` (an equivalence claim)
+        # here contradicted the evidence printed beside it. D#110: the execution is the search's input OR
+        # a current test's crash; the per-mutant ↳ line below names which.
+        head += (
+            " An execution distinguishes each (a search input or a current test), so none is an "
+            "equivalence candidate — nothing to `flag`:"
+        )
         lines.append(head)
         lines += _survivor_lines(crash_only, verbose, param_names)
+    lines += _contradicted_flag_lines(rep)
     if divergent:
         cats = ", ".join(sorted({v.category for v in divergent}))
         lines.append(
@@ -2850,6 +2891,7 @@ def _format_converge_terse(
         )
     for stale in result.contradicted_line_flags:
         lines.append(_row("⚠ flag overridden", f"executed: {stale} — execution outranks the flag"))
+    lines += _flag_contradiction_rows(_verdict_flag_pairs(rep))
     if rep is not None and rep.equivalent:
         # Two rows, not one (#36): "no input distinguishes them" is FALSE of a crash-only survivor —
         # an input does, by crash — and it was that false claim that sent a reader hunting for
@@ -2860,6 +2902,7 @@ def _format_converge_terse(
         if crash_only := rep.crash_only:
             undetected = _crash_only_undetected(rep)
             lines += _crash_only_rows(len(crash_only) - undetected, undetected)
+            lines += _detected_by_rows(_verdict_detected_by(rep))
         # F2: the caveat must reach the DEFAULT surface too, not only the verbose report — this is the
         # surface that invites a `flag`, and a survivor above may be killable-with-harder-input, not
         # equivalent. The SAME decision the verbose path uses, so the two cannot drift on when to caution.
@@ -5352,6 +5395,57 @@ def _crash_only_undetected(rep) -> int:
     return crash_only_status([v for v in eq if getattr(v, "crash_only", False)])[1]
 
 
+_DETECTED_BY_CAP = 5
+
+
+def _verdict_flag_pairs(rep) -> tuple[tuple[str, str], ...]:
+    """``(mutant id, clause)`` for each mutant whose ``equivalent`` flag is contradicted (D#110), read off
+    the report's verdicts — the shape the terse rows and the audit record carry."""
+    from .equivalence import verdict_distinction
+
+    return tuple(
+        (v.mutant_id, verdict_distinction(v)[1])
+        for v in (getattr(rep, "contradicted_flags", ()) or () if rep is not None else ())
+    )
+
+
+def _verdict_detected_by(rep) -> tuple[tuple[str, str], ...]:
+    """``(mutant id, test)`` for each crash-only mutant a current test detects by crash (D#110, D#113):
+    "" when the matrix named no test. The terse pages name them; the written report names all."""
+    eq = list(getattr(rep, "equivalent", ()) or ()) if rep is not None else []
+    return tuple(
+        (v.mutant_id, getattr(v, "detecting_test", ""))
+        for v in eq
+        if getattr(v, "crash_only", False) and getattr(v, "suite_detected", False)
+    )
+
+
+def _flag_contradiction_rows(pairs) -> list[str]:
+    """The terse rows for ``equivalent`` flags an execution contradicts (D#110): the flag is kept on
+    record and ignored, and the mutant counts in the class its observation gives it."""
+    return [
+        _row("⚠ flag contradicted", f"{mutant_id} — {clause}; kept on record, ignored")
+        for mutant_id, clause in pairs
+    ]
+
+
+def _detected_by_rows(pairs) -> list[str]:
+    """The terse rows that name the test detecting each crash-only mutant (D#110, D#113), capped; the
+    cap is disclosed, never silent."""
+    rows = [
+        _row("· detected by", f"{mutant_id} ← {test or 'a current test (the matrix names none)'}")
+        for mutant_id, test in pairs[:_DETECTED_BY_CAP]
+    ]
+    if len(pairs) > _DETECTED_BY_CAP:
+        rows.append(
+            _row(
+                "",
+                f"(+{len(pairs) - _DETECTED_BY_CAP} more — all named in converge's report)",
+            )
+        )
+    return rows
+
+
 def _crash_only_rows(detected: int, undetected: int) -> list[str]:
     """The terse rows for crash-only survivors, split by whether a current test reaches each (D#140).
 
@@ -6100,6 +6194,8 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         lines.append(_row("· unproven-equiv", f"{unproven_eq} survivor(s) — {_UNPROVEN_EQUIV_BASIS}"))
     if a.crash_only_equivalent:
         lines += _crash_only_rows(a.crash_only_equivalent - a.crash_only_undetected, a.crash_only_undetected)
+        lines += _detected_by_rows(a.crash_detected_by)
+    lines += _flag_contradiction_rows(a.contradicted_mutant_flags)
     if a.unclassified:
         lines.append(_row("⚠ unclassified", f"{a.unclassified} — the search could not run on them"))
         lines.extend(_write_refused_rows(a.write_refused_survivors))
@@ -9959,6 +10055,106 @@ def flag_id_admission(mutant_id: str | None, two_sign: bool) -> str:
     return "look_up"
 
 
+def equivalent_flag_admission(fact: str, fence: bool) -> str:
+    """Whether `flag` may record an ``equivalent`` verdict for a mutant, given the execution on record
+    that distinguishes it (D#110, D#113, pure — pinned).
+
+    ``fact`` is `equivalence.distinguishing_fact`'s code. An ``equivalent`` flag claims no execution
+    tells the mutant from the original, and a witnessed execution resolves that ambiguity against it
+    (KNOWABILITY §10: unsuccessful search never resolves it, a justified proof does, and a flag is a
+    judgement, not a proof). The old rule refused only a divergence or timeout, and so recorded a false
+    equivalence for a mutant a test already detects by crash. A ``--fence`` makes a DIFFERENT claim (an
+    authored must-not the suite does not enforce), true of a crash-detected mutant whose value nothing
+    pins, so it is never refused here.
+
+    * ``admit``                — record it: a fence, or nothing distinguishes the mutant.
+    * ``refuse_value_witness`` — an input makes it return a different value.
+    * ``refuse_suite_crash``   — a current test fails by crash under it.
+    * ``refuse_search_crash``  — the search's input makes it raise where the original returns.
+    """
+    if fence or fact not in ("value_witness", "suite_crash", "search_crash"):
+        return "admit"
+    return f"refuse_{fact}"
+
+
+_FLAG_REFUSAL_REMEDY: dict[str, str] = {
+    "refuse_value_witness": (
+        "Pin it instead: a test asserting the original's value at that input kills it (`detective "
+        "converge` writes one)."
+    ),
+    "refuse_suite_crash": (
+        "It is a crash-only value gap, not an equivalent: the run is specified (a test fails by "
+        "crash) and the value is not. Pin the value with a test that asserts it."
+    ),
+    "refuse_search_crash": (
+        "It is a crash-only value gap, not an equivalent: the mutant raises where the original "
+        "returns, so no current test need run it. Pin the value with a test at that input."
+    ),
+}
+
+
+def _flag_distinction(file: str, function: str, args, result, rec: dict, two_sign: bool) -> tuple[str, str]:
+    """``(fact, clause)`` of the execution on record that distinguishes the mutant ``rec`` names, or
+    ``("none", "")`` (D#110). The search's verdict first (it knows the value witness, the search's
+    crash and the detecting test); where classification yields none for this id (it could not run, or
+    the mutant is unclassified) the profile's own record decides: a crash or exception kill is a test
+    that detects it. Absence of a verdict is not a verdict of equivalence."""
+    from .engine import _detecting_test, classify_survivors
+    from .equivalence import distinction_clause, distinguishing_fact, verdict_distinction
+
+    try:
+        report = classify_survivors(
+            file,
+            function,
+            args.project_root,
+            profile_result=result,
+            two_sign=two_sign,
+        )
+        verdict = next((v for v in report.verdicts if v.mutant_id == rec.get("mutant_id")), None)
+    # BLE001: classification is advisory here; the record's own kill reason still decides below
+    except Exception:  # noqa: BLE001
+        verdict = None
+    if verdict is not None:
+        fact, clause = verdict_distinction(verdict)
+        if fact != "none":
+            return fact, clause
+    if rec.get("killed_by") in ("crash", "exception"):
+        test = _detecting_test(getattr(result, "kill_matrix", None) or {}, rec)
+        fact = distinguishing_fact(False, False, True)
+        return fact, distinction_clause(fact, test, "")
+    return "none", ""
+
+
+def _flag_distinguished_refusal(
+    file: str, function: str, args, result, rec: dict, two_sign: bool
+) -> int | None:
+    """The NAMED refusal of an ``equivalent`` flag for a mutant an execution on record distinguishes
+    (D#110, D#113), else None. Writes nothing. The refusal says WHICH fact decides it (the test, or the
+    input) and what to do instead."""
+    fact, clause = _flag_distinction(file, function, args, result, rec, two_sign)
+    code = equivalent_flag_admission(fact, bool(args.fence))
+    if code == "admit":
+        return None
+    msg = (
+        f"detective: cannot flag mutant '{args.mutant_id}' as equivalent — {clause}, so it is "
+        f"distinguished, not equivalent. {_FLAG_REFUSAL_REMEDY[code]} Nothing was recorded."
+    )
+    if args.json:
+        return _emit_json(
+            {
+                "verdict": "REFUSED",
+                "reason": "distinguished_mutant",
+                "fact": fact,
+                "target": args.target,
+                "mutant_id": args.mutant_id,
+                "detail": msg,
+            },
+            1,
+        )
+    sys.stderr.write(msg + "\n")
+    return 1
+
+
 def _flag_needs_two_sign(args) -> int:
     """The `needs_two_sign` refusal (#128): name the policy, and print the SAME command under it —
     note, fence, JSON and project root kept — so the repair can be run as printed."""
@@ -10063,8 +10259,10 @@ def _run_flag(args, file, function) -> int:
     if unscored is not None:
         return unscored
     # Match against value-survivors — the SAME set audit/classify report from — so a
-    # crash/timeout-killed mutant surfaced by `audit` is flaggable (it is a value-
-    # survivor). Using survivor_records here would miss those and read "none surviving".
+    # crash/timeout-killed mutant surfaced by `audit` is FOUND (it is a value-survivor) and can be
+    # refused by name. It is no longer flaggable as equivalent (D#110, D#113): a crash kill is an
+    # execution that tells it from the original, and `_flag_distinguished_refusal` says so below.
+    # Using survivor_records here would miss those and read "none surviving".
     rec = next(
         (r for r in result.value_survivor_records if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))),
         None,
@@ -10102,6 +10300,9 @@ def _run_flag(args, file, function) -> int:
             )
         sys.stderr.write(msg + "\n")
         return 1
+    distinguished = _flag_distinguished_refusal(file, function, args, result, rec, two_sign)
+    if distinguished is not None:
+        return distinguished
     _verdict = "fence" if args.fence else "equivalent"
     try:
         add_flag(
