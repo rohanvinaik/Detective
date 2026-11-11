@@ -1108,6 +1108,42 @@ def _witness_property(
     )
 
 
+def _history_pair_property(
+    func_key: str,
+    pair,
+    root: str | None = None,
+    kw_names: Sequence[str] = (),
+    call_expr: str | None = None,
+    import_stmt: str | None = None,
+) -> ExecutableProperty | None:
+    """The ONE test that kills a stale mutant (D#140 item 1): the function called twice, in order, on two
+    inputs whose results differ, each result asserted. A stale mutant answers the second call with the
+    first call's value, so the second assertion fails by ASSERTION in-process and isolated alike. Neither
+    call alone distinguishes it, which is why a one-call witness test never did. None when either value
+    cannot be pinned by equality (machine-specific, #30): there is nothing to salvage."""
+    first, second = pair
+    mod, fname = func_key.rsplit("::", 1) if "::" in func_key else ("", func_key)
+    lines: list[str] = []
+    for call in (first, second):
+        assert_line = golden_assert_line(call.original, call.original_value)
+        if assert_line is None:
+            return None
+        lines.append(f"result = {_render_call(call_expr or fname, call.args, kw_names)}")
+        lines.append(assert_line)
+    return ExecutableProperty(
+        category="VALUE",
+        inputs={},
+        setup_code=_setup_with_imports(
+            mod, fname, (*first.args, *second.args), root, import_stmt=import_stmt
+        ),
+        assertion_code="\n".join(lines),
+        preconditions=["history-dependent witness: two calls with different results (equivalence search)"],
+        confidence=0.95,
+        source_lenses=["witness", "history"],
+        needs_oracle=False,
+    )
+
+
 def _state_witness_property(
     func_key: str,
     witness,
@@ -2435,6 +2471,34 @@ def _converge_impl(
                 accumulated[property_identity(prop)] = prop
                 witnessed = True
                 n_crash_detect += 1
+        # A stale mutant is killed by a SEQUENCE: one test calling the function on two inputs with
+        # different results (D#140 item 1). One test serves every stale mutant of the function.
+        for verdict in pre.history_dependent:
+            if verdict.history != "second_call_pair" or verdict.history_pair is None or not _capturable:
+                continue
+            if budget_is_exhausted(_budget_ms()):
+                budget_cut, cut_phase = True, "witness writing"
+                break
+            prop = _bounded_work(
+                lambda pair=verdict.history_pair: _history_pair_property(
+                    func_key,
+                    pair,
+                    root,
+                    kw_names,
+                    call_expr=_render_call_expr,
+                    import_stmt=_render_import_stmt,
+                ),
+                _budget_s(),
+                phase="witness_render",
+            )
+            if prop is None:
+                continue
+            if property_identity(prop) not in accumulated and _verified(
+                prop.setup_code, prop.assertion_code, root
+            ):
+                accumulated[property_identity(prop)] = prop
+                witnessed = True
+                n_witnessed += 1
         if n_crash_detect:
             say(
                 f"witness pass: +{n_crash_detect} crash-detection test(s) auto-written "

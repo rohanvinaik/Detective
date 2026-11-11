@@ -1780,6 +1780,52 @@ def _probe_status_line(boundary_probe: str, probes: int) -> str:
     )
 
 
+_HISTORY_CODES = ("second_call_pair", "needs_second_call")
+
+
+def _history_row(count: int, with_pair: int) -> str:
+    """The terse row for history-dependent survivors (D#140 item 1): a stale return, killed only by a
+    second call whose result differs. It names whether converge holds the two inputs."""
+    if with_pair == count:
+        what = "converge holds two inputs with different results — one test calling both kills them"
+    else:
+        what = "needs a second call whose result differs (converge takes two --input values that differ)"
+    return _row("· history-dep", f"{count} — a stale return, killed only by a second call; {what}")
+
+
+def _history_report_lines(history, signature: str, param_names: tuple[str, ...]) -> list[str]:
+    """The full report's block for history-dependent survivors (D#140 item 1). Each mutant answers a call
+    with the previous call's result, so no single input distinguishes it; the repair is ONE test that
+    calls the function twice on inputs with different results. `flag` is not offered: the function is
+    not known to return one value."""
+    cats = ", ".join(sorted({v.category for v in history}))
+    lines = [
+        f"  history-dependent — retained, NOT a candidate for `flag` ({len(history)}: {cats}): a stale "
+        "return answers each call with the previous call's result, so no single input tells it from "
+        "your function. It needs a SECOND call, in the same test, whose result differs from the first:"
+    ]
+    for v in history:
+        lines.append(
+            f"    → mutant {v.mutant_id} [{v.category}]: stale return (each call answers with the "
+            "previous call's result)"
+        )
+        if v.history == "second_call_pair" and v.history_pair is not None:
+            first, second = v.history_pair
+            lines.append(
+                f"      kill: one test calling f({_call_args_source(first.args)}) then "
+                f"f({_call_args_source(second.args)}) and asserting {first.original} then {second.original}"
+            )
+    if any(v.history == "needs_second_call" for v in history):
+        template = _input_template(param_names)
+        lines.append(
+            "      to KILL: supply two inputs whose results differ"
+            + (f", e.g. {template} twice with different values" if template else "")
+            + "; converge calls them in one test"
+        )
+        lines += _target_lines(signature)
+    return lines
+
+
 def _format_survivor_report(
     rep,
     signature: str = "",
@@ -1809,12 +1855,15 @@ def _format_survivor_report(
     lines: list[str] = []
     # Two classes, because they take different actions and only one of them is a request.
     crash_only = [v for v in rep.equivalent if v.crash_only]
-    unproven = [v for v in rep.equivalent if not v.crash_only]
+    unproven = [v for v in rep.equivalent if not v.crash_only and v.history not in _HISTORY_CODES]
+    history = [v for v in rep.equivalent if not v.crash_only and v.history in _HISTORY_CODES]
     divergent = list(getattr(rep, "step_budget_divergent", ()))
-    if unproven and not rep.killable and not rep.unclassified and not divergent:
+    if (unproven or history) and not rep.killable and not rep.unclassified and not divergent:
         lines.append(
             "  ✓ every killable mutant killed — remaining survivors have no distinguishing "
             "input (candidate-equivalent, NOT proven)"
+            if unproven
+            else "  ✓ every single-input mutant killed — what remains needs a second call (below)"
         )
     if unproven:
         cats = ", ".join(sorted({v.category for v in unproven}))
@@ -1842,6 +1891,8 @@ def _format_survivor_report(
         # recipe and instruct the reader to do something impossible (#8).
         if _tmpl := _input_template(param_names):
             lines.append(f"      template: {_tmpl}   # replace every <...> slot before running")
+    if history:
+        lines += _history_report_lines(history, signature, param_names)
     if crash_only:
         cats = ", ".join(sorted({v.category for v in crash_only}))
         n_det, n_undet = crash_only_status(crash_only)
@@ -2013,6 +2064,13 @@ def _residual_verdict_clauses(rep, candidate: int, crash_only: int, flag_offered
     function that takes no argument is offered no input to add, and a crash-only survivor is called
     detected only where a current test fails under it."""
     clauses = []
+    history = _history_count(rep)
+    if history:
+        clauses.append(
+            f"{history} history-dependent (a stale return: killed only by a second call whose result "
+            "differs; not for `flag`)"
+        )
+    candidate -= history
     if candidate:
         remedy = "add a distinguishing input" if _takes_arguments(rep) else "no input can be supplied"
         clauses.append(
@@ -2829,6 +2887,7 @@ def _format_converge(
         str(getattr(_rep, "boundary_probe", "") or ""),
         _crash_only_undetected(_rep),
         _takes_arguments(_rep),
+        _history_count(_rep),
     )
     _ids = _flaggable_ids(_rep, _basis, result.param_names)
     if _ids:
@@ -3105,8 +3164,12 @@ def _format_converge_terse(
         # an input does, by crash — and it was that false claim that sent a reader hunting for
         # the input. Each row states the one true thing about its own class, from the named
         # partitions the banner and verdict also consume (single source).
-        if unproven := rep.candidate_equivalent:
+        if unproven := rep.plain_candidate_equivalent:
             lines.append(_row("· unproven-equiv", f"{len(unproven)} — {_UNPROVEN_EQUIV_BASIS}"))
+        if history := rep.history_dependent:
+            lines.append(
+                _history_row(len(history), sum(1 for v in history if v.history == "second_call_pair"))
+            )
         if crash_only := rep.crash_only:
             undetected = _crash_only_undetected(rep)
             lines += _crash_only_rows(len(crash_only) - undetected, undetected)
@@ -3117,8 +3180,8 @@ def _format_converge_terse(
         _caveat = candidate_equivalent_caveat(
             getattr(result, "structural_difficulty", ""),
             rep.inputs_expressible is not False,  # only a DEFINITE False is a fixture; None=unknown
-            bool(rep.candidate_equivalent),
-            any(not v.reached for v in rep.candidate_equivalent),
+            bool(rep.plain_candidate_equivalent),
+            any(not v.reached for v in rep.plain_candidate_equivalent),
             _takes_arguments(rep),
         )
         if _caveat == "fixture":
@@ -4213,6 +4276,7 @@ def _settled_residual(rep, param_names: tuple[str, ...] | None) -> tuple[str, tu
         str(getattr(rep, "boundary_probe", "") or ""),
         _crash_only_undetected(rep),
         _takes_arguments(rep),
+        _history_count(rep),
     )
     return basis, tuple(_flaggable_ids(rep, basis, param_names))
 
@@ -4475,7 +4539,15 @@ def _converge_decision(
         "standing": standing,
         "killable": [getattr(v, "mutant_id", "") for v in killable],
         "candidate_equivalent": [
-            getattr(v, "mutant_id", "") for v in equivalent if not getattr(v, "crash_only", False)
+            getattr(v, "mutant_id", "")
+            for v in equivalent
+            if not getattr(v, "crash_only", False) and getattr(v, "history", "") not in _HISTORY_CODES
+        ],
+        # D#140 item 1: the stale mutants only a second call kills, named apart from the flaggable ones.
+        "history_dependent": [
+            getattr(v, "mutant_id", "")
+            for v in equivalent
+            if not getattr(v, "crash_only", False) and getattr(v, "history", "") in _HISTORY_CODES
         ],
         "crash_only": [getattr(v, "mutant_id", "") for v in equivalent if getattr(v, "crash_only", False)],
         "step_budget_divergent": [getattr(v, "mutant_id", "") for v in diverged],
@@ -5109,8 +5181,10 @@ def _headline_counts(proof, rep) -> str:
     # #36: name the two residual classes, never the union labelled "candidate-equivalent" — a
     # crash-only mutant has a distinguishing input and is not an unproven equivalence.
     if rep is not None:
-        if rep.candidate_equivalent:
-            parts.append(f"{len(rep.candidate_equivalent)} candidate-equivalent")
+        if rep.plain_candidate_equivalent:
+            parts.append(f"{len(rep.plain_candidate_equivalent)} candidate-equivalent")
+        if rep.history_dependent:
+            parts.append(f"{len(rep.history_dependent)} history-dependent")
         if rep.crash_only:
             parts.append(f"{len(rep.crash_only)} crash-only")
     return " · " + " · ".join(parts)
@@ -5739,6 +5813,7 @@ def residual_done_basis(
     boundary_probe: str,
     crash_only_undetected: int = 0,
     takes_arguments: bool = True,
+    history_dependent: int = 0,
 ) -> str:
     """What the residual under a settled converge may be CLAIMED to be (#71, pure — pinned).
 
@@ -5758,6 +5833,10 @@ def residual_done_basis(
                     only crash-only survivors, and NO current test reaches ``crash_only_undetected`` of
                     them (D#140): the crash is the search's own observation, not the suite's, so "they
                     are detected" would be false of those (`crash_only_status` is the split)
+      "history"     every candidate-equivalent is history-dependent (D#140 item 1): a stale mutant that
+                    only a SECOND call with a different result kills. ``history_dependent`` is the subset
+                    of ``candidate_equivalent`` that is; when only some are, the basis is the one for
+                    the rest, and the history ones are never offered to `flag` (`_flaggable_ids`)
       "single_call" candidate-equivalents of a function that takes NO argument (D#140): its one call is
                     every input there is, so no input can be supplied and there are no boundaries to
                     probe; equivalent unless it reads state that varies between calls
@@ -5771,6 +5850,8 @@ def residual_done_basis(
         if crash_only <= 0:
             return "none"
         return "crash_only_unreached" if crash_only_undetected > 0 else "crash_only"
+    if history_dependent >= candidate_equivalent:
+        return "history"
     if not takes_arguments:
         return "single_call"
     return "probed" if boundary_probe == "run" else "unprobed"
@@ -5798,6 +5879,13 @@ def residual_done_why(basis: str) -> str:
             "none is an equivalence candidate and nothing is offered to `flag`. NO\n"
             "current test reaches some of them: the crash is the search's, not your\n"
             "suite's. A test that calls with each crash input detects them."
+        ),
+        "history": (
+            "What remains is a STALE-return mutant: it answers each call with the previous\n"
+            "call's result, so no single input tells it from your function and only a\n"
+            "second call whose result differs kills it. Supply two inputs with different\n"
+            "results (--input twice): they are called in ONE test. Not offered to `flag`:\n"
+            "your function is not known to return one value."
         ),
         "single_call": (
             "What remains returns what your function returns: it takes no arguments,\n"
@@ -5833,6 +5921,8 @@ def _flaggable_ids(rep, basis: str, param_names: tuple[str, ...] | None) -> list
     for v in getattr(rep, "equivalent", ()) or ():
         if getattr(v, "crash_only", False) or getattr(v, "diverged", False):
             continue
+        if getattr(v, "history", "") in ("second_call_pair", "needs_second_call"):
+            continue  # D#140 item 1: its remedy is a second call, never a proof of equivalence
         if basis == "unprobed" and getattr(v, "category", "") == "BOUNDARY":
             hint = _boundary_hint(getattr(v, "diff_summary", ""), param_names)
             if hint and not _is_internal_hint(hint):
@@ -5926,6 +6016,18 @@ def _crash_only_rows(detected: int, undetected: int) -> list[str]:
             )
         )
     return rows
+
+
+def _history_count(rep) -> int:
+    """How many candidate-equivalents are history-dependent (D#140 item 1), read off the verdicts as
+    `_residual_counts` is, so a duck-typed report carries none."""
+    eq = list(getattr(rep, "equivalent", ()) or ()) if rep is not None else []
+    return sum(
+        1
+        for v in eq
+        if not getattr(v, "crash_only", False)
+        and getattr(v, "history", "") in ("second_call_pair", "needs_second_call")
+    )
 
 
 def _residual_counts(rep) -> tuple[int, int]:
@@ -6698,8 +6800,11 @@ def _format_audit(
     for stale in a.contradicted_line_flags:
         lines.append(_row("⚠ flag overridden", f"executed: {stale} — execution outranks the flag"))
     # Split the breakdown out: "no input distinguishes them" is false of the crash-only class.
-    if unproven_eq := a.candidate_equivalent - a.crash_only_equivalent:
+    _history = len(a.history_dependent_ids)
+    if unproven_eq := a.candidate_equivalent - a.crash_only_equivalent - _history:
         lines.append(_row("· unproven-equiv", f"{unproven_eq} survivor(s) — {_UNPROVEN_EQUIV_BASIS}"))
+    if _history:
+        lines.append(_history_row(_history, 0))
     if a.crash_only_equivalent:
         lines += _crash_only_rows(a.crash_only_equivalent - a.crash_only_undetected, a.crash_only_undetected)
         lines += _detected_by_rows(a.crash_detected_by)
@@ -6991,16 +7096,18 @@ def _audit_residual(a) -> tuple[str, tuple[str, ...]]:
     that are not crash-only, and `residual_done_basis`'s code over them — the SAME basis and sentence
     converge's DONE block renders, and `flag` is never offered for a crash-only mutant."""
     crash_ids = set(getattr(a, "crash_only_ids", ()) or ())
-    ids = tuple(i for i in a.candidate_equivalent_ids if i not in crash_ids)
+    history_ids = set(getattr(a, "history_dependent_ids", ()) or ())
+    candidates = tuple(i for i in a.candidate_equivalent_ids if i not in crash_ids)
     return (
         residual_done_basis(
-            len(ids),
+            len(candidates),
             len(crash_ids),
             str(getattr(a, "boundary_probe", "") or ""),
             a.crash_only_undetected,
             a.takes_arguments is not False,
+            len(history_ids),
         ),
-        ids,
+        tuple(i for i in candidates if i not in history_ids),
     )
 
 

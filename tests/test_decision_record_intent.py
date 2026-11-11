@@ -173,6 +173,7 @@ def test_the_record_carries_the_decided_state_each_verb_holds(walk):
         "standing",
         "killable",
         "candidate_equivalent",
+        "history_dependent",
         "crash_only",
         "step_budget_divergent",
     }

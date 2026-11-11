@@ -73,9 +73,12 @@ from .equivalence import (
     conditioning_edge,
     coupled_topologies,
     distinguishing_fact,
+    entry_statement_line,
+    form_b_mode,
     is_expressible,
     is_scalar_type,
     probe_rows,
+    returns_one_constant,
     structural_input_difficulty,
     structural_shape,
     synth_ast_input,
@@ -3505,6 +3508,8 @@ def classify_survivors(
         or _arguments.kwarg
     )
 
+    _constant_return = returns_one_constant(node)
+
     # Human equivalence flags (the oracle execution cannot be) — keyed by the
     # mutation diff, which embeds the code, so a flag applies only to the exact
     # version it was made on. A flagged survivor is treated as equivalent UNLESS a
@@ -3887,6 +3892,9 @@ def classify_survivors(
                 original_call,
                 mutant_fn,
                 pool,
+                form_b=form_b_mode(rec.get("dimension") or ""),
+                takes_arguments=_takes_arguments,
+                constant_return=_constant_return,
                 # A crash-survivor record is a reshaped KILL record and carries `killed_by`; a
                 # true survivor carries none. Only crash/exception detection counts — a timeout or
                 # divergence does not show crash detection (#80).
@@ -4072,7 +4080,13 @@ def classify_survivors(
                     expressible = all(is_expressible(a) for args in witness_args for a in args)
 
     # The mutated line of each survivor — shared by the B1 guard-directed search and the reachability pass.
-    _id_line = {r.get("mutant_id"): r.get("mutated_line") for r in survivors}
+    # A Form B mutant wraps the whole definition, so Wesker files it on the def line, which no call
+    # executes: its reach is the function's ENTRY (D#140 item 1), the first statement a call runs.
+    _entry_line = entry_statement_line(node)
+    _id_line = {
+        r.get("mutant_id"): (_entry_line if form_b_mode(r.get("dimension") or "") else r.get("mutated_line"))
+        for r in survivors
+    }
 
     # B1 (#15 F0): guard-directed active search — the generalization of B0 from a fixed topology library
     # to the SIMPLE comparison guard a candidate-equivalent sits behind (``len(x) > 5``, ``x == 42``). The

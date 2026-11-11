@@ -50,6 +50,8 @@ from Wesker.monitoring import (
     step_budget,
     step_cap,
 )
+from Wesker.mu_minus import CALL_MODES as _WESKER_CALL_MODES
+from Wesker.mu_minus import YIELD_MODES as _WESKER_YIELD_MODES
 
 # What the tracers below may swallow. `Abandoned` derives from BaseException in Wesker BY DESIGN,
 # so a test's own `except Exception` cannot swallow the stop — which is why tracing has to reach
@@ -2252,12 +2254,22 @@ class MutantVerdict:
     # proof, so the flag stays on disk but the mutant no longer reads as flagged-equivalent: it takes the
     # state its observation gives it, and the page says the flag is contradicted, and by what.
     flag_contradicted_by: str = ""
+    # The `history_standing` code of a Form B mutant whose kill is a SEQUENCE of calls (D#140 item 1), ""
+    # for every other mutant. A stale mutant answers each call with the previous call's result, so no
+    # single input distinguishes it: it is neither killable by a witness nor a candidate-equivalent.
+    history: str = ""
+    # ``(first, second)``: two calls of the ORIGINAL that return different values, the evidence behind
+    # ``second_call_pair``. One test making both calls and asserting both results kills the stale
+    # mutant, whose second answer is the first call's value. None for every other state.
+    history_pair: tuple[Witness, Witness] | None = None
 
     @property
     def label(self) -> str:
         """One-word disposition for reports."""
         if self.killable:
             return "killable"
+        if self.history in _HISTORY_DEPENDENT:
+            return "history-dependent"
         if self.diverged:
             return "step-budget-divergent"
         if self.blocked:
@@ -2303,6 +2315,156 @@ def is_expressible(value: Any) -> bool:
     if isinstance(value, dict):
         return all(is_expressible(k) and is_expressible(v) for k, v in value.items())
     return False
+
+
+def form_b_mode(dimension: str) -> str:
+    """The μ⁻ Form B mode a mutant's ``dimension`` names, or ``""`` (D#140 item 1, pure — pinned).
+
+    A Form B mutant is the target's own definition wrapped at runtime, so its diff is a decorator's
+    source and says nothing a renderer should parse. What identifies it is the structured dimension
+    Wesker mints for it, ``OUTPUT:<mode>:<def line>`` (``Wesker.engine._generate_output_wrappers``).
+    This is the narrowest reliable field that reaches Detective today; a dedicated ``sub_mode`` field on
+    Wesker's mutant record would replace the parse (see D#140's report). A Form A dimension carries a
+    return-site rewrite's name (``OUTPUT:return_none``) with no line, and a mode of the wrong family is
+    no Form B mode: both read ``""``.
+    """
+    parts = dimension.split(":") if isinstance(dimension, str) else []
+    if len(parts) < 3 or parts[0] != "OUTPUT" or not parts[-1].isdigit():
+        return ""
+    mode = parts[1]
+    return mode if mode in _FORM_B_MODES else ""
+
+
+#: The Form B modes Wesker generates (its own constants, so a mode it adds is recognised here).
+_FORM_B_MODES = frozenset(_WESKER_CALL_MODES) | frozenset(_WESKER_YIELD_MODES)
+
+#: The `history_standing` codes whose kill is a sequence of calls: the class a stale mutant has of its own.
+_HISTORY_DEPENDENT = ("second_call_pair", "needs_second_call")
+
+
+def history_standing(mode: str, takes_arguments: bool, constant_return: bool, pair_found: bool) -> str:
+    """What a surviving Form B mutant's history dependence leaves open (D#140 item 1, pure — pinned).
+
+    A ``return_stale`` mutant answers each call with the previous call's result within one test (Wesker
+    #49: the memory ends with the test). A test detects it only by calling the function twice and seeing
+    two results, so a witness search that runs the mutant once per input finds no distinguishing input,
+    and a "witness" it does find on a later input is the stale value of an earlier call, which a
+    one-call test never reproduces. Four states, each with its own remedy:
+
+      ""                  not a history-dependent mutant (another mode, or Form A): nothing here
+      "single_valued"     the function provably returns one value (it takes no argument, or every
+                          return is the same constant): the previous call's result IS this call's,
+                          so the mutant is equivalent and `flag` is honest
+      "second_call_pair"  two inputs with different results were run on the original: ONE test making
+                          both calls kills the mutant by assertion, and converge writes it
+      "needs_second_call" no such pair is known: the remedy is a second call whose result differs
+                          (two inputs with different outputs, called in one test), and `flag` is not
+                          offered, because the function is not known to return one value
+    """
+    if mode != "return_stale":
+        return ""
+    if not takes_arguments or constant_return:
+        return "single_valued"
+    return "second_call_pair" if pair_found else "needs_second_call"
+
+
+def returns_one_constant(node: ast.AST) -> bool:
+    """Whether a function provably returns ONE value on every call (D#140 item 1): it is no generator and
+    every way out of it is the same literal (a bare ``return``, falling off the end, and ``return None``
+    are one value). A conservative syntactic proof: any non-literal return, any ``yield``, or two
+    different literals reads False, and False only withholds the `flag` offer."""
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False
+    values: list[Any] = []
+    stack: list[ast.AST] = list(node.body)
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            continue  # a nested definition's returns are its own
+        if isinstance(cur, (ast.Yield, ast.YieldFrom)):
+            return False
+        if isinstance(cur, ast.Return):
+            if cur.value is None:
+                values.append(("c", None))
+            elif isinstance(cur.value, ast.Constant):
+                values.append(("c", type(cur.value.value), cur.value.value))
+            else:
+                return False
+        stack.extend(ast.iter_child_nodes(cur))
+    if not node.body or not isinstance(node.body[-1], (ast.Return, ast.Raise)):
+        values.append(("c", None))  # falling off the end returns None
+    normalised = {("c", type(None), None) if v == ("c", None) else v for v in values}
+    return len(normalised) == 1
+
+
+def entry_statement_line(node: ast.AST) -> int | None:
+    """The line of the first statement a call to ``node`` executes (D#140 item 1): its body's first
+    statement, past a leading docstring when there is more than one. None for a node without a body."""
+    body = getattr(node, "body", None)
+    if not isinstance(body, list) or not body:
+        return None
+    first = body[0]
+    if (
+        len(body) > 1
+        and isinstance(first, ast.Expr)
+        and isinstance(first.value, ast.Constant)
+        and isinstance(first.value.value, str)
+    ):
+        first = body[1]
+    return getattr(first, "lineno", None)
+
+
+def returned_value_outcome(outcome: str) -> bool:
+    """Whether ``_outcome``'s string is a VALUE the function returned, one a test can assert (D#140 item 1,
+    pure — pinned). A raise, a timeout, a divergence, a refused effect, a truncated iterator and an
+    address-bearing repr are observations of something else, and none can be the previous call's result
+    a stale mutant repeats."""
+    if not isinstance(outcome, str) or not outcome:
+        return False
+    if outcome.startswith("<raised") or "raised@" in outcome or outcome.startswith("<iter~trunc"):
+        return False
+    if outcome in (
+        _OUTCOME_TIMEOUT,
+        _OUTCOME_WALL_UNDETERMINED,
+        _OUTCOME_DIVERGED,
+        _OUTCOME_UNCOPYABLE,
+        _OUTCOME_WRITE_REFUSED,
+        _OUTCOME_EFFECT_REFUSED,
+    ):
+        return False
+    return _VOLATILE_IN_MESSAGE.search(outcome) is None
+
+
+def _search_history_pair(
+    original: Callable[..., Any],
+    candidate_inputs: list[tuple],
+    *,
+    deadline: float | None = None,
+    limit: int = 40,
+) -> tuple[Witness, Witness] | None:
+    """Two calls of ``original`` whose returned values differ (D#140 item 1): the first input that returns
+    a value, and the next that returns a different one. None when no two of the first ``limit`` inputs
+    do (they raised, repeated one value, or the wall ran out). Each run is bounded as the witness search
+    bounds its own, and each pair member carries the arguments, outcome and value of the ONE invocation
+    that produced it, so a test written from it asserts what was observed."""
+    first: _ObservedOutcome | None = None
+    for args in candidate_inputs[:limit]:
+        if _deadline_passed(deadline):
+            return None
+        observations: list[_ObservedOutcome] = []
+        outcome = _outcome(original, args, _outcome_budget_s(deadline), cap=None, observations=observations)
+        if not returned_value_outcome(outcome) or not observations:
+            continue
+        seen = observations[0]
+        if first is None:
+            first = seen
+            continue
+        if seen.outcome != first.outcome:
+            return (
+                Witness(first.args, first.outcome, first.outcome, first.value, first.value),
+                Witness(seen.args, seen.outcome, first.outcome, seen.value, first.value),
+            )
+    return None
 
 
 def crash_only_status(verdicts) -> tuple[int, int]:
@@ -2426,6 +2588,20 @@ class SurvivorReport:
         )
 
     @property
+    def history_dependent(self) -> tuple[MutantVerdict, ...]:
+        """The candidate-equivalents whose kill is a SEQUENCE of calls (D#140 item 1): a stale mutant that
+        a second call returning a different value kills. A subset of ``candidate_equivalent`` (it keeps
+        the total and the modulo count), rendered as a class of its own because its remedy is not an
+        input and not a `flag`."""
+        return tuple(v for v in self.candidate_equivalent if v.history in _HISTORY_DEPENDENT)
+
+    @property
+    def plain_candidate_equivalent(self) -> tuple[MutantVerdict, ...]:
+        """``candidate_equivalent`` without the history-dependent ones: the survivors whose remedy is an
+        input reaching a mutated branch, or a `flag` once proven."""
+        return tuple(v for v in self.candidate_equivalent if v.history not in _HISTORY_DEPENDENT)
+
+    @property
     def crash_only(self) -> tuple[MutantVerdict, ...]:
         """Non-killable by VALUE but distinguished by a crash input (original returns, mutant raises)
         — a value-specification residual with a known distinguishing input, NOT an equivalence
@@ -2529,6 +2705,45 @@ def verdict_distinction(v: MutantVerdict) -> tuple[str, str]:
     return fact, distinction_clause(fact, v.detecting_test, call)
 
 
+def _history_verdict(
+    mutant_id: str,
+    category: str,
+    diff_summary: str,
+    original: Callable[..., Any],
+    candidate_inputs: list[tuple],
+    suite_detected: bool,
+    deadline: float | None,
+    takes_arguments: bool,
+    constant_return: bool,
+) -> MutantVerdict:
+    """The verdict of a stale mutant (D#140 item 1): object handling around `history_standing`. A pair is
+    searched only where the function is not known to return one value, and a wall that ran out before
+    a pair was found leaves the mutant UNCLASSIFIED (blocked), never "needs a second call"."""
+    single = not takes_arguments or constant_return
+    pair = None if single else _search_history_pair(original, candidate_inputs, deadline=deadline)
+    cut = pair is None and not single and _deadline_passed(deadline)
+    fact = distinguishing_fact(False, False, suite_detected)
+    crash_only = _FACT_IS_CRASH_ONLY[fact]
+    standing = (
+        ""
+        if (crash_only or cut)
+        else history_standing("return_stale", takes_arguments, constant_return, pair is not None)
+    )
+    return MutantVerdict(
+        mutant_id=mutant_id,
+        category=category,
+        diff_summary=diff_summary,
+        killable=False,
+        witness=None,
+        searched=len(candidate_inputs),
+        crash_only=crash_only,
+        suite_detected=suite_detected,
+        blocked=cut,
+        history=standing,
+        history_pair=pair if standing == "second_call_pair" else None,
+    )
+
+
 def classify_survivor(
     mutant_id: str,
     category: str,
@@ -2539,9 +2754,17 @@ def classify_survivor(
     suite_detected: bool = False,
     *,
     deadline: float | None = None,
+    form_b: str = "",
+    takes_arguments: bool = True,
+    constant_return: bool = False,
 ) -> MutantVerdict:
     """Killable (with a witness) if any input distinguishes the mutant, else an
     equivalent-candidate documented with how many inputs were tried.
+
+    ``form_b`` (D#140 item 1) is the mutant's Form B mode (`form_b_mode`). A ``return_stale`` mutant is
+    distinguished by a SEQUENCE of calls, so the per-input search below would hand back the stale value
+    of an earlier call as a "witness" that a one-call test never reproduces: it takes the history path
+    instead (`history_standing`), and is never killable by a single input.
 
     ``suite_detected`` is the caller's knowledge, not the search's: whether some current
     test already fails under this mutant (a crash/timeout kill in the profile). Carried on
@@ -2550,6 +2773,18 @@ def classify_survivor(
     ``deadline`` (absolute monotonic seconds) is the aggregate command wall (issue #31): the
     witness search stops when it passes, and the verdict comes back ``blocked`` — never a
     false candidate-equivalent from a search the budget cut short."""
+    if form_b == "return_stale":
+        return _history_verdict(
+            mutant_id,
+            category,
+            diff_summary,
+            original,
+            candidate_inputs,
+            suite_detected,
+            deadline,
+            takes_arguments,
+            constant_return,
+        )
     witness, crash_witness, blocked, diverged, write_refused, refused_effects = _search_witness_detail(
         original, mutant, candidate_inputs, deadline=deadline
     )
