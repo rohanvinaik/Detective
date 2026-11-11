@@ -17,6 +17,7 @@ exactly names is ever deleted (#103).
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -122,6 +123,41 @@ class RemovalReport:
     # (id, code) for EVERY requested id — `removal_disposition`'s codes plus the edit's own
     # "removed" / "stale_collection" / "shadowed" — so no id is reported without its cause (#103).
     outcomes: tuple[tuple[str, str], ...] = ()
+
+
+def file_digest(path: str) -> str:
+    """The sha256 of a file's bytes — the basis a removal is proposed against and checked against (#104).
+    Empty when the file cannot be read, which no recorded digest equals."""
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+    except OSError:
+        return ""
+
+
+def basis_key(project_root: str, path: str) -> str:
+    """The name a test file's measured digest is recorded and looked up under: its real path relative to
+    the real project root, so the proposal and the edit agree on it whatever spelling each was handed."""
+    return os.path.relpath(os.path.realpath(path), os.path.realpath(project_root))
+
+
+def removal_basis_disposition(expected: str, current: str) -> str:
+    """Whether a test file is still the one a removal was proposed against (#104, pure — pinned).
+
+    The proposal is a statement about the suite as it was MEASURED; the TEST_SUITE_CLEANUP_CONTRACT
+    (§9, step 5) compares the live workspace to its expected basis before promotion and C12 invalidates
+    the basis on a concurrent change. An edit between the proposal and the write used to go unseen as
+    long as the definition was still there, and the removal then deleted whatever now bore the name.
+
+      "unchanged"   the file's digest is the recorded one: the edit is the one that was proposed.
+      "changed"     it differs: the measurement no longer describes this file, so nothing is removed from
+                    it (re-run the audit).
+      "unrecorded"  no digest was recorded (or the file cannot be read): there is no basis to compare
+                    against, and a missing required field blocks the edit (contract §1), never passes it.
+    """
+    if not expected or not current:
+        return "unrecorded"
+    return "unchanged" if expected == current else "changed"
 
 
 def nodeid_kind(identifier: str) -> str:
@@ -255,6 +291,13 @@ def removal_outcome_why(code: str, subject: str = "") -> str:
             "kept: not a module-level test or a class method, so it cannot be removed intact"
         ),
         "stale_collection": "kept: collected, but the source no longer defines it there; re-run the audit",
+        "basis_changed": (
+            "kept: its file changed after it was measured, so the measurement no longer describes it;"
+            " re-run the audit"
+        ),
+        "basis_unrecorded": (
+            "kept: no record of the file as it was measured, so the edit has no basis to be checked against"
+        ),
         "shadowed": (
             "kept: its name is defined twice in one scope, and removing either copy changes which test runs"
         ),
@@ -274,6 +317,8 @@ _SUMMARY_ORDER = (
     ("ambiguous", "ambiguous (an id naming no file, with several definitions)"),
     ("unsupported_shape", "of a shape that cannot be removed intact"),
     ("stale_collection", "stale (re-run the audit)"),
+    ("basis_changed", "in files edited since they were measured (re-run the audit)"),
+    ("basis_unrecorded", "in files with no recorded measurement basis"),
     ("shadowed", "defined twice in one scope"),
 )
 
@@ -357,7 +402,9 @@ def _resolve_definitions(project_root: str, file: str, ids: set[str]) -> dict[st
     return found
 
 
-def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalReport:
+def apply_removals(
+    file: str, project_root: str, names: list[str], expected_digests: dict[str, str] | None = None
+) -> RemovalReport:
     """Delete the named test definitions from their source files, and name every id's outcome.
 
     CALLER MUST HAVE CONFIRMATION: this writes to the user's test files. It removes only the ``names``
@@ -365,6 +412,19 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
     resolved to exactly ONE definition (`removal_disposition`), and rewrites each file once,
     atomically. An id is reported removed only when its own definition was deleted: the function this
     replaced accounted by bare name, so a same-named test in another file read as removed (#103).
+
+    ``expected_digests`` maps a test file (`basis_key`) to the digest it had when the
+    removal was proposed (`file_digest`); a file that no longer matches, or has no recorded digest, is not
+    edited and each of its ids is kept as ``basis_changed`` / ``basis_unrecorded`` (#104,
+    `removal_basis_disposition`). None makes no claim about a basis and checks nothing.
+
+    THE LIVE SESSION IS NOT REFRESHED, AND IS STALE AFTER THIS RETURNS (#104). It still holds the pre-edit
+    test callables, their line numbers, the imported test module and a baseline that lists the deleted
+    test, so a measurement taken in this process afterwards describes the OLD suite (measured: 2 of 11
+    mutants built, the deleted test still in the basis). Wesker's per-file re-collection
+    (`refresh_live_suite`) is not the remedy for a user's file: its collect-only backend cannot bind a
+    fixture-taking test and drops it (measured: 2 tests re-collected where 4 remained). A caller that needs
+    the edited suite measured does it in a fresh process (`cli._fresh_audit`).
     """
     wanted = set(names)
     # A bracketed name is one CASE of a parametrized test — a row, not a function. The function is
@@ -385,6 +445,13 @@ def apply_removals(file: str, project_root: str, names: list[str]) -> RemovalRep
             outcomes[ident] = disposition
     changed: list[str] = []
     for path, items in sorted(plan.items()):
+        rel = basis_key(project_root, path)
+        if expected_digests is not None:
+            basis = removal_basis_disposition(expected_digests.get(rel, ""), file_digest(path))
+            if basis != "unchanged":
+                for ident, _qual in items:
+                    outcomes[ident] = f"basis_{basis}"
+                continue
         with open(path, encoding="utf-8") as fh:
             source = fh.read()
         touched = False

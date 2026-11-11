@@ -548,19 +548,23 @@ def test_a_recheck_that_could_not_measure_is_named_never_printed_as_a_gap():
             "reading": "unmeasured",
             "newly_open": 0,
             "cover": 2,
+            "value_killed": 11,
+            "total_mutants": 11,
+            # The re-check is a fresh audit in a new process since #104; it ran, and admitted no certificate.
+            "recheck": "measured",
         },
     }
     lines = _removal_lines(record)
-    assert "  after removal: not re-measured — the in-process re-check admits no certificate" in lines
+    assert "  after removal: not re-measured — the fresh re-check admits no certificate" in lines
     assert lines[-1] == "DONE:  removed 1 test(s). Confirm in a fresh run: detective audit 'src/m.py::f'"
     record["after"].update(state="complete", reading="complete")
     assert _removal_lines(record)[-2:] == [
-        "  after removal: 3 test(s), complete, greedy cover=2",
+        "  after removal: 3 test(s) · 11/11 value-pinned, complete, greedy cover=2",
         "DONE:  removed 1 test(s); the suite above is what remains.",
     ]
     record["after"].update(state="gap", reading="gap_kept")
     assert _removal_lines(record)[-2:] == [
-        "  after removal: 3 test(s); the gap named above, and nothing new",
+        "  after removal: 3 test(s) · 11/11 value-pinned; the gap named above, and nothing new",
         "DONE:  removed 1 test(s); the suite above is what remains.",
     ]
 
@@ -574,10 +578,19 @@ def test_a_recheck_that_finds_something_newly_open_stops_and_names_the_restore()
         "gate": "proceed",
         "outcomes": [{"test": "tests/t.py::test_x", "code": "removed", "subject": "", "why": "deleted"}],
         "removed": ["tests/t.py::test_x"],
-        "after": {"test_count": 3, "state": "gap", "reading": "gap_new", "newly_open": 2, "cover": 2},
+        "after": {
+            "test_count": 3,
+            "value_killed": 9,
+            "total_mutants": 11,
+            "state": "gap",
+            "reading": "gap_new",
+            "newly_open": 2,
+            "cover": 2,
+            "recheck": "measured",
+        },
     }
     assert _removal_lines(record)[-3:] == [
-        "  after removal: 3 test(s), and 2 obligation(s) open that were not before",
+        "  after removal: 3 test(s) · 9/11 value-pinned, and 2 obligation(s) open that were not before",
         "STOP:  a removal may have broken src/m.py::f. Confirm in a fresh run: detective audit 'src/m.py::f'",
         "       If it agrees, restore the removed tests listed above (git checkout).",
     ]
@@ -673,7 +686,7 @@ def test_correct_cross_file_removals_still_happen_under_a_true_sentence(tmp_path
     removal = _cli(tmp_path, "audit", "src/m.py::f", "--remove")
     assert removal.returncode == 0, removal.stdout + removal.stderr
     assert "def test_dup" not in (tmp_path / "tests" / "test_other.py").read_text()
-    assert "after removal: 2 test(s), complete, greedy cover=2" in removal.stdout
+    assert "after removal: 2 test(s) · 11/11 value-pinned, complete, greedy cover=2" in removal.stdout
 
 
 def test_json_remove_prints_one_document_carrying_every_outcome(tmp_path):

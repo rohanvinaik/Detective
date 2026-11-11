@@ -115,6 +115,7 @@ def test_remove_handoff_forwards_the_two_sign_policy(tmp_path):
         function="m.py::f",
         redundant_tests=("test_candidate",),
         function_basis=SimpleNamespace(action="complete"),
+        removal_basis={},
     )
     with (
         patch(

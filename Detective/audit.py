@@ -30,7 +30,7 @@ import ast
 import contextlib
 import os
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from Wesker.ci import walk_functions
@@ -216,6 +216,11 @@ class SuiteAudit:
     # (empty / None) — never the first-killer reading, which follows execution order. The default is for
     # a hand-built report, which states its own sets; every measured audit sets it.
     cover_standing: str = "full_matrix"
+    # The files `redundant_tests` live in, each with the digest it had when this audit measured it
+    # (`suite_edit.basis_key` -> `suite_edit.file_digest`) (#104). `--remove` hands it to the editor, which
+    # refuses a file that no longer matches: the proposal describes the suite as it was measured, and an
+    # edit made since is not the edit that was proposed (TEST_SUITE_CLEANUP_CONTRACT §9 step 5, C12).
+    removal_basis: dict[str, str] = field(default_factory=dict)
     # Why the survivor search could not RUN over the target (Finding E), carried from the classify
     # report so audit's next action names the SAME escape converge does — the module would not import
     # (`load_failed` + the exception in `note`), or no synthesized input reached the function
@@ -1123,6 +1128,7 @@ def audit_suite(
         contradicted_line_flags=contradicted_flags,
         minimal_test_count=None if minimal is None else len(minimal),
         cover_standing=relation.standing,
+        removal_basis=removal_basis(os.path.abspath(project_root), sorted(redundant)),
         manual_equivalent=manual_equivalent,
         authored_fence=fence,
         candidate_equivalent=candidate_equivalent,
@@ -1473,6 +1479,46 @@ def removal_gate(target_action: str) -> str:
     return "proceed" if target_action in ("complete", "gap") else "refuse_unresolved"
 
 
+def removal_basis(root: str, test_ids: Sequence[str]) -> dict[str, str]:
+    """The measured digest of each file the given tests are defined in (#104) — the basis a removal of
+    them is proposed against. An id that names no file contributes nothing, so the editor finds no record
+    for wherever it resolves and refuses it (`suite_edit.removal_basis_disposition`: ``unrecorded``)."""
+    from .suite_edit import basis_key, file_digest, nodeid_parts
+
+    basis: dict[str, str] = {}
+    for test_id in test_ids:
+        hint = nodeid_parts(test_id)[0]
+        if hint:
+            path = os.path.join(root, hint)
+            basis.setdefault(basis_key(root, path), file_digest(path))
+    return basis
+
+
+def removal_recheck_standing(ran: bool, before_tests: int, removed: int, after_tests: int) -> str:
+    """Whether the post-removal re-check is a measurement of the EDITED suite (#104, pure — pinned).
+
+    The re-check is a fresh audit in a new process: the removing process's own session is stale after
+    the edit (it holds the pre-edit tests, so its re-audit built 2 of 11 mutants and kept the deleted test
+    in its basis). ``ran`` is whether that fresh audit produced a readable report; ``before_tests`` is the
+    target's test count before the removal, ``removed`` how many of them were deleted, ``after_tests`` the
+    fresh count. Every deleted test was one of the target's, so the edited suite has exactly
+    ``before_tests - removed``. Contract C01 / C09: an unexpectedly reduced collection refuses acceptance,
+    and a stale collection is not a fresh one.
+
+      "measured"          it ran and counts what the edit left: its state is the after-state.
+      "not_run"           no readable report came back: nothing is known, and nothing is claimed.
+      "collection_short"  it counts fewer tests than the edit left: a test the edit did not touch is
+                          missing from the measurement (or from the suite), so it is not read as a verdict.
+      "collection_extra"  it counts more: a deleted test is still being measured.
+    """
+    if not ran:
+        return "not_run"
+    expected = before_tests - removed
+    if after_tests == expected:
+        return "measured"
+    return "collection_short" if after_tests < expected else "collection_extra"
+
+
 def removal_after_reading(before: str, after: str, newly_open: int) -> str:
     """What the post-removal re-check says about the removal (#103, pure — pinned).
 
@@ -1487,8 +1533,8 @@ def removal_after_reading(before: str, after: str, newly_open: int) -> str:
       "gap_kept"    it reads a gap, the same one the target had before; nothing newly open.
       "gap_new"     it reads an obligation open that was not before: a removal may have broken the
                     target, and it is reported as such, never as done.
-      "unmeasured"  the re-check admits no certificate (measured: in-process after a mid-file edit it
-                    built 2 of 11 mutants), so it says nothing either way; a fresh run must confirm.
+      "unmeasured"  the re-check admits no certificate, or was no measurement of the edited suite
+                    (`removal_recheck_standing`), so it says nothing either way; a fresh run must confirm.
     """
     if after == "complete":
         return "complete"

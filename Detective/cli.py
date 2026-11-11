@@ -9549,7 +9549,13 @@ def _audit_remove(
     (`_removal_lines`) and `--json` alike, and names the reach budget that applied, since a
     ``reach_over_budget`` outcome is relative to it.
     """
-    from .audit import REACH_BUDGET, audit_suite, module_safe_removals, removal_after_reading, removal_gate
+    from .audit import (
+        REACH_BUDGET,
+        module_safe_removals,
+        removal_after_reading,
+        removal_gate,
+        removal_recheck_standing,
+    )
     from .suite_edit import apply_removals, removal_outcome_why
 
     root = os.path.abspath(project_root)
@@ -9576,7 +9582,9 @@ def _audit_remove(
     safe, retained, unverified = module_safe_removals(
         file, function, project_root, candidates, budget, two_sign=two_sign
     )
-    result = apply_removals(file, project_root, list(safe))
+    # Against the files AS MEASURED (#104): the consultation above can take minutes, and a file edited
+    # since the proposal is not the file the proposal describes; the editor refuses it, by name.
+    result = apply_removals(file, project_root, list(safe), dict(report.removal_basis))
     rows = [
         *({"test": t, "code": "retained_for", "subject": fn} for t, fn in sorted(retained.items())),
         *({"test": t, "code": code, "subject": what} for t, (code, what) in sorted(unverified.items())),
@@ -9586,22 +9594,50 @@ def _audit_remove(
         row["why"] = removal_outcome_why(row["code"], row["subject"])
     after = None
     if result.removed:
-        # Re-audit so the reader sees the target is still complete after pruning. Its STATE is read, not
-        # `complete`: in-process after a mid-file edit the re-check can build only part of the mutant
-        # universe (measured: 2 of 11), and a bool would print that engine limit as a gap in the suite.
-        a = audit_suite(file, function, project_root, two_sign=two_sign)
-        state = str(getattr(getattr(a, "function_basis", None), "action", "") or "unresolved")
-        # What is open now that was not before: the target's file is never edited, so its gap and
-        # line descriptions compare directly across the two measurements.
-        newly_open = len(set(a.killable_gaps) - set(report.killable_gaps)) + len(
-            set(a.missing_lines) - set(report.missing_lines)
+        # Re-audit so the reader sees the target is still complete after pruning — in a FRESH PROCESS
+        # (#104). This process's session is stale after the edit: it holds the pre-edit test callables,
+        # their first lines, the imported test module and a baseline that still lists the deleted test, so
+        # its own re-audit built 2 of 11 mutants and kept the deleted test in its basis. A new process
+        # collects the edited files as they are. Its STATE is read, never `complete`, and only when it is a
+        # measurement of the edited suite (`removal_recheck_standing`): anything else is unresolved, which
+        # is never a verdict and never drives a further deletion.
+        fresh = _fresh_audit(file, function, project_root, two_sign)
+        standing = removal_recheck_standing(
+            fresh is not None,
+            report.test_count,
+            len(result.removed),
+            fresh["test_count"] if fresh is not None else 0,
         )
+        if fresh is not None and standing == "measured":
+            state = str(fresh["function_basis"]["action"] or "unresolved")
+            # What is open now that was not before: the target's file is never edited, so its gap and
+            # line descriptions compare directly across the two measurements.
+            newly_open = len(set(fresh["killable_gaps"]) - set(report.killable_gaps)) + len(
+                set(fresh["missing_lines"]) - set(report.missing_lines)
+            )
+            measured = {
+                "test_count": fresh["test_count"],
+                "cover": fresh["minimal_test_count"],
+                "value_killed": fresh["value_killed"],
+                "total_mutants": fresh["total_mutants"],
+                # The basis the fresh measurement admits: the tests, by id. A deleted test cannot be here.
+                "basis": sorted(str(w["test"]) for w in fresh["function_basis"]["admitted"]),
+            }
+        else:
+            state, newly_open = "unresolved", 0
+            measured = {
+                "test_count": None,
+                "cover": None,
+                "value_killed": None,
+                "total_mutants": None,
+                "basis": None,
+            }
         after = {
-            "test_count": a.test_count,
+            **measured,
             "state": state,
             "reading": removal_after_reading(target_state, state, newly_open),
             "newly_open": newly_open,
-            "cover": a.minimal_test_count,
+            "recheck": standing,
         }
     return {
         **record,
@@ -9610,6 +9646,67 @@ def _audit_remove(
         "files_changed": [os.path.relpath(p, root) for p in result.files_changed],
         "after": after,
     }
+
+
+_FRESH_AUDIT_FIELDS = (
+    "test_count",
+    "function_basis",
+    "killable_gaps",
+    "missing_lines",
+    "minimal_test_count",
+    "value_killed",
+    "total_mutants",
+)
+
+
+def _fresh_audit(file: str, function: str, project_root: str, two_sign: bool) -> dict | None:
+    """Audit one function in a NEW process and return its `--json` report, or None when no readable
+    report came back (#104).
+
+    The measurement that follows an edit to a test file cannot share this process's session: the session
+    holds the suite as it was collected, and Wesker's per-file re-collection cannot bind a fixture-taking
+    test (it drops it). A new process under this interpreter and this environment collects the files as
+    they now are, which is what the page has always named as the confirmation. A report missing a field
+    this reads is no report (contract C17: fail closed), never a partial one.
+    """
+    import subprocess
+
+    root = os.path.abspath(project_root)
+    argv = [
+        sys.executable,
+        "-m",
+        "Detective",
+        "audit",
+        f"{file}::{function}",
+        "--json",
+        "--project-root",
+        root,
+    ]
+    if two_sign:
+        argv.append("--two-sign")
+    try:
+        # S603: our own package under our own interpreter, on the target the user named
+        done = subprocess.run(argv, cwd=root, capture_output=True, text=True, check=False)  # noqa: S603
+        payload = json.loads(done.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if not isinstance(payload, dict) or any(name not in payload for name in _FRESH_AUDIT_FIELDS):
+        return None
+    basis = payload["function_basis"]
+    if not isinstance(basis, dict) or "action" not in basis or "admitted" not in basis:
+        return None
+    return payload
+
+
+def _recheck_unmeasured_why(standing: str) -> str:
+    """Why the post-removal re-check is not read as a measurement, per `audit.removal_recheck_standing`
+    code; a measured re-check that is unresolved admits no certificate, and an unknown code is named."""
+    return {
+        "measured": "the fresh re-check admits no certificate",
+        "not_run": "the fresh re-check produced no report",
+        "collection_short": "the fresh re-check counted fewer tests than the removal left",
+        "collection_extra": "the fresh re-check still counted a removed test",
+    }.get(standing, f"the re-check did not measure the edited suite ({standing})")
 
 
 def _removal_lines(record: dict) -> list[str]:
@@ -9635,10 +9732,16 @@ def _removal_lines(record: dict) -> list[str]:
         lines.append(f"  removed {len(removed)}: {', '.join(removed)}")
         after = record.get("after") or {}
         reading = after.get("reading", "")
-        count = f"  after removal: {after.get('test_count')} test(s)"
+        count = (
+            f"  after removal: {after.get('test_count')} test(s) · "
+            f"{after.get('value_killed')}/{after.get('total_mutants')} value-pinned"
+        )
         if reading in ("complete", "gap_kept"):
+            # No cover is a named absence (#145), never the literal None.
+            cover = after.get("cover")
+            cover_text = f"greedy cover={cover}" if cover is not None else "cover not established"
             lines.append(
-                f"{count}, complete, greedy cover={after.get('cover')}"
+                f"{count}, complete, {cover_text}"
                 if reading == "complete"
                 else f"{count}; the gap named above, and nothing new"
             )
@@ -9652,7 +9755,9 @@ def _removal_lines(record: dict) -> list[str]:
             )
             lines.append("       If it agrees, restore the removed tests listed above (git checkout).")
             return lines
-        lines.append("  after removal: not re-measured — the in-process re-check admits no certificate")
+        lines.append(
+            f"  after removal: not re-measured — {_recheck_unmeasured_why(str(after.get('recheck')))}"
+        )
         lines.append(
             f"DONE:  removed {len(removed)} test(s). Confirm in a fresh run: detective audit '{target}'"
         )
