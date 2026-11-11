@@ -63,6 +63,7 @@ from .equivalence import (
 )
 from .line_flags import classify_missing_lines
 from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
+from .process_state import declared_roots, restores_process_state
 from .purity import environment_reads, is_pure, uncovered_env_reads, world_effects
 from .suite_edit import nodeid_function_name
 from .synthesis.characterization import (
@@ -1742,6 +1743,7 @@ def regression_recovery(regressed: bool, minimized: bool, retried: bool) -> str:
     return RESTORE_PRIOR
 
 
+@restores_process_state(declared_roots)
 def converge(
     file: str,
     function: str,

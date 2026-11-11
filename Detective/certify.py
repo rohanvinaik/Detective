@@ -25,6 +25,7 @@ from . import pins
 from .certificates import load_certificate
 from .decompose import DecompositionPlan, decompose
 from .engine import _resolve, profile
+from .process_state import declared_roots, restores_process_state
 from .scope import ScopeMap, scope_from_profiling
 from .synthesis.writer import FUNCTION_DIGEST_PREFIX, synthesize_test_module
 
@@ -453,6 +454,7 @@ def wire_pytest(project_root: str, test_path: str) -> PytestWiring:
     )
 
 
+@restores_process_state(declared_roots)
 def certify(
     file: str,
     function: str,

@@ -503,3 +503,117 @@ def test_decision_empty_in_empty_out_and_any_root_matches():
     assert _codes() == {}
     assert _codes(after={"a": "/r2/a.py"}, roots=[ROOT, "/r2"]) == {"a": "evicted"}
     assert _codes(after={"a": "/r2/a.py"}, roots=[]) == {"a": "kept_foreign_origin"}
+
+
+# ── Every library entry that loads project code, not only `profile` (#86) ─────────────────────────
+# The first fix wrapped `profile` alone. A predecessor that entered through another library entry
+# still broke its successor: with the test harness's own cleanup disabled, 43 of the 44 test files
+# that build an `m.py` project left `test_basis_admitted_witnesses_intent` green and one did not,
+# `test_search_pool_admission_intent`, which calls `classify_survivors` and `converge` directly.
+
+
+def _enter_classify_survivors(rel, root):
+    from Detective.engine import classify_survivors
+
+    classify_survivors(rel, "f", root)
+
+
+def _enter_diagnose(rel, root):
+    from Detective import diagnose
+
+    diagnose(rel, "f", root)
+
+
+def _enter_trace_tier(rel, root):
+    from Detective.engine import trace_tier
+
+    trace_tier(rel, "f", root)
+
+
+def _enter_converge(rel, root):
+    from Detective import converge
+
+    converge(rel, "f", root, write_dir=None, deadline_s=120.0)
+
+
+def _enter_certify(rel, root):
+    from Detective import certify
+
+    certify(rel, "f", root)
+
+
+def _enter_audit_suite(rel, root):
+    from Detective.audit import audit_suite
+
+    audit_suite(rel, "f", root)
+
+
+LIBRARY_ENTRIES = {
+    "classify_survivors": _enter_classify_survivors,
+    "diagnose": _enter_diagnose,
+    "trace_tier": _enter_trace_tier,
+    "converge": _enter_converge,
+    "certify": _enter_certify,
+    "audit_suite": _enter_audit_suite,
+}
+
+
+@pytest.mark.parametrize("entry", sorted(LIBRARY_ENTRIES))
+def test_every_library_entry_leaves_sys_path_and_project_modules_as_it_found_them(entry, tmp_path):
+    root = tmp_path / "pred"
+    rel = _project(root, "flat", "pred")
+    path_before = list(sys.path)
+    assert _project_modules(root) == set()
+    LIBRARY_ENTRIES[entry](rel, str(root))
+    assert sys.path == path_before, f"{entry} left entries on sys.path"
+    assert _project_modules(root) == set(), f"{entry} left the project's modules imported"
+    assert process_state._depth == 0
+
+
+@pytest.mark.parametrize("entry", sorted(LIBRARY_ENTRIES))
+def test_a_victim_after_any_library_entry_equals_the_victim_alone(entry, tmp_path):
+    victim = tmp_path / "victim"
+    with _harness_snapshot():
+        alone = _projection(_measure(victim, "flat", "victim"))
+    assert alone["killed"] > 0 and alone["line_coverage"], "the standard must be a real measurement"
+    pred = tmp_path / "pred"
+    LIBRARY_ENTRIES[entry](_project(pred, "flat", "pred"), str(pred))
+    assert _projection(_measure(victim, "flat", "victim")) == alone
+
+
+def test_every_entry_that_loads_project_code_is_wrapped():
+    """A guard on the wiring: an entry added without the wrapper restores nothing, and nothing else
+    would say so until a second project measured the first one's code."""
+    import importlib
+
+    # By module path: `Detective.certify` and `Detective.converge` name the re-exported FUNCTIONS.
+    names = [
+        ("Detective.engine", "profile"),
+        ("Detective.engine", "diagnose"),
+        ("Detective.engine", "trace_tier"),
+        ("Detective.engine", "classify_survivors"),
+        ("Detective.certify", "certify"),
+        ("Detective.converge", "converge"),
+        ("Detective.audit", "audit_suite"),
+        ("Detective.rewrite", "verify_rewrite"),
+    ]
+    entries = [getattr(importlib.import_module(module), name) for module, name in names]
+    unwrapped = [e.__qualname__ for e in entries if not hasattr(e, "__wrapped__")]
+    assert unwrapped == []
+
+
+def test_declared_roots_reads_the_root_and_any_extra_test_dirs(tmp_path):
+    import inspect
+
+    def with_extra(file, function, project_root=".", *, extra_test_dirs=()):
+        return None
+
+    def without_extra(file, function, project_root="."):
+        return None
+
+    a = inspect.signature(with_extra).bind("m.py", "f", str(tmp_path), extra_test_dirs=(str(tmp_path / "t"),))
+    a.apply_defaults()
+    assert process_state.declared_roots(a) == [str(tmp_path), str(tmp_path / "t")]
+    b = inspect.signature(without_extra).bind("m.py", "f")
+    b.apply_defaults()
+    assert process_state.declared_roots(b) == [os.path.abspath(".")]

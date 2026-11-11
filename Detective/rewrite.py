@@ -29,6 +29,8 @@ from typing import Any
 
 from Wesker.monitoring import MonitoringUnavailable
 
+from .process_state import declared_roots, restores_process_state
+
 _RECEIPT_SCHEMA = "detective-rewrite-receipt/1"
 
 
@@ -720,6 +722,7 @@ def abstain_reason(verdict: str, baseline: str, order_standing: str) -> str:
     return ""
 
 
+@restores_process_state(declared_roots)
 def verify_rewrite(
     receipt: RewriteReceipt,
     file: str,

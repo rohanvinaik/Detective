@@ -236,6 +236,17 @@ def restoring_process_state(*project_roots: str) -> Iterator[None]:
                 _depth -= 1
 
 
+def declared_roots(bound: inspect.BoundArguments) -> list[str]:
+    """The project roots a library entry imports from, read off its call (#86).
+
+    Every library entry that loads project code takes ``project_root``; ``profile`` and its callers
+    also take ``extra_test_dirs``. An entry without the second simply has no extra roots.
+    """
+    args = bound.arguments
+    extra = args.get("extra_test_dirs") or ()
+    return [os.path.abspath(args["project_root"]), *(os.path.abspath(d) for d in extra)]
+
+
 def restores_process_state[**P, R](
     roots_of: Callable[[inspect.BoundArguments], list[str]],
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:

@@ -641,6 +641,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/process_state.py::module_restoration": {
+    "cut_reasons": [],
+    "function_digest": "b924c1c3f8fb854e",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/purity.py::_SideEffectVisitor.visit_Call": {
     "function_digest": "c47597908cebe385",
     "refusal": "",

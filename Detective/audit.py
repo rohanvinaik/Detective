@@ -44,6 +44,7 @@ from .minimize import (
     redundant_2axis,
     strip_foreign_evidence,
 )
+from .process_state import declared_roots, restores_process_state
 from .synthesis.writer import foreign_generated_test_names
 
 # The marker a candidate id carries when it names a pre-existing (non-generated) test. One
@@ -579,6 +580,7 @@ def baseline_typed_outcomes(result: Any) -> dict[str, str]:
     return outcomes
 
 
+@restores_process_state(declared_roots)
 def audit_suite(
     file: str,
     function: str,

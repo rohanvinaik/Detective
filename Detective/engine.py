@@ -78,7 +78,7 @@ from .equivalence import (
     structural_shape,
     synth_ast_input,
 )
-from .process_state import restores_process_state
+from .process_state import declared_roots, restores_process_state
 from .purity import is_pure as _is_pure
 from .purity import world_effects
 from .scope import ScopeMap, scope_from_profiling
@@ -990,13 +990,7 @@ class _CaptureOptions(TypedDict, total=False):
     deadline: float
 
 
-def _profile_roots(bound: inspect.BoundArguments) -> list[str]:
-    """The project roots a ``profile`` call imports from: its root and the extra test roots (#86)."""
-    args = bound.arguments
-    return [os.path.abspath(args["project_root"]), *(os.path.abspath(d) for d in args["extra_test_dirs"])]
-
-
-@restores_process_state(_profile_roots)
+@restores_process_state(declared_roots)
 def profile(
     file: str,
     function: str,
@@ -1400,6 +1394,7 @@ class TraceTier:
     mutant_count: int
 
 
+@restores_process_state(declared_roots)
 def trace_tier(
     file: str,
     function: str,
@@ -1499,6 +1494,7 @@ def _parsimony_signals(
         return None
 
 
+@restores_process_state(declared_roots)
 def diagnose(
     file: str,
     function: str,
@@ -3208,6 +3204,7 @@ def codomain_source(two_sign: bool, carried: bool) -> str:
     return CODOMAIN_CARRIED if carried else CODOMAIN_HARVEST
 
 
+@restores_process_state(declared_roots)
 def classify_survivors(
     file: str,
     function: str,
