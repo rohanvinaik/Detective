@@ -682,8 +682,11 @@ def cut_reason_sentence(reason: str) -> str:
         "mutant_not_entered_decorator_wrapper": "one or more mutants were installed but the consulted"
         " tests reach the function through a decorator's WRAPPER, which calls the original from inside"
         " its closure; the install rebinds module names, never the closure, so no test through that"
-        " wrapper can enter a mutant — a floor of this measurement, not a gap in your suite: pin the"
-        " undecorated callable (its __wrapped__) directly, or measure the wrapper's caller",
+        " wrapper can enter a mutant — a floor of this measurement, not a gap in your suite. Pinning the"
+        " undecorated callable (its __wrapped__) does NOT move it: functools.wraps keeps the original"
+        " object and the install never replaces it. A test that calls the function through its module"
+        " attribute (module.fn(...)) does; where callers reach it only through the wrapper's closure no"
+        " repair exists yet (Wesker's robust install mode is unbuilt, Wesker#18)",
         "mutant_not_entered_captured_at_import": "one or more mutants were installed but the consulted"
         " tests reach the function through a copy CAPTURED at import — a module-level constant,"
         " registry, container, field, default argument or partial holding the original; the install"
