@@ -2929,6 +2929,20 @@ def _write_converge_report(root: str, qualname: str, text: str, prefix: str = "c
     return os.path.relpath(path, root)
 
 
+def guards_pointer(code: str) -> str:
+    """Where the uncovered lines the terse page capped are named in full (#142 item 4, pure — pinned).
+
+    The row said "(+N more — all named in the action below)" under every ending, but only the gap ask
+    (``close_the_gap``) carries the lines: under a step-budget floor (``repair_measurement``'s
+    ``execution_budget`` route), a failing floor, a dead suite or any other ending the action names
+    none, so the pointer was false.
+
+      "action"   the ending is ``close_the_gap``: its block names every uncovered line
+      "report"   every other ending: the lines are in the full report
+    """
+    return "action" if code == "close_the_gap" else "report"
+
+
 def _format_converge_terse(
     result,
     report_path: str,
@@ -3003,6 +3017,10 @@ def _format_converge_terse(
         lines.append(final)
         return "\n".join(lines)
 
+    # The ending's code, read once: the capped rows below point at the action only when it names them.
+    _ending_code = (
+        decision.code if decision is not None else _converge_routing(result, rep, session_reason)[1]
+    )
     floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
     if floor:
         # First, always (#114), as audit's FAILING NOW is: the suite disagrees with the code RIGHT NOW,
@@ -3073,7 +3091,8 @@ def _format_converge_terse(
         # "this is all of them". Three of seven printed silently, and the action block below
         # names every one, so the reader had no way to tell the row was a sample.
         if len(guards) > 3:
-            lines.append(_row("", f"(+{len(guards) - 3} more — all named in the action below)"))
+            where = "the action below" if guards_pointer(_ending_code) == "action" else "the full report"
+            lines.append(_row("", f"(+{len(guards) - 3} more — all named in {where})"))
     if result.manually_unreachable:
         lines.append(
             _row("· line oracle", f"{result.manually_unreachable} statement(s) flagged unreachable (modulo)")
@@ -3596,6 +3615,27 @@ _ROUTE_ADDRESSES: dict[str, tuple[str, ...]] = {
     "fix_original_failure": ("original_also_fails_failing_test", "original_also_fails"),
     "restore_shared_state": ("original_also_fails_shared_state",),
 }
+
+
+def _open_work_rows(result, rep) -> list[str]:
+    """The other open work an unresolved measurement leaves unnamed (#142 item 4): the page's capped rows
+    count uncovered lines and equivalents, and a repair block that names none of them leaves them without
+    a next step. Names them and says why they wait; empty when nothing else is open."""
+    parts = []
+    if result.missing_lines:
+        parts.append(f"{len(result.missing_lines)} uncovered line(s)")
+    candidates, crash_only = _residual_counts(rep) if rep is not None else (0, 0)
+    if candidates:
+        parts.append(f"{candidates} unproven-equivalent")
+    if crash_only:
+        parts.append(f"{crash_only} crash-only")
+    if not parts:
+        return []
+    return [
+        _row("· Also open", " · ".join(parts)),
+        _row("", "named in the full report; neither an input nor a flag is for them until the"),
+        _row("", "measurement above is resolved."),
+    ]
 
 
 def _also_live_rows(reasons: tuple[str, ...], route: str) -> list[str]:
@@ -4595,6 +4635,7 @@ def _converge_action(
                 "",
                 _row("· Unresolved", "the execution bound did not establish a suite verdict."),
                 _row(_RESOLVE_ROW, "inspect the execution and its allowance before re-measuring."),
+                *_open_work_rows(result, rep),
             ]
         if route == "write_authority":
             return [
@@ -4602,6 +4643,7 @@ def _converge_action(
                 "",
                 _row("· Unresolved", "the prevented write left those mutants without a suite verdict."),
                 _row(_RESOLVE_ROW, "keep the test's writes inside its temporary directory, then re-measure."),
+                *_open_work_rows(result, rep),
             ]
         if route in ("fix_original_failure", "restore_shared_state"):
             _led = [r for r in reasons if r in _ROUTE_ADDRESSES[route]]
@@ -5326,6 +5368,21 @@ class Decision:
         return self.universe if self.universe is not None else UniverseOptions(two_sign=self.two_sign)
 
 
+def residual_ids_key(basis: str) -> str:
+    """The key a decision record's residual ids are serialized under, from the residual's basis (#142 item 3,
+    pure — pinned).
+
+    Every residual was recorded as ``{"basis", "flaggable_ids"}``, so a ``step_budget_divergent`` residual
+    — whose own page says "Deterministic divergence is NOT an equivalence gap — nothing to `flag`" —
+    named its mutants as flaggable. A key says what its ids ARE:
+
+      "divergent_ids"   the basis is ``step_budget_divergent``: mutants that exceeded the step budget; no
+                        `flag` applies (the 2026-10-25 ruling)
+      "flaggable_ids"   every other basis: survivors a `flag` may be offered for (`_flaggable_ids`)
+    """
+    return "divergent_ids" if basis == "step_budget_divergent" else "flaggable_ids"
+
+
 def _decision_payload(d: Decision) -> dict:
     """The record a ``--json`` payload carries under ``decision`` — the same object the page consumed.
 
@@ -5358,7 +5415,9 @@ def _decision_payload(d: Decision) -> dict:
         },
         "plan": plan,
         "residual": (
-            {"basis": d.residual[0], "flaggable_ids": list(d.residual[1])} if d.residual is not None else None
+            {"basis": d.residual[0], residual_ids_key(d.residual[0]): list(d.residual[1])}
+            if d.residual is not None
+            else None
         ),
         "optional": [list(command) for command in d.optional],
         "state": d.state,
@@ -8695,6 +8754,77 @@ def _ledger_env(root: str) -> dict:
     return out
 
 
+def observation_incomplete_remedy(code: str, deadline: float | None, accepts_deadline: bool) -> str:
+    """Which next command an incomplete observation's code has, as a named code (#142 item 1, pure — pinned).
+
+    Every `ObservationIncomplete` reached one handler that printed ``INCOMPLETE:  <code>: <detail>`` and
+    nothing else, though a `*_timeout` code has the remedy the CUT ending already prints. ``deadline`` is
+    the run's ``--deadline`` (None where the verb has none); the states never share a code because their
+    commands differ and one of them must not be offered twice:
+
+      "raise_deadline"      a `*_timeout`, and the wall is the default or below 900 s: re-run with 900
+      "disable_deadline"    a `*_timeout` at a wall of 900 s or more: 900 was already tried (it ended in a
+                            CUT in the measured case), so the next step is ``--deadline 0``
+      "unbounded_timeout"   a `*_timeout` with the wall already off (0): the bound that fired is not the
+                            wall, so no ``--deadline`` re-run is offered
+      "none"                every other code (a refusal of the execution, an unretainable snapshot, a
+                            worker left alive, a monitoring fault): the code and its detail name the cause
+                            and no budget, input or option changes it. The one-line ending is DELIBERATE
+                            here — an earlier ruling (test_harvest_containment_intent) holds that a page
+                            ending on a measured failure offers no `DO THIS` — and the record says so:
+                            ``--json`` carries ``next.remedy == "none"``.
+    """
+    if code.endswith("_timeout") and accepts_deadline:
+        if deadline is not None and deadline == 0:
+            return "unbounded_timeout"
+        if deadline is not None and deadline >= 900:
+            return "disable_deadline"
+        return "raise_deadline"
+    return "none"
+
+
+def _with_option(argv: list[str], option: str, value: str | None) -> list[str]:
+    """``argv`` with ``option`` set to ``value`` (replacing a given one, in either spelling), or just
+    ``option`` appended when ``value`` is None."""
+    out: list[str] = []
+    skip = False
+    for token in argv:
+        if skip:
+            skip = False
+        elif token == option:
+            skip = value is not None
+        elif not token.startswith(option + "="):
+            out.append(token)
+    return [*out, option] if value is None else [*out, option, value]
+
+
+def _incomplete_observation_lines(exc, args, argv: list[str]) -> tuple[list[str], str, str]:
+    """``(page, command, remedy)`` for an incomplete observation (#142 item 1): the one-line cause, then
+    its next command or the statement that none exists; ``command`` is "" where none is printed."""
+    verb = getattr(args, "command", "")
+    options = _verb_options(verb)
+    deadline = getattr(args, "deadline", None)
+    remedy = observation_incomplete_remedy(exc.code, deadline, "--deadline" in options)
+    lines = [f"INCOMPLETE:  {exc}"]
+    command = ""
+    if remedy in ("raise_deadline", "disable_deadline"):
+        value = "900" if remedy == "raise_deadline" else "0"
+        command = shlex.join(["detective", *_with_option(argv, "--deadline", value)])
+        lines += [
+            "",
+            f"DO THIS:  {command}",
+            "",
+            _row("· Why", "the remaining execution deadline ran out before this observation finished;"),
+            _row("", "a larger wall is the one bound this run can raise."),
+        ]
+    elif remedy == "unbounded_timeout":
+        lines += [
+            "",
+            _row("· Next", "no command: --deadline is already 0, so the bound that fired is not the wall."),
+        ]
+    return lines, command, remedy
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run a command, then emit a lightweight memory-telemetry footer (human mode).
     The footer is best-effort: monitoring must never fail the actual work. It goes to
@@ -8735,6 +8865,10 @@ def main(argv: list[str] | None = None) -> int:
             }
             if isinstance(exc, ObservationIncomplete):
                 payload["observation"] = {"contained": exc.contained}
+                _page, _next, _remedy = _incomplete_observation_lines(
+                    exc, args, list(argv if argv is not None else sys.argv[1:])
+                )
+                payload["next"] = {"remedy": _remedy, "command": _next or None}
             if isinstance(exc, HarvestIncomplete):
                 payload["observation"] = {
                     "partial_return_types": sorted(exc.result.codomain),
@@ -8745,6 +8879,8 @@ def main(argv: list[str] | None = None) -> int:
             _exit = 3
             if getattr(args, "json", False):
                 return _emit_json(payload, 3)
+            elif isinstance(exc, ObservationIncomplete):
+                print("\n".join(_page))
             else:
                 print(f"INCOMPLETE:  {exc}")
             return 3
