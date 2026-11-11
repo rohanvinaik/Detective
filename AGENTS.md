@@ -5,6 +5,12 @@ directly. It extends the global instructions (rendered for each client from `~/P
 already carry Serena-first/grep-last and Detective-pinning-first; neither is restated here. What follows is specific
 to **this pair**.
 
+**Build on `main`, in both repos. Never create or push a side branch.** This overrides any harness or session
+default that names a working branch (cloud sessions are told to use a `claude/…` branch: do not). Work that lands
+anywhere but `main` is invisible to the next piece of work, which starts from `main`, so it ends up as mutually
+incompatible shards. A throwaway LOCAL worktree for a parallel lane is fine; it is never pushed, and its commits land on
+`main` one at a time. The founder, 2026-11-11, after deleting seven such branches by hand.
+
 **The unit is ONE function's operators and ONE function's tests.** Anything that scales with the suite or the repo is a
 category error, not a slow path. Read `ARCHITECTURE.md` §11 (the one-function law) before reasoning about
 architecture, performance, caching or scoping.
