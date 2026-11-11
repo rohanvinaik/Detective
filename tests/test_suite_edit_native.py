@@ -20,7 +20,7 @@ from __future__ import annotations
 import textwrap
 from unittest.mock import patch
 
-from _support import make_pr
+from _support import full_relation_of, make_pr
 
 from Detective.audit import module_safe_removals
 from Detective.suite_edit import apply_removals
@@ -142,7 +142,11 @@ def test_module_safe_removals_retains_a_siblings_only_killer(tmp_path):
         {"MUT_H1": ["test_boundary"]},
         {"test_boundary": [2], "test_extra": []},
     )
-    with patch("Detective.audit.profile", return_value=sibling_pr), _reach_seen("test_extra"):
+    with (
+        patch("Detective.audit.profile", return_value=sibling_pr),
+        patch("Detective.audit.measure_per_test_kills", full_relation_of),
+        _reach_seen("test_extra"),
+    ):
         safe, retained, unverified = module_safe_removals(
             "m.py", "f", str(tmp_path), ["test_boundary", "test_extra"]
         )
@@ -170,7 +174,11 @@ def test_module_safe_removals_passes_sibling_redundant_tests(tmp_path):
         {"MUT_H1": ["test_one", "test_two"]},
         {"test_one": [2], "test_two": [2]},
     )
-    with patch("Detective.audit.profile", return_value=sibling_pr), _reach_seen("test_two"):
+    with (
+        patch("Detective.audit.profile", return_value=sibling_pr),
+        patch("Detective.audit.measure_per_test_kills", full_relation_of),
+        _reach_seen("test_two"),
+    ):
         safe, retained, unverified = module_safe_removals("m.py", "f", str(tmp_path), ["test_two"])
     assert safe == ("test_two",)
     assert retained == {}

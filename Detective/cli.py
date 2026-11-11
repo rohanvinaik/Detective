@@ -2671,7 +2671,9 @@ def _format_converge(
     # Reported only when there is line data (minimal_test_count > 0 or a measured gap).
     if result.missing_lines:
         lines += _missing_line_report(result)
-    elif result.minimal_test_count:
+    elif result.minimal_test_count or result.cover_standing != "full_matrix":
+        # An unestablished cover (None) is no evidence of "no line data": the old guard read the cover's
+        # size as a proxy for it, so a run whose per-test kill relation was unavailable lost this line.
         lines.append("  ✓ line-complete — every executable line is covered by a test")
     if result.manually_unreachable:
         # Issue #9: closed by the human oracle, and SAID so — "modulo", never silently covered.
@@ -2700,6 +2702,10 @@ def _format_converge(
         lines.append(f"  {_budget_row[0].lstrip('· ')}: {_budget_row[1]}")
     if result.minimal_test_count:
         lines.append(f"  minimal suite: {result.minimal_test_count} test(s) cover all kills + lines")
+    if result.cover_standing != "full_matrix":
+        from .audit import cover_standing_sentence
+
+        lines.append(f"  redundant tests: not established — {cover_standing_sentence(result.cover_standing)}")
     if result.redundant_tests:
         lines.append(
             f"  PROPOSED removals ({len(result.redundant_tests)}, redundant for BOTH kills and "
@@ -6211,7 +6217,12 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
     lines += _not_entered_rows(tuple(getattr(a, "not_entered", ()) or ()))
     if a.manual_equivalent:
         lines.append(_row("✓ flagged equivalent", f"{a.manual_equivalent} (your oracle — not gaps)"))
-    if a.redundant_tests:
+    if a.cover_standing != "full_matrix":
+        # Not a count of zero: no redundant set is claimed, and the page says why (#145).
+        from .audit import cover_standing_sentence
+
+        lines.append(_row("· redundant", f"not established — {cover_standing_sentence(a.cover_standing)}"))
+    elif a.redundant_tests:
         lines.append(_row("· redundant", f"{len(a.redundant_tests)} test(s) pointless for kills AND lines"))
         lines.append(_row("", _first_n(a.redundant_tests, 4)))
     lines.append("")

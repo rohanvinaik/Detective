@@ -54,3 +54,20 @@ def make_pr(
         universe_size=total if universe is None else universe,
         total_mutants=total if mutants is None else mutants,
     )
+
+
+def full_relation_of(file, function, project_root, result, **_kwargs):
+    """A stand-in for `audit.measure_per_test_kills` for a test whose profile is a double (#145).
+
+    The audit reads a cover only from the per-test kill relation, which it measures by running each test
+    alone; a double has no live tests to run. This reads the double's own matrix as that relation (each
+    test killed what the matrix says it killed) — the double stating, for itself, what the measurement
+    would have found.
+    """
+    from Detective.audit import PerTestKills
+
+    matrix = dict(result.kill_matrix or {})
+    tests = sorted(
+        {t for ts in matrix.values() for t in ts} | {t for t, lines in result.line_coverage.items() if lines}
+    )
+    return PerTestKills({t: {m: [t] for m, ts in matrix.items() if t in ts} for t in tests}, tuple(tests))

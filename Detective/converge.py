@@ -393,7 +393,12 @@ class ConvergeResult:
     # line gap un-closable by the guidance. Empty for unconditional lines (no branch to satisfy).
     missing_line_guards: tuple[tuple[int, str], ...] = ()
     redundant_tests: tuple[str, ...] = ()  # redundant for BOTH kills and lines -> deletion PROPOSALS
-    minimal_test_count: int = 0  # size of the two-axis minimal cover
+    # Size of the two-axis minimal cover, or None when no cover is established (`cover_standing` is not
+    # `full_matrix`) — "not measured", never 0 (#145).
+    minimal_test_count: int | None = 0
+    # `minimize.cover_standing`: whether `redundant_tests` / `minimal_test_count` are claims at all. Any
+    # code but `full_matrix` names why the per-test kill relation is unavailable and no set is claimed.
+    cover_standing: str = "full_matrix"
     universe_size: int = 0  # total possible mutants (behavioral DOF) — completeness denominator
     fast: bool = False  # greedy-sampled per pass (vs comprehensive/exhaustive)
     # A-priori PROVEN lower bound on the fraction of the DOF space the greedy run
@@ -1743,6 +1748,53 @@ def regression_recovery(regressed: bool, minimized: bool, retried: bool) -> str:
     return RESTORE_PRIOR
 
 
+def kill_relation_for(
+    memo: dict[int, tuple[Any, Any]],
+    result: Any,
+    main_admits: bool,
+    *,
+    file: str,
+    function: str,
+    project_root: str,
+    two_sign: bool,
+    isolated: bool,
+    budget_ms: float | None,
+    extra_test_dirs: tuple[str, ...],
+    include_shaped: bool,
+):
+    """The full kill relation for ``result`` (#145), measuring each test alone at most once per result.
+
+    ``memo`` keeps the per-test measurements by the result they explain (holding the result so its id
+    cannot be reused), so the drop decision and the final report share one measurement while a
+    re-profile after a drop gets its own. The standing is judged afresh each call: the same
+    measurements under a validity that has since been refused are ``main_unresolved``.
+    """
+    from .audit import assemble_kill_relation, measure_per_test_kills
+
+    first_killer = dict(getattr(result, "kill_matrix", {}) or {})
+    measured = None
+    if main_admits and first_killer:
+        held = memo.get(id(result))
+        if held is None or held[0] is not result:
+            held = (
+                result,
+                measure_per_test_kills(
+                    file,
+                    function,
+                    project_root,
+                    result,
+                    two_sign=two_sign,
+                    isolated=isolated,
+                    budget_ms=budget_ms,
+                    extra_test_dirs=extra_test_dirs,
+                    include_shaped=include_shaped,
+                ),
+            )
+            memo[id(result)] = held
+        measured = held[1]
+    return assemble_kill_relation(first_killer, main_admits, measured)
+
+
 @restores_process_state(declared_roots)
 def converge(
     file: str,
@@ -2412,6 +2464,9 @@ def _converge_impl(
         else "finalizing — re-profiling the full mutant universe against the existing suite "
         "(no test written this run)…"
     )
+    # The per-test kill measurements already taken, by the result they explain (#145): the drop decision
+    # below and the report's cover read the SAME relation when no test was dropped between them.
+    _relation_memo: dict[int, tuple[Any, Any]] = {}
     final_result = profile(
         file,
         function,
@@ -2443,8 +2498,27 @@ def _converge_impl(
         # the certificate requires. Strip foreign evidence from the ADMISSIBLE lines, not the raw
         # union. On a cold run the two coincide, so this is a no-op there.
         _own_admissible, _ = admissible_proof_coverage(final_result)
+        # The FULL per-test kill relation, never the result's first-killer credit (#145): which test
+        # Wesker credits with a mutant follows execution order, so a test it credits with nothing may
+        # be the only one that kills it once its predecessor goes (Wesker#49), and a test it credits
+        # with everything may be as redundant as any. Where the relation cannot be built (a cut, an
+        # unscored mutant, a test that cannot be run alone) the standing is named and NOTHING is
+        # dropped — a redundancy call without the relation is a guess about what the suite pins.
+        _relation = kill_relation_for(
+            _relation_memo,
+            final_result,
+            normalize_validity(final_result).admits_certificate,
+            file=file,
+            function=function,
+            project_root=project_root,
+            two_sign=two_sign,
+            isolated=isolated,
+            budget_ms=_budget_ms(),
+            extra_test_dirs=extra_test_dirs,
+            include_shaped=include_shaped,
+        )
         own_matrix, own_lines = strip_foreign_evidence(
-            final_result.kill_matrix,
+            _relation.matrix,
             _own_admissible,
             foreign_generated_test_names(root, func_key),
         )
@@ -2454,7 +2528,7 @@ def _converge_impl(
         # matched and `drop` was ALWAYS empty — the minimization below existed, announced itself
         # in a `say(...)`, and had not run since the identity moved. Measured: converge shipped 23
         # tests where 8 carry the whole certificate, and its own audit flagged 16 one command later.
-        _redundant = redundant_2axis(own_matrix, own_lines)
+        _redundant = redundant_2axis(own_matrix, own_lines) if _relation.standing == "full_matrix" else set()
         # KEYED BY property_identity, because that is what `accumulated` is keyed by. It used to
         # collect `assertion_code`, which the filter below then looked up among identity keys —
         # two different key spaces, so the drop silently shrank to whatever coincided. Measured:
@@ -2857,8 +2931,29 @@ def _converge_impl(
     # self-contradiction a warm (replayed) run produced — "delete this test" above a gap that test
     # closes. `proof_coverage` is the admissible line ledger computed just above; on a cold run it
     # equals the raw union, so this is a no-op there.
-    redundant = redundant_2axis(final_result.kill_matrix, proof_coverage)
-    minimal = minimal_cover_2axis(final_result.kill_matrix, proof_coverage)
+    # ... and on the FULL per-test kill relation, never the first-killer credit (#145): the cover and the
+    # redundant set are functions of which tests kill which mutants, and Wesker's own matrix names only
+    # the first killer in run order. Not established (a named standing) is no redundant set and no cover.
+    _relation = kill_relation_for(
+        _relation_memo,
+        final_result,
+        _validity.admits_certificate,
+        file=file,
+        function=function,
+        project_root=project_root,
+        # A result that was the isolated reproducibility check was measured isolated; its per-test runs
+        # must be too, or the relation would describe a different execution mode than the verdict.
+        two_sign=two_sign,
+        isolated=isolated or final_result is _verify_result,
+        budget_ms=_budget_ms(),
+        extra_test_dirs=extra_test_dirs,
+        include_shaped=include_shaped,
+    )
+    if _relation.standing == "full_matrix":
+        redundant = redundant_2axis(_relation.matrix, proof_coverage)
+        minimal: set[str] | None = minimal_cover_2axis(_relation.matrix, proof_coverage)
+    else:
+        redundant, minimal = set(), None
     # #38: the certificate's verification axis. COMPLETE requires a GREEN run of the exact target
     # proof basis under REAL pytest — the generated file PLUS the hand-written tests that supplied
     # target kills or admissible lines, not merely Wesker's direct-call runner. Run it only
@@ -2939,6 +3034,8 @@ def _converge_impl(
         project_root,
         node,
         candidate_equivalent=_modulo,
+        kill_matrix=_relation.matrix,
+        kill_attribution=_relation.standing,
     )
     return ConvergeResult(
         function=func_key,
@@ -2967,7 +3064,8 @@ def _converge_impl(
         contradicted_line_flags=tuple(f"{f.source} (line {f.line})" for f in contradicted_flags),
         missing_line_guards=missing_guards,
         redundant_tests=tuple(sorted(redundant)),
-        minimal_test_count=len(minimal),
+        minimal_test_count=None if minimal is None else len(minimal),
+        cover_standing=_relation.standing,
         universe_size=universe_size,
         fast=fast,
         initial_total_mutants=initial_total_mutants,

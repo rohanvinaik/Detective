@@ -727,6 +727,14 @@ class FunctionBasis:
     unresolved: tuple[TestId, ...] = ()
     excluded: tuple[tuple[TestId, str], ...] = ()
     action: str = "trace_next"
+    # What `admitted[].discharged.mutation_dims` rests on (#145). Wesker's default kill matrix credits
+    # each mutant to its FIRST killer, an artifact of execution order, so a per-test discharge read off
+    # it is not a fact about the suite. Therefore:
+    #   "full_matrix"   each test's mutation_dims is the mutants IT kills, from the per-test relation.
+    #   "not_measured"  this surface did not measure the relation: every mutation_dims is empty and
+    #                   says nothing about what a test kills (the lines are measured).
+    #   any other code  `minimize.cover_standing`'s refusal: asked for and unavailable — empty, named.
+    kill_attribution: str = "not_measured"
 
 
 def function_basis(
@@ -735,6 +743,8 @@ def function_basis(
     project_root: str = ".",
     func_node: ast.AST | None = None,
     candidate_equivalent: int = 0,
+    kill_matrix: dict[str, list[str]] | None = None,
+    kill_attribution: str = "not_measured",
 ) -> FunctionBasis:
     """Assemble the FunctionBasis a completed profile earned (§9, #D2/#X3 — the accessor).
 
@@ -757,7 +767,10 @@ def function_basis(
     obligation would read vacuously complete. The equivalent count is CALLER-SUPPLIED — 0 at
     ``profile()`` time, where no ``SurvivorReport`` exists and a killable-looking survivor is an OPEN
     obligation; converge supplies a real count once classification has run. ``admitted`` /
-    ``unresolved`` / ``excluded`` are D3/D5, empty here by design. Every result field is read
+    ``unresolved`` / ``excluded`` are D3/D5, empty here by design. Each admitted test's
+    ``mutation_dims`` is filled only from ``kill_matrix`` when the caller passes the FULL per-test
+    relation with ``kill_attribution="full_matrix"`` (#145); the result's own ``kill_matrix`` is a
+    first-killer credit and is never read for it. Every result field is read
     defensively so an older engine that omits one degrades to an empty obligation, never a crash.
     """
     from .converge import admissible_proof_coverage
@@ -810,10 +823,13 @@ def function_basis(
         "covers", "fresh", "admissible" if _line_basis == "admissible" else "inadmissible"
     )
     _kills: dict[str, set[str]] = {}
-    for _key, _tests in (getattr(result, "kill_matrix", {}) or {}).items():
-        _mid = _key.split(": ", 1)[0]  # kill_matrix keys are "mutant_id: desc" — take the id
-        for _t in _tests or ():
-            _kills.setdefault(_t, set()).add(_mid)
+    # Only the FULL relation may name what a test kills (#145): the result's own matrix credits each
+    # mutant to its first killer, so a per-test discharge read off it moves with execution order.
+    if kill_attribution == "full_matrix":
+        for _key, _tests in (kill_matrix or {}).items():
+            _mid = _key.split(": ", 1)[0]  # kill_matrix keys are "mutant_id: desc" — take the id
+            for _t in _tests or ():
+                _kills.setdefault(_t, set()).add(_mid)
     admitted = tuple(
         BasisWitness(
             # A plain nodeid str. `TestId = NewType("TestId", str)` is runtime-identity and is
@@ -841,6 +857,7 @@ def function_basis(
         undischargeable=Obligations(lines=tuple(manually_unreachable)),
         admitted=admitted,
         action=basis_action(validity.admits_certificate, open_obligations),
+        kill_attribution=kill_attribution,
     )
 
 

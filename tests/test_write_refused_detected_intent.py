@@ -223,8 +223,15 @@ def test_writing_the_test_the_block_names_closes_the_open_survivor_and_ends_in_a
     assert after["write_refused"] == 0 and opened[0][0] not in [
         s[0] for s in after["write_refused_survivors"]
     ]
-    assert after["decision"]["code"] == "done_unclassified"
-    assert not after["redundant_tests"], "the test the block asked for was called redundant"
+    # The cover is read off the FULL kill relation (#145), not Wesker's first-killer credit. The new test
+    # asserts the content too, so it kills everything the first test kills and one mutant more: the FIRST
+    # test is dominated and is what the audit now proposes. The credit hid that (it named whichever test
+    # ran first for each mutant, so neither looked redundant). The test the block asked for is never the
+    # one called redundant, and the write-refused standing is unchanged: only the next action differs.
+    redundant = [t.rsplit("::", 1)[1] for t in after["redundant_tests"]]
+    assert redundant == ["test_atomic_write_text_writes"], redundant
+    assert after["cover_standing"] == "full_matrix" and after["minimal_test_count"] == 1
+    assert after["decision"]["code"] == "remove_redundant"
 
     converge = _detective(project, "converge", "m.py::atomic_write_text")
     assert converge.returncode == 0, converge.stdout + converge.stderr
