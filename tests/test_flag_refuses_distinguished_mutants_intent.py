@@ -11,6 +11,9 @@ The defects, reproduced 2026-11-11 on Detective `ce2a500`:
   and was offered to `flag`: the verdict carried `suite_detected`, but the partition read only the
   search's own crash witness. On #113's stand-in (`expr.py::attach`) audit listed six
   "unproven-equivalent" mutants, four of which carry `killed_by=crash`.
+* audit passed the classifier no recalled `--input` while converge did, so the two verbs filed the
+  same mutants in different classes (seventeen "unproven-equivalent" on audit; seven killable, six
+  crash-only and four candidates on converge).
 
 The ruling is KNOWABILITY §10: a witnessed execution resolves "equivalent or merely unobserved"
 positively; a flag is a judgement and never outranks it. ARCHITECTURE §0: a crash kill pins the run,
@@ -312,6 +315,29 @@ UNREACHED_TEST = textwrap.dedent(
     """
 )
 
+# A mutant ONLY a recalled `--input` crashes: the guard is a sum no search derives, and the env read
+# makes converge decline a golden, so the distinction stays uncaptured and audit must still see it.
+GATED = textwrap.dedent(
+    """\
+    import os
+
+
+    def gated(s):
+        if sum(map(ord, s)) == 1234:
+            return int(s[0:0] or "7") + len(os.environ.get("ZZ_NOPE_Q", ""))
+        return 0
+    """
+)
+GATED_TEST = textwrap.dedent(
+    """\
+    import gated_mod
+
+
+    def test_gated():
+        assert gated_mod.gated("zz") == 0
+    """
+)
+
 
 def _project(tmp_path, name: str, source: str, test_source: str, module: str):
     project = tmp_path / name
@@ -544,3 +570,31 @@ def test_113_converge_and_the_decision_record_read_the_same_partition(attach):
     _cli(attach, "converge", "expr.py::attach")  # the written report is the page's full form
     report = (attach / ".detective" / "reports" / "converge_attach.txt").read_text()
     assert "detected by crash: the test" in report
+
+
+@pytest.fixture(scope="module")
+def gated(tmp_path_factory):
+    return _project(tmp_path_factory.mktemp("gated"), "p", GATED, GATED_TEST, "gated_mod")
+
+
+def _classes(page: str) -> dict[str, int]:
+    """The three class counts a page prints, from its terse rows."""
+    counts = {"unproven": 0, "crash": 0, "killable": 0}
+    for line in page.splitlines():
+        words = line.split()
+        if "unproven-equiv" in line and "survivor" in line or ("unproven-equiv" in line and "—" in line):
+            counts["unproven"] = int(words[words.index("unproven-equiv") + 1])
+        elif "crash-only-equiv" in line:
+            counts["crash"] += int(words[words.index("crash-only-equiv") + 1])
+        elif ("real gaps" in line or "still killable" in line) and "killable" in line:
+            counts["killable"] = int(next(w for w in words if w.isdigit()))
+    return counts
+
+
+def test_audit_classifies_over_the_same_pool_converge_does(gated):
+    """A recalled `--input` is part of the pool EVERY verb classifies over. Before: converge filed
+    7 killable / 6 crash-only / 4 candidates and audit 17 unproven-equivalent, for the same verdicts."""
+    conv = _cli(gated, "converge", "gated_mod.py::gated", "--input", "('aaaaaaaaaaaaF',)")
+    aud = _cli(gated, "audit", "gated_mod.py::gated")
+    assert _classes(aud.stdout) == _classes(conv.stdout), (conv.stdout, aud.stdout)
+    assert _classes(aud.stdout)["killable"] > 0 and _classes(aud.stdout)["crash"] > 0

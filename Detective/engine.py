@@ -3445,7 +3445,18 @@ def classify_survivors(
     # User-SUPPLIED inputs FIRST — the Zone-2 residual filled through the CLI. A
     # human-provided sample is ground truth for a DOF deterministic synthesis could not
     # exercise, so it wins over discovery, inferred-type synth, and the integer grids.
-    supplied = [tuple(x) for x in (call_site_inputs or [])]
+    # D#110: the samples remembered for this function are part of the pool EVERY verb classifies over,
+    # not converge's alone. Converge unions them before it calls here; audit, flag and rewrite did not,
+    # so one mutant a recalled `--input` crashes read crash-only on converge's page and unproven-
+    # equivalent on audit's. Remembered first, then what the caller passed, de-duplicated by repr.
+    from . import samples as _samples
+
+    _seen_inputs: set[str] = set()
+    supplied = []
+    for _args in [*_samples.load(root, func_key), *(call_site_inputs or [])]:
+        if repr(tuple(_args)) not in _seen_inputs:
+            _seen_inputs.add(repr(tuple(_args)))
+            supplied.append(tuple(_args))
     # NEVER FABRICATE AN INPUT FOR A FUNCTION THAT ESCAPES THE PROCESS. The search below CALLS
     # the target — original and mutant — on every candidate, so for a function that writes files
     # a fabricated value is not a guess, it is damage. Measured, on this repo: the str grid is
