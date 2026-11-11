@@ -715,10 +715,47 @@ def project_reach_modules(root: str, target_file: str, support_dirs: tuple[str, 
     return modules
 
 
+def file_reacher_names(path: str, seeds: list[str], modules: list[dict]) -> list[str]:
+    """The names through which a test in ``path`` reaches ``seeds`` (#107, #77, pure — pinned).
+
+    The route is PER TEST FILE, not repo-wide: a helper named ``_run`` in one test module is no evidence
+    about a test in another (measured: a repo-wide closure over test-side functions promoted 2,905 of
+    Detective's own tests for one function that has 9). ``modules`` is `reacher_names`'s shape plus
+    ``path`` and ``idents`` (every identifier the file mentions). The files consulted are the test file
+    itself, the support modules it (transitively) imports by name, and the conftests above it; the
+    non-support files (the target's module and the holders of aliases) are closed globally FIRST and
+    arrive here in ``seeds``. Returns the names beyond ``seeds``.
+    """
+    support = {m["path"]: m for m in modules if m.get("role") == "support"}
+    if path not in support:
+        return []
+    by_stem: dict[str, list[str]] = {}
+    for p in support:
+        by_stem.setdefault(os.path.splitext(os.path.basename(p))[0], []).append(p)
+    here = os.path.dirname(path)
+    chosen = {path}
+    chosen.update(
+        p
+        for p in by_stem.get("conftest", [])
+        if here == os.path.dirname(p) or here.startswith(os.path.dirname(p) + os.sep)
+    )
+    frontier = list(chosen)
+    while frontier:
+        idents = set(support[frontier.pop()].get("idents", ()))
+        for stem, paths in by_stem.items():
+            if stem in idents:
+                for p in paths:
+                    if p not in chosen:
+                        chosen.add(p)
+                        frontier.append(p)
+    return reacher_names(seeds, [support[p] for p in sorted(chosen)])
+
+
 def project_reacher_names(
     root: str, target_file: str, target_name: str, support_dirs: tuple[str, ...]
 ) -> tuple[list[str], list[dict]]:
-    """``(names, modules)``: the closure of `reacher_names` over the project, and the facts it read (the
-    caller reuses them to judge dynamic dispatch without a second walk)."""
+    """``(names, modules)``: the GLOBAL closure over the target's module and the reference-holders
+    elsewhere (`reacher_names` without the test side), and the facts read; the test side closes per file
+    (`file_reacher_names`)."""
     modules = project_reach_modules(root, target_file, support_dirs)
-    return reacher_names([target_name], modules), modules
+    return reacher_names([target_name], [m for m in modules if m["role"] != "support"]), modules

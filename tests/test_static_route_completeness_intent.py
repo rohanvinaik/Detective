@@ -256,3 +256,20 @@ def test_a_line_with_no_runner_is_unconsulted_only_when_dynamic_tests_were_not_c
     assert missing_line_standing(3, {}, [], [], []) == "unexecuted"
     assert missing_line_standing(3, {}, [], []) == "unexecuted"
     assert missing_line_standing(3, {"t": [3]}, ["t"], [], ["t::dyn"]) == "run_by_failing"
+
+
+def test_the_test_side_closes_per_file_never_across_the_repo():
+    """A helper named `_run` in one test module is no evidence about another module's tests: a repo-wide
+    closure promoted 2,905 of Detective's own tests for a function that has 9."""
+    from Detective.reachability import file_reacher_names
+
+    a, b, helpers, conftest = "/t/a/test_a.py", "/t/b/test_b.py", "/t/a/helpers.py", "/t/a/conftest.py"
+    modules = [
+        {"path": a, "role": "support", "defs": {"_run": ["f"]}, "refs": {}, "idents": ["_run", "helpers"]},
+        {"path": b, "role": "support", "defs": {"_run": ["unrelated"]}, "refs": {}, "idents": ["_run"]},
+        {"path": helpers, "role": "support", "defs": {"call": ["f"]}, "refs": {}, "idents": ["f"]},
+        {"path": conftest, "role": "support", "defs": {"make": ["call"]}, "refs": {}, "idents": ["call"]},
+    ]
+    assert file_reacher_names(a, ["f"], modules) == ["_run", "call", "make"]
+    assert file_reacher_names(b, ["f"], modules) == [], "b's `_run` never reaches f, and a's is not b's"
+    assert file_reacher_names("/t/unknown.py", ["f"], modules) == []

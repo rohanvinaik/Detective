@@ -3140,13 +3140,12 @@ def _routing_error_text(exc: Exception) -> str:
 
 def _test_side_reachers(
     root: str, full: str, target_name: str, scoped_files: list[str]
-) -> tuple[list[str], dict[str, frozenset[str]]]:
-    """``(names, identifiers per file)``: the names through which a test reaches the target without
-    naming it — an alias, a module constant or registry holding it, a helper of the test's own (in its
-    module, a conftest or a shared helpers module), a re-export — closed by `reachability.reacher_names`
-    (#107, #77). The route is the ONE function's tests: only code on the test side and in the target's
-    own module is followed through its functions; elsewhere only names that hold a reference are
-    (no repo-scale call graph). Cached per file on (mtime, size)."""
+) -> tuple[list[str], list[dict]]:
+    """``(global names, module facts)``: the names through which a test reaches the target without
+    naming it, closed over the target's own module and the files that merely HOLD a reference (an alias,
+    a re-export, a registry) — `reachability.project_reacher_names`. The test side (helpers) closes per
+    test file in `_retag_unconsulted`: one function's tests, never a repo-scale call graph (#107, #77).
+    Cached per file on (mtime, size), so a route over an unchanged tree parses each file once."""
     from .reachability import project_reacher_names
 
     support: set[str] = set()
@@ -3156,8 +3155,7 @@ def _test_side_reachers(
         while d.startswith(root_real + os.sep) and d not in support:
             support.add(d)
             d = os.path.dirname(d)
-    names, modules = project_reacher_names(root, full, target_name, tuple(sorted(support)))
-    return names, {m["path"]: m["idents"] for m in modules}
+    return project_reacher_names(root, full, target_name, tuple(sorted(support)))
 
 
 # Constructs by which a test names a function WITHOUT a name a static scan can follow.
@@ -3204,30 +3202,50 @@ def _item_facts(call: Callable[..., Any]) -> tuple[list[str], list[str]]:
     return sorted(idents), sorted(strings)
 
 
-def _retag_dynamic(
+def _retag_unconsulted(
     unknowns: list[tuple[Callable[..., Any], str]],
     target_name: str,
-    reachers: list[str],
-    file_idents: dict[str, frozenset[str]],
+    global_names: list[str],
+    modules: list[dict],
     full: str,
 ) -> list[tuple[Callable[..., Any], str]]:
-    """Re-tag the unknowns the router left as ``file_peer`` / ``unknown_no_path`` by
-    `unconsulted_standing`: a string-named reacher joins the consulted stratum, a dynamic dispatcher is
-    tagged ``unknown_dynamic`` (not consulted, and named by `profile`)."""
+    """Re-tag the unknowns the router left as ``file_peer`` / ``unknown_no_path`` (#107, #77).
+
+    A test whose body names a helper of its own file (or one it imports, or a conftest above it) that
+    reaches the target is ``caller_reaches`` — consulted. Otherwise `unconsulted_standing` decides: a
+    string-named reacher joins the consulted stratum, a dynamic dispatcher is ``unknown_dynamic`` (not
+    consulted, and named by `profile`). A file whose identifiers share nothing with the reach names or
+    the dynamic constructs is skipped without parsing its tests."""
     from Wesker.ci import callable_origin
 
+    from .reachability import file_reacher_names
+
     stem = os.path.splitext(os.path.basename(full))[0]
-    names = [target_name, *reachers]
+    idents_of = {m["path"]: m["idents"] for m in modules}
+    per_file: dict[str, list[str]] = {}
     out: list[tuple[Callable[..., Any], str]] = []
     for call, code in unknowns:
         if code in ("file_peer", "unknown_no_path"):
-            idents, strings = _item_facts(call)
             origin = os.path.realpath(callable_origin(call) or "")
-            standing = unconsulted_standing(idents, strings, sorted(file_idents.get(origin, ())), names, stem)
-            if standing == "named_by_string":
-                code = "caller_reaches"
-            elif standing == "dynamic":
-                code = "unknown_dynamic"
+            if origin not in per_file:
+                per_file[origin] = [
+                    *global_names,
+                    *file_reacher_names(origin, [target_name, *global_names], modules),
+                ]
+            names = per_file[origin]
+            file_idents = idents_of.get(origin, frozenset())
+            if not file_idents.isdisjoint(names) or not file_idents.isdisjoint(_DYNAMIC_DISPATCH):
+                idents, strings = _item_facts(call)
+                if not set(idents).isdisjoint(names):
+                    code = "caller_reaches"
+                else:
+                    standing = unconsulted_standing(
+                        idents, strings, sorted(file_idents), [target_name, *names], stem
+                    )
+                    if standing == "named_by_string":
+                        code = "caller_reaches"
+                    elif standing == "dynamic":
+                        code = "unknown_dynamic"
         out.append((call, code))
     return out
 
@@ -3262,12 +3280,12 @@ def _route_tests(
 
     scoped_files = list({o for t in tests if (o := callable_origin(t))})
     observed = observed_function_reach(root, {full}, budgets, regime, tests, full, exec_lines)
-    reachers, file_idents = _test_side_reachers(root, full, target_name, scoped_files)
+    reachers, modules = _test_side_reachers(root, full, target_name, scoped_files)
     caller_names = _module_callers_of(tree, target_name) | set(reachers)
     cands, unknowns, impossible = partition_live_callables(
         tests, scoped_files, target_name, [target_name], observed, caller_names
     )
-    unknowns = _retag_dynamic(unknowns, target_name, reachers, file_idents, full)
+    unknowns = _retag_unconsulted(unknowns, target_name, reachers, modules, full)
     return cands, unknowns, impossible, observed, caller_names
 
 
