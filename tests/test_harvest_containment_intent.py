@@ -73,22 +73,62 @@ def test_in_worker_thread_binding_ignores_ambient_threads() -> None:
 
 
 def test_uncontained_execution_marks_contained_false() -> None:
-    """A worker that refuses to stop within timeout is marked uncontained."""
+    """A worker that cannot be stopped within the unwind window is marked uncontained (#144).
+
+    The worker is unstoppable BY CONSTRUCTION: it is parked in a C-level lock wait, the documented
+    boundary case "a thread blocked outside the interpreter". An asynchronous exception is only
+    raised at the next eval-breaker check, which a thread inside ``Lock.acquire`` does not reach
+    until the acquire returns, and the test does not release it until the harvest has answered.
+    The former worker swallowed the injection inside a ``try`` in a Python loop, so whether it
+    survived depended on where the injection landed (loop test and jump are outside the ``try``);
+    on a busy runner the injection landed there and the worker died inside the unwind window,
+    which the harvest correctly read as contained (``contained=True, status='cut'``).
+    """
+    release = threading.Event()
+    finished = threading.Event()
 
     def stubborn_test():
+        try:
+            _target(1, "start")
+            assert release.wait(30), "the test never released the parked worker"
+        finally:
+            finished.set()
+
+    try:
+        # A tiny per_test_timeout so bounded_join times out quickly
+        result = capture_call_inputs(_target, [stubborn_test], per_test_timeout=0.02)
+        assert result.contained is False
+        assert result.status == "uncontained"
+        assert not finished.is_set(), "the worker must still be parked when the harvest answers"
+    finally:
+        # Tear the thread down so it cannot leak into later tests: releasing the wait lets the
+        # pending injected exception land, and the worker's ``finally`` reports it ended.
+        release.set()
+        assert finished.wait(5), "the parked worker did not end after release"
+
+
+def test_a_worker_that_dies_inside_the_unwind_window_is_contained() -> None:
+    """The product reading #144 left in place: a worker that ENDS when injected is contained.
+
+    This worker spends nearly all its time outside the ``try`` that swallows the injection, so the
+    injection lands outside it and the thread unwinds; ``abandon`` confirms it gone, which is the
+    definition of contained. It is the shape that made the old stubborn worker fail on CI.
+    """
+
+    def dies_when_injected():
         _target(1, "start")
-        # Run in a loop that swallows async exceptions to simulate an uncontainable worker
-        end = time.time() + 0.5
+        end = time.time() + 2.0
         while time.time() < end:
+            for _ in range(2000):
+                pass
             try:
-                time.sleep(0.01)
+                pass
             except BaseException:
                 pass
 
-    # Use a tiny per_test_timeout so bounded_join times out quickly
-    result = capture_call_inputs(_target, [stubborn_test], per_test_timeout=0.02)
-    assert result.contained is False
-    assert result.status == "uncontained"
+    result = capture_call_inputs(_target, [dies_when_injected], per_test_timeout=0.02)
+    assert result.contained is True
+    assert result.status == "cut"
 
 
 def test_foreign_profiler_on_setprofile_does_not_block_sys_monitoring(monkeypatch) -> None:
