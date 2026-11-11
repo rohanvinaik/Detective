@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from _support import make_pr
+from _support import make_pr, with_full_relation
 
 from Detective import audit as audit_mod
 from Detective.audit import audit_suite
@@ -62,7 +62,9 @@ def _trivial_report():
 
 
 def test_audit_minimize_rests_on_the_admissible_view_not_the_raw_union(monkeypatch, tmp_path):
-    monkeypatch.setattr(audit_mod, "profile", lambda *a, **k: _fake_profile_result())
+    # The double states the per-test relation a profile asked for it would carry (#145): with no kills
+    # it is empty and whole, so the cover below is decided by the line axis alone.
+    monkeypatch.setattr(audit_mod, "profile", lambda *a, **k: with_full_relation(_fake_profile_result()))
     monkeypatch.setattr(audit_mod, "classify_survivors", lambda *a, **k: _trivial_report())
     a = audit_suite("mod.py", "f", str(tmp_path))
     # t_fail's only coverage (line 2) is inadmissible, so it earns NO slot in the minimal cover;
