@@ -159,6 +159,7 @@ def cache_key(
     regime_digest: str = "",
     include_shaped: bool = True,
     two_sign: bool = False,
+    full_matrix: bool = False,
 ) -> str:
     """The content-addressed key: engine + identity + fn-hash + tests-hash + sampling + budgets.
 
@@ -175,6 +176,15 @@ def cache_key(
     moves. A verdict must be keyed on everything that could have produced it.
     """
     budgets = ",".join("∞" if b is None else f"{b:g}" for b in trace_budgets)
+    # A profile that also measured the per-test kill relation (#145) carries a field the plain one does
+    # not, so the plain verdict must never answer a request for the relation, and the two must COEXIST:
+    # they are different questions about one function. The mark rides in the budgets field, the last of
+    # the params `params_suffix` compares, because `put` evicts a sibling that shares the suffix (a stale
+    # copy of the same question) or differs in FIELD COUNT (a fossil of an older layout), and a trailing
+    # `:full_matrix` field would have made each evict the other on every run. Off leaves the key
+    # byte-identical; only a relation-bearing verdict marks it.
+    if full_matrix:
+        budgets += "+relation"
     engine = engine_fingerprint()
     if two_sign:
         from .capture import RETURN_OBSERVATION_POLICY

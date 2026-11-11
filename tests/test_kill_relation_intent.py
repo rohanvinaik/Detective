@@ -7,11 +7,11 @@ cache and a cover of 3 (with `test_dup` no longer redundant) on a cache holding 
 the tests follows which were replayed from the trace cache, and the cover was read off that credit.
 
 THE RULING: "which tests kill which mutants" is a relation over (test, mutant) (KNOWABILITY Def. 2.3 / Prop.
-7.1 define killing per test). A cover and a redundant set are functions of that relation only, so the relation
-is measured per test over one function's own tests (`audit.measure_per_test_kills`), merged without order
-(`minimize.merge_kill_relations`), and judged by `minimize.cover_standing`. Where it cannot be built the state
-is named and NO redundant set or cover is claimed; it never falls back to the first-killer credit. Of several
-equally good covers the one kept is the one whose test ids sort first.
+7.1 define killing per test). A cover and a redundant set are functions of that relation only. The relation is
+measured by the engine in the profile the audit already runs (`profile(full_matrix=True)`, Wesker's
+`kill_relation`), read by `audit.kill_relation_of` and judged by `minimize.cover_standing`. Where there is
+none the state is named and NO redundant set or cover is claimed; it never falls back to the first-killer
+credit. Of several equally good covers the one kept is the one whose test ids sort first.
 """
 
 from __future__ import annotations
@@ -25,12 +25,11 @@ import pytest
 from _support import make_pr
 
 from Detective import audit as audit_mod
-from Detective.audit import PerTestKills, assemble_kill_relation, audit_suite, cover_standing_sentence
+from Detective.audit import audit_suite, cover_standing_sentence, kill_relation_of
 from Detective.engine import function_basis
 from Detective.minimize import (
     cover_standing,
     kill_relation_disagreement,
-    merge_kill_relations,
     minimal_cover_2axis,
     redundant_2axis,
 )
@@ -131,23 +130,6 @@ def test_a_test_whose_removal_unkills_any_mutant_is_never_redundant():
     assert checked == 512 * 64
 
 
-def test_merging_per_test_runs_is_the_union_of_what_each_test_alone_killed():
-    per_test = {
-        POS: {"m_hi": [POS], "m_one": [POS]},
-        DUP: {"m_hi": [DUP]},
-        NONPOS: {"m_lo": [NONPOS]},
-    }
-    assert merge_kill_relations(per_test) == {"m_hi": [DUP, POS], "m_lo": [NONPOS], "m_one": [POS]}
-    # no order anywhere: a different run order of the same measurements is the same relation
-    assert merge_kill_relations(dict(reversed(per_test.items()))) == merge_kill_relations(per_test)
-
-
-def test_a_per_test_run_cannot_credit_a_kill_to_a_test_it_did_not_run():
-    assert merge_kill_relations({POS: {"m": [DUP]}}) == {}
-    assert merge_kill_relations({POS: {"m": []}}) == {}
-    assert merge_kill_relations({}) == {}
-
-
 def test_a_disagreement_is_a_mutant_killed_in_only_one_of_the_two_measurements():
     assert kill_relation_disagreement(["a", "b"], ["b", "a"]) == 0
     assert kill_relation_disagreement(["a", "b"], ["a"]) == 1
@@ -158,15 +140,18 @@ def test_a_disagreement_is_a_mutant_killed_in_only_one_of_the_two_measurements()
 @pytest.mark.parametrize(
     ("args", "code"),
     [
-        ((True, 5, 5, 5, 0, 0), "full_matrix"),
-        ((True, 0, 0, 0, 0, 0), "full_matrix"),  # nothing killed: nothing to attribute
-        ((False, 5, 5, 5, 0, 0), "main_unresolved"),  # a cut or an unscored mutant in the whole run
-        ((False, 0, 0, 0, 0, 0), "main_unresolved"),
-        ((True, 5, 5, 4, 0, 0), "test_unmeasured"),  # a test not run alone
-        ((True, 5, 5, 5, 1, 0), "test_unmeasured"),  # a test's own run cut or with an unscored mutant
-        ((True, 5, 5, 5, 0, 1), "relation_disagrees"),
-        ((False, 5, 5, 4, 1, 1), "main_unresolved"),  # the whole run's refusal outranks the rest
-        ((True, 5, 5, 4, 0, 1), "test_unmeasured"),
+        ((True, "complete", 0), "full_matrix"),
+        ((False, "complete", 0), "main_unresolved"),  # a cut or an unscored mutant in the run
+        ((False, "absent", 0), "main_unresolved"),  # the run's refusal outranks every other state
+        ((False, "not_requested", 0), "main_unresolved"),
+        ((True, "scan_incomplete", 0), "test_unmeasured"),  # a mutant's scan did not settle every test
+        ((True, "run_cut", 0), "test_unmeasured"),
+        ((True, "row_missing", 0), "test_unmeasured"),  # a killed mutant with no killer in its row
+        ((True, "complete", 1), "relation_disagrees"),
+        ((True, "scan_incomplete", 1), "test_unmeasured"),  # the engine's own refusal outranks the check
+        ((True, "not_requested", 0), "not_requested"),
+        ((True, "absent", 0), "engine_lacks_relation"),  # an older Wesker: its own named state
+        ((True, "something_new", 0), "test_unmeasured"),  # an unknown engine state is never a claim
     ],
 )
 def test_the_standing_names_why_the_relation_is_or_is_not_available(args, code):
@@ -174,41 +159,70 @@ def test_the_standing_names_why_the_relation_is_or_is_not_available(args, code):
 
 
 def test_every_refusal_has_a_sentence_and_an_unknown_one_is_named_not_swallowed():
-    sentences = {
-        cover_standing_sentence(c) for c in ("main_unresolved", "test_unmeasured", "relation_disagrees")
-    }
-    assert len(sentences) == 3 and all(sentences)
+    codes = (
+        "main_unresolved",
+        "test_unmeasured",
+        "relation_disagrees",
+        "not_requested",
+        "engine_lacks_relation",
+    )
+    sentences = {cover_standing_sentence(c) for c in codes}
+    assert len(sentences) == len(codes) and all(sentences)
     assert "mystery" in cover_standing_sentence("mystery")
 
 
-def test_assembling_without_a_measurement_claims_nothing_and_never_reads_the_credit():
-    relation = assemble_kill_relation(CREDIT_COLD, False, None)
+def test_a_result_the_run_cannot_stand_behind_gives_no_relation_and_the_credit_is_never_read():
+    relation = kill_relation_of(_result(CREDIT_COLD, LINES, **_asked(FULL)), False)
     assert (relation.standing, relation.matrix) == ("main_unresolved", {})
 
 
-def test_assembling_the_issues_two_cache_states_gives_one_relation():
-    cold = PerTestKills(
-        {t: {m: [t] for m, ks in FULL.items() if t in ks} for t in LINES}, tuple(sorted(LINES))
-    )
-    # the same measurements listed in another order: the cache state changed only the order
-    warm = PerTestKills(dict(reversed(cold.per_test.items())), tuple(reversed(cold.wanted)))
-    a = assemble_kill_relation(CREDIT_COLD, True, cold)
-    b = assemble_kill_relation(CREDIT_PARTIAL, True, warm)
+def test_the_relation_is_the_one_the_engine_measured_in_whatever_order_the_cache_ran_the_tests():
+    # the two credits are what the cold and the partial cache wrote into kill_matrix; the relation is not
+    # read from them, so the standing and the matrix are the same
+    a = kill_relation_of(_result(CREDIT_COLD, LINES, **_asked(FULL)), True)
+    b = kill_relation_of(_result(CREDIT_PARTIAL, LINES, **_asked(dict(reversed(FULL.items())))), True)
     assert a.standing == b.standing == "full_matrix"
-    assert a.matrix == b.matrix == merge_kill_relations(cold.per_test)
+    assert a.matrix == b.matrix == {m: sorted(ts) for m, ts in sorted(FULL.items())}
     assert redundant_2axis(a.matrix, LINES) == redundant_2axis(b.matrix, LINES) == {DUP, ROW3, ROW4}
 
 
-def test_a_measurement_that_disagrees_with_the_whole_run_is_not_a_relation():
-    measured = PerTestKills({POS: {"m_hi": [POS]}}, (POS,))
-    relation = assemble_kill_relation({"m_hi": [POS], "m_other": [POS]}, True, measured)
+def test_a_relation_that_disagrees_with_the_run_about_what_was_killed_is_not_a_relation():
+    result = _result({"m_hi": [POS], "m_other": [POS]}, LINES, **_asked({"m_hi": [POS]}))
+    relation = kill_relation_of(result, True)
     assert relation.standing == "relation_disagrees" and relation.matrix == {}
 
 
-def test_an_unmeasured_test_makes_the_relation_unavailable_not_smaller():
-    measured = PerTestKills({POS: {"m": [POS]}}, (POS, DUP))
-    relation = assemble_kill_relation({"m": [POS]}, True, measured)
+@pytest.mark.parametrize("engine", ["run_cut", "scan_incomplete", "row_missing"])
+def test_a_relation_the_engine_calls_partial_makes_the_cover_unavailable_not_smaller(engine):
+    result = _result(
+        {"m": [POS]}, LINES, kill_relation={"m": {POS: "assertion"}}, kill_relation_standing=engine
+    )
+    relation = kill_relation_of(result, True)
     assert relation.standing == "test_unmeasured" and relation.matrix == {}
+
+
+def test_a_profile_not_asked_for_the_relation_has_none_even_though_it_has_a_credit():
+    result = _result({"m": [POS]}, LINES, kill_relation={}, kill_relation_standing="not_requested")
+    relation = kill_relation_of(result, True)
+    assert relation.standing == "not_requested" and relation.matrix == {}
+
+
+def test_an_engine_without_the_field_is_its_own_named_state_not_a_first_killer_fallback():
+    result = _result({"m": [POS]}, LINES)  # no kill_relation, no kill_relation_standing
+    relation = kill_relation_of(result, True)
+    assert relation.standing == "engine_lacks_relation" and relation.matrix == {}
+
+
+def test_a_single_test_suite_and_an_empty_relation_are_claims_only_when_the_engine_says_whole():
+    one = kill_relation_of(_result({"m": [POS]}, {POS: [1]}, **_asked({"m": [POS]})), True)
+    assert one.standing == "full_matrix" and one.matrix == {"m": [POS]}
+    nothing_killed = kill_relation_of(_result({}, {POS: [1]}, **_asked({})), True)
+    assert nothing_killed.standing == "full_matrix" and nothing_killed.matrix == {}
+
+
+def test_two_tests_with_identical_kill_sets_both_appear_in_the_relation():
+    rel = kill_relation_of(_result({"m": ["t.py::a"]}, {}, **_asked({"m": ["t.py::b", "t.py::a"]})), True)
+    assert rel.matrix == {"m": ["t.py::a", "t.py::b"]}
 
 
 # --- the audit, end to end over a stubbed profile --------------------------------------------------------
@@ -238,6 +252,14 @@ def _result(kill_matrix, line_coverage, **extra):
     return SimpleNamespace(**base)
 
 
+def _asked(relation):
+    """The fields a profile asked for the relation carries when the engine measured it whole."""
+    return {
+        "kill_relation": {m: {t: "assertion" for t in ts} for m, ts in relation.items()},
+        "kill_relation_standing": "complete",
+    }
+
+
 def _trivial_report():
     return SimpleNamespace(
         inputs_expressible=True,
@@ -253,9 +275,11 @@ def test_an_audit_whose_whole_run_cannot_stand_claims_no_redundant_set_and_runs_
     monkeypatch, tmp_path
 ):
     calls = []
+    asked = []
 
     def fake_profile(*a, **k):
         calls.append(k.get("tests"))
+        asked.append(k.get("full_matrix"))
         # an unscored mutant (a harness error) is a cut reason: the run admits no certificate
         pr = make_pr(
             categories=[{"category": "VALUE", "killed": 1, "survived": 0, "assertion": 1}],
@@ -272,34 +296,44 @@ def test_an_audit_whose_whole_run_cannot_stand_claims_no_redundant_set_and_runs_
     monkeypatch.setattr(audit_mod, "classify_survivors", lambda *a, **k: _trivial_report())
     a = audit_suite("m.py", "f", str(tmp_path))
     ran = list(calls)
+    asked_in_audit = list(asked)
     assert not normalize_validity(fake_profile()).admits_certificate
     assert a.cover_standing == "main_unresolved"
     assert a.redundant_tests == () and a.minimal_test_count is None and a.bloat is None
-    assert ran == [None]  # the whole-suite profile only: no per-test profile over a run that cannot stand
+    assert ran == [None]  # the one profile only: nothing is re-profiled per test
+    assert asked_in_audit == [True]  # ... and that profile is the one asked for the relation
     assert a.function_basis.kill_attribution == "main_unresolved"
     assert all(w.discharged.mutation_dims == () for w in a.function_basis.admitted)
 
 
-def test_an_audit_with_nothing_killed_has_an_empty_relation_and_a_cover_without_a_profile_per_test(
-    monkeypatch, tmp_path
-):
+def test_an_audit_with_nothing_killed_has_an_empty_relation_and_a_cover(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        audit_mod, "profile", lambda *a, **k: _result({}, {"t_good": [1]}, executable_lines=[1])
+        audit_mod,
+        "profile",
+        lambda *a, **k: _result({}, {"t_good": [1]}, executable_lines=[1], **_asked({})),
     )
     monkeypatch.setattr(audit_mod, "classify_survivors", lambda *a, **k: _trivial_report())
     a = audit_suite("m.py", "f", str(tmp_path))
     assert a.cover_standing == "full_matrix" and a.minimal_test_count == 1
 
 
-def test_a_test_that_cannot_be_run_alone_leaves_the_cover_unestablished_not_first_killer(
+def test_an_engine_scan_that_was_not_whole_leaves_the_cover_unestablished_not_first_killer(
     monkeypatch, tmp_path
 ):
     credit = {"m": [POS]}
     monkeypatch.setattr(
-        audit_mod, "profile", lambda *a, **k: _result(credit, {POS: [1], DUP: [1]}, executable_lines=[1])
+        audit_mod,
+        "profile",
+        lambda *a, **k: _result(
+            credit,
+            {POS: [1], DUP: [1]},
+            executable_lines=[1],
+            kill_relation={"m": {POS: "assertion"}},
+            kill_relation_standing="scan_incomplete",
+        ),
     )
     monkeypatch.setattr(audit_mod, "classify_survivors", lambda *a, **k: _trivial_report())
-    a = audit_suite("m.py", "f", str(tmp_path))  # no file m.py: nothing is collected live
+    a = audit_suite("m.py", "f", str(tmp_path))
     assert a.cover_standing == "test_unmeasured"
     assert a.redundant_tests == () and a.minimal_test_count is None
 
@@ -323,64 +357,20 @@ def test_the_basis_names_what_a_test_kills_only_from_the_full_relation():
     assert all(w.discharged.mutation_dims == () for w in refused.admitted)
 
 
-# --- converge reads the same relation, once per result ----------------------------------------------------
+# --- converge reads the same relation, from the result it profiled -------------------------------------
 
 
-def test_converge_measures_each_result_once_and_judges_its_standing_afresh(monkeypatch):
+def test_converge_asks_every_profile_that_feeds_a_cover_for_the_relation():
+    """Every `final_result` converge can end on, and the isolated reproducibility profile that may replace
+    it, is profiled with `full_matrix=True`: the cover and redundant set it reports read that result."""
+    import inspect
+
     converge_mod = importlib.import_module("Detective.converge")
-
-    measured = []
-
-    def fake_measure(file, function, root, result, **kw):
-        measured.append(result)
-        return PerTestKills({POS: {"m": [POS]}}, (POS,))
-
-    monkeypatch.setattr(audit_mod, "measure_per_test_kills", fake_measure)
-    result = _result({"m": [POS]}, {POS: [1]})
-    memo: dict = {}
-    kw = {
-        "file": "m.py",
-        "function": "f",
-        "project_root": ".",
-        "two_sign": False,
-        "isolated": False,
-        "budget_ms": None,
-        "extra_test_dirs": (),
-        "include_shaped": True,
-    }
-    first = converge_mod.kill_relation_for(memo, result, True, **kw)
-    # the same result under a validity that has since been refused: no second measurement, a refusal
-    again = converge_mod.kill_relation_for(memo, result, False, **kw)
-    assert first.standing == "full_matrix" and first.matrix == {"m": [POS]}
-    assert again.standing == "main_unresolved" and again.matrix == {}
-    assert len(measured) == 1
-    # a re-profile (a different result object) is measured on its own
-    converge_mod.kill_relation_for(memo, _result({"m": [POS]}, {POS: [1]}), True, **kw)
-    assert len(measured) == 2
-
-
-def test_converge_with_nothing_killed_measures_nothing(monkeypatch):
-    converge_mod = importlib.import_module("Detective.converge")
-
-    monkeypatch.setattr(
-        audit_mod,
-        "measure_per_test_kills",
-        lambda *a, **k: pytest.fail("no mutant killed: nothing to measure"),
-    )
-    relation = converge_mod.kill_relation_for(
-        {},
-        _result({}, {POS: [1]}),
-        True,
-        file="m.py",
-        function="f",
-        project_root=".",
-        two_sign=False,
-        isolated=False,
-        budget_ms=None,
-        extra_test_dirs=(),
-        include_shaped=True,
-    )
-    assert relation.standing == "full_matrix" and relation.matrix == {}
+    source = inspect.getsource(converge_mod)
+    feeding = source.count("final_result = profile(") + source.count("_verify_result = profile(")
+    assert feeding == 5
+    assert source.count("full_matrix=True") == feeding
+    assert not hasattr(converge_mod, "kill_relation_for")  # one derivation: `audit.kill_relation_of`
 
 
 # --- need, relative to the tests that stay -----------------------------------------------------------------

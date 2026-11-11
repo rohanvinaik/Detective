@@ -79,6 +79,7 @@ from .equivalence import (
     structural_shape,
     synth_ast_input,
 )
+from .minimize import detecting_test_name, known_killers
 from .process_state import declared_roots, restores_process_state
 from .purity import is_pure as _is_pure
 from .purity import world_effects
@@ -95,6 +96,15 @@ try:
 # BLE001: a capability probe must never break import
 except Exception:  # noqa: BLE001
     _WESKER_TARGET_FIRST = False
+
+# Does the installed Wesker measure the per-test kill relation in the profile it already runs (#145)?
+# An engine without `full_matrix` cannot, and the relation is then a NAMED state
+# (`audit.kill_relation_of`: "engine_lacks_relation"), never a first-killer credit passed off as one.
+try:
+    _WESKER_FULL_MATRIX = "full_matrix" in _inspect.signature(run_function_profiling).parameters
+# BLE001: a capability probe must never break import
+except Exception:  # noqa: BLE001
+    _WESKER_FULL_MATRIX = False
 
 
 def _resolve(
@@ -1002,6 +1012,7 @@ class _ProfilingOptions(TypedDict, total=False):
     widen_tests: list[Callable[..., Any]] | None
     isolated: bool
     observed_return_types: frozenset[str]
+    full_matrix: bool
 
 
 class _CaptureOptions(TypedDict, total=False):
@@ -1030,8 +1041,16 @@ def profile(
     trace_session_budget_s: float | None = _WESKER_DEFAULT_TRACE_SESSION_BUDGET_S,
     include_shaped: bool = True,
     two_sign: bool = False,
+    full_matrix: bool = False,
 ) -> ProfilingResult:
     """Profile one function with Wesker and return the raw ``ProfilingResult``.
+
+    ``full_matrix`` asks the SAME measurement for the per-test kill relation (#145): every test that
+    reaches a mutant is run against it, and the result carries ``kill_relation`` (each killed mutant's
+    every killer, with its own reason). It adds a field and changes no verdict, but it runs tests a
+    first-killer run skips, so only a caller whose result feeds a cover, a redundant set, a per-test
+    discharge or a removal's need asks for it. An engine that cannot offer it leaves the result without
+    the field, which `audit.kill_relation_of` names.
 
     When ``tests`` is None, they are discovered via Wesker's pytest-first backend
     (``discover_test_callables``), so idiomatic parametrized suites are bound and
@@ -1072,6 +1091,7 @@ def profile(
                 trace_session_budget_s=trace_session_budget_s,
                 include_shaped=include_shaped,
                 two_sign=two_sign,
+                full_matrix=full_matrix,
             )
         finally:
             _SESSION_BASELINE.reset(token)
@@ -1160,6 +1180,7 @@ def profile(
         _regime,
         include_shaped=include_shaped,
         two_sign=two_sign,
+        full_matrix=full_matrix,
     )
     if _cache_allowed:
         hit = verdict_cache.get(root, ck)
@@ -1298,6 +1319,8 @@ def profile(
     _prof_kwargs: _ProfilingOptions = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
     if isolated:
         _prof_kwargs["isolated"] = True
+    if full_matrix and _WESKER_FULL_MATRIX:
+        _prof_kwargs["full_matrix"] = True
     from Wesker.ci import _PROJECT_ROOT
 
     _root_token = _PROJECT_ROOT.set(root)
@@ -1339,6 +1362,10 @@ def profile(
         _PROJECT_ROOT.reset(_root_token)
         if _seed_token is not None and _session_baseline is not None:
             _session_baseline.reset(_seed_token)
+    if full_matrix and not _WESKER_FULL_MATRIX:
+        # Asked for and not offered (an older Wesker): the result carries no relation, and says so by
+        # name rather than by an absence a reader could take for "nothing was killed" (#145).
+        result.kill_relation_standing = "absent"  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     if _routing_counts:
         result.test_routing = _routing_counts
     # The routing outcome travels WITH the measurement it bounded (#91), the same Detective-side
@@ -2637,19 +2664,34 @@ def _boundary_probe_inputs(node: ast.FunctionDef | ast.AsyncFunctionDef, namespa
     return probe_rows(grids)
 
 
-def _detecting_test(kill_matrix: dict[str, list[str]], rec: dict) -> str:
-    """The first, in sorted order, of the tests the profile's kill matrix lists for this survivor ("" for
-    none) — the test a page names when it says a current test detects the mutant (D#110, D#113).
+def result_killers(result: Any) -> dict[str, list[str]]:
+    """Every test known to kill each mutant of the profile ``result`` (#145): `minimize.known_killers`
+    over the result's first-killer credit and, when it carries one, its per-test relation.
 
-    Looked up by the record's ``mutant`` (the matrix's key), then by the id's ``"<id>: "`` prefix, the
-    two spellings the engine and Wesker's matrices have used. A profile in first-killer mode records
-    one test, the first to kill in its own run order; any of several detects it, so the sorted first is
-    a stable name, not a claim that it is the only one."""
+    For what a proof is verified against (the exact tests a certificate rests on), where any real killer
+    is a sound member and the relation's rows make the basis independent of the order the tests ran. A
+    relation the engine calls partial still lists only tests it saw kill, so it is used as far as it goes.
+    """
+    relation = {
+        mutant: sorted(tests) for mutant, tests in (getattr(result, "kill_relation", None) or {}).items()
+    }
+    return known_killers(dict(getattr(result, "kill_matrix", None) or {}), relation)
+
+
+def _detecting_test(kill_matrix: dict[str, list[str]], rec: dict) -> str:
+    """The test a page names when it says a current test detects this mutant ("" for none) (D#110, D#113).
+
+    ``kill_matrix`` is the map of EVERY test known to kill each mutant (`result_killers`: the profile's
+    per-test relation joined with its first-killer credit, #145), so the name is a function of the suite
+    and not of the order the tests ran; `minimize.detecting_test_name` picks the smallest id AS DISPLAYED,
+    with Wesker's internal ``legacy:`` namespace stripped, so converge and ``flag`` name a test the same
+    way. Looked up by the record's ``mutant`` (the matrix's key), then by the id's ``"<id>: "`` prefix,
+    the two spellings the engine and Wesker's matrices have used."""
     tests = kill_matrix.get(str(rec.get("mutant", "") or ""))
     if not tests:
         prefix = f"{rec.get('mutant_id', '')}: "
         tests = next((t for k, t in kill_matrix.items() if k.startswith(prefix)), None)
-    return sorted(tests)[0] if tests else ""
+    return detecting_test_name(list(tests or ()))
 
 
 def _adopt_probe_verdicts(
@@ -3377,7 +3419,7 @@ def classify_survivors(
     # value-distinguishing witness (or is judged equivalent), instead of being silently
     # treated as specified because the code merely raised under some test.
     survivors = result.value_survivor_records
-    _kill_matrix = getattr(result, "kill_matrix", None) or {}
+    _kill_matrix = result_killers(result)
     validity = normalize_validity(result)
     # A RUN-level refusal blocks every witness; a reason that names only some mutants (a wall bound,
     # a step budget) does not — the other survivors are classified beside it (#80/#126), and the

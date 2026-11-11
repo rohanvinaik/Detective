@@ -305,11 +305,15 @@ def test_a_warm_two_sign_converge_runs_nothing_and_classifies_as_the_cold_one(tm
     must run no not-consulted test and classify exactly as a fresh profile does. Measured on the
     previous code: each warm classification here executed the no-path test once."""
     root = _repo(tmp_path)
-    for session in (_session(root, "converge"), _session(root, "converge")):
+    for index, session in enumerate((_session(root, "converge"), _session(root, "converge"))):
         warm = [c for c in session["classified"] if c["warm"]]
-        assert warm, "no classification was handed a warm result — the scenario did not occur"
+        # Since #145 the final measurement asks for the per-test kill relation, which a pass-0 row does
+        # not carry, so it is no longer served from that row: the FIRST session's final measurement is
+        # fresh, and the second session's is served from the row the first one stored.
+        if index == 1:
+            assert warm, "no classification was handed a warm result — the scenario did not occur"
         assert all(c["ran"] == 0 for c in session["classified"]), session["classified"]
         assert session["converge"]["ran"] == 0, "a warm two-sign converge executed a not-consulted test"
         assert session["converge"]["classification"] == session["cold_classification"]
         assert session["converge"]["cut_reasons"] == []
-    assert session["hits"] >= 2  # the second session: pass 0 and the final measurement both warm
+    assert session["hits"] >= 2  # the second session: pass 0 and the relation-bearing final both warm (#145)

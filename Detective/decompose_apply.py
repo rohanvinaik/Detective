@@ -40,13 +40,15 @@ if TYPE_CHECKING:
 
 
 def _kill_matrix(file: str, function: str, project_root: str) -> dict[str, list[str]]:
-    """The target's ``mutant -> tests that killed it`` map. Served from the content-hashed
+    """The target's ``mutant -> tests that kill it`` map, every killer. Served from the content-hashed
     verdict cache whenever the function and its tests are unchanged, so this costs ~nothing
     right after converge profiled the same target."""
-    from .engine import profile
+    from .engine import profile, result_killers
 
     try:
-        return profile(file, function, project_root).kill_matrix
+        # The tests that kill each mutant, ALL of them (#145): this names the tests a proof rests on, and
+        # the first-killer credit alone picks one per mutant by the order the tests ran.
+        return result_killers(profile(file, function, project_root, full_matrix=True))
     # BLE001: no profile -> no proof suite -> propose and never apply
     except Exception:  # noqa: BLE001
         return {}
@@ -56,11 +58,11 @@ def _wanted_test_names(kill_matrix: dict[str, list[str]]) -> set[str]:
     """The test names that killed a mutant OF THIS TARGET, as the names their ``def``s
     carry: a parametrize id is stripped, since ``t[case-a]`` is defined by ``def t``.
 
-    ``kill_matrix`` maps mutant -> the tests that killed it, so every name here provably
-    exercises the target. That is what "covers the target specifically" means, and it is
-    why the whole discovered suite must NOT be used instead — ``discover_test_callables``
-    returns every test in the project, which would let an unrelated passing test stand in
-    for the proof.
+    ``kill_matrix`` maps mutant -> the tests that kill it (every killer where the engine measured
+    the relation, #145), so every name here provably exercises the target. That is what "covers the
+    target specifically" means, and it is why the whole discovered suite must NOT be used instead —
+    ``discover_test_callables`` returns every test in the project, which would let an unrelated
+    passing test stand in for the proof.
     """
     from .suite_edit import nodeid_function_name
 

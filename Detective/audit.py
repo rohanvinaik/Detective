@@ -27,7 +27,6 @@ References:
 from __future__ import annotations
 
 import ast
-import contextlib
 import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -42,7 +41,6 @@ from .minimize import (
     _obligations_by_test,
     cover_standing,
     kill_relation_disagreement,
-    merge_kill_relations,
     minimal_cover_2axis,
     missing_lines,
     needed_candidates,
@@ -627,209 +625,45 @@ class KillRelation:
 
     standing: str
     matrix: dict[str, list[str]]
-    tests_expected: int = 0
-    tests_measured: int = 0
 
 
-@contextlib.contextmanager
-def _baseline_of_one(test: Callable[..., Any]):
-    """Within a live session, make the baseline the engine reads hold THIS test and nothing else (#145).
+def kill_relation_of(result: Any, main_admits: bool) -> KillRelation:
+    """The full kill relation the engine measured in the profile ``result`` came from (#145).
 
-    A profile in a live session reads the session's baseline, and the shared holder builds it over the
-    WHOLE collection on first read. A per-test measurement must never be the first reader: measured on
-    Detective's own suite, one per-test profile traced 3,766 tests. A fork seeded with the one test
-    traces that test (the trace cache serves it when warm) and leaves the shared holder untouched, the
-    same device `engine.profile` uses to seed a function's candidates. Outside a session there is no
-    holder and nothing to bound.
+    Wesker's ``kill_matrix`` credits each mutant to the first covering test that killed it, so which
+    test is credited follows execution order, and execution order follows the trace cache's warmth.
+    "Test t kills mutant m" is a relation over (test, mutant) (KNOWABILITY Def. 2.3), and a profile
+    asked for it (``profile(full_matrix=True)``) carries it: ``kill_relation``, each killed mutant's
+    every killer, measured by the same run that produced the verdict and for the same tests. This
+    READS it; it measures nothing, and it never reads ``kill_matrix`` for who killed what. The state
+    is named by `minimize.cover_standing`: no relation, a relation the engine itself calls partial, or
+    one that does not reproduce the run's killed mutants is a refusal and an empty matrix, never a
+    fall-back to the first-killer credit.
     """
-    try:
-        from Wesker.engine import _SESSION_BASELINE
-    except ImportError:  # a Wesker without the live seam has no shared baseline to bound
-        yield
-        return
-    holder = _SESSION_BASELINE.get()
-    if holder is None:
-        yield
-        return
-    seeded = holder.fork()
-    seeded.seed([test])
-    token = _SESSION_BASELINE.set(seeded)
-    try:
-        yield
-    finally:
-        _SESSION_BASELINE.reset(token)
-
-
-@dataclass(frozen=True)
-class PerTestKills:
-    """What the per-test runs witnessed: each measured test's own kill matrix, the tests asked for, and
-    how many of their runs could not stand (cut, or a mutant left unscored)."""
-
-    per_test: dict[str, dict[str, list[str]]]
-    wanted: tuple[str, ...]
-    unsound: int = 0
-
-
-def measure_per_test_kills(
-    file: str,
-    function: str,
-    project_root: str,
-    result: Any,
-    *,
-    two_sign: bool = False,
-    isolated: bool = True,
-    budget_ms: float | None = None,
-    extra_test_dirs: tuple[str, ...] = (),
-    include_shaped: bool = True,
-    tests: Sequence[Callable[..., Any]] | None = None,
-) -> PerTestKills:
-    """Run ``function``'s profile once per test that executes it, with that test ALONE in the suite
-    (#145), under the same isolation and policy as the whole-suite measurement.
-
-    The tests are those the whole-suite measurement already shows executing the function (its line
-    coverage and its killers), found among the live collection, so the cost is one function's suite and
-    nothing wider. A test that is not live-collected is simply not in ``per_test`` (and so unmeasured);
-    a run that does not admit a certificate is counted ``unsound`` and contributes nothing. ``tests`` is
-    the live pool the whole-suite measurement was handed when it was not the discovered collection
-    (a neighbour's own tests plus force-included candidates): the per-test runs draw from that pool.
-    """
-    from Wesker.ci import callable_test_id
-
-    from .engine import _discover_profile_tests
-    from .validity import normalize_validity
-
-    first_killer = dict(getattr(result, "kill_matrix", {}) or {})
-    root = os.path.abspath(project_root)
-    full = file if os.path.isabs(file) else os.path.join(root, file)
-    live: dict[str, Callable[..., Any]] = {}
-    try:
-        with open(full, encoding="utf-8") as fh:
-            tree = ast.parse(fh.read(), filename=full)
-    except (OSError, SyntaxError):
-        # The target cannot be read, so no test can be run alone against it: every candidate is
-        # unmeasured (a named state), not a crash and not an empty relation.
-        tree = None
-    if tests is not None:
-        for test in tests:
-            live.setdefault(callable_test_id(test, root), test)
-    elif tree is not None:
-        for test in _discover_profile_tests(root, os.path.relpath(full, root), tree, extra_test_dirs):
-            live.setdefault(callable_test_id(test, root), test)
-    # A test with no executed line of the function (an empty coverage row: a force-included candidate that
-    # runs only a neighbour) can kill none of its mutants and cannot even have one installed in its
-    # module (`not_installed`, an unscored disposition that would cut its run), so it is not asked.
-    wanted = sorted(
-        {t for t, lines in (getattr(result, "line_coverage", {}) or {}).items() if lines}
-        | {t for ts in first_killer.values() for t in ts}
-    )
-    per_test: dict[str, dict[str, list[str]]] = {}
-    unsound = 0
-    for test_id in wanted:
-        if test_id not in live:
-            continue
-        with _baseline_of_one(live[test_id]):
-            alone = profile(
-                file,
-                function,
-                project_root,
-                tests=[live[test_id]],
-                # UNSCOPED: a one-test pool needs no routing, and each mutant simply runs against that
-                # test — verdict-identical to the scoped run (the scoped/unscoped A/B Wesker pins), and it
-                # measures whether THE TEST kills the mutant whether or not static routing would have
-                # offered it.
-                scope_tests=False,
-                use_cache=False,
-                isolated=isolated,
-                two_sign=two_sign,
-                budget_ms=budget_ms,
-                extra_test_dirs=extra_test_dirs,
-                include_shaped=include_shaped,
-            )
-        if not normalize_validity(alone).admits_certificate:
-            unsound += 1
-            continue
-        per_test[test_id] = dict(getattr(alone, "kill_matrix", {}) or {})
-    return PerTestKills(per_test, tuple(wanted), unsound)
-
-
-def assemble_kill_relation(
-    first_killer: dict[str, list[str]], main_admits: bool, measured: PerTestKills | None
-) -> KillRelation:
-    """The full kill relation, or the named reason there is none (#145).
-
-    ``first_killer`` is the whole-suite matrix, used ONLY for which mutants were killed (never for who
-    killed them). With nothing killed, or a whole-suite measurement that cannot stand, there is nothing
-    to measure (``measured`` may be None); otherwise the per-test runs are merged and judged by
-    `minimize.cover_standing`. The matrix is empty unless the standing is ``full_matrix``.
-    """
-    if measured is None:
-        return KillRelation(cover_standing(main_admits, len(first_killer), 0, 0, 0, 0), {})
-    matrix = merge_kill_relations(measured.per_test)
+    engine_standing = getattr(result, "kill_relation_standing", "absent")
+    relation = {
+        mutant: sorted(tests)
+        for mutant, tests in sorted((getattr(result, "kill_relation", None) or {}).items())
+    }
     standing = cover_standing(
         main_admits,
-        len(first_killer),
-        len(measured.wanted),
-        len(measured.per_test),
-        measured.unsound,
-        kill_relation_disagreement(list(first_killer), list(matrix)),
+        engine_standing,
+        kill_relation_disagreement(list(getattr(result, "kill_matrix", None) or {}), list(relation)),
     )
-    return KillRelation(
-        standing, matrix if standing == "full_matrix" else {}, len(measured.wanted), len(measured.per_test)
-    )
-
-
-def measure_kill_relation(
-    file: str,
-    function: str,
-    project_root: str,
-    result: Any,
-    main_admits: bool,
-    *,
-    two_sign: bool = False,
-    isolated: bool = True,
-    budget_ms: float | None = None,
-    extra_test_dirs: tuple[str, ...] = (),
-    include_shaped: bool = True,
-    measured: PerTestKills | None = None,
-    tests: Sequence[Callable[..., Any]] | None = None,
-) -> KillRelation:
-    """Build the FULL kill relation of ``function``'s own tests (#145).
-
-    Wesker's matrix credits each mutant to the first covering test that kills it, so which test is
-    credited follows execution order, and execution order follows the trace cache's warmth. The relation
-    "test t kills mutant m" is per test (KNOWABILITY Def. 2.3), so it is measured per test
-    (`measure_per_test_kills`) and assembled by `assemble_kill_relation`. Where it cannot be built the
-    state is named by `minimize.cover_standing` and the matrix is empty; it never falls back to the
-    first-killer credit. No mutant killed means no credit to attribute, so the relation is empty by
-    construction and no profile is run. ``measured`` lets a caller that already ran the per-test
-    profiles for this very result reuse them.
-    """
-    first_killer = dict(getattr(result, "kill_matrix", {}) or {})
-    if main_admits and first_killer and measured is None:
-        measured = measure_per_test_kills(
-            file,
-            function,
-            project_root,
-            result,
-            two_sign=two_sign,
-            isolated=isolated,
-            budget_ms=budget_ms,
-            extra_test_dirs=extra_test_dirs,
-            include_shaped=include_shaped,
-            tests=tests,
-        )
-    if not (main_admits and first_killer):
-        measured = None
-    return assemble_kill_relation(first_killer, main_admits, measured)
+    return KillRelation(standing, relation if standing == "full_matrix" else {})
 
 
 _COVER_STANDING_SENTENCES = {
     "main_unresolved": "this measurement admits no certificate (a cut or an unscored mutant), so the "
     "per-test kills are not established",
-    "test_unmeasured": "a test could not be measured alone (not collected, cut, or a mutant left unscored), "
-    "so the per-test kills are not complete",
-    "relation_disagrees": "the per-test runs and the whole-suite run killed different mutants, so no test "
-    "is established as redundant",
+    "test_unmeasured": "the engine's per-test scan was not whole (the run was cut, or a mutant was not run "
+    "against every test, or a test's result against it could not be settled), so the per-test kills are "
+    "not complete",
+    "relation_disagrees": "the per-test relation and the first-killer matrix killed different mutants, so "
+    "no test is established as redundant",
+    "not_requested": "this measurement was not asked for the per-test kill relation, so there is none",
+    "engine_lacks_relation": "the installed Wesker cannot measure the per-test kill relation (it predates "
+    "the full-matrix profile), so the per-test kills are not established",
 }
 
 
@@ -871,6 +705,7 @@ def audit_suite(
         two_sign=two_sign,
         isolated=True,
         use_cache=False,
+        full_matrix=True,
     )
     # A test belongs to THIS function's suite only if it discharges an obligation for
     # it — kills one of its mutants OR covers one of its lines (`function_test_suite`, the one
@@ -1068,17 +903,9 @@ def audit_suite(
     _errored = function_errored_tests(result.kill_matrix, result.line_coverage, _typed)
     # THE REDUNDANT SET AND THE COVER (#145). The kill matrix on the result credits each mutant to its
     # FIRST killer, an artifact of execution order that follows the trace cache's warmth, so nothing
-    # printed or acted on is computed from it: the relation over (test, mutant) is measured per test over
-    # this function's own tests, and where it cannot be, the state is named and nothing is claimed.
-    relation = measure_kill_relation(
-        file,
-        function,
-        project_root,
-        result,
-        validity.admits_certificate,
-        two_sign=two_sign,
-        isolated=True,
-    )
+    # printed or acted on is computed from it: the relation over (test, mutant) is what the profile
+    # above measured (`full_matrix=True`), and where it has none the state is named and nothing is claimed.
+    relation = kill_relation_of(result, validity.admits_certificate)
     redundant: set[str] = set()
     minimal: set[str] | None = None
     if relation.standing == "full_matrix":
@@ -1218,23 +1045,15 @@ class RemovalEvidence:
     cut_reasons: tuple[str, ...] = ()
 
 
-def _removal_needs(
-    result,
-    candidates: set[str],
-    root: str,
-    *,
-    file: str,
-    function: str,
-    tests: Sequence[Callable[..., Any]] | None = None,
-    two_sign: bool = False,
-) -> RemovalEvidence:
+def _removal_needs(result, candidates: set[str], root: str) -> RemovalEvidence:
     """Match candidate spellings to measured identities without inventing need on refusal.
 
     Which tests this function NEEDS is a cover over the FULL per-test kill relation (#145), never over
     Wesker's first-killer credit: of two tests that both kill a sibling's mutant, the first-killer
     matrix keeps whichever ran first, so which candidate was retained followed the trace cache's warmth.
-    A function no candidate executes needs none of them and is not measured per test; where the relation
-    cannot be built the evidence is `unverified` (the candidate is kept), never read off the credit.
+    ``result`` is a profile asked for the relation (`profile(full_matrix=True)`). A function no candidate
+    executes needs none of them; where the profile carries no whole relation the evidence is `unverified`
+    (the candidate is kept), never read off the credit.
     """
     from .validity import normalize_validity
 
@@ -1246,9 +1065,7 @@ def _removal_needs(
     wanted_ids = {_test_identity(candidate, root) for candidate in candidates}
     if not any(_test_identity(name, root) in wanted_ids for name in seen):
         return RemovalEvidence(removal_measurement_state(True, 0), frozenset())
-    relation = measure_kill_relation(
-        file, function, root, result, True, two_sign=two_sign, isolated=True, tests=tests
-    )
+    relation = kill_relation_of(result, True)
     if relation.standing != "full_matrix":
         return RemovalEvidence("unverified", cut_reasons=(relation.standing,))
     # Need is relative to the tests that STAY: every non-candidate stays, so a candidate is needed only for
@@ -1624,9 +1441,9 @@ def module_safe_removals(
         checked.add((rel_target, qn))
         if qn == function or not wanted:
             continue
-        result = profile(file, qn, root, isolated=True, use_cache=False, two_sign=two_sign)
+        result = profile(file, qn, root, isolated=True, use_cache=False, two_sign=two_sign, full_matrix=True)
         _record_removal_evidence(
-            _removal_needs(result, wanted, root, file=file, function=qn, two_sign=two_sign),
+            _removal_needs(result, wanted, root),
             (rel_target, qn),
             wanted,
             retained,
@@ -1675,17 +1492,10 @@ def module_safe_removals(
                         isolated=True,
                         use_cache=False,
                         two_sign=two_sign,
+                        full_matrix=True,
                     )
                     _record_removal_evidence(
-                        _removal_needs(
-                            nb_result,
-                            wanted,
-                            root,
-                            file=nb_file,
-                            function=nb_qn,
-                            tests=nb_own + cand_callables,
-                            two_sign=two_sign,
-                        ),
+                        _removal_needs(nb_result, wanted, root),
                         (nb_file, nb_qn),
                         wanted,
                         retained,
@@ -1808,12 +1618,17 @@ def _consult_reach(
             c for cid, c in sorted(live.items()) if cid in wanted and _test_identity(cid, root) not in seen
         ]
         result = profile(
-            rel_file, qual, root, tests=routed + forced, isolated=True, use_cache=False, two_sign=two_sign
+            rel_file,
+            qual,
+            root,
+            tests=routed + forced,
+            isolated=True,
+            use_cache=False,
+            two_sign=two_sign,
+            full_matrix=True,
         )
         _record_removal_evidence(
-            _removal_needs(
-                result, wanted, root, file=rel_file, function=qual, tests=routed + forced, two_sign=two_sign
-            ),
+            _removal_needs(result, wanted, root),
             (rel_file, qual),
             wanted,
             retained,

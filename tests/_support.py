@@ -56,18 +56,16 @@ def make_pr(
     )
 
 
-def full_relation_of(file, function, project_root, result, **_kwargs):
-    """A stand-in for `audit.measure_per_test_kills` for a test whose profile is a double (#145).
+def with_full_relation(result):
+    """State, on a profile double, the per-test relation a real profile asked for it would carry (#145).
 
-    The audit reads a cover only from the per-test kill relation, which it measures by running each test
-    alone; a double has no live tests to run. This reads the double's own matrix as that relation (each
-    test killed what the matrix says it killed) — the double stating, for itself, what the measurement
-    would have found.
+    The audit reads a cover only from the relation the engine measured in the profile
+    (`profile(full_matrix=True)`); a double has no live tests to scan. This reads the double's own
+    matrix as that relation (each test killed what the matrix says it killed, by assertion) and stamps
+    it whole, the double stating for itself what the measurement would have found.
     """
-    from Detective.audit import PerTestKills
-
-    matrix = dict(result.kill_matrix or {})
-    tests = sorted(
-        {t for ts in matrix.values() for t in ts} | {t for t, lines in result.line_coverage.items() if lines}
-    )
-    return PerTestKills({t: {m: [t] for m, ts in matrix.items() if t in ts} for t in tests}, tuple(tests))
+    result.kill_relation = {
+        mutant: {test: "assertion" for test in tests} for mutant, tests in (result.kill_matrix or {}).items()
+    }
+    result.kill_relation_standing = "complete"
+    return result

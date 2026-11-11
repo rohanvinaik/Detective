@@ -20,7 +20,7 @@ from __future__ import annotations
 import textwrap
 from unittest.mock import patch
 
-from _support import full_relation_of, make_pr
+from _support import make_pr, with_full_relation
 
 from Detective.audit import module_safe_removals
 from Detective.suite_edit import apply_removals
@@ -110,7 +110,7 @@ def _pr_for(function_key, kill_matrix, line_coverage):
     pr = make_pr(function_key=function_key)
     pr.kill_matrix = kill_matrix
     pr.line_coverage = line_coverage
-    return pr
+    return with_full_relation(pr)
 
 
 def _reach_seen(*candidates):
@@ -144,7 +144,6 @@ def test_module_safe_removals_retains_a_siblings_only_killer(tmp_path):
     )
     with (
         patch("Detective.audit.profile", return_value=sibling_pr),
-        patch("Detective.audit.measure_per_test_kills", full_relation_of),
         _reach_seen("test_extra"),
     ):
         safe, retained, unverified = module_safe_removals(
@@ -176,7 +175,6 @@ def test_module_safe_removals_passes_sibling_redundant_tests(tmp_path):
     )
     with (
         patch("Detective.audit.profile", return_value=sibling_pr),
-        patch("Detective.audit.measure_per_test_kills", full_relation_of),
         _reach_seen("test_two"),
     ):
         safe, retained, unverified = module_safe_removals("m.py", "f", str(tmp_path), ["test_two"])

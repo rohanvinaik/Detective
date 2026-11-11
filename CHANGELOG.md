@@ -6,6 +6,23 @@ Notable changes, newest first. Dates are the commit dates.
 
 Development source after 1.2.2; no version or release is implied.
 
+- **The redundant set and the minimal cover no longer follow the order the tests ran.** The kill matrix
+  Wesker returns credits each mutant to its first killer, and the order follows the trace cache's warmth,
+  so one tree and suite read a cover of 2 or of 3 and proposed different removals (D#145). They are now
+  computed from the full per-test kill relation, and `--json` says what each rests on:
+  - `cover_standing` (on `audit` and `converge`): `full_matrix` when the relation was measured whole;
+    otherwise the named reason there is none (`main_unresolved`, `test_unmeasured`, `relation_disagrees`,
+    `not_requested`, `engine_lacks_relation`), and then no redundant set and no cover are claimed;
+  - `minimal_test_count` is `null` (not `0`) when no cover is established, and `redundant_tests` is empty;
+  - `function_basis.kill_attribution` is `full_matrix` when `admitted[].discharged.mutation_dims` is each
+    test's own kills, `not_measured` where this surface did not measure the relation, or the refusal code.
+  The relation is a product of the profile the audit already runs, in both execution modes
+  (`profile(full_matrix=True)`, Wesker's `run_function_profiling(full_matrix=True)`): the first fix paid for
+  it by profiling the function once per test, which tripled to quadrupled `audit`'s wall time. `--remove`'s
+  need, converge's redundancy drop and the exact proof basis read the same relation, and a page names the
+  test that detects a mutant the same way on every surface, without Wesker's internal `legacy:` prefix.
+  Requires a Wesker with the full-matrix profile; an older one is the named state `engine_lacks_relation`.
+  (`f51cd6d`, D#145)
 - **The hang watchdog's stack dump survives a test that holds fd-level capture.** The live session
   captures at the `sys` level, but a test using pytest's `capfd` fixture, or its own `dup2`, points
   fd 2 at a temporary file; the dump landed there and the watchdog's hard exit discarded it, so a hang

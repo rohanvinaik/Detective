@@ -1770,53 +1770,6 @@ def regression_recovery(regressed: bool, minimized: bool, retried: bool) -> str:
     return RESTORE_PRIOR
 
 
-def kill_relation_for(
-    memo: dict[int, tuple[Any, Any]],
-    result: Any,
-    main_admits: bool,
-    *,
-    file: str,
-    function: str,
-    project_root: str,
-    two_sign: bool,
-    isolated: bool,
-    budget_ms: float | None,
-    extra_test_dirs: tuple[str, ...],
-    include_shaped: bool,
-):
-    """The full kill relation for ``result`` (#145), measuring each test alone at most once per result.
-
-    ``memo`` keeps the per-test measurements by the result they explain (holding the result so its id
-    cannot be reused), so the drop decision and the final report share one measurement while a
-    re-profile after a drop gets its own. The standing is judged afresh each call: the same
-    measurements under a validity that has since been refused are ``main_unresolved``.
-    """
-    from .audit import assemble_kill_relation, measure_per_test_kills
-
-    first_killer = dict(getattr(result, "kill_matrix", {}) or {})
-    measured = None
-    if main_admits and first_killer:
-        held = memo.get(id(result))
-        if held is None or held[0] is not result:
-            held = (
-                result,
-                measure_per_test_kills(
-                    file,
-                    function,
-                    project_root,
-                    result,
-                    two_sign=two_sign,
-                    isolated=isolated,
-                    budget_ms=budget_ms,
-                    extra_test_dirs=extra_test_dirs,
-                    include_shaped=include_shaped,
-                ),
-            )
-            memo[id(result)] = held
-        measured = held[1]
-    return assemble_kill_relation(first_killer, main_admits, measured)
-
-
 @restores_process_state(declared_roots)
 def converge(
     file: str,
@@ -2486,9 +2439,6 @@ def _converge_impl(
         else "finalizing — re-profiling the full mutant universe against the existing suite "
         "(no test written this run)…"
     )
-    # The per-test kill measurements already taken, by the result they explain (#145): the drop decision
-    # below and the report's cover read the SAME relation when no test was dropped between them.
-    _relation_memo: dict[int, tuple[Any, Any]] = {}
     final_result = profile(
         file,
         function,
@@ -2499,6 +2449,7 @@ def _converge_impl(
         include_shaped=include_shaped,
         two_sign=two_sign,
         isolated=isolated,
+        full_matrix=True,
     )
     if final_result.budget_exhausted and not budget_cut:
         budget_cut, cut_phase = True, "finalization"
@@ -2523,22 +2474,12 @@ def _converge_impl(
         # The FULL per-test kill relation, never the result's first-killer credit (#145): which test
         # Wesker credits with a mutant follows execution order, so a test it credits with nothing may
         # be the only one that kills it once its predecessor goes (Wesker#49), and a test it credits
-        # with everything may be as redundant as any. Where the relation cannot be built (a cut, an
-        # unscored mutant, a test that cannot be run alone) the standing is named and NOTHING is
+        # with everything may be as redundant as any. Where the profile has no whole relation (a cut, an
+        # unscored mutant, a scan the engine calls partial) the standing is named and NOTHING is
         # dropped — a redundancy call without the relation is a guess about what the suite pins.
-        _relation = kill_relation_for(
-            _relation_memo,
-            final_result,
-            normalize_validity(final_result).admits_certificate,
-            file=file,
-            function=function,
-            project_root=project_root,
-            two_sign=two_sign,
-            isolated=isolated,
-            budget_ms=_budget_ms(),
-            extra_test_dirs=extra_test_dirs,
-            include_shaped=include_shaped,
-        )
+        from .audit import kill_relation_of
+
+        _relation = kill_relation_of(final_result, normalize_validity(final_result).admits_certificate)
         own_matrix, own_lines = strip_foreign_evidence(
             _relation.matrix,
             _own_admissible,
@@ -2609,6 +2550,7 @@ def _converge_impl(
                 include_shaped=include_shaped,
                 two_sign=two_sign,
                 isolated=isolated,
+                full_matrix=True,
             )
             if final_result.budget_exhausted and not budget_cut:
                 budget_cut, cut_phase = True, "minimization"
@@ -2690,6 +2632,7 @@ def _converge_impl(
             include_shaped=include_shaped,
             two_sign=two_sign,
             isolated=isolated,
+            full_matrix=True,
         )
         if final_result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "regression-retry"
@@ -2724,6 +2667,7 @@ def _converge_impl(
             include_shaped=include_shaped,
             two_sign=two_sign,
             isolated=isolated,
+            full_matrix=True,
         )
         if final_result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "regression-check"
@@ -2864,6 +2808,7 @@ def _converge_impl(
                 two_sign=two_sign,
                 use_cache=False,
                 isolated=True,
+                full_matrix=True,
             )
         except MonitoringUnavailable:
             # Preserve the cause instead of collapsing it into generic verification failure.
@@ -2956,21 +2901,9 @@ def _converge_impl(
     # ... and on the FULL per-test kill relation, never the first-killer credit (#145): the cover and the
     # redundant set are functions of which tests kill which mutants, and Wesker's own matrix names only
     # the first killer in run order. Not established (a named standing) is no redundant set and no cover.
-    _relation = kill_relation_for(
-        _relation_memo,
-        final_result,
-        _validity.admits_certificate,
-        file=file,
-        function=function,
-        project_root=project_root,
-        # A result that was the isolated reproducibility check was measured isolated; its per-test runs
-        # must be too, or the relation would describe a different execution mode than the verdict.
-        two_sign=two_sign,
-        isolated=isolated or final_result is _verify_result,
-        budget_ms=_budget_ms(),
-        extra_test_dirs=extra_test_dirs,
-        include_shaped=include_shaped,
-    )
+    from .audit import kill_relation_of
+
+    _relation = kill_relation_of(final_result, _validity.admits_certificate)
     if _relation.standing == "full_matrix":
         redundant = redundant_2axis(_relation.matrix, proof_coverage)
         minimal: set[str] | None = minimal_cover_2axis(_relation.matrix, proof_coverage)
@@ -2991,9 +2924,12 @@ def _converge_impl(
     verification: PytestVerification | None = None
     if functionally_complete and not missing and not budget_cut and not stale and not floor_failing_tests:
         from .decompose_apply import exact_proof_basis
+        from .engine import result_killers
 
+        # EVERY test known to kill a mutant (#145), not the one the run order credited: a proof basis
+        # that follows the trace cache's warmth is not a function of the suite.
         covering = exact_proof_basis(
-            root, final_result.kill_matrix, line_owner_ids, exclude_file=written_path or ""
+            root, result_killers(final_result), line_owner_ids, exclude_file=written_path or ""
         )
         basis_paths = tuple(
             dict.fromkeys(

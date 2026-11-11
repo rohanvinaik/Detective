@@ -10431,7 +10431,9 @@ def _flag_distinction(file: str, function: str, args, result, rec: dict, two_sig
         if fact != "none":
             return fact, clause
     if rec.get("killed_by") in ("crash", "exception"):
-        test = _detecting_test(getattr(result, "kill_matrix", None) or {}, rec)
+        from .engine import result_killers
+
+        test = _detecting_test(result_killers(result), rec)
         fact = distinguishing_fact(False, False, True)
         return fact, distinction_clause(fact, test, "")
     return "none", ""

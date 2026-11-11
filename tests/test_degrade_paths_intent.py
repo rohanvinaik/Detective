@@ -69,10 +69,16 @@ def test_no_profile_means_an_empty_matrix_so_the_apply_can_only_propose(monkeypa
 
 def test_a_profile_that_exists_hands_back_its_own_kill_matrix(monkeypatch):
     matrix = {"m1": ["tests/test_a.py::test_one"]}
-    monkeypatch.setattr(
-        engine, "profile", lambda file, function, project_root: SimpleNamespace(kill_matrix=matrix)
-    )
-    assert _kill_matrix("mod.py", "fn", "/repo") is matrix
+    asked = []
+
+    def profile(file, function, project_root, **kwargs):
+        asked.append(kwargs)
+        return SimpleNamespace(kill_matrix=matrix)
+
+    monkeypatch.setattr(engine, "profile", profile)
+    # every test that kills each mutant (#145), so the proof it names is not the one the run order credited
+    assert _kill_matrix("mod.py", "fn", "/repo") == matrix
+    assert asked == [{"full_matrix": True}]
 
 
 # --- equivalence.parse_input_expression ---------------------------------------------------------
