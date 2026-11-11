@@ -246,6 +246,8 @@ class SuiteAudit:
     # Each of `missing_lines` with WHY it has no admissible coverage (`missing_line_standing`, #139):
     # `(line, standing)`. A line only a failing test runs is unproven, never "uncovered".
     missing_line_standings: tuple[tuple[int, str], ...] = ()
+    # Tests not consulted because they dispatch by a name the static route cannot follow (#107, #77), named.
+    not_consulted_dynamic: tuple[str, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -522,6 +524,7 @@ def missing_line_standing(
     line_coverage: dict[str, list[int]],
     failing_tests: list[str],
     errored_tests: list[str],
+    unconsulted_dynamic: list[str] | None = None,
 ) -> str:
     """Why an executable line has no admissible coverage, read off what its observations show (#139,
     pure — pinned).
@@ -539,6 +542,11 @@ def missing_line_standing(
       "run_inadmissibly"  a test executes it, but only in an observation the ledger may not rest on (a
                           cut, uncontained or replayed trace): a fresh observation can cover it.
       "unexecuted"        no observed test executes it: the remedy is an input, or a test that reaches it.
+      "unconsulted"       (#107, #77) no CONSULTED test executes it, and ``unconsulted_dynamic`` names tests
+                          not consulted because they reach code by a name the static route cannot follow
+                          (``getattr``, ``importlib``…): one of them may execute it. "Uncovered" would be a
+                          claim about execution the measurement did not make, and an --input would write a
+                          test over a line a test may already run. The remedy is to consult them.
 
     ``line_coverage`` is the OBSERVED union per test (`result.line_coverage`); ``failing_tests`` and
     ``errored_tests`` are `function_failing_tests` and `function_errored_tests`. A failing runner
@@ -551,7 +559,7 @@ def missing_line_standing(
         return "run_by_errored"
     if runners:
         return "run_inadmissibly"
-    return "unexecuted"
+    return "unconsulted" if unconsulted_dynamic else "unexecuted"
 
 
 def write_refused_standing(killed_by: str) -> str:
@@ -958,9 +966,19 @@ def audit_suite(
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
         missing_line_standings=tuple(
-            (ln, missing_line_standing(ln, result.line_coverage, list(_failing), list(_errored)))
+            (
+                ln,
+                missing_line_standing(
+                    ln,
+                    result.line_coverage,
+                    list(_failing),
+                    list(_errored),
+                    list(getattr(result, "not_consulted_dynamic", ()) or ()),
+                ),
+            )
             for ln in missing
         ),
+        not_consulted_dynamic=tuple(getattr(result, "not_consulted_dynamic", ()) or ()),
         manually_unreachable=len(manually_unreachable),
         contradicted_line_flags=contradicted_flags,
         minimal_test_count=None if minimal is None else len(minimal),

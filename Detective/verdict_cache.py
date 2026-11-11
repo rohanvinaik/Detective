@@ -79,6 +79,9 @@ def params_suffix(key: str) -> str:
     return ":" + ":".join(key.rsplit(":", _PARAM_FIELDS)[1:])
 
 
+ROUTING_REVISION = "2"
+
+
 def engine_fingerprint() -> str:
     """The versions of the code that PRODUCES a verdict — Detective's and Wesker's.
 
@@ -103,7 +106,9 @@ def engine_fingerprint() -> str:
 
     from . import __version__ as _detective
 
-    base = f"d{_detective}+w{_wesker}"
+    # The static route decides which tests a verdict consulted; a route that follows helpers, aliases and
+    # constants (#107, #77) consults tests the earlier one did not, so rows from before it are not replayed.
+    base = f"d{_detective}+w{_wesker}+r{ROUTING_REVISION}"
     pid = wesker_policy_id()
     # Package version alone is insufficient the day policy semantics move
     # independently of a release (issue #14): the policy id is behavior-hashed
@@ -226,6 +231,7 @@ def key_prefix(func_key: str) -> str:
 # not a ProfilingResult field, so `asdict` drops it, yet it decided which type-conditional OUTPUT mutants
 # exist; classification must regenerate exactly those. Stored beside the fields, restored as an attribute.
 _CODOMAIN_KEY = "observed_return_types"
+_DYNAMIC_KEY = "not_consulted_dynamic"
 
 
 def _to_json(result: ProfilingResult) -> dict:
@@ -245,6 +251,7 @@ def _to_json(result: ProfilingResult) -> dict:
     codomain = getattr(result, "observed_return_types", None)
     if codomain is not None:
         d[_CODOMAIN_KEY] = sorted(codomain)
+    d[_DYNAMIC_KEY] = list(getattr(result, "not_consulted_dynamic", ()) or ())
     return d
 
 
@@ -289,6 +296,7 @@ def _from_json(d: dict) -> ProfilingResult:
     # restored below as the attribute it was (#92). A row written before the codomain was carried has
     # no key and restores none: absence, which `engine.codomain_source` re-observes, never empty.
     codomain = d.pop(_CODOMAIN_KEY, None)
+    dynamic = tuple(d.pop(_DYNAMIC_KEY, ()) or ())
     cat_fields = {f.name for f in fields(CategoryResult)} - {"category"}
     d["per_category"] = [
         CategoryResult(
@@ -317,6 +325,7 @@ def _from_json(d: dict) -> ProfilingResult:
     if "proof_basis" in d:
         d["proof_basis"] = tuple(tuple(pair) for pair in d["proof_basis"])
     result = ProfilingResult(**d)
+    result.not_consulted_dynamic = dynamic  # ty: ignore[unresolved-attribute]
     if codomain is not None:
         result.observed_return_types = frozenset(codomain)  # ty: ignore[unresolved-attribute]
     return result

@@ -3048,6 +3048,7 @@ def _format_converge_terse(
         # rule: "a list that stops at N with no marker reads as the WHOLE list." One row per standing
         # (#139): a line only a failing test runs is unproven, never "uncovered".
         lines += _missing_line_rows(gap, getattr(result, "missing_line_standings", ()))
+        lines += _not_consulted_dynamic_rows(getattr(result, "not_consulted_dynamic", ()))
         # Name each uncovered line's OWN reach requirement (the branch it sits behind), so it is not
         # conflated with a mutant's kill input — the boundary mutant on `if x < 0` wants `x == 0`, but
         # the body is reached only when `x < 0`. Capped so the block stays inside its line budget. Only
@@ -6130,6 +6131,11 @@ def _first_n(items, n: int) -> str:
 _UNPROVEN_ROW = "✗ unproven"
 _MISSING_LINE_ROWS = (
     ("unexecuted", "✗ uncovered", ""),
+    (
+        "unconsulted",
+        _UNPROVEN_ROW,
+        "no consulted test runs it; tests that dispatch by name were not consulted (named below)",
+    ),
     ("run_by_failing", _UNPROVEN_ROW, "run only by a failing test"),
     ("run_by_errored", _UNPROVEN_ROW, "run only by a test that errored in setup or teardown"),
     (
@@ -6155,6 +6161,11 @@ def _unexecuted_lines(missing_lines, standings) -> list[int]:
 # The full report's line for each standing (#139): what runs the lines, and the remedy that covers them.
 _MISSING_LINE_REPORT = (
     ("unexecuted", "no test covers", ""),
+    (
+        "unconsulted",
+        "no consulted test runs (tests that dispatch by name were not consulted)",
+        "consult the tests named below; no --input applies until they are known not to reach it",
+    ),
     (
         "run_by_failing",
         "run only by a failing test",
@@ -6187,7 +6198,7 @@ def _missing_line_report(result) -> list[str]:
             lines.append(f"  ✗ line gap: {len(group)} executable line(s) {phrase}: {group}")
             if remedy:
                 lines.append(f"      {remedy}")
-    reachable = [ln for ln, standing in by_line.items() if standing != "run_by_failing"]
+    reachable = [ln for ln, standing in by_line.items() if standing not in ("run_by_failing", "unconsulted")]
     if reachable:
         lines += _target_lines(result.signature)
         if _tmpl := _input_template(result.param_names):
@@ -6195,6 +6206,21 @@ def _missing_line_report(result) -> list[str]:
                 f"      template: {_tmpl}   # replace every <...> slot to execute line(s) {reachable}"
             )
     return lines
+
+
+def _not_consulted_dynamic_rows(test_ids) -> list[str]:
+    """The tests the static route could not decide, named with the reason (#107, #77): they dispatch by a
+    name it cannot follow, so they were NOT consulted — which is not "no test reaches this"."""
+    ids = list(test_ids or ())
+    if not ids:
+        return []
+    return [
+        _row(
+            "· not consulted",
+            f"{len(ids)} test(s) reach code by a name the static route cannot follow "
+            "(getattr / importlib / eval); one may run this function: " + _first_n(ids, 4),
+        )
+    ]
 
 
 def _missing_line_rows(missing_lines, standings) -> list[str]:
@@ -6404,6 +6430,7 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
     if a.missing_lines:
         # One row per standing (#139), in the renderer converge's page shares.
         lines += _missing_line_rows(list(a.missing_lines), getattr(a, "missing_line_standings", ()))
+    lines += _not_consulted_dynamic_rows(getattr(a, "not_consulted_dynamic", ()))
     if getattr(a, "authored_fence", 0):
         # A FENCE is a GAP, not an equivalent (Q8): an authored must-not the suite does not enforce.
         # Shown with the ✗ gaps and above the flagged-equivalent line so the two are never conflated.

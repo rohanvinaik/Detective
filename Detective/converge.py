@@ -387,6 +387,8 @@ class ConvergeResult:
     # Each of `missing_lines` with WHY it has no admissible coverage (`audit.missing_line_standing`,
     # #139): `(line, standing)`. A line only a failing test runs is unproven, never "uncovered".
     missing_line_standings: tuple[tuple[int, str], ...] = ()
+    # Tests not consulted because they dispatch by a name the static route cannot follow (#107, #77), named.
+    not_consulted_dynamic: tuple[str, ...] = ()
     # WHICH evidence the line axis rested on (#59): "admissible" when the engine supplied an
     # outcome-qualified view, "observed" when it could not and the weaker union was used. A
     # certificate that cannot say which one it stood on implies the stronger, and the difference
@@ -1675,7 +1677,17 @@ def _missing_line_standings(result: Any, missing: list[int]) -> tuple[tuple[int,
     )
     errored = function_errored_tests(kill_matrix, line_coverage, typed)
     return tuple(
-        (ln, missing_line_standing(ln, line_coverage, list(failing), list(errored))) for ln in missing
+        (
+            ln,
+            missing_line_standing(
+                ln,
+                line_coverage,
+                list(failing),
+                list(errored),
+                list(getattr(result, "not_consulted_dynamic", ()) or ()),
+            ),
+        )
+        for ln in missing
     )
 
 
@@ -3022,6 +3034,7 @@ def _converge_impl(
         line_complete=not missing,
         missing_lines=tuple(missing),
         missing_line_standings=missing_standings,
+        not_consulted_dynamic=tuple(getattr(final_result, "not_consulted_dynamic", ()) or ()),
         line_basis=line_basis,
         line_owner_ids=line_owner_ids,
         manually_unreachable=len(manually_unreachable),

@@ -114,14 +114,16 @@ def module_name(
     ).name
 
 
-def _imports_of(tree: ast.AST, this_module: str) -> tuple[set[str], bool]:
+def _imports_of(tree: ast.AST, this_module: str, is_package: bool = False) -> tuple[set[str], bool]:
     """Every dotted name ``tree`` imports, and whether it does anything undecidable.
 
     The bool is the escape hatch: a star-import or a dynamic-import module means this file's
     reachability cannot be settled statically, and the caller must assume it reaches.
     Relative imports are resolved against ``this_module``'s package, since an unresolved
     relative import would otherwise look like "imports nothing" — a false NEGATIVE, the one
-    error direction that costs a verdict.
+    error direction that costs a verdict. A package's ``__init__`` IS the package: its ``from .m import f``
+    anchors at the package itself (``pkg.m``), one level shallower than a plain module's (#77: a test that
+    imports a re-export from the package was dropped as unable to reach the module it re-exports).
     """
     out: set[str] = set()
     opaque = False
@@ -137,7 +139,8 @@ def _imports_of(tree: ast.AST, this_module: str) -> tuple[set[str], bool]:
             if node.level:
                 # `from . import x` inside a.b.c -> a.b ; `from .. import x` -> a
                 anchor = this_module.split(".")
-                anchor = anchor[: len(anchor) - node.level] if node.level <= len(anchor) else []
+                up = node.level - 1 if is_package else node.level
+                anchor = anchor[: len(anchor) - up] if up <= len(anchor) else []
                 base = ".".join([*anchor, base]) if base else ".".join(anchor)
             if not base:
                 opaque = True
@@ -214,7 +217,7 @@ def _build_graph(
                 continue
             m = module_name(root, p, import_roots, relative_level=relative_level_of(tree))
             paths[m] = p
-            graph[m], is_opaque = _imports_of(tree, m)
+            graph[m], is_opaque = _imports_of(tree, m, fn == "__init__.py")
             if is_opaque:
                 opaque.add(m)
     _resolve_aliases(root, import_roots, graph, paths)
@@ -458,3 +461,264 @@ def _ancestor_conftests(conftests: list[str], kept_tests: list[str]) -> list[str
         for c in conftests
         if any(d == (cd := os.path.dirname(os.path.abspath(c))) or d.startswith(cd + os.sep) for d in dirs)
     ]
+
+
+# ── Name-level reach: the references a static route must follow (#107, #77) ────────────────────────────
+#
+# Routing is a COST optimisation over the truth ("which tests execute this function"). A test that
+# reaches the target through a helper of its own, an alias, or a module constant names none of the
+# target's callers in its OWN body, so a route on the body's names alone reads it as "no static path" —
+# and the page then reads as if no test existed. The closure below finds the NAMES through which a test
+# can reach the target; a test naming any of them is a `caller_reaches` candidate (traced, consulted).
+
+
+def _names_in(node: ast.AST, *, skip_callee: bool) -> set[str]:
+    """Every simple name ``node`` mentions (Name ids, Attribute attrs). With ``skip_callee`` the name a
+    Call invokes is not counted: ``X = f(1)`` binds f's RESULT, not f — whereas ``X = partial(f, 1)`` and
+    ``X = (Lens(vote=f),)`` hold f itself. A lambda's body is code, so its calls DO count."""
+    found: set[str] = set()
+
+    def visit(n: ast.AST, skip: bool) -> None:
+        if isinstance(n, ast.Name):
+            found.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            found.add(n.attr)
+            visit(n.value, skip)
+        elif isinstance(n, ast.Call):
+            func = n.func
+            if skip and isinstance(func, ast.Name):
+                pass
+            elif skip and isinstance(func, ast.Attribute):
+                visit(func.value, skip)
+            else:
+                visit(func, skip)
+            for a in n.args:
+                visit(a, skip)
+            for k in n.keywords:
+                visit(k.value, skip)
+        elif isinstance(n, ast.Lambda):
+            visit(n.body, False)
+        else:
+            for child in ast.iter_child_nodes(n):
+                visit(child, skip)
+
+    visit(node, skip_callee)
+    return found
+
+
+def _target_names(target: ast.AST) -> set[str]:
+    """The simple names an assignment target binds: a Name, an Attribute's attr, a Subscript's base."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, ast.Attribute):
+        return {target.attr}
+    if isinstance(target, ast.Subscript):
+        return _target_names(target.value)
+    if isinstance(target, ast.Starred):
+        return _target_names(target.value)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return set().union(*(_target_names(e) for e in target.elts)) if target.elts else set()
+    return set()
+
+
+def _container_of(call: ast.Call) -> set[str]:
+    """The base name a module-level mutator call fills: ``REGISTRY.update(a=f)`` -> ``REGISTRY``."""
+    func = call.func
+    if isinstance(func, ast.Attribute):
+        return _target_names(func.value)
+    return set()
+
+
+def module_bindings(source: str) -> dict[str, dict[str, list[str]]]:
+    """The module-level bindings of one source text, as ``{"defs": {name: [names it mentions]}, "refs":
+    {name: [names it holds]}}`` (#107, #77, pure — pinned).
+
+    ``defs`` are code that CALLS: a function (a method under its own name, and its class), whose
+    body's every mention counts. ``refs`` are names that HOLD a reference: an assignment's targets (an
+    alias ``g = f``, a constant or registry ``LENSES = (Lens(vote=f),)``, a class attribute, a
+    ``partial``), an ``import … as`` alias, a decorator registry (``@REG.add def f``) and a mutator call
+    (``REG.update(a=f)``). A call's RESULT is not a reference (``X = f(1)``). Compound statements at module
+    level are entered; function bodies are not (a def's body is one binding). Unparseable source has no
+    bindings (the empty answer is not a refusal: a file nobody can parse cannot be followed).
+    """
+    defs: dict[str, set[str]] = {}
+    refs: dict[str, set[str]] = {}
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return {"defs": {}, "refs": {}}
+
+    def add(into: dict[str, set[str]], names: set[str], mentioned: set[str]) -> None:
+        for name in names:
+            into.setdefault(name, set()).update(mentioned)
+
+    def scan(stmts: list[ast.stmt], owner: str | None) -> None:
+        for s in stmts:
+            if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                mentioned = _names_in(s, skip_callee=False)
+                add(defs, {s.name}, mentioned)
+                if owner:
+                    add(defs, {owner}, mentioned)
+                for deco in s.decorator_list:
+                    base = deco.func if isinstance(deco, ast.Call) else deco
+                    if isinstance(base, ast.Attribute):
+                        add(refs, _target_names(base.value), {s.name})
+            elif isinstance(s, ast.ClassDef):
+                scan(s.body, s.name)
+            elif isinstance(s, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                value = s.value
+                if value is None:
+                    continue
+                targets = s.targets if isinstance(s, ast.Assign) else [s.target]
+                held = _names_in(value, skip_callee=True)
+                bound = set().union(*(_target_names(t) for t in targets))
+                add(refs, bound, held)
+                if owner:
+                    add(refs, {owner}, held)
+            elif isinstance(s, ast.Expr) and isinstance(s.value, ast.Call):
+                held = _names_in(s.value, skip_callee=True)
+                add(refs, _container_of(s.value), held)
+            elif isinstance(s, ast.Import):
+                for a in s.names:
+                    if a.asname:
+                        add(refs, {a.asname}, set(a.name.split(".")))
+            elif isinstance(s, ast.ImportFrom):
+                for a in s.names:
+                    if a.asname:
+                        add(refs, {a.asname}, {a.name})
+            elif isinstance(s, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
+                scan(s.body, owner)
+                scan(getattr(s, "orelse", []), owner)
+            elif isinstance(s, ast.Try):
+                scan(s.body, owner)
+                for h in s.handlers:
+                    scan(h.body, owner)
+                scan(s.orelse, owner)
+                scan(s.finalbody, owner)
+
+    scan(tree.body, None)
+    return {
+        "defs": {k: sorted(v) for k, v in sorted(defs.items())},
+        "refs": {k: sorted(v) for k, v in sorted(refs.items())},
+    }
+
+
+def reacher_names(seeds: list[str], modules: list[dict]) -> list[str]:
+    """The names through which a test can reach ``seeds`` (the target's name), by static closure
+    (#107, #77, pure — pinned).
+
+    ``modules`` is one dict per project file: ``{"role": "target" | "support" | "other", "defs": …,
+    "refs": …}`` (`module_bindings`'s shape plus the role). A binding joins the closure when it mentions a
+    name already in it. Roles say whose CODE may carry the chain: the target's own module and the test
+    side ("support": test files, conftests, helper modules beside them) are followed through their
+    functions (a helper two levels deep, ``_run`` -> ``apply`` -> ``f``); every other file contributes only
+    names that HOLD a reference (an alias, a re-export, a registry) — never its functions, because
+    following every production caller across the repo is a codebase-scale route, the category error the
+    one-function law forbids. Positive-only: a name added costs at worst a test traced for nothing, and a
+    name missed leaves the test where it was. The seeds themselves are never returned.
+    """
+    names = set(seeds)
+    changed = True
+    while changed:
+        changed = False
+        for module in modules:
+            code_follows = module.get("role") in ("target", "support")
+            groups = [module.get("refs", {})]
+            if code_follows:
+                groups.append(module.get("defs", {}))
+            for group in groups:
+                for bound, mentioned in group.items():
+                    if bound not in names and not names.isdisjoint(mentioned):
+                        names.add(bound)
+                        changed = True
+    return sorted(names - set(seeds))
+
+
+_BINDINGS_CACHE: dict[str, tuple[tuple[int, int], dict, frozenset[str]]] = {}
+
+
+def _file_facts(path: str) -> tuple[dict, frozenset[str]] | None:
+    """``(module_bindings, identifiers)`` of one file, cached on ``(mtime_ns, size)`` so a route over an
+    unchanged tree parses each file once per process. ``None`` when the file cannot be read."""
+    try:
+        st = os.stat(path)
+        stamp = (st.st_mtime_ns, st.st_size)
+        hit = _BINDINGS_CACHE.get(path)
+        if hit is not None and hit[0] == stamp:
+            return hit[1], hit[2]
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    bindings = module_bindings(source)
+    try:
+        tree = ast.parse(source)
+        idents = frozenset(
+            {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+            | {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+            | {
+                a.asname or a.name.split(".")[0]
+                for n in ast.walk(tree)
+                if isinstance(n, ast.Import)
+                for a in n.names
+            }
+            | {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
+        )
+    except (SyntaxError, ValueError):
+        idents = frozenset()
+    _BINDINGS_CACHE[path] = (stamp, bindings, idents)
+    return bindings, idents
+
+
+def file_role(path: str, target_file: str, support_dirs: tuple[str, ...]) -> str:
+    """Whose code may carry a reach chain: ``target`` (the target's own file), ``support`` (a test
+    file, a conftest, or a module in a directory holding collected tests), else ``other`` (#107, #77,
+    pure — pinned)."""
+    if path == target_file:
+        return "target"
+    base = os.path.basename(path)
+    if base == "conftest.py" or base.startswith("test_") or base.endswith("_test.py"):
+        return "support"
+    if any(path.startswith(d.rstrip(os.sep) + os.sep) for d in support_dirs):
+        return "support"
+    return "other"
+
+
+def project_reach_modules(root: str, target_file: str, support_dirs: tuple[str, ...]) -> list[dict]:
+    """The per-file binding facts `reacher_names` closes over, for every project source file (virtualenvs
+    and the byproduct directories pruned, as the import-graph walk prunes them)."""
+    skip = _SKIP_DIRS | _pytest_norecursedirs(root)
+    target_real = os.path.realpath(target_file)
+    modules: list[dict] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        if is_virtualenv_root(filenames):
+            dirnames[:] = []
+            continue
+        dirnames[:] = [d for d in dirnames if d not in skip]
+        for fn in filenames:
+            if not fn.endswith(".py"):
+                continue
+            p = os.path.realpath(os.path.join(dirpath, fn))
+            facts = _file_facts(p)
+            if facts is None:
+                continue
+            bindings, idents = facts
+            modules.append(
+                {
+                    "path": p,
+                    "role": file_role(p, target_real, support_dirs),
+                    "defs": bindings["defs"],
+                    "refs": bindings["refs"],
+                    "idents": idents,
+                }
+            )
+    return modules
+
+
+def project_reacher_names(
+    root: str, target_file: str, target_name: str, support_dirs: tuple[str, ...]
+) -> tuple[list[str], list[dict]]:
+    """``(names, modules)``: the closure of `reacher_names` over the project, and the facts it read (the
+    caller reuses them to judge dynamic dispatch without a second walk)."""
+    modules = project_reach_modules(root, target_file, support_dirs)
+    return reacher_names([target_name], modules), modules

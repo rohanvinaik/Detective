@@ -27,6 +27,7 @@ import inspect
 import os
 import subprocess
 import sys
+import textwrap
 import time
 from collections.abc import Callable, Sequence
 from types import CodeType
@@ -1231,6 +1232,7 @@ def profile(
     # stands. A routing FAILURE is not None: it is the empty pool, below.
     _pool: list[Callable[..., Any]] | None = None
     _impossible_ids: set[int] = set()
+    _dynamic_ids: tuple[str, ...] = ()
     _route_attempted = False
     _route_raised = False
     _route_error = ""
@@ -1303,6 +1305,7 @@ def profile(
                         _routing_counts["deferred_shaped"] = _deferred_shaped
                     if _not_consulted:
                         _routing_counts["not_consulted"] = _not_consulted
+                    _dynamic_ids = _dynamic_unconsulted(_unknowns)
                 elif _disposition == "synthesize":
                     # Seed EMPTY (the forked baseline traces nothing) and profile against NO tests, so
                     # every mutant survives and routes to the existing synthesis pass. Disposition-exact:
@@ -1388,6 +1391,9 @@ def profile(
         result.kill_relation_standing = "absent"  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
     if _routing_counts:
         result.test_routing = _routing_counts
+    # The tests not consulted BECAUSE their dispatch is dynamic (#107, #77): named, so a page can say which
+    # and why instead of calling a line they might execute "uncovered". Carried with the cached row.
+    result.not_consulted_dynamic = _dynamic_ids  # ty: ignore[unresolved-attribute]
     # The routing outcome travels WITH the measurement it bounded (#91), the same Detective-side
     # convention as test_routing: `validity.normalize_validity` consumes the code — a `routing_failed`
     # run is cut, so it is never cached or certified — and the report and --json carry the error as the
@@ -3132,6 +3138,107 @@ def _routing_error_text(exc: Exception) -> str:
     return f"{type(exc).__name__}: {lines[0]}" if lines else type(exc).__name__
 
 
+def _test_side_reachers(
+    root: str, full: str, target_name: str, scoped_files: list[str]
+) -> tuple[list[str], dict[str, frozenset[str]]]:
+    """``(names, identifiers per file)``: the names through which a test reaches the target without
+    naming it — an alias, a module constant or registry holding it, a helper of the test's own (in its
+    module, a conftest or a shared helpers module), a re-export — closed by `reachability.reacher_names`
+    (#107, #77). The route is the ONE function's tests: only code on the test side and in the target's
+    own module is followed through its functions; elsewhere only names that hold a reference are
+    (no repo-scale call graph). Cached per file on (mtime, size)."""
+    from .reachability import project_reacher_names
+
+    support: set[str] = set()
+    root_real = os.path.realpath(root)
+    for origin in scoped_files:
+        d = os.path.dirname(os.path.realpath(origin))
+        while d.startswith(root_real + os.sep) and d not in support:
+            support.add(d)
+            d = os.path.dirname(d)
+    names, modules = project_reacher_names(root, full, target_name, tuple(sorted(support)))
+    return names, {m["path"]: m["idents"] for m in modules}
+
+
+# Constructs by which a test names a function WITHOUT a name a static scan can follow.
+_DYNAMIC_DISPATCH = frozenset({"getattr", "__import__", "import_module", "eval", "exec", "globals", "vars"})
+
+
+def unconsulted_standing(
+    body_idents: list[str],
+    body_strings: list[str],
+    file_idents: list[str],
+    reachers: list[str],
+    module_stem: str,
+) -> str:
+    """What a test with no static name-path to the target is, for the page (#107, #77, pure — pinned).
+
+    Static routing is a cost optimisation over the truth ("which tests execute this function"), so a
+    static miss is never "no test": it is one of three facts with three remedies.
+
+      "named_by_string"  the test spells a name that reaches the target as a string literal
+                         (``getattr(m, "f")``): the name IS static evidence. It is consulted.
+      "dynamic"          the test dispatches by a name the scan cannot see (``getattr``, ``importlib``,
+                         ``eval``…) AND its file mentions the target's module: it MAY execute the
+                         function. Not consulted, and NAMED.
+      "no_path"          no name, no dynamic dispatch toward this module: no static path. Counted.
+    """
+    if not set(body_strings).isdisjoint(reachers):
+        return "named_by_string"
+    if not set(body_idents).isdisjoint(_DYNAMIC_DISPATCH) and module_stem in set(file_idents):
+        return "dynamic"
+    return "no_path"
+
+
+def _item_facts(call: Callable[..., Any]) -> tuple[list[str], list[str]]:
+    """``(identifiers, string literals)`` of a collected test's own source; empty when unreadable."""
+    real = getattr(call, "__wrapped__", call)
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(real)))
+    except (OSError, TypeError, SyntaxError, ValueError):
+        return [], []
+    idents = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+        n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)
+    }
+    strings = {n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    return sorted(idents), sorted(strings)
+
+
+def _retag_dynamic(
+    unknowns: list[tuple[Callable[..., Any], str]],
+    target_name: str,
+    reachers: list[str],
+    file_idents: dict[str, frozenset[str]],
+    full: str,
+) -> list[tuple[Callable[..., Any], str]]:
+    """Re-tag the unknowns the router left as ``file_peer`` / ``unknown_no_path`` by
+    `unconsulted_standing`: a string-named reacher joins the consulted stratum, a dynamic dispatcher is
+    tagged ``unknown_dynamic`` (not consulted, and named by `profile`)."""
+    from Wesker.ci import callable_origin
+
+    stem = os.path.splitext(os.path.basename(full))[0]
+    names = [target_name, *reachers]
+    out: list[tuple[Callable[..., Any], str]] = []
+    for call, code in unknowns:
+        if code in ("file_peer", "unknown_no_path"):
+            idents, strings = _item_facts(call)
+            origin = os.path.realpath(callable_origin(call) or "")
+            standing = unconsulted_standing(idents, strings, sorted(file_idents.get(origin, ())), names, stem)
+            if standing == "named_by_string":
+                code = "caller_reaches"
+            elif standing == "dynamic":
+                code = "unknown_dynamic"
+        out.append((call, code))
+    return out
+
+
+def _dynamic_unconsulted(unknowns: list[tuple[Callable[..., Any], str]]) -> tuple[str, ...]:
+    """The test ids of the unknowns tagged ``unknown_dynamic``: not consulted, and named (#107, #77)."""
+    from Wesker.ci import callable_test_id
+
+    return tuple(sorted(callable_test_id(c) for c, code in unknowns if code == "unknown_dynamic"))
+
+
 def _route_tests(
     root: str,
     full: str,
@@ -3155,10 +3262,12 @@ def _route_tests(
 
     scoped_files = list({o for t in tests if (o := callable_origin(t))})
     observed = observed_function_reach(root, {full}, budgets, regime, tests, full, exec_lines)
-    caller_names = _module_callers_of(tree, target_name)
+    reachers, file_idents = _test_side_reachers(root, full, target_name, scoped_files)
+    caller_names = _module_callers_of(tree, target_name) | set(reachers)
     cands, unknowns, impossible = partition_live_callables(
         tests, scoped_files, target_name, [target_name], observed, caller_names
     )
+    unknowns = _retag_dynamic(unknowns, target_name, reachers, file_idents, full)
     return cands, unknowns, impossible, observed, caller_names
 
 
