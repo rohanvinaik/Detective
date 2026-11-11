@@ -253,7 +253,7 @@ def _no_separator_message(target: str, project_root: str | None) -> str:
     return f"{base}\n  functions in that file: {shown}\n  e.g.: '{target}::{names[0]}'"
 
 
-def _format_scope(scope) -> str:
+def _format_scope(scope, universe: UniverseOptions | None = None) -> str:
     """The diagnose report: what this function does, and the ONE thing to run next.
 
     This is the entry point — the first thing anyone sees, and often the only thing a reader
@@ -351,7 +351,7 @@ def _format_scope(scope) -> str:
     lines.append(_row("· shape", _shape_phrase(entangled, seams)))
     lines += _parsimony_rows(scope)
     lines.append("")
-    lines += _diagnose_action(scope, spec, entangled, seams)
+    lines += _diagnose_action(scope, spec, entangled, seams, universe)
     return "\n".join(lines)
 
 
@@ -907,7 +907,9 @@ def _load_fix_rows(reason: str, then: str) -> list[str]:
     return [_row(_FIX_ROW, first), _row("", second + then)]
 
 
-def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
+def _diagnose_action(
+    scope, spec, entangled: bool, seams: int, universe: UniverseOptions | None = None
+) -> list[str]:
     """Diagnose's ONE next action, in the report's row style.
 
     Priority IS the judgement: split before you pin. When both signals agree the function is
@@ -919,8 +921,14 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
     No derived input here, and that is not an omission: diagnose is read-only and works from a
     `ScopeMap`, which carries no witnesses — so there is nothing to batch. The command IS the
     whole action.
+
+    Every command it prints is the verb under THIS run's universe (#115): a `diagnose --two-sign` that
+    named `converge` bare sent the reader to measure the one-sign universe. They are assembled by
+    `_carried_argv` and rendered by `_command_text`, never as a string, so a verb that cannot reproduce
+    the universe is not printed (`None`).
     """
     fn = scope.function
+    universe = universe if universe is not None else UniverseOptions()
     # The SHARED route, not a second reading of the same facts (R3). Diagnose carries neither an
     # expressibility verdict nor a sample signal — it never classifies survivors — so it supplies
     # the one observation it does have and lets the shared decision rank it.
@@ -943,11 +951,11 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
             _row("", "unpinned because NOTHING could run, not because tests are absent."),
             _row("· Not converge", "it cannot write a test that runs either; on this target it"),
             _row("", "refuses with the same reason."),
-            *_load_fix_rows(reason, f"detective diagnose '{fn}'"),
+            *_load_fix_rows(reason, _command_text(_carried_argv(universe, "diagnose", fn))),
         ]
     if kind == "decompose_first":
         return [
-            f"DO THIS:  detective decompose '{fn}' --apply",
+            f"DO THIS:  {_command_text(_carried_argv(universe, 'decompose', fn, '--apply'))}",
             "",
             _row("· Why", "Two signals agree this is more than one function."),
             _row("· Safety", "--apply writes ONLY if a generated suite proves the"),
@@ -956,7 +964,7 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
         ]
     if kind == "close_the_gap":
         return [
-            f"DO THIS:  detective converge '{fn}'",
+            f"DO THIS:  {_command_text(_converge_rerun(universe, fn))}",
             "",
             _row("· Why", f"{spec.unspecified_dof} behaviour(s) have no test pinning them."),
             _row("· Writes", "test files, and wires them into pytest for you."),
@@ -964,7 +972,10 @@ def _diagnose_action(scope, spec, entangled: bool, seams: int) -> list[str]:
     return [
         "DONE:  every behaviour this function makes is already pinned by a test.",
         "",
-        _row("· Optional next", f"detective audit '{fn}'   # is the suite minimal?"),
+        _row(
+            "· Optional next",
+            f"{_command_text(_carried_argv(universe, 'audit', fn))}   # is the suite minimal?",
+        ),
     ]
 
 
@@ -4940,7 +4951,9 @@ def _headline_counts(proof, rep) -> str:
     return " · " + " · ".join(parts)
 
 
-def _residual_action(r, proof, rep, target: str, root: str = ".") -> list[str]:
+def _residual_action(
+    r, proof, rep, target: str, root: str = ".", universe: UniverseOptions | None = None
+) -> list[str]:
     """The next action when the proof is incomplete: the DERIVED input, never an invented one
     and never a slot for the reader to author.
 
@@ -4959,13 +4972,19 @@ def _residual_action(r, proof, rep, target: str, root: str = ".") -> list[str]:
     all of that away and hands the reader the derivation the pipeline exists to do. It also is
     not pasteable — `<account>` is not Python — so the one line the report is judged on fails
     the only test that matters.
+
+    Every command it prints carries the run's universe (#115): `decompose --two-sign` that named
+    `decompose --apply` or `converge --full` bare sent the reader to a proof over the one-sign universe,
+    which "can certify a rewrite that crossed a μ⁻ fence".
     """
+    universe = universe if universe is not None else UniverseOptions()
     out: list[str] = []
     if rep is None:
         out.append(_row(f"{proof.final_survivors} unpinned", "the classification did not run, so which"))
         out.append(_row("", "mutants block is unknown. Source NOT touched."))
         out.append("")
-        out.append(f"DO THIS:  detective converge '{target}' --full     # then re-run decompose")
+        full = _command_text(_carried_argv(universe, "converge", target, "--full"))
+        out.append(f"DO THIS:  {full}     # then re-run decompose")
         return out
 
     n_kill, n_unc, n_eq = len(rep.killable), len(rep.unclassified), len(rep.equivalent)
@@ -4976,11 +4995,17 @@ def _residual_action(r, proof, rep, target: str, root: str = ".") -> list[str]:
         out.append(_row("", f"{n_eq} more look equivalent and do NOT block."))
     out.append(_row("", "Your source was NOT touched."))
     out.append("")
-    out += _derived_input(r, proof, rep, target)
+    out += _derived_input(
+        r,
+        proof,
+        rep,
+        target,
+        verb=_command_text(_carried_argv(universe, "decompose", target, "--apply")),
+    )
     return out
 
 
-def _blocked_action(rep, target: str) -> list[str]:
+def _blocked_action(rep, target: str, universe: UniverseOptions | None = None) -> list[str]:
     """The terminal when the proof suite is mutation-complete but the extraction could NOT be
     proven because candidate-equivalent / crash-only survivors remain (#decompose-banner).
 
@@ -4991,7 +5016,10 @@ def _blocked_action(rep, target: str) -> list[str]:
     truly-equivalent, or supply the ``--input`` that kills a killable one — never a claim, from
     a run that tested nothing, that the rewrite changes behaviour. The distinction is the whole
     reason the banner reads the trial code instead of ``functionally_complete``.
+
+    The command it names carries the run's universe (#115): the proof it asks for is over that universe.
     """
+    universe = universe if universe is not None else UniverseOptions()
     n = len(rep.equivalent) if rep is not None else 0
     out = [
         "STOP.  Not a rejection — this rewrite was never tested. The proof suite kills every",
@@ -5003,7 +5031,8 @@ def _blocked_action(rep, target: str) -> list[str]:
     if n:
         out.append(_row("· blocked by", f"{n} candidate-equivalent / crash-only survivor(s)"))
     out.append(_row("· to prove it", "flag the survivor(s) truly equivalent, or supply --input to"))
-    out.append(_row("", f"kill them, then  detective decompose '{target}' --apply"))
+    again = _command_text(_carried_argv(universe, "decompose", target, "--apply"))
+    out.append(_row("", f"kill them, then  {again}"))
     return out
 
 
@@ -5980,7 +6009,13 @@ def _aim_at(rep) -> str:
     return changed[0].strip() if changed else ""
 
 
-def _format_decompose(r, applied_mode: bool, target: str | None = None, root: str = ".") -> str:
+def _format_decompose(
+    r,
+    applied_mode: bool,
+    target: str | None = None,
+    root: str = ".",
+    universe: UniverseOptions | None = None,
+) -> str:
     """The decompose report: what happened, and the ONE next action, in a fixed shape.
 
     Two rules hold this together.
@@ -6005,6 +6040,8 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
     # unnoticed for the whole build because it was only ever tested by someone typing the full
     # target from memory — the reader this report exists for cannot do that.
     tgt = target or r.function
+    # Every command below is the verb under THIS run's universe (#115), never a bare string.
+    universe = universe if universe is not None else UniverseOptions()
     lines: list[str] = []
     # A CUT decompose (issue #31) never got a completed proof, so it can neither apply nor
     # honestly say "no seam". Name the cut, the integration signal if the target flooded, and
@@ -6081,16 +6118,16 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
         file_part = tgt.rsplit("::", 1)[0] if "::" in tgt else ""
         for ex in r.applied:
             target = f"{file_part}::{ex.helper_name}" if file_part else ex.helper_name
-            lines.append(f"       Next (optional):  detective converge '{target}'")
+            lines.append(f"       Next (optional):  {_command_text(_converge_rerun(universe, target))}")
         return "\n".join(lines)
 
     if code == "ready":
-        lines.append(f"DO THIS:  detective decompose '{tgt}' --apply")
+        lines.append(f"DO THIS:  {_command_text(_carried_argv(universe, 'decompose', tgt, '--apply'))}")
         lines.append("          The proof already passed. --apply writes it. Nothing else is needed.")
         return "\n".join(lines)
 
     if code == "no_suite":
-        lines.append(f"DO THIS:  detective converge '{tgt}'")
+        lines.append(f"DO THIS:  {_command_text(_converge_rerun(universe, tgt))}")
         lines.append("          No suite specifies this function yet, so there is nothing to prove")
         lines.append("          against. Your source was NOT touched.")
         return "\n".join(lines)
@@ -6105,10 +6142,10 @@ def _format_decompose(r, applied_mode: bool, target: str | None = None, root: st
     if code == "blocked":
         # Mutation-complete-modulo-equivalent: the rewrite was never tested, so this is NOT a
         # disproof. Name the real blocker instead of accusing a change the tool never observed.
-        lines += _blocked_action(rep, tgt)
+        lines += _blocked_action(rep, tgt, universe)
         return "\n".join(lines)
 
-    lines += _residual_action(r, proof, rep, tgt, root)
+    lines += _residual_action(r, proof, rep, tgt, root, universe)
     return "\n".join(lines)
 
 
@@ -6239,7 +6276,13 @@ def _missing_line_rows(missing_lines, standings) -> list[str]:
     return rows
 
 
-def _format_audit_plan(function: str, static_detail: str, tier1, est_s: float | None) -> str:
+def _format_audit_plan(
+    function: str,
+    static_detail: str,
+    tier1,
+    est_s: float | None,
+    universe: UniverseOptions | None = None,
+) -> str:
     """`audit --plan` — the mutation-budget decision WITHOUT paying for it (issue #52): tier 0 static,
     tier 1 fan-in + coverage, a measured tier-2 estimate, no verdict. A schedule, not a finding."""
     est = (
@@ -6260,7 +6303,11 @@ def _format_audit_plan(function: str, static_detail: str, tier1, est_s: float | 
             ),
             _row("· tier 2 est", est),
             "",
-            _row("· then", f"detective audit '{function}'   # pay tier 2 for the specification verdict"),
+            _row(
+                "· then",
+                f"{_command_text(_carried_argv(universe or UniverseOptions(), 'audit', function))}"
+                "   # pay tier 2 for the specification verdict",
+            ),
         ]
     )
 
@@ -9539,7 +9586,7 @@ def _run_decompose(args, file, function) -> int:
     observe("outcome", "decompose", decompose_outcome(**_facts))
     if args.json:
         return _emit_json(asdict(result), exit_code)
-    text = _format_decompose(result, args.apply, args.target, args.project_root)
+    text = _format_decompose(result, args.apply, args.target, args.project_root, UniverseOptions.of(args))
     # Persist the full outcome — especially a REFUSAL, which otherwise leaves no
     # artifact and can only be re-diagnosed by re-running the slowest command here.
     #
@@ -9690,7 +9737,7 @@ def _run_audit(args, file, function) -> int:
                 },
                 0,
             )
-        print(_format_audit_plan(function, _static, tier1, est_s))
+        print(_format_audit_plan(function, _static, tier1, est_s, UniverseOptions.of(args)))
         return 0
 
     # Tier 0 first (issue #52): the ~0s static read, streamed the instant the file parses, so
@@ -9801,7 +9848,7 @@ def _run_audit(args, file, function) -> int:
             payload["removal"] = record
             print(json.dumps(_with_exit(payload, removal_exit), indent=2, default=str))
         else:
-            print("\n".join(_removal_lines(record)))
+            print("\n".join(_removal_lines(record, UniverseOptions.of(args))))
         return removal_exit
     return 0
 
@@ -9979,13 +10026,18 @@ def _recheck_unmeasured_why(standing: str) -> str:
     }.get(standing, f"the re-check did not measure the edited suite ({standing})")
 
 
-def _removal_lines(record: dict) -> list[str]:
+def _removal_lines(record: dict, universe: UniverseOptions | None = None) -> list[str]:
     """The text rendering of an `_audit_remove` record: each kept test with its cause, the deletions, the
     re-check read against the measurement before it, and one closing line (#103): DONE, or STOP when the
     target's own measurement refused removal or the re-check found something newly open. Every cause is
     `removal_outcome_why`'s sentence, never a second wording, and an empty run says WHY it removed
-    nothing (#10) rather than prescribing a re-run."""
+    nothing (#10) rather than prescribing a re-run. The re-measure it names carries the universe the
+    removal was checked under (#115): a `--two-sign` removal re-audited bare measures the one-sign one."""
     from .suite_edit import removal_summary
+
+    audit_again = _command_text(
+        _carried_argv(universe or UniverseOptions(), "audit", record.get("target", ""))
+    )
 
     kept = [r for r in record["outcomes"] if r["code"] != "removed"]
     lines = [f"  {r['test']} — {r['why']}" for r in kept]
@@ -9996,7 +10048,7 @@ def _removal_lines(record: dict) -> list[str]:
             f"STOP:  --remove refused — {target}'s own measurement admits no certificate "
             f"({record.get('target_state') or 'no state'}), so no test is established as redundant."
         )
-        lines.append(f"       Re-measure it first: detective audit '{target}'")
+        lines.append(f"       Re-measure it first: {audit_again}")
         return lines
     if removed:
         lines.append(f"  removed {len(removed)}: {', '.join(removed)}")
@@ -10019,18 +10071,13 @@ def _removal_lines(record: dict) -> list[str]:
             return lines
         if reading == "gap_new":
             lines.append(f"{count}, and {after.get('newly_open')} obligation(s) open that were not before")
-            lines.append(
-                f"STOP:  a removal may have broken {target}. "
-                f"Confirm in a fresh run: detective audit '{target}'"
-            )
+            lines.append(f"STOP:  a removal may have broken {target}. Confirm in a fresh run: {audit_again}")
             lines.append("       If it agrees, restore the removed tests listed above (git checkout).")
             return lines
         lines.append(
             f"  after removal: not re-measured — {_recheck_unmeasured_why(str(after.get('recheck')))}"
         )
-        lines.append(
-            f"DONE:  removed {len(removed)} test(s). Confirm in a fresh run: detective audit '{target}'"
-        )
+        lines.append(f"DONE:  removed {len(removed)} test(s). Confirm in a fresh run: {audit_again}")
     else:
         why = removal_summary([r["code"] for r in kept])
         lines.append(f"DONE:  removed nothing — {why}. Every test is retained; the suite stands.")
@@ -10424,7 +10471,9 @@ def _flag_line_add(args, func_key: str, node, function: str) -> int:
     print("DONE:  line reports read 'line-complete modulo N flagged unreachable'. The flag")
     print("       kills no mutant and never gates decompose. If a test ever EXECUTES the")
     print("       line, execution overrides your flag. Proof beats judgement.")
-    print(f"       Next: detective audit '{func_key}'   # the line is no longer a gap")
+    # The audit that re-measures the line runs in the universe the flag was given under (#115).
+    again = _command_text(_carried_argv(UniverseOptions.of(args), "audit", func_key))
+    print(f"       Next: {again}   # the line is no longer a gap")
     return 0
 
 
@@ -11004,7 +11053,7 @@ def _run_diagnose(args, file, function) -> int:
     )
     if args.json:
         return _emit_json(asdict(scope), 0)
-    print(_format_scope(scope))
+    print(_format_scope(scope, UniverseOptions.of(args)))
     return 0
 
 
