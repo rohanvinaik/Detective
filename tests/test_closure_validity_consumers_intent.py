@@ -34,7 +34,9 @@ def test_an_invalid_neighbor_cannot_authorize_a_test_removal(tmp_path):
     result.kill_matrix = {"M": ["test_a"]}
     result.line_coverage = {"test_a": [2]}
     candidates = {"test_a", "legacy:test_b.py::test_b"}
-    evidence = audit._removal_needs(result, candidates, str(tmp_path))
+    # The target is named because the per-test kill relation is measured from it (#145); an invalid
+    # measurement is refused BEFORE that, which is what this test is about.
+    evidence = audit._removal_needs(result, candidates, str(tmp_path), file="m.py", function="f")
     assert evidence.state == "unverified"
     assert evidence.needed == frozenset()
     assert "collection_incomplete" in evidence.cut_reasons
