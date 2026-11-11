@@ -390,9 +390,60 @@ def _flags(project) -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
+# A mutant is named here by WHAT IT CHANGES, never by a literal id: a content id differs between
+# Python 3.12 and 3.13+ (Wesker#48), so a literal pinned under one interpreter family names no mutant
+# under the other. The first version of these tests used 3.14's literals and failed both 3.12 CI cells.
+def _crash_detected(project) -> dict[str, dict]:
+    """The survivors the suite detects by crash or exception, ``{mutant_id: record}``."""
+    return {
+        i: r
+        for i, r in _survivors(project, "m", "interval").items()
+        if r["killed_by"] in ("crash", "exception")
+    }
+
+
+def _int_dropped_id(project) -> str:
+    """`seconds = int(text[6:])` -> `seconds = text[6:]`: #110's own mutant (3.14 spells it SWAP_f9431aa0).
+
+    A diff summary is the original's lines after "- " then the mutant's after "+ "; only the mutant's
+    half holds the changed line."""
+    return next(
+        i
+        for i, r in _crash_detected(project).items()
+        if "seconds = text[6:]" in r["diff"].split("\n+ ", 1)[-1]
+    )
+
+
+def _other_crash_detected_id(project) -> str:
+    """A second crash-detected survivor, a VALUE mutant (3.14 spells it VALUE_138d2119)."""
+    first = _int_dropped_id(project)
+    return next(i for i in sorted(_crash_detected(project)) if i != first and i.startswith("VALUE_"))
+
+
+def _assertion_killed_id(project) -> str:
+    """A mutant the suite kills by assertion: it is not a survivor at all."""
+    code = (
+        "import json;from Detective.engine import profile;"
+        "r=profile('m.py','interval','.');"
+        "ids=sorted(x['mutant_id'] for x in r.killed_records if x.get('killed_by')=='assertion');"
+        "print(json.dumps(ids))"
+    )
+    run = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(project),
+        capture_output=True,
+        text=True,
+        timeout=600,
+        check=False,
+        env={**os.environ, "HOME": str(project / ".home")},
+    )
+    assert run.returncode == 0, run.stderr
+    return json.loads(run.stdout.strip().splitlines()[-1])[0]
+
+
 @pytest.fixture(scope="module")
 def interval(tmp_path_factory):
-    """#110's own fixture, converged once: the synthesized test crash-kills SWAP_f9431aa0."""
+    """#110's own fixture, converged once: the synthesized test crash-kills the `int(...)`-dropping mutant."""
     project = _project(tmp_path_factory.mktemp("interval"), "p", INTERVAL, INTERVAL_TEST, "m")
     run = _cli(project, "converge", "m.py::interval")
     assert "COMPLETE" in run.stdout, run.stdout + run.stderr
@@ -401,9 +452,10 @@ def interval(tmp_path_factory):
 
 def test_flag_refuses_a_mutant_the_suite_detects_by_crash_and_writes_nothing(interval):
     before = _flags(interval)
-    run = _cli(interval, "flag", "m.py::interval", "SWAP_f9431aa0", "--note", "bogus")
+    mutant_id = _int_dropped_id(interval)
+    run = _cli(interval, "flag", "m.py::interval", mutant_id, "--note", "bogus")
     assert run.returncode == 1, run.stdout + run.stderr
-    assert "cannot flag mutant 'SWAP_f9431aa0' as equivalent" in run.stderr
+    assert f"cannot flag mutant '{mutant_id}' as equivalent" in run.stderr
     assert "fails by crash under it" in run.stderr  # WHICH fact decides it
     assert "tests/" in run.stderr  # ... and which test
     assert "crash-only value gap" in run.stderr and "Pin the value" in run.stderr  # what to do instead
@@ -413,7 +465,8 @@ def test_flag_refuses_a_mutant_the_suite_detects_by_crash_and_writes_nothing(int
 
 
 def test_the_refusal_reaches_json_with_its_fact(interval):
-    run = _cli(interval, "flag", "m.py::interval", "VALUE_138d2119", "--json")
+    mutant_id = _other_crash_detected_id(interval)
+    run = _cli(interval, "flag", "m.py::interval", mutant_id, "--json")
     payload = json.loads(run.stdout)
     assert run.returncode == 1
     assert (payload["verdict"], payload["reason"], payload["fact"]) == (
@@ -421,12 +474,12 @@ def test_the_refusal_reaches_json_with_its_fact(interval):
         "distinguished_mutant",
         "suite_crash",
     )
-    assert payload["mutant_id"] == "VALUE_138d2119"
+    assert payload["mutant_id"] == mutant_id
 
 
 def test_flag_refuses_the_same_mutant_under_two_sign(interval):
     before = _flags(interval)
-    run = _cli(interval, "flag", "m.py::interval", "SWAP_f9431aa0", "--two-sign")
+    run = _cli(interval, "flag", "m.py::interval", _int_dropped_id(interval), "--two-sign")
     assert run.returncode == 1, run.stdout + run.stderr
     assert "cannot flag mutant" in run.stderr
     assert _flags(interval) == before, "a refusal writes nothing, whatever the store already holds"
@@ -439,11 +492,8 @@ def test_a_mutant_id_that_does_not_exist_is_refused_by_name(interval):
 
 
 def test_a_mutant_the_suite_kills_by_assertion_is_not_a_survivor_and_not_flaggable(interval):
-    killed = next(
-        mutant_id
-        for mutant_id in ("ARITHMETIC_747cae92", "BOUNDARY_e7061f7e", "STATE_4572b5b9")
-        if mutant_id not in _survivors(interval, "m", "interval")
-    )
+    killed = _assertion_killed_id(interval)
+    assert killed not in _survivors(interval, "m", "interval")
     run = _cli(interval, "flag", "m.py::interval", killed)
     assert run.returncode == 1
     assert f"no surviving mutant '{killed}'" in run.stdout
@@ -474,7 +524,15 @@ def test_a_genuinely_undistinguished_candidate_is_still_flaggable(interval):
 def test_a_fence_on_a_crash_detected_mutant_is_still_recorded_as_a_fence(interval):
     """The fence claims the opposite thing (an unenforced must-not): true of a mutant whose value no
     test pins, so it is kept. What it records: verdict `fence`, a GAP, never suppressed."""
-    run = _cli(interval, "flag", "m.py::interval", "VALUE_138d2119", "--fence", "--note", "pin the value")
+    run = _cli(
+        interval,
+        "flag",
+        "m.py::interval",
+        _other_crash_detected_id(interval),
+        "--fence",
+        "--note",
+        "pin the value",
+    )
     assert run.returncode == 0, run.stdout + run.stderr
     assert "fence — an unenforced must-not" in run.stdout
     assert any(v["verdict"] == "fence" for v in _flags(interval).values())
@@ -484,11 +542,12 @@ def test_an_old_equivalent_flag_is_contradicted_not_rendered_as_flagged_equivale
     """A flag written before this rule (or by hand) on a crash-detected mutant: the store keeps it,
     the page says it is contradicted and by which test, and no count calls it flagged-equivalent."""
     survivors = _survivors(interval, "m", "interval")
-    diff = survivors["SWAP_f9431aa0"]["diff"]
+    mutant_id = _int_dropped_id(interval)
+    diff = survivors[mutant_id]["diff"]
     code = (
         "from Detective.engine import profile;from Detective.equivalents import add_flag;"
         "r=profile('m.py','interval','.');"
-        "rec=next(x for x in r.value_survivor_records if x['mutant_id']=='SWAP_f9431aa0');"
+        f"rec=next(x for x in r.value_survivor_records if x['mutant_id']=={mutant_id!r});"
         "add_flag('.', r.function_key, rec['diff_summary'], note='legacy false flag')"
     )
     subprocess.run(
@@ -501,7 +560,7 @@ def test_an_old_equivalent_flag_is_contradicted_not_rendered_as_flagged_equivale
     assert any(v["diff"] == diff and v["verdict"] == "equivalent" for v in _flags(interval).values())
     run = _cli(interval, "audit", "m.py::interval")
     assert run.returncode == 0, run.stdout + run.stderr
-    assert "⚠ flag contradicted" in run.stdout and "SWAP_f9431aa0" in run.stdout
+    assert "⚠ flag contradicted" in run.stdout and mutant_id in run.stdout
     assert "fails by crash under it" in run.stdout
     assert "kept on record, ignored" in run.stdout
     # The count of flagged-equivalents excludes it: the store holds one more `equivalent` flag than the
@@ -513,7 +572,7 @@ def test_an_old_equivalent_flag_is_contradicted_not_rendered_as_flagged_equivale
     # The flag record itself is not deleted.
     assert any(v["diff"] == diff and v["verdict"] == "equivalent" for v in _flags(interval).values())
     # And `flag` refuses to repeat the claim.
-    again = _cli(interval, "flag", "m.py::interval", "SWAP_f9431aa0")
+    again = _cli(interval, "flag", "m.py::interval", mutant_id)
     assert again.returncode == 1 and "cannot flag mutant" in again.stderr
 
 
