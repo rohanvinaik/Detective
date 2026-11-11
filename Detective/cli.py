@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import dataclasses
 import difflib
 import functools
 import json
@@ -3243,6 +3244,55 @@ def candidate_equivalent_caveat(
 _WRITE_REFUSED_ROUTE = {"open": "pin_write_refused", "detected": "write_refused_detected"}
 
 
+_EXAMPLE_CLOCK_EPOCH = 1700000000.0
+_ENV_GATE_ROUTE = {
+    "clock": "declare_clock",
+    "clock_env": "declare_clock",
+    "env": "declare_env",
+    "fixture": "environment_fixture",
+}
+
+
+def environment_gate_kind(reads: list[str], clock_supplied: bool, env_supplied: bool) -> str:
+    """What gates an uncovered line, as a named code (#101, pure — pinned). ``reads`` is the function's
+    `environment_reads` (state a caller's ARGUMENT cannot set); the two flags say which capability the
+    run already declared.
+
+    `converge_next_action` had no such input: ``environment_gated`` was only a caveat prepended to the
+    action, so a clock-gated residual was routed to an ``--input`` that no value of an argument could
+    make reach the line, while the command that does (``--clock``) was computed and printed elsewhere.
+    The remedies differ by what the read is, so the states never share a code:
+
+      "none"      no read is left uncovered (none exists, or every one is covered by the capability the
+                  run declared): the gate, if any, is an argument — ``--input`` is the ask
+      "clock"     a ``time.``-rooted clock read is uncovered and no ``--clock`` was declared: a freeze
+                  covers it (`capabilities.clock_covers`)
+      "env"       a process-environment read is uncovered and no ``--env`` was declared
+      "clock_env" both of the above
+      "fixture"   an uncovered read no declarable capability covers (the filesystem, the PID, entropy,
+                  ``datetime.now()``): only a fixture or a hand-written test reaches the line
+
+    A declarable capability outranks ``fixture`` when both are present: declaring it changes what is
+    known, and the next run names what remains."""
+    from .capabilities import clock_covers, env_covers
+
+    clock = env = other = False
+    for read in reads:
+        if clock_covers(read):
+            clock = clock or not clock_supplied
+        elif env_covers(read):
+            env = env or not env_supplied
+        else:
+            other = True
+    if clock and env:
+        return "clock_env"
+    if clock:
+        return "clock"
+    if env:
+        return "env"
+    return "fixture" if other else "none"
+
+
 def converge_next_action(
     standing: str,
     session_reason: str,
@@ -3254,6 +3304,7 @@ def converge_next_action(
     needs_sample: bool = False,
     has_diverged: bool = False,
     write_refused: str = "none",
+    env_gate: str = "none",
 ) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
@@ -3313,6 +3364,14 @@ def converge_next_action(
       (``detected``). Whether a value assertion could also pin one was not searched, and nothing
       Detective runs or takes as input classifies them: a hand-back naming each, never DONE over the
       Incomplete FINAL they leave, and never a `flag` offer for a survivor no search judged.
+    ``declare_clock`` / ``declare_env`` / ``environment_fixture`` (#101) — the only residual is a line
+      gap and ``env_gate`` (`environment_gate_kind`) says what gates it: a declarable clock (``--clock``
+      closes it), a declarable process environment (``--env``), or a read no capability covers (a
+      fixture or a hand-written test). Ranked below every measurement block and above the gap ask: an
+      ``--input`` cannot reach a line gated by state no argument sets, and the loop guard used to catch
+      that only after the run was spent. A declarable capability outranks killable mutants too (an uncovered
+      clock or env read makes every golden inadmissible); the fixture hand-back yields to a killable
+      witness, which is real.
     ``close_the_gap`` — the suite runs and a real residual remains. Witnesses and `--input` are
       the documented interface, and here they actually work.
 
@@ -3365,9 +3424,14 @@ def converge_next_action(
         #   · THIS run synthesized and wrote a runnable suite, so the empty-baseline reason is now
         #     STALE: the residual is closable by --input exactly as if a suite had pre-existed.
         #     This is the arc-dsl run-1 spiral — migrate re-prescribed over a suite just written.
-        if wrote_runnable_suite:
-            return "close_the_gap"
-        return "fix_collection"
+        if not wrote_runnable_suite:
+            return "fix_collection"
+    gated = _ENV_GATE_ROUTE.get(env_gate, "")
+    # A declarable capability is the precondition of ANY sound test of the function (an uncovered clock
+    # or env read makes every golden inadmissible), so it outranks killable mutants too; a fixture only
+    # outranks the gap ask when no killable witness is left to pin.
+    if gated in ("declare_clock", "declare_env") or (gated and has_line_gap and not has_killable):
+        return gated
     return "close_the_gap"
 
 
@@ -3645,7 +3709,9 @@ def _floor_caused(result) -> bool:
     return floor_cause_standing(list(reasons), floor) == "floor_caused"
 
 
-def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
+def _converge_routing(
+    result, rep, session_reason: str = "", universe: UniverseOptions | None = None
+) -> tuple[str, str]:
     """``(standing, next_action)`` — the certificate standing and `converge_next_action`'s code, read off
     a converge result once, for the decision record (`_converge_decision`).
 
@@ -3716,6 +3782,11 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         needs_sample=_needs_sample,
         has_diverged=_has_diverged,
         write_refused=_write_refused,
+        env_gate=environment_gate_kind(
+            list(getattr(result, "environment_gated", ()) or ()),
+            universe is not None and universe.clock is not None,
+            universe is not None and bool(universe.env),
+        ),
     )
 
 
@@ -3879,6 +3950,12 @@ def converge_step(
         return "run", ""
     if code == "step_budget_divergent":
         return "hand_back", "divergent"
+    if code == "declare_clock":
+        return "run", ""
+    if code == "declare_env":
+        return "supply", ""
+    if code == "environment_fixture":
+        return "hand_back", "environment_gated"
     if code == "settled":
         return "done", ""
     return "unknown", ""
@@ -4074,6 +4151,14 @@ def _converge_commands(
         if kind == "run" and plan is not None:
             return (*rerun, *(token for item in plan.items for token in ("--input", item))), None
         return None, rerun
+    if code == "declare_clock":
+        # The same run under a frozen clock (#101): the epoch is an example, any freeze covers the read.
+        held = universe if universe is not None else UniverseOptions(two_sign=two_sign)
+        return _converge_rerun(dataclasses.replace(held, clock=_EXAMPLE_CLOCK_EPOCH), fn), None
+    if code == "environment_fixture":
+        return None, rerun
+    # declare_env: the variable's value is the person's, so no command can be printed for it (a
+    # placeholder never enters an argv).
     return None, None
 
 
@@ -4278,7 +4363,7 @@ def _converge_decision(
     fn = result.function
     universe = universe if universe is not None else UniverseOptions(two_sign=two_sign)
     two_sign = universe.two_sign
-    standing, next_action = _converge_routing(result, rep, session_reason)
+    standing, next_action = _converge_routing(result, rep, session_reason, universe)
     budget_exhausted = bool(getattr(result, "budget_exhausted", False))
     code = converge_record_code(next_action, bool(getattr(result, "stale_target", False)), budget_exhausted)
     route = ""
@@ -4734,6 +4819,8 @@ def _converge_action(
         ]
     if kind in ("install_pytest", "fix_collection"):
         return _dead_suite_action(kind, fn, root, session_reason, d.marker_declared, d.then)
+    if kind in ("declare_clock", "declare_env", "environment_fixture"):
+        return _environment_gate_action(kind, result.environment_gated, d, fn)
     if kind == "step_budget_divergent":
         n_div = len(d.state.get("step_budget_divergent", []))
         return [
@@ -4826,6 +4913,42 @@ def _converge_action(
         "DONE:  the suite pins every behaviour this function makes.",
         *style_handoff,
         *review,
+    ]
+
+
+def _environment_gate_shown(reads: tuple[str, ...]) -> str:
+    return "; ".join(reads[:3]) + (f" (+{len(reads) - 3} more)" if len(reads) > 3 else "")
+
+
+def _environment_gate_action(kind: str, reads: tuple[str, ...], d: Decision, fn: str) -> list[str]:
+    """The block for a line gap gated only by state an argument cannot set (#101): the capability that
+    declares it, or the fixture hand-back — never an ``--input`` ask no value of an argument can answer."""
+    shown = _environment_gate_shown(reads)
+    if kind == "declare_clock":
+        return [
+            f"DO THIS:  {_command_text(d.argv)}",
+            "",
+            _row("· Why", "the uncovered line(s) sit behind a read of the clock:"),
+            _row("", f"  {shown}"),
+            _row("", "no --input value reaches them; --clock freezes the clock they read. The"),
+            _row("", f"epoch {int(_EXAMPLE_CLOCK_EPOCH)} is an example — any freeze covers the read."),
+        ]
+    if kind == "declare_env":
+        return [
+            "DECLARE:  re-run with --env NAME=value for each variable the line reads",
+            "",
+            _row("· Why", "the uncovered line(s) sit behind a read of the process environment:"),
+            _row("", f"  {shown}"),
+            _row("", "no --input value reaches them; --env declares the variable. Its value is"),
+            _row("", "yours to choose, so no command is printed for it."),
+        ]
+    return [
+        "WRITE TEST:  build the external state the uncovered line(s) read, in a fixture",
+        "",
+        _row("· Why", "the line(s) sit behind a read no --input and no declarable capability reaches:"),
+        _row("", f"  {shown}"),
+        _row("", "a fixture (a tmp file, a monkeypatched read) or a hand-written test reaches them."),
+        _row(_THEN_ROW, _command_text(d.then or _converge_rerun(d.run_universe, fn))),
     ]
 
 
@@ -4979,6 +5102,29 @@ def _residual_action(
     """
     universe = universe if universe is not None else UniverseOptions()
     out: list[str] = []
+    # A line gated by state no argument sets (#101): decompose takes no --clock/--env, so neither an
+    # `--input` nor a re-run of decompose can close it; `converge` can declare the capability.
+    gate = (
+        environment_gate_kind(list(getattr(proof, "environment_gated", ()) or ()), False, False)
+        if proof is not None and getattr(proof, "missing_lines", ())
+        else "none"
+    )
+    if gate != "none":
+        fix = {
+            "clock": _converge_rerun(dataclasses.replace(universe, clock=_EXAMPLE_CLOCK_EPOCH), target),
+            "clock_env": _converge_rerun(dataclasses.replace(universe, clock=_EXAMPLE_CLOCK_EPOCH), target),
+        }.get(gate)
+        out.append("STOP.  decompose cannot prove this function: its uncovered line(s) read state no")
+        out.append("       --input reaches, and decompose takes no --clock or --env. Source NOT touched.")
+        out.append("")
+        out.append(_row("· Reads", _environment_gate_shown(tuple(proof.environment_gated))))
+        if fix is not None:
+            out.append(_row("· Declare it", f"{_command_text(fix)}   # then re-run decompose"))
+        else:
+            out.append(
+                _row("· Fixture", "build that state in a test (or declare --env on converge), then re-run")
+            )
+        return out
     if rep is None:
         out.append(_row(f"{proof.final_survivors} unpinned", "the classification did not run, so which"))
         out.append(_row("", "mutants block is unknown. Source NOT touched."))
