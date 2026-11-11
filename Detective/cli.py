@@ -6575,7 +6575,9 @@ def audit_headline_verdict(
     return "complete"
 
 
-def _format_audit(a, removing: bool = False, decision: Decision | None = None) -> str:
+def _format_audit(
+    a, removing: bool = False, decision: Decision | None = None, with_action: bool = True
+) -> str:
     """Read-only audit of an existing suite, in the report shape: what is true, then the ONE
     next action, and audit itself never writes.
 
@@ -6728,8 +6730,24 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         lines.append(_row("· redundant", f"{len(a.redundant_tests)} test(s) pointless for kills AND lines"))
         lines.append(_row("", _first_n(a.redundant_tests, 4)))
     lines.append("")
-    lines += _audit_action(a, removing, decision)
+    if with_action:
+        lines += _audit_action(a, removing, decision)
     return "\n".join(lines)
+
+
+def removal_ending(code: str) -> str:
+    """Whose directive closes a `--remove` page (A4, #142, pure — pinned): the ladder's, or the removal's.
+
+    The page printed the audit ladder's directive and then the removal result, whose last line was DONE or
+    STOP — so a `--remove` over an open gap ended `DONE:  removed 1 test(s)` while 4 killable mutants stood.
+    A page's last directive is a claim about the next command (COMMUNICATING_DETERMINISM §3).
+
+      "ladder"    the code outranks redundancy on the ladder (a measurement that could not run, a failing
+                  test, a sample request, a real gap): its directive stays the page's LAST, and the
+                  removal result is reported without a DONE
+      "removal"   ``removing_now``: nothing outranks the removal, so its result closes the page
+    """
+    return "removal" if code == "removing_now" else "ladder"
 
 
 def audit_next_action(
@@ -6745,6 +6763,7 @@ def audit_next_action(
     diverged: int = 0,
     errored: int = 0,
     write_refused: int = 0,
+    redundant_rows: int = 0,
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -6765,6 +6784,12 @@ def audit_next_action(
                           only a human has standing to make.
       "provide_sample"    the search ran and no input reached the function — a sample, not a migrate
       "close_the_gap"     real killable mutants or uncovered lines — converge writes them
+      "prune_by_hand"     every redundant test is a row of a live parametrized test, which `--remove` keeps
+                          ("rows are never edited"): the directive is the hand-prune, not `--remove`, which
+                          would remove nothing (#142), including while `--remove` runs, whose result then
+                          closes with this directive still last (A4). ``redundant_rows`` counts the
+                          redundant tests whose `removal_disposition` is ``parametrized_row`` — the
+                          fact `--remove` keeps them by
       "removing_now"      `--remove` is EXECUTING: recommending it mid-run would be a stale
                           self-instruction computed for the pre-action state
       "remove_redundant"  tests that kill no mutant and cover no line another does not
@@ -6815,6 +6840,8 @@ def audit_next_action(
     if killable_gaps > 0 or missing_lines > 0:
         return "close_the_gap"
     if redundant_tests > 0:
+        if redundant_rows >= redundant_tests:
+            return "prune_by_hand"
         return "removing_now" if removing else "remove_redundant"
     if errored > 0:
         return "repair_errored_test"
@@ -6845,6 +6872,9 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
       ("stop", "repair_errored_test")       an errored test: its fixture is repaired, then re-audit —
                                             under ``two_sign`` too, never ``run``: a setup with a
                                             broken fixture is not clean (Wesker#17)
+      ("hand_back", "prune_by_hand")        every redundant test is a parametrized row `--remove` keeps:
+                                            the person prunes them, then re-audits (under ``two_sign`` the
+                                            step is ``run``, as for remove_redundant)
       ("run", "")                           close_the_gap (converge) and remove_redundant (--remove);
                                             under ``two_sign`` also flag_equivalents, done_unclassified
                                             and done_complete (see below)
@@ -6870,6 +6900,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
         return "write_test", "pin_write_refused"
     if code in ("close_the_gap", "remove_redundant"):
         return "run", ""
+    if code == "prune_by_hand":
+        return ("run", "") if two_sign else ("hand_back", "prune_by_hand")
     if code == "done_divergent":
         return "hand_back", "divergent"
     if code in ("flag_equivalents", "done_unclassified", "done_complete"):
@@ -6926,6 +6958,19 @@ def _audit_code(a, removing: bool = False) -> str:
         # A direct read (§9.7): a renamed field must raise, never read as "no errored test" and close DONE.
         errored=len(a.errored_tests),
         write_refused=a.write_refused,
+        redundant_rows=_redundant_row_count(a.redundant_tests),
+    )
+
+
+def _redundant_row_count(redundant_tests) -> int:
+    """How many redundant tests are rows of a live parametrized test — the ones `--remove` keeps first, by
+    `removal_disposition`'s own decision (#142), not by reading the id's spelling here."""
+    from .suite_edit import nodeid_kind, removal_disposition
+
+    return sum(
+        1
+        for test in redundant_tests
+        if removal_disposition(nodeid_kind(test), 1, "function") == "parametrized_row"
     )
 
 
@@ -6972,9 +7017,13 @@ def _audit_commands(
     no other universe-defining option), carried through the one derivation every page uses (#115)."""
     universe = UniverseOptions(two_sign=two_sign)
     if code == "close_the_gap" or (
-        two_sign and code in ("remove_redundant", "flag_equivalents", "done_unclassified", "done_complete")
+        two_sign
+        and code
+        in ("remove_redundant", "prune_by_hand", "flag_equivalents", "done_unclassified", "done_complete")
     ):
         return _converge_rerun(universe, fn), None
+    if code == "prune_by_hand":
+        return None, _carried_argv(universe, "audit", fn)
     if code == "remove_redundant":
         return _carried_argv(universe, "audit", fn, "--remove"), None
     if code in ("fix_load", "fix_failing_test", "repair_errored_test", "pin_write_refused"):
@@ -7255,6 +7304,17 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
         return [
             _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
             _row("", "a test pointless here can still be the only pin of a function it runs."),
+        ]
+    if kind == "prune_by_hand":
+        rows = [t for t in a.redundant_tests]
+        return [
+            "PRUNE BY HAND:  the redundant test(s) are parametrized rows; --remove would remove nothing",
+            "",
+            _row("· Why", f"{len(rows)} test(s) kill no mutant AND cover no line another does not, but each"),
+            _row("", "is a row of a live parametrized test, and rows are never edited"),
+            _row("", "(the function stays alive while any row earns its keep)."),
+            _row("· Rows", _first_n(rows, 4)),
+            _row(_THEN_ROW, f"{_command_text(_carried_argv(universe, 'audit', a.function))}   # re-audit"),
         ]
     if kind == "remove_redundant":
         return [
@@ -10091,10 +10151,13 @@ def _run_audit(args, file, function) -> int:
     if not (args.json and removing):
         # With --json --remove the payload is printed ONCE, after the removal, carrying its outcomes:
         # printed first, a machine reader never saw what was deleted (#103).
+        # Under `--remove` with a directive that outranks the removal, the ladder's block is printed AFTER
+        # the removal result (A4), so it stays the page's last directive.
+        _ladder_last = removing and not args.json and removal_ending(decision.code) == "ladder"
         print(
             json.dumps(_with_exit(payload, gate_exit if check else 0), indent=2, default=str)
             if args.json
-            else _format_audit(report, removing=removing, decision=decision)
+            else _format_audit(report, removing=removing, decision=decision, with_action=not _ladder_last)
         )
     if check:
         if meas_incomplete and not spec_gap:
@@ -10130,7 +10193,10 @@ def _run_audit(args, file, function) -> int:
             payload["removal"] = record
             print(json.dumps(_with_exit(payload, removal_exit), indent=2, default=str))
         else:
-            print("\n".join(_removal_lines(record, UniverseOptions.of(args))))
+            print("\n".join(_removal_lines(record, UniverseOptions.of(args), removal_ending(decision.code))))
+            if removal_ending(decision.code) == "ladder":
+                print("")
+                print("\n".join(_audit_action(report, removing, decision)))
         return removal_exit
     return 0
 
@@ -10308,7 +10374,21 @@ def _recheck_unmeasured_why(standing: str) -> str:
     }.get(standing, f"the re-check did not measure the edited suite ({standing})")
 
 
-def _removal_lines(record: dict, universe: UniverseOptions | None = None) -> list[str]:
+def _removal_lines(
+    record: dict, universe: UniverseOptions | None = None, ending: str = "removal"
+) -> list[str]:
+    """`_removal_result_lines`, closed by ``ending`` (`removal_ending`'s code): under ``ladder`` the
+    removal reports what it did WITHOUT a DONE, because the audit ladder's directive follows it (A4)."""
+    lines = _removal_result_lines(record, universe)
+    if ending != "ladder":
+        return lines
+    return [
+        "  removal: " + line.removeprefix("DONE:").strip() if line.startswith("DONE:") else line
+        for line in lines
+    ]
+
+
+def _removal_result_lines(record: dict, universe: UniverseOptions | None = None) -> list[str]:
     """The text rendering of an `_audit_remove` record: each kept test with its cause, the deletions, the
     re-check read against the measurement before it, and one closing line (#103): DONE, or STOP when the
     target's own measurement refused removal or the re-check found something newly open. Every cause is
