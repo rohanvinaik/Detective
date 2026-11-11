@@ -52,7 +52,14 @@ if TYPE_CHECKING:
 #    reader that switched on the one code has to learn the family.
 #    And `write_outside_authority` (#105: a test run under a mutant tried to write outside its write
 #    authority, and the write was prevented) joins the vocabulary as a per-mutant reason.
-MEASUREMENT_VALIDITY_SCHEMA = 8
+# 9: `original_also_fails` (Wesker, KNOWABILITY Def. 2.3: a kill is a DIFFERENCE FROM THE ORIGINAL on the
+#    authored input) joins the vocabulary as a per-mutant reason, in a family of four: the cause the
+#    record's own facts establish names its reason (`original_also_fails_failing_test`: the named test
+#    fails on the unmutated code at baseline; `original_also_fails_shared_state`: it passes there and
+#    the original fails it only after a mutant's run left state behind) and `original_also_fails` keeps
+#    its own name for a record that establishes neither. It used to surface as
+#    `engine_refused_unspecified`.
+MEASUREMENT_VALIDITY_SCHEMA = 9
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
@@ -66,6 +73,9 @@ CUT_REASONS: tuple[str, ...] = (
     "step_budget_exceeded",
     "mutant_wall_undetermined",
     "write_outside_authority",
+    "original_also_fails_failing_test",
+    "original_also_fails_shared_state",
+    "original_also_fails",
     "coverage_truncated",
     "sampled_universe",
     "collection_incomplete",
@@ -110,6 +120,18 @@ _HAZARD_TO_CUT_REASON = {
     "stateful_fixture": "refuse_fixture",
 }
 
+# The reason each CAUSE of an `original_also_fails` mutant cuts the run with (see
+# `original_also_fails_cause`). Two causes with two remedies must not share a sign (COMMUNICATING_DETERMINISM
+# §3); ``unnamed`` is the record that establishes neither, and keeps the bare name.
+ORIGINAL_ALSO_FAILS_CAUSE_REASONS: dict[str, str] = {
+    "failing_test": "original_also_fails_failing_test",
+    "shared_state": "original_also_fails_shared_state",
+    "unnamed": "original_also_fails",
+}
+# The reasons whose cause is the FAILING FLOOR: the named test fails on the unmutated code at baseline, so
+# the repair is the floor's (`fix_failing_test`); the ladders rank them beneath it (`floor_cause_standing`).
+FLOOR_CAUSED_REASONS: frozenset[str] = frozenset({"original_also_fails_failing_test"})
+
 # Wesker's unscored dispositions (`engine.mutant_disposition`) -> the reason each one cuts the run
 # with. One table, read by `normalize_validity`'s completeness guard and by `flag`'s refusal of a
 # mutant with no verdict, so the two cannot name the same disposition differently. "cut" (an
@@ -122,6 +144,7 @@ UNSCORED_DISPOSITION_REASONS: dict[str, str] = {
     "undetermined": "mutant_wall_undetermined",
     "nested_measurement": "nested_measurement",
     "write_outside_authority": "write_outside_authority",
+    "original_also_fails": "original_also_fails",
 }
 _KNOWN_UNSCORED = frozenset(UNSCORED_DISPOSITION_REASONS) | {"cut"}
 
@@ -130,7 +153,12 @@ _KNOWN_UNSCORED = frozenset(UNSCORED_DISPOSITION_REASONS) | {"cut"}
 # (`classification_standing`); a certificate does not. A prevented write (#105) is one of them: it
 # happened under ONE mutant's run, and the other mutants' verdicts were measured as before.
 PER_MUTANT_REASONS: frozenset[str] = frozenset(
-    {"mutant_wall_undetermined", "step_budget_exceeded", "write_outside_authority"}
+    {
+        "mutant_wall_undetermined",
+        "step_budget_exceeded",
+        "write_outside_authority",
+        *ORIGINAL_ALSO_FAILS_CAUSE_REASONS.values(),
+    }
 )
 
 # Wesker's named not-entered causes (`engine.not_entered_cause`) -> the reason each one cuts the run
@@ -175,16 +203,123 @@ def not_entered_reasons(causes: list[str]) -> tuple[str, ...]:
     return tuple(reason for reason in CUT_REASONS if reason in named)
 
 
-def unscored_record_reason(record: dict) -> str:
+def original_also_fails_cause(test: str, baseline_outcome: str, named_failing: bool) -> str:
+    """Why ONE `original_also_fails` mutant's named test failed against the original too (pure — pinned).
+
+    Wesker's disposition says only that every test failing under the mutant fails the same way against the
+    ORIGINAL in the same process state. That arises two ways, and the page cannot tell them apart unless
+    this reads the recorded facts (the test the record names, and what that test did on the unmutated code
+    at baseline), because their repairs differ and neither is a guess:
+
+      "failing_test"  the test fails on the unmutated code at baseline: typed ``failed`` (named or not),
+                      ``unrecorded`` while the engine names it failing, or ``xfailed`` (an expected
+                      failure fails on the original by declaration). The cause is the test, and the
+                      repair is the failing floor's: whether the TEST or the CODE is wrong is a person's call
+      "shared_state"  the test PASSED at baseline and the original fails it only in the state a mutant's
+                      run left behind (a module global, a class attribute, a file). The repair is in the
+                      test: restore the state it shares
+      "unnamed"       the record names no test, or the baseline outcome establishes neither (``error``,
+                      ``skipped``, or no typed row at all): the cause is not claimed. A test never typed
+                      ``passed`` is not asserted to pass.
+    """
+    if not test:
+        return "unnamed"
+    if baseline_outcome in ("failed", "xfailed") or (named_failing and baseline_outcome == "unrecorded"):
+        return "failing_test"
+    if baseline_outcome == "passed":
+        return "shared_state"
+    return "unnamed"
+
+
+def original_also_fails_reasons(causes: list[str]) -> tuple[str, ...]:
+    """The cut reasons a run's `original_also_fails` mutants earn, one per cause present (pure — pinned).
+
+    Declaration order, so two runs cut the same way read the same. An empty list is the cause-free
+    `original_also_fails`: an engine result that counts the disposition but carries no records to read a
+    cause from is never read as having established one. A cause this version does not know falls back
+    to the same bare name.
+    """
+    named = {ORIGINAL_ALSO_FAILS_CAUSE_REASONS.get(cause, "original_also_fails") for cause in causes} or {
+        "original_also_fails"
+    }
+    return tuple(reason for reason in CUT_REASONS if reason in named)
+
+
+def reasons_beyond_floor(cut_reasons: list[str], floor_failing: bool) -> tuple[str, ...]:
+    """The cut reasons left once the ones the failing floor CAUSED are set aside (pure — pinned).
+
+    A per-mutant `original_also_fails` whose named test fails on the unmutated code is caused by the
+    failing floor, not by a measurement that could not run, so it must not outrank the floor it is caused
+    by. Only when the floor is actually failing: a floor-caused reason with no failing test to lead the page
+    stays a reason of its own. Every other reason is kept in order, so a measurement that could not RUN
+    still outranks a failing suite.
+    """
+    if not floor_failing:
+        return tuple(cut_reasons)
+    return tuple(reason for reason in cut_reasons if reason not in FLOOR_CAUSED_REASONS)
+
+
+def floor_cause_standing(cut_reasons: list[str], floor_failing: bool) -> str:
+    """Whether the cut is nothing but the failing floor's own doing (pure — pinned).
+
+    "floor_caused"      the floor is failing and there is at least one cut reason, every one of them caused
+                        by it: the measurement is refused BECAUSE the floor does not hold, so the standing
+                        is the floor's and the page leads with the failing test
+    "not_floor_caused"  no cut reason at all, the floor holds, or some reason is not the floor's: the
+                        measurement itself is what to repair first, and the floor-caused reasons are
+                        named beside it
+    """
+    if cut_reasons and not reasons_beyond_floor(cut_reasons, floor_failing):
+        return "floor_caused"
+    return "not_floor_caused"
+
+
+def original_also_fails_detail(
+    unscored_records: Iterable[object], baseline_outcomes: dict[str, str], named_failing: list[str]
+) -> tuple[dict, ...]:
+    """Per (cause, test): its reason, the baseline outcome of the test, and the mutants it accounts for.
+
+    The sibling of `not_entered_detail`. One entry per distinct named test, so a page can say which test
+    left eight mutants without a verdict and why that test cannot be trusted to; the cause is decided from
+    the record's own facts (`original_also_fails_cause`). ``baseline_outcomes`` is the typed baseline
+    outcome per test id (``audit.baseline_typed_outcomes``) and ``named_failing`` the engine's failing list.
+    """
+    by_key: dict[tuple[str, str], dict] = {}
+    for record in unscored_records:
+        if not isinstance(record, dict) or record.get("disposition") != "original_also_fails":
+            continue
+        test = str(record.get("test") or "")
+        outcome = baseline_outcomes.get(test, "unrecorded")
+        cause = original_also_fails_cause(test, outcome, test in named_failing)
+        entry = by_key.setdefault(
+            (cause, test),
+            {
+                "cause": cause,
+                "reason": ORIGINAL_ALSO_FAILS_CAUSE_REASONS[cause],
+                "test": test,
+                "baseline": outcome if test else "",
+                "mutants": [],
+            },
+        )
+        entry["mutants"].append(str(record.get("mutant_id", "?")))
+    return tuple(sorted(by_key.values(), key=lambda e: (CUT_REASONS.index(e["reason"]), e["test"])))
+
+
+def unscored_record_reason(record: dict, floor_cause: str = "") -> str:
     """The reason ONE unscored mutant record carries (#77, pure — pinned).
 
     The disposition's reason (`UNSCORED_DISPOSITION_REASONS`), refined for a not-entered record by the
     cause Wesker named on it, so `flag`'s refusal of that mutant names its own repair and not the
     family's. A disposition this version does not know is `engine_refused_unspecified`.
+
+    ``floor_cause`` is `original_also_fails_cause`'s code for an `original_also_fails` record, decided by
+    the caller from the baseline it holds; "" (not decided) is the cause-free reason.
     """
     disposition = str(record.get("disposition", ""))
     if disposition == "not_entered":
         return not_entered_reasons([str(record.get("cause") or "unclassified")])[0]
+    if disposition == "original_also_fails":
+        return original_also_fails_reasons([floor_cause] if floor_cause else [])[0]
     return UNSCORED_DISPOSITION_REASONS.get(disposition, "engine_refused_unspecified")
 
 
@@ -314,6 +449,8 @@ def measurement_cut_reasons(
     unrecognised_unscored: bool = False,
     not_entered_causes: tuple[str, ...] | list[str] = (),
     write_outside_authority: bool = False,
+    original_also_fails: bool = False,
+    original_also_fails_causes: tuple[str, ...] | list[str] = (),
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -369,6 +506,13 @@ def measurement_cut_reasons(
     ``not_entered_causes`` (#77) are the causes Wesker named for its not-entered mutants; each earns its
     own reason (`not_entered_reasons`). ``not_entered`` with no cause named is the cause-free
     `mutant_not_entered` — an engine that names none is never read as one that named a decorator.
+
+    ``original_also_fails`` (Wesker, KNOWABILITY Def. 2.3) is a per-mutant disposition: every test that failed
+    under the mutant fails the same way against the ORIGINAL. It used to reach no reason here and read as
+    `engine_refused_unspecified`, an unnamed refusal over a cause the reader can repair.
+    ``original_also_fails_causes`` are the causes the records' own facts establish
+    (`original_also_fails_cause`); each earns its own reason, and the disposition counted with no cause
+    established (an engine result carrying no records) is the cause-free `original_also_fails`.
     """
     reasons: list[str] = []
     if target_load_failed:
@@ -387,6 +531,8 @@ def measurement_cut_reasons(
         reasons.append("mutant_wall_undetermined")
     if write_outside_authority:
         reasons.append("write_outside_authority")
+    if original_also_fails or original_also_fails_causes:
+        reasons.extend(original_also_fails_reasons(list(original_also_fails_causes)))
     if coverage_depth == "cut":
         reasons.append("coverage_truncated")
     elif coverage_depth == "sampled":
@@ -470,6 +616,20 @@ def cut_reason_sentence(reason: str) -> str:
         " and those mutants are neither killed nor survived; keep the test's writes inside its"
         " temporary directory (resolve relative paths there, e.g. monkeypatch.chdir(tmp_path)) to"
         " measure them",
+        "original_also_fails_failing_test": "one or more mutants fail only a test that fails the same way"
+        " against the UNMUTATED code too — a test that already fails at baseline (a wrong expectation, a"
+        " raised error, or an expected failure) — so it detected no difference and those mutants are"
+        " neither killed nor survived; decide whether the test or the code is wrong, make the test pass"
+        " on the original, then re-measure",
+        "original_also_fails_shared_state": "one or more mutants left state behind (a module global, a class"
+        " attribute, a file) that makes a test which PASSES on the unmutated code fail against the original"
+        " too, so it detected no difference and those mutants are neither killed nor survived; make the test"
+        " restore the state it shares (a fixture or monkeypatch that resets it) — --isolated does not clear"
+        " it, since its worker is reused across mutants and recycled only after a bounded count",
+        "original_also_fails": "one or more mutants fail only tests that fail the same way against the"
+        " original in the same process state, so none detected a difference and those mutants are neither"
+        " killed nor survived; the record names no test whose baseline would say why (a test that already"
+        " fails, or state a mutant left behind), so run the failing tests against the unmutated code",
         "coverage_truncated": "the profile was cut before the universe was measured",
         "sampled_universe": "the universe was sampled, not enumerated",
         "collection_incomplete": "one or more test files failed to collect (an import error), so the"
@@ -575,6 +735,14 @@ class MeasurementValidity:
     # Per not-entered cause: its reason, mutants, and the holders of the original Wesker named, with
     # where they live (`not_entered_detail`, #77). The cause codes alone cannot say WHERE.
     not_entered: tuple[dict, ...] = ()
+    # Per named test of an `original_also_fails` mutant: its cause, reason, baseline outcome and mutants
+    # (`original_also_fails_detail`). The disposition alone cannot say WHICH test, nor why not to trust it.
+    original_also_fails: tuple[dict, ...] = ()
+    # The test arguments the engine could NOT hand out as fresh copies, each ``"<nodeid> :: <argument>
+    # (<standing>)"`` (Wesker `ProfilingResult.shared_arguments`): a mutant that writes into them is guarded
+    # only by the original control. Empty means the engine reported none shared; an engine that does not
+    # report the field is the NAMED state ``absent:shared_arguments`` in `capability_flags`, never this tuple.
+    shared_arguments: tuple[str, ...] = ()
 
     @property
     def admits_certificate(self) -> bool:
@@ -625,6 +793,7 @@ _ADAPTED_FIELDS: tuple[str, ...] = (
     "all_contained",
     "collection_errors",
     "execution_mode",
+    "shared_arguments",
 )
 
 
@@ -723,6 +892,17 @@ def normalize_validity(
         tuple(sorted(c for c, n in causes_raw.items() if n)) if isinstance(causes_raw, dict) else ()
     )
 
+    # An `original_also_fails` mutant's cause is decided from the record's own facts: the test it names, and
+    # that test's typed outcome on the unmutated code (`original_also_fails_cause`). Absent records name no
+    # cause; the disposition is still counted from `per_category`, so it is never read as engine silence.
+    from .audit import baseline_typed_outcomes
+
+    oaf_detail = original_also_fails_detail(
+        getattr(result, "unscored_records", None) or (),
+        baseline_typed_outcomes(result),
+        list(getattr(result, "failing_tests", None) or ()),
+    )
+
     reasons = measurement_cut_reasons(
         reported_gateable=reports_gateable,
         gateable=gateable,
@@ -746,6 +926,8 @@ def normalize_validity(
         unrecognised_unscored=_unrecognised_unscored(result),
         not_entered_causes=not_entered_causes,
         write_outside_authority=_unscored_by(result, "write_outside_authority"),
+        original_also_fails=_unscored_by(result, "original_also_fails"),
+        original_also_fails_causes=tuple(dict.fromkeys(entry["cause"] for entry in oaf_detail)),
     )
     return MeasurementValidity(
         gateable=gateable,
@@ -759,4 +941,8 @@ def normalize_validity(
         policy_id=str(getattr(result, "policy_id", "") or ""),
         shape_hazards=shape_hazards,
         not_entered=not_entered_detail(getattr(result, "unscored_records", None) or ()),
+        original_also_fails=oaf_detail,
+        shared_arguments=tuple(str(a) for a in raw["shared_arguments"])
+        if "shared_arguments" not in missing
+        else (),
     )

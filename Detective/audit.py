@@ -235,6 +235,13 @@ class SuiteAudit:
     # Per not-entered cause, its mutants and what still holds the original (`validity.not_entered`,
     # #77) — the cause code alone cannot say where a captured or aliased reference lives.
     not_entered: tuple[dict, ...] = ()
+    # Per named test of a mutant whose every failing test fails the same way against the ORIGINAL
+    # (`validity.original_also_fails`): its cause, baseline outcome and mutants. Those mutants are in
+    # `unresolved_mutants` by id; this says WHICH test, and whether it fails at baseline or leaks state.
+    original_also_fails: tuple[dict, ...] = ()
+    # Test arguments the engine could not hand out as fresh copies, `"<nodeid> :: <argument> (<standing>)"`
+    # (`validity.shared_arguments`): a mutant that writes into them is guarded only by the original control.
+    shared_arguments: tuple[str, ...] = ()
     # Tests whose baseline is typed `error` — setup or teardown failed, so they never ran to a verdict
     # of their own (Wesker#17). Named apart from `failing_tests`: not a wrong expectation, never gated.
     errored_tests: tuple[str, ...] = ()
@@ -318,6 +325,9 @@ def unresolved_gate_standing(reason: str) -> str:
 
       "repairable"    ``write_outside_authority``: the test's write was prevented. The page names the
                       repair (keep the test's writes inside its temporary directory). Fails the gate.
+                      And ``original_also_fails``: every test failing under the mutant fails the same way
+                      against the original, because the test fails at baseline or leaks state a mutant
+                      left behind. Both causes are the reader's to fix. Fails the gate.
       "budget_floor"  ``diverged``: the step budget stopped it, deterministically and for good. "No input
                       or flag applies". Named, never gating.
       "machine_bound" ``undetermined``: a wall-clock bound fired, so whether it does depends on the
@@ -325,7 +335,7 @@ def unresolved_gate_standing(reason: str) -> str:
       "unknown"       a reason this version does not know: it cannot be called a floor, so it fails the
                       gate as could-not-measure.
     """
-    if reason == "write_outside_authority":
+    if reason in ("write_outside_authority", "original_also_fails"):
         return "repairable"
     if reason == "diverged":
         return "budget_floor"
@@ -1156,6 +1166,8 @@ def audit_suite(
         note=_report_note,
         cut_reasons=validity.cut_reasons,
         not_entered=validity.not_entered,
+        original_also_fails=validity.original_also_fails,
+        shared_arguments=validity.shared_arguments,
     )
 
 

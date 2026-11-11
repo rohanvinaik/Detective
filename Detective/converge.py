@@ -89,7 +89,12 @@ from .synthesis.writer import (
     individual_test_names,
     render_module,
 )
-from .validity import MeasurementValidity, normalize_validity, unresolved_mutant_records
+from .validity import (
+    MeasurementValidity,
+    floor_cause_standing,
+    normalize_validity,
+    unresolved_mutant_records,
+)
 from .verdict_cache import wesker_policy_id
 
 # Fast mode tests this many greedily-selected mutants per category per pass. Greedy
@@ -181,6 +186,7 @@ def certificate_standing(
     verification_ok: bool,
     admits_certificate: bool = True,
     floor_failing: bool = False,
+    floor_caused: bool = False,
 ) -> str:
     """What a converge result is entitled to CLAIM — one code, read by every surface (#17/#38).
 
@@ -206,6 +212,12 @@ def certificate_standing(
     audit's own ladder ranks a blocked measurement above a failing test) and above ``unverified``,
     whose remedy — fix the proof basis and re-run — is the wrong one here: whether the TEST or the
     CODE is wrong is a call only a person may make.
+
+    ``floor_caused`` — the measurement is refused ONLY for reasons the failing floor itself caused
+    (`validity.floor_cause_standing`): a mutant whose every failing test fails the same way against the
+    original because that test fails at baseline. That refusal must not outrank the floor it comes from,
+    so it does not displace ``floor_failing`` below. A measurement that could not RUN (any other reason)
+    still outranks a failing suite, as it always has.
 
     ``unverified`` — the proof basis ran under real pytest and did not come back green
     (tests_failed / collection_failed / runner_missing / timed_out / no_tests). A mutation score
@@ -243,7 +255,7 @@ def certificate_standing(
     #
     # Defaults True: a caller that has not established validity must not silently acquire the
     # refusal, exactly as with `verification_ran`.
-    if not admits_certificate:
+    if not admits_certificate and not (floor_failing and floor_caused):
         return "ungateable"
     if floor_failing:
         return "floor_failing"
@@ -573,6 +585,14 @@ class ConvergeResult:
     # survivors and not kills: carried by id so the page names them, instead of a cut reason saying
     # "one or more mutants", and so no ask or flag offer is ever derived from them.
     unresolved_mutants: tuple[tuple[str, str], ...] = ()
+    # Which test left each `original_also_fails` mutant without a verdict, and whether it fails at
+    # baseline or leaks state a mutant left behind (`validity.original_also_fails`); `unresolved_mutants`
+    # names the mutants, this names the cause.
+    original_also_fails: tuple[dict, ...] = ()
+    # Test arguments the engine could not hand out as fresh copies (`validity.shared_arguments`): a mutant
+    # that writes into them is guarded only by the original control. `()` is "none were shared"; an
+    # engine that does not report it is `absent:shared_arguments` in `validity.capability_flags`.
+    shared_arguments: tuple[str, ...] = ()
     function_basis: FunctionBasis | None = None
     # The target's content identity (`pins.function_digest`) at the time of THIS run (§14.1): the
     # key under which the certificate ledger records `standing`, so a later static reader can tell
@@ -656,6 +676,8 @@ class ConvergeResult:
             self.verification is not None and self.verification.ok,
             self.admits_certificate,
             floor_failing=bool(self.floor_failing_tests),
+            floor_caused=floor_cause_standing(list(self.validity_cut_reasons), bool(self.floor_failing_tests))
+            == "floor_caused",
         )
 
 
@@ -3096,6 +3118,8 @@ def _converge_impl(
         ),
         function_basis=_basis,
         unresolved_mutants=unresolved_mutant_records(getattr(final_result, "unscored_records", None) or ()),
+        original_also_fails=_validity.original_also_fails,
+        shared_arguments=_validity.shared_arguments,
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(two_sign=two_sign),
         # Consumed from the engine's census, never re-derived — and DECIDED once here, so every

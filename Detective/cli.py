@@ -40,7 +40,14 @@ from Wesker.engine import (
     DEFAULT_TRACE_SESSION_BUDGET_S as _DEFAULT_TRACE_SESSION_BUDGET_S,
 )
 
-from Detective.validity import CUT_REASONS, NOT_ENTERED_REASONS, cut_reason_sentence, measurement_cut_kind
+from Detective.validity import (
+    CUT_REASONS,
+    NOT_ENTERED_REASONS,
+    cut_reason_sentence,
+    floor_cause_standing,
+    measurement_cut_kind,
+    reasons_beyond_floor,
+)
 
 from . import __version__
 from .equivalence import crash_only_status
@@ -2122,7 +2129,9 @@ def _final_banner_status(result) -> str:
     # reason Detective itself adds (#91: a routing failure that ran NO test read "Incomplete: N-line
     # gap" here, sending the reader to close a gap that nothing measured). The fallback is for a
     # duck-typed result without the property, which keeps the reading it always had.
-    if not getattr(result, "admits_certificate", getattr(result, "measurement_gateable", True)):
+    if not getattr(result, "admits_certificate", getattr(result, "measurement_gateable", True)) and not (
+        _floor_caused(result)
+    ):
         # Name the ACTUAL reason. A shadowed collection (#58) finished cleanly and may have exact
         # counts — attributing it to a timeout sends the reader to raise a budget that was never
         # the problem.
@@ -2357,6 +2366,129 @@ def _no_verdict_text(pairs: tuple[tuple[str, str], ...]) -> str:
     return f"{len(pairs)} — {shown}{more}: not kills, not survivors; no input or flag applies"
 
 
+def no_verdict_ratio_clause(withheld: int) -> str:
+    """What the kill-ratio line must say beside its numbers when mutants were left out (pure — pinned).
+
+    ``7/7 value-pinned · 100.0% killed`` reads as a complete ratio, and a mutant that reached no verdict is
+    in neither side of it. Beside the ratio, so a reader of the headline alone cannot take 7/7 for all
+    of the universe. "" when nothing was left out: the line is unchanged.
+    """
+    if withheld <= 0:
+        return ""
+    return f" (+{withheld} with no verdict, below)"
+
+
+def _original_also_fails_withheld(detail: tuple[dict, ...] | list[dict]) -> int:
+    """How many mutants the `original_also_fails` entries account for (in neither side of the ratio)."""
+    return sum(len(entry.get("mutants") or ()) for entry in detail if isinstance(entry, dict))
+
+
+def original_also_fails_text(cause: str, test: str, baseline: str, mutants: int) -> str:
+    """The sentence under a `⚠ no verdict` row that says WHY those mutants have none (pure — pinned).
+
+    Two causes, two signs (COMMUNICATING_DETERMINISM §3), decided from the record's recorded facts
+    (`validity.original_also_fails_cause`) and never guessed:
+
+      "failing_test"  the named test fails on the UNMUTATED code at baseline (``baseline`` says how: failed or
+                      xfailed), so it cannot tell a mutant from the original; the repair is the test's or the
+                      code's, a person's call. An expected failure (xfailed) is described, not named
+      "shared_state"  the named test PASSES at baseline and the original fails it only in the state a mutant's
+                      run left behind; the repair is in the test, and --isolated does not clear it (its worker
+                      is reused across mutants and recycled only after a bounded count)
+      anything else   no test named, or a baseline that establishes neither: said as such
+    """
+    n = f"{mutants} mutant(s)"
+    if cause == "failing_test":
+        if baseline == "xfailed":
+            # An expected failure is never NAMED as a failing test (`baseline_failure_disposition`):
+            # it is declared to fail, and the page does not accuse it. The standing says what it is; the
+            # test's id rides in `--json` (`original_also_fails[*].test`).
+            return (
+                f"the test that fails under {n} is marked expected-failure (xfail), so it fails on the "
+                "unmutated code too by declaration: it detected no difference, so they are neither "
+                "killed nor survived"
+            )
+        return (
+            f"every test that fails under {n} fails on the unmutated code too ({test} fails at baseline): "
+            "none detected a difference, so they are neither killed nor survived"
+        )
+    if cause == "shared_state":
+        return (
+            f"{test} passes on the unmutated code at baseline, yet fails it once {n} ran: they left state "
+            "behind (a module global, a class attribute, a file). Restore the state the test shares; "
+            "--isolated does not clear it"
+        )
+    return (
+        f"every test that fails under {n} fails against the original in the same process state too, and the "
+        "record names no test whose baseline says why"
+    )
+
+
+def _original_also_fails_rows(detail: tuple[dict, ...] | list[dict]) -> list[str]:
+    """The `· because` rows under `⚠ no verdict`: per named test, why its mutants have none."""
+    rows: list[str] = []
+    for entry in detail:
+        if not isinstance(entry, dict):
+            continue
+        text = original_also_fails_text(
+            str(entry.get("cause", "")),
+            str(entry.get("test", "")),
+            str(entry.get("baseline", "")),
+            len(entry.get("mutants") or ()),
+        )
+        rows.append(_row("· because", text))
+    return rows
+
+
+def shared_arguments_text(shared: list[str]) -> str:
+    """The one `·` row that says test arguments were left shared, or "" when none were (pure — pinned).
+
+    ``shared`` is Wesker's `ProfilingResult.shared_arguments`: each ``"<nodeid> :: <argument> (<standing>)"``,
+    an argument no evaluation could be handed a fresh copy of. Why it matters is the row: a mutant that
+    writes into an argument which is shared is measured on the authored object and guarded only by the
+    original control. Counts arguments and the tests they belong to; the standings, in order of first
+    appearance, say why each was left shared.
+    """
+    if not shared:
+        return ""
+    tests = {item.split(" :: ", 1)[0] for item in shared}
+    standings: list[str] = []
+    for item in shared:
+        tail = item.rsplit("(", 1)[-1].rstrip(")") if item.endswith(")") and "(" in item else ""
+        if tail and tail not in standings:
+            standings.append(tail)
+    why = f" ({', '.join(standings)})" if standings else ""
+    return (
+        f"{len(shared)} argument(s) of {len(tests)} test(s) left shared{why}: measured on the authored "
+        "objects; a mutant that writes into them is guarded only by the original control"
+    )
+
+
+def _full_report_measurement_rows(
+    oaf: tuple[dict, ...] | list[dict], shared: tuple[str, ...] | list[str]
+) -> list[str]:
+    """The full report's account of the two Wesker facts the terse page summarises: every
+    `original_also_fails` mutant by id under the test and reason that left it without a verdict, and
+    every shared argument by name (the terse page counts them). Nothing at all when neither is present."""
+    rows: list[str] = []
+    for entry in oaf:
+        mutants = ", ".join(str(m) for m in entry.get("mutants") or ())
+        rows.append(
+            f"  ⚠ no verdict ({entry.get('reason', '?')}): {entry.get('test') or 'no test named'}"
+            f" [baseline {entry.get('baseline') or 'unrecorded'}] — {mutants}"
+        )
+    if shared:
+        rows.append(f"  · shared arguments: {shared_arguments_text(list(shared))}")
+        rows.extend(f"      {item}" for item in shared)
+    return rows
+
+
+def _shared_arguments_rows(shared: tuple[str, ...] | list[str]) -> list[str]:
+    """The terse page's single shared-arguments row; nothing at all when none were shared."""
+    text = shared_arguments_text(list(shared))
+    return [_row("· shared args", text)] if text else []
+
+
 def _not_entered_rows(detail: tuple[dict, ...] | list[dict]) -> list[str]:
     """The `⚠ not entered` rows: per cause, its mutants and what still holds the original (#77).
 
@@ -2588,6 +2720,7 @@ def _format_converge(
             f"{result.value_killed}/{scored} = {_score(result.value_killed, scored)} "
             f"of scored mutants value-pinned · {tail}{policy}"
         )
+    lines += _full_report_measurement_rows(result.original_also_fails, result.shared_arguments)
     for i, it in enumerate(result.iterations):
         lines.append(f"  pass {i}: {it.survivors} survivors, {it.written} sound tests written")
     # Spec-completeness ETA in PASSES, not seconds (the SSL Semantic Completeness Equation):
@@ -2861,6 +2994,8 @@ def _format_converge_terse(
         )
     if _no_verdict := tuple(getattr(result, "unresolved_mutants", ()) or ()):
         lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
+        lines += _original_also_fails_rows(tuple(result.original_also_fails))
+    lines += _shared_arguments_rows(result.shared_arguments)
     # Not under a failing floor: classification was not RUN there (#114) — nothing it could classify
     # would be evidence about a suite that does not pass — so "produced no report" would misstate it.
     if rep is None and not result.functionally_complete and not floor:
@@ -3222,6 +3357,13 @@ def repair_measurement_route(
                              ``cut_reason_sentence``; the render defers to them rather than inventing a
                              fourth. Distinct from ``inspect_refusal``, which means the opposite: the
                              engine refused and named nothing we understand.
+      * ``fix_original_failure`` — every test failing under some mutant fails against the unmutated code too:
+                             the test fails at baseline (or the record names none): decide whether the TEST or
+                             the CODE is wrong. Reached as a lead only when no failing test leads the page
+                             (`reasons_beyond_floor`), or beside a measurement that could not run.
+      * ``restore_shared_state`` — the same, but the test PASSES at baseline and fails the original only in
+                             the state a mutant's run left behind: the repair is in the test;
+                             --isolated does not clear it.
       * ``write_authority`` — a test run under some mutant tried to write outside its write authority
                              and was prevented (#105): those mutants have no verdict, and the remedy is
                              in the test (keep its writes in its temporary directory), never a re-run.
@@ -3297,6 +3439,13 @@ def repair_measurement_route(
     # TEST must keep its writes inside its temporary directory; no budget or isolation changes it.
     if "write_outside_authority" in cut_reasons:
         return "write_authority"
+    # An original that fails the same tests a mutant fails (Wesker, KNOWABILITY Def. 2.3): two causes, two
+    # routes. A test that fails at baseline (or no cause established) is a person's call about the test or
+    # the code; a test that passes at baseline and leaks state is repaired in the test.
+    if "original_also_fails_failing_test" in cut_reasons or "original_also_fails" in cut_reasons:
+        return "fix_original_failure"
+    if "original_also_fails_shared_state" in cut_reasons:
+        return "restore_shared_state"
     if "step_budget_exceeded" in cut_reasons or "mutant_wall_undetermined" in cut_reasons:
         return "execution_budget"
     if "budget_exhausted" in cut_reasons or budget_exhausted:
@@ -3333,6 +3482,8 @@ _ROUTE_ADDRESSES: dict[str, tuple[str, ...]] = {
     # reason printed twice (#80, measured on nested_measurement before it was routed to `isolate`).
     "inspect_refusal": CUT_REASONS,
     "reprofile": CUT_REASONS,
+    "fix_original_failure": ("original_also_fails_failing_test", "original_also_fails"),
+    "restore_shared_state": ("original_also_fails_shared_state",),
 }
 
 
@@ -3436,6 +3587,17 @@ def write_refused_residual(
     return "open" if "open" in standings else "detected"
 
 
+def _floor_caused(result) -> bool:
+    """Whether a converge result's cut is nothing but its failing floor's own doing (`floor_cause_standing`).
+
+    Read from the SAME reasons and floor `ConvergeResult.standing` reads, so the page cannot rank an
+    `original_also_fails` over the floor it is caused by while the standing ranks it beneath.
+    """
+    reasons = tuple(getattr(result, "validity_cut_reasons", None) or getattr(result, "cut_reasons", ()) or ())
+    floor = bool(getattr(result, "floor_failing_tests", ()))
+    return floor_cause_standing(list(reasons), floor) == "floor_caused"
+
+
 def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
     """``(standing, next_action)`` — the certificate standing and `converge_next_action`'s code, read off
     a converge result once, for the decision record (`_converge_decision`).
@@ -3461,6 +3623,7 @@ def _converge_routing(result, rep, session_reason: str = "") -> tuple[str, str]:
         bool(getattr(result, "admits_certificate", True)),
         # The same field `ConvergeResult.standing` consumes (#114), so this reading cannot drift from it.
         floor_failing=bool(getattr(result, "floor_failing_tests", ())),
+        floor_caused=_floor_caused(result),
     )
     # Signals that let the next action name the RIGHT escape instead of a catch-all `regime
     # --migrate`: whether THIS run wrote a runnable suite (an empty-baseline reason is then stale),
@@ -3634,6 +3797,8 @@ def converge_step(
             "inspect_refusal",
             "execution_budget",
             "write_authority",
+            "fix_original_failure",
+            "restore_shared_state",
         ):
             return "stop", route
         return "run", ""
@@ -3834,7 +3999,14 @@ def _converge_commands(
     if code == "repair_measurement":
         if route in ("fix_collection", "fix_load", "fix_routing"):
             return None, rerun
-        if route in ("mutant_phase", "inspect_refusal", "execution_budget", "write_authority"):
+        if route in (
+            "mutant_phase",
+            "inspect_refusal",
+            "execution_budget",
+            "write_authority",
+            "fix_original_failure",
+            "restore_shared_state",
+        ):
             return None, None
         if route in ("reprofile", "isolate"):
             return (*rerun, *inputs, "--isolated"), None
@@ -4298,6 +4470,19 @@ def _converge_action(
                 "",
                 _row("· Unresolved", "the prevented write left those mutants without a suite verdict."),
                 _row(_RESOLVE_ROW, "keep the test's writes inside its temporary directory, then re-measure."),
+            ]
+        if route in ("fix_original_failure", "restore_shared_state"):
+            _led = [r for r in reasons if r in _ROUTE_ADDRESSES[route]]
+            return [
+                _STOP_PREFIX + "; ".join(cut_reason_sentence(r) for r in _led),
+                "",
+                _row(
+                    _RESOLVE_ROW,
+                    "decide whether the TEST or the CODE is wrong, then re-measure."
+                    if route == "fix_original_failure"
+                    else "restore the state the test shares, then re-measure.",
+                ),
+                *_also_live_rows(reasons, route),
             ]
         if route == "fix_collection":
             # No --trace-budget / --deadline fixes an import error: name the collection failure and
@@ -6127,7 +6312,8 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
     _rate = "" if a.total_mutants <= 0 else f"· {a.kill_pct}% killed (value+crash) "
     lines = [
         _RULE,
-        f"{a.function} — audit · {a.test_count} test(s) · {a.value_killed}/{a.total_mutants} value-pinned "
+        f"{a.function} — audit · {a.test_count} test(s) · {a.value_killed}/{a.total_mutants} value-pinned"
+        f"{no_verdict_ratio_clause(_original_also_fails_withheld(a.original_also_fails))} "
         f"{_rate}· {verdict}",
         "",
     ]
@@ -6214,6 +6400,8 @@ def _format_audit(a, removing: bool = False, decision: Decision | None = None) -
         )
     if _no_verdict := tuple(getattr(a, "unresolved_mutants", ()) or ()):
         lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
+        lines += _original_also_fails_rows(tuple(a.original_also_fails))
+    lines += _shared_arguments_rows(a.shared_arguments)
     lines += _not_entered_rows(tuple(getattr(a, "not_entered", ()) or ()))
     if a.manual_equivalent:
         lines.append(_row("✓ flagged equivalent", f"{a.manual_equivalent} (your oracle — not gaps)"))
@@ -6386,7 +6574,15 @@ def _audit_measurement_block(a) -> str:
     unloadable module to a converge that also could not run (Finding E).
     """
     load_failed = bool(getattr(a, "load_failed", False))
-    cut_kind = measurement_cut_kind(list(getattr(a, "cut_reasons", ()) or ()))
+    # The reasons the failing floor itself caused do not outrank the floor (`reasons_beyond_floor`): a mutant
+    # whose only failing test fails on the unmutated code is the floor's doing. Everything else still does.
+    cut_kind = measurement_cut_kind(
+        list(
+            reasons_beyond_floor(
+                list(getattr(a, "cut_reasons", ()) or ()), bool(getattr(a, "failing_tests", ()))
+            )
+        )
+    )
     # A cut whose every reason is "no consulted test calls this function" is a REACH gap, not a
     # measurement to repair (#77): with a gap to write, the ladder below names converge, which writes
     # the test that calls it. With nothing left to write (every line flagged unreachable) the ladder
@@ -10304,6 +10500,25 @@ def _flag_needs_two_sign(args) -> int:
     return 2
 
 
+def _floor_cause_of(record: dict, result) -> str:
+    """`original_also_fails_cause`'s code for one unscored record, read off the profile it came from.
+
+    "" for any other disposition (nothing to decide). The accessor holds the object handling; the decision
+    is `validity.original_also_fails_cause`, over the test the record names and that test's typed baseline.
+    """
+    if record.get("disposition") != "original_also_fails":
+        return ""
+    from .audit import baseline_typed_outcomes
+    from .validity import original_also_fails_cause
+
+    test = str(record.get("test") or "")
+    return original_also_fails_cause(
+        test,
+        baseline_typed_outcomes(result).get(test, "unrecorded"),
+        test in list(getattr(result, "failing_tests", None) or ()),
+    )
+
+
 def _unscored_flag_refusal(args, result) -> int | None:
     """A NAMED refusal when the id names a mutant that reached no verdict (#80), else None.
 
@@ -10327,7 +10542,7 @@ def _unscored_flag_refusal(args, result) -> int | None:
         return None
     disposition = str(rec.get("disposition", ""))
     # The record's OWN reason (#77): a not-entered mutant names its cause's repair, not the family's.
-    reason = unscored_record_reason(rec)
+    reason = unscored_record_reason(rec, _floor_cause_of(rec, result))
     msg = (
         f"detective: cannot flag mutant '{args.mutant_id}' — it reached no verdict ({disposition}),"
         f" so there is no survival to judge: {cut_reason_sentence(reason)}"

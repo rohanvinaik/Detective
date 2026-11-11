@@ -144,6 +144,7 @@ def test_a_current_engine_normalizes_to_a_clean_validity():
             all_contained=True,
             execution_mode="isolated",
             collection_errors=(),
+            shared_arguments=(),
         )
     )
     assert validity.admits_certificate is True
@@ -185,6 +186,8 @@ def test_an_older_engine_names_every_field_it_could_not_supply():
         "absent:all_contained",
         "absent:collection_errors",
         "absent:execution_mode",
+        # an engine that reports no `shared_arguments` is a NAMED state, never "nothing was shared"
+        "absent:shared_arguments",
         # execution_mode absent -> defaults to in_process -> the count is an in-process estimate
         "approximate:mutant_universe",
     }
