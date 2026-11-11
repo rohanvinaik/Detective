@@ -53,6 +53,7 @@ from .engine import (
     function_basis,
     profile,
     representative_site,
+    worker_mem_limit_mb,
 )
 from .equivalence import (
     SourceExpr,
@@ -593,6 +594,11 @@ class ConvergeResult:
     # that writes into them is guarded only by the original control. `()` is "none were shared"; an
     # engine that does not report it is `absent:shared_arguments` in `validity.capability_flags`.
     shared_arguments: tuple[str, ...] = ()
+    # Whether the memory cap isolated workers were started under was applied by the OS (Wesker
+    # `memory_standing`: enforced / telemetry_only / cut / n/a; "" when the engine does not report
+    # it), and the cap requested in MB (0: none). A requested cap that was not enforced is a page row.
+    memory_standing: str = ""
+    memory_limit_mb: int = 0
     function_basis: FunctionBasis | None = None
     # The target's content identity (`pins.function_digest`) at the time of THIS run (§14.1): the
     # key under which the certificate ledger records `standing`, so a later static reader can tell
@@ -3056,6 +3062,8 @@ def _converge_impl(
         unresolved_mutants=unresolved_mutant_records(getattr(final_result, "unscored_records", None) or ()),
         original_also_fails=_validity.original_also_fails,
         shared_arguments=_validity.shared_arguments,
+        memory_standing=_validity.memory_standing,
+        memory_limit_mb=worker_mem_limit_mb(),
         synthesized_only=synthesized_only,
         policy_id=wesker_policy_id(two_sign=two_sign),
         # Consumed from the engine's census, never re-derived — and DECIDED once here, so every

@@ -743,6 +743,10 @@ class MeasurementValidity:
     # only by the original control. Empty means the engine reported none shared; an engine that does not
     # report the field is the NAMED state ``absent:shared_arguments`` in `capability_flags`, never this tuple.
     shared_arguments: tuple[str, ...] = ()
+    # Wesker's `ProfilingResult.memory_standing` for this measurement ("enforced", "telemetry_only",
+    # "cut", "n/a"): whether the memory cap the workers started under was applied by the OS. "" is NOT
+    # REPORTED (an engine without the field), never one of the codes.
+    memory_standing: str = ""
 
     @property
     def admits_certificate(self) -> bool:
@@ -751,6 +755,12 @@ class MeasurementValidity:
 
 
 _ABSENT = object()
+
+
+def _memory_standing_of(result: object) -> str:
+    """The engine's `memory_standing`, or "" when it does not report one (absent is not a standing)."""
+    raw = getattr(result, "memory_standing", _ABSENT)
+    return str(raw) if raw is not _ABSENT and raw else ""
 
 
 def _unscored_by(result: object, disposition: str) -> bool:
@@ -942,6 +952,7 @@ def normalize_validity(
         shape_hazards=shape_hazards,
         not_entered=not_entered_detail(getattr(result, "unscored_records", None) or ()),
         original_also_fails=oaf_detail,
+        memory_standing=_memory_standing_of(result),
         shared_arguments=tuple(str(a) for a in raw["shared_arguments"])
         if "shared_arguments" not in missing
         else (),

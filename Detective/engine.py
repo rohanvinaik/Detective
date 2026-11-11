@@ -1011,12 +1011,30 @@ def _session_baseline_scope_for(full: str) -> str:
 class _ProfilingOptions(TypedDict, total=False):
     widen_tests: list[Callable[..., Any]] | None
     isolated: bool
+    worker_mem_limit_mb: int
     observed_return_types: frozenset[str]
     full_matrix: bool
 
 
 class _CaptureOptions(TypedDict, total=False):
     deadline: float
+
+
+# The address-space cap, in MB, an isolated worker is started under (Wesker #45). 0 is "no cap requested":
+# the workers then run uncapped, which is what an isolated run did before the flag existed. Set once per
+# invocation by the CLI (`converge --mem-limit-mb`), read by every isolated `profile` call of that run.
+_WORKER_MEM_LIMIT_MB = 0
+
+
+def set_worker_mem_limit_mb(megabytes: int) -> None:
+    """Request (or, with 0, withdraw) the cap isolated workers start under (Wesker #45)."""
+    global _WORKER_MEM_LIMIT_MB  # noqa: PLW0603
+    _WORKER_MEM_LIMIT_MB = max(0, int(megabytes))
+
+
+def worker_mem_limit_mb() -> int:
+    """The cap this run requested for isolated workers, in MB; 0 when none was."""
+    return _WORKER_MEM_LIMIT_MB
 
 
 @restores_process_state(declared_roots)
@@ -1319,6 +1337,8 @@ def profile(
     _prof_kwargs: _ProfilingOptions = {"widen_tests": _widen_tests} if _WESKER_TARGET_FIRST else {}
     if isolated:
         _prof_kwargs["isolated"] = True
+        if _WORKER_MEM_LIMIT_MB:
+            _prof_kwargs["worker_mem_limit_mb"] = _WORKER_MEM_LIMIT_MB
     if full_matrix and _WESKER_FULL_MATRIX:
         _prof_kwargs["full_matrix"] = True
     from Wesker.ci import _PROJECT_ROOT

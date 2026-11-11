@@ -2483,6 +2483,40 @@ def _full_report_measurement_rows(
     return rows
 
 
+_ISOLATED_DEFAULT_MEM_LIMIT_MB = 512  # Wesker's `_DEFAULT_WORKER_PEAK`, measured to leave verdicts unchanged
+
+
+def memory_cap_request(flag: int | None, isolated: bool) -> int:
+    """The cap, in MB, `converge` starts its isolated workers under (Wesker #45, pure).
+
+    The flag when given (0 meaning uncapped, on purpose); otherwise Wesker's own default under
+    `--isolated`; otherwise 0, because a run that is not isolated has no worker to cap.
+    """
+    if flag is not None:
+        return max(0, flag)
+    return _ISOLATED_DEFAULT_MEM_LIMIT_MB if isolated else 0
+
+
+def memory_cap_text(standing: str, limit_mb: int) -> str:
+    """What a requested memory cap came to, or "" when there is nothing to say (Wesker #45, pure).
+
+    Rows exist for the one state the reader would otherwise misread: a cap was REQUESTED and the OS did
+    not apply it ("telemetry_only"), so a runaway mutant was observed, not bounded. "" is nothing
+    requested, nothing reported, or a cap that held ("enforced" / "cut": a named cut, never a kill).
+    """
+    if limit_mb <= 0 or standing != "telemetry_only":
+        return ""
+    return (
+        f"the {limit_mb} MB memory cap was NOT applied on this platform (the OS refused the limit): "
+        "memory was observed, not bounded"
+    )
+
+
+def _memory_cap_rows(standing: str, limit_mb: int) -> list[str]:
+    text = memory_cap_text(standing, limit_mb)
+    return [_row("⚠ memory cap", text)] if text else []
+
+
 def _shared_arguments_rows(shared: tuple[str, ...] | list[str]) -> list[str]:
     """The terse page's single shared-arguments row; nothing at all when none were shared."""
     text = shared_arguments_text(list(shared))
@@ -2996,6 +3030,7 @@ def _format_converge_terse(
         lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
         lines += _original_also_fails_rows(tuple(result.original_also_fails))
     lines += _shared_arguments_rows(result.shared_arguments)
+    lines += _memory_cap_rows(result.memory_standing, result.memory_limit_mb)
     # Not under a failing floor: classification was not RUN there (#114) — nothing it could classify
     # would be evidence about a suite that does not pass — so "produced no report" would misstate it.
     if rep is None and not result.functionally_complete and not floor:
@@ -7390,6 +7425,18 @@ def _build_parser() -> argparse.ArgumentParser:
                     "use after a reproducibility refusal"
                 ),
             )
+            p.add_argument(
+                "--mem-limit-mb",
+                type=int,
+                default=None,
+                metavar="MB",
+                help=(
+                    "address-space cap, in MB, for the isolated workers (default with --isolated: "
+                    "512, Wesker's own default; 0 starts them uncapped). Only where the OS accepts "
+                    "the limit: the page says when it did not. A mutant over the cap is a named "
+                    "cut, never a kill"
+                ),
+            )
             # The workflow note renders after the options on `converge --help` (this loop set
             # RawDescriptionHelpFormatter, so the epilog is shown verbatim).
             p.epilog = _CONVERGE_WORKFLOW
@@ -9978,6 +10025,14 @@ def _run_converge(args, file, function) -> int:
     except ValueError as exc:
         print(f"detective: {exc}", file=sys.stderr)
         return 2
+    if (getattr(args, "mem_limit_mb", None) or 0) < 0:
+        print("detective: --mem-limit-mb must not be negative", file=sys.stderr)
+        return 2
+    from .engine import set_worker_mem_limit_mb
+
+    set_worker_mem_limit_mb(
+        memory_cap_request(getattr(args, "mem_limit_mb", None), bool(getattr(args, "isolated", False)))
+    )
     result = converge(
         file,
         function,
