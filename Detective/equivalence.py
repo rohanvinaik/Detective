@@ -1212,6 +1212,42 @@ def _dedupe_typed(values: list) -> list:
     return out
 
 
+def sign_mirror(value: Any) -> Any:
+    """``value`` with the sign of every number in it flipped (D#140 item 5, pure — pinned). An int or float
+    is negated (``0`` and ``nan`` stay: they have no mirror), a list, tuple, set, frozenset or dict
+    (values only) is mirrored element-wise, and anything else, ``bool`` and ``str`` included, is itself.
+    The mirror of a positive input is the one that tells ``abs`` and a sign-dropping rewrite from the
+    original: every positive input the grid and the covering tests supply leaves ``abs(x) == x``."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return -value if value == value and value != 0 else value
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return type(value)(sign_mirror(v) for v in value)
+    if isinstance(value, dict):
+        return {k: sign_mirror(v) for k, v in value.items()}
+    return value
+
+
+def mirrored_inputs(pool: list[tuple], limit: int = 12) -> list[tuple]:
+    """The sign mirrors of a pool's inputs that differ from them and can be typed as ``--input`` (D#140
+    item 5): an all-negative list for a list of positives, a negated scalar for a scalar. Order follows
+    the pool, repeats and inputs the mirror leaves unchanged are dropped, and at most ``limit`` are
+    returned, so the probe stays one function's bounded work."""
+    out: list[tuple] = []
+    for args in pool:
+        try:
+            mirror = tuple(sign_mirror(a) for a in args)
+        except TypeError:
+            continue
+        if mirror == args or not is_expressible(mirror) or any(mirror == m for m in out):
+            continue
+        out.append(mirror)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def boundary_probe_values(
     type_name: str, optional: bool, constants: list, keys: list, value_type: str = ""
 ) -> list | None:
@@ -2258,6 +2294,10 @@ class MutantVerdict:
     # for every other mutant. A stale mutant answers each call with the previous call's result, so no
     # single input distinguishes it: it is neither killable by a witness nor a candidate-equivalent.
     history: str = ""
+    # The killable witness's input is one a current test already calls (D#140 item 6): asking the reader to
+    # supply it as `--input` is asking for what the suite has, and the run that follows returns the same
+    # residual. The ask is a test to write, not an input to supply. Meaningful only when ``killable``.
+    witness_in_suite: bool = False
     # ``(first, second)``: two calls of the ORIGINAL that return different values, the evidence behind
     # ``second_call_pair``. One test making both calls and asserting both results kills the stale
     # mutant, whose second answer is the first call's value. None for every other state.
@@ -2435,7 +2475,7 @@ def returned_value_outcome(outcome: str) -> bool:
     return _VOLATILE_IN_MESSAGE.search(outcome) is None
 
 
-def _search_history_pair(
+def search_history_pair(
     original: Callable[..., Any],
     candidate_inputs: list[tuple],
     *,
@@ -2720,7 +2760,7 @@ def _history_verdict(
     searched only where the function is not known to return one value, and a wall that ran out before
     a pair was found leaves the mutant UNCLASSIFIED (blocked), never "needs a second call"."""
     single = not takes_arguments or constant_return
-    pair = None if single else _search_history_pair(original, candidate_inputs, deadline=deadline)
+    pair = None if single else search_history_pair(original, candidate_inputs, deadline=deadline)
     cut = pair is None and not single and _deadline_passed(deadline)
     fact = distinguishing_fact(False, False, suite_detected)
     crash_only = _FACT_IS_CRASH_ONLY[fact]

@@ -77,8 +77,10 @@ from .equivalence import (
     form_b_mode,
     is_expressible,
     is_scalar_type,
+    mirrored_inputs,
     probe_rows,
     returns_one_constant,
+    search_history_pair,
     structural_input_difficulty,
     structural_shape,
     synth_ast_input,
@@ -2248,6 +2250,20 @@ def _synth_inferred_inputs(
     return [tuple(values)], inferred
 
 
+def _args_among(args: tuple, calls: Sequence[tuple]) -> bool:
+    """Whether ``args`` equals one of ``calls`` (D#140 item 6, pure — pinned). Equality, with a value that
+    cannot be compared (an array, an object raising in ``__eq__``) counting as different: the answer only
+    ever withholds an ask, so an unsure "no" keeps the ask."""
+    for call in calls:
+        try:
+            if tuple(call) == tuple(args):
+                return True
+        # BLE001: an incomparable value is "not the same input", never a failure of the page
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
 def _safely_fresh(candidate: tuple, pool: Sequence[tuple]) -> bool:
     """True when ``candidate`` is not already in ``pool`` — surviving hostile ``__eq__``.
 
@@ -3956,7 +3972,9 @@ def classify_survivors(
         if r.get("mutant_id") not in _killable_ids
         and r.get("mutant", r.get("mutant_id", "?")) not in _unclassified_descs
     ]
-    _probe_inputs = [] if effects else _boundary_probe_inputs(node, ns)
+    # The sign of every number is an edge too (D#140 item 5): `abs` of a function whose every tried input is
+    # positive is indistinguishable, so the mirror of each tried input joins the probes.
+    _probe_inputs = [] if effects else [*_boundary_probe_inputs(node, ns), *mirrored_inputs(inputs)]
     boundary_probe = boundary_probe_gate(
         len(_residual_recs), bool(effects), bool(_probe_inputs), _cls_exhausted()
     )
@@ -4186,6 +4204,20 @@ def classify_survivors(
                 if witness_args:
                     expressible = all(is_expressible(a) for args in witness_args for a in args)
 
+    # A stale mutant's pair is searched per pool, and the pools differ by stage (the first pass, the boundary
+    # probes, each retry): a pair may need an input from one and an input from another (D#140 item 1), so
+    # the ones still without a pair are searched once more over everything tried.
+    if any(v.history == "needs_second_call" for v in verdicts) and not _cls_exhausted():
+        _everything = [*final_pool, *(t for t in probes_tried if _safely_fresh(t, final_pool))]
+        _pair = search_history_pair(original_call, _everything, deadline=_cls_abs_deadline)
+        if _pair is not None:
+            verdicts = [
+                dataclasses.replace(v, history="second_call_pair", history_pair=_pair)
+                if v.history == "needs_second_call"
+                else v
+                for v in verdicts
+            ]
+
     # Reachability (RIP-R, §6 door 2 / Def. 1.4): a candidate-equivalent whose mutated line was never
     # EXECUTED by the final pool is killable with a reaching input the search did not construct — not an
     # equivalence. Trace the ORIGINAL over the pool once and mark each such verdict, so the renderer's
@@ -4214,6 +4246,15 @@ def classify_survivors(
                 else v
                 for v in verdicts
             ]
+
+    # A killable witness at an input the suite's own calls already use is not an input to ask for
+    # (D#140 item 6): mark it, so the page routes it to a test to write instead of a loop.
+    verdicts = [
+        dataclasses.replace(v, witness_in_suite=True)
+        if v.killable and v.witness is not None and _args_among(v.witness.args, discovered)
+        else v
+        for v in verdicts
+    ]
 
     return SurvivorReport(
         tuple(verdicts),

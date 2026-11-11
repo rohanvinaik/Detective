@@ -5586,7 +5586,10 @@ def _derive_input_plan(
         if not _outcome_needs_hand_pin(v.witness.original, v.witness.mutant)
     ]
     attempted = set(attempted_inputs)
-    fresh_inputs = [(v, rendered) for v, rendered in input_closes if rendered not in attempted]
+    # D#140 item 6: an input a current test already calls is as attempted as one supplied by hand.
+    fresh_inputs = [
+        (v, rendered) for v, rendered in input_closes if rendered not in attempted and not v.witness_in_suite
+    ]
     if fresh_inputs:
         return _input_plan(
             "witness",
@@ -5596,13 +5599,16 @@ def _derive_input_plan(
         )
     # The exact input was accepted, executed, and returned as the same residual. Offering it again
     # is a proven loop, not guidance. Route to the existing terminating hand-pin action.
-    repeated_inputs = [(v, rendered) for v, rendered in input_closes if rendered in attempted]
+    repeated_inputs = [
+        (v, rendered) for v, rendered in input_closes if rendered in attempted or v.witness_in_suite
+    ]
     # The outcomes print WHOLE in every WRITE TEST item below (#125): the ask is to write a test
     # pinning exactly these values, so a value cut to a prefix is an instruction that cannot be
     # followed — and two outcomes sharing a prefix printed (and deduplicated) as one.
     if repeated_inputs:
         items = [
-            f"{rendered} — supplied already; real {v.witness.original} vs mutant {v.witness.mutant}"
+            f"{rendered} — {_ALREADY_SAID[v.witness_in_suite and rendered not in attempted]}; "
+            f"real {v.witness.original} vs mutant {v.witness.mutant}"
             for v, rendered in repeated_inputs
         ]
         return _input_plan(
@@ -5728,6 +5734,11 @@ def _line_gap_rows(proof) -> list[tuple[str, dict]]:
         )
         for ln in (getattr(proof, "missing_lines", ()) or ())
     ]
+
+
+# Who already ran a witness's input (D#140 item 6): True when a current test calls it, False when the reader
+# supplied it with `--input`. The WRITE TEST item names which, because the two are different facts.
+_ALREADY_SAID = {True: "a current test already calls it", False: "supplied already"}
 
 
 def _outcome_needs_hand_pin(original: str, mutant: str) -> bool:
@@ -6163,10 +6174,20 @@ def _derived_input(
         return out
 
     if kind == "repeated":
-        out = ["WRITE TEST:  pin the observed distinction below; the supplied --input did not close it"]
+        in_suite = all("a current test already calls it" in d for d in items)
+        out = [
+            "WRITE TEST:  pin the observed distinction below; your suite already calls this input"
+            if in_suite
+            else "WRITE TEST:  pin the observed distinction below; the supplied --input did not close it"
+        ]
         out.append("")
-        out.append(_row("· Why", "Detective accepted and ran this exact input, then returned"))
-        out.append(_row("", "the same residual. Repeating the command is a proven loop."))
+        if in_suite:
+            out.append(_row("· Why", "A current test already calls the function at this input, so"))
+            out.append(_row("", "supplying it again changes nothing. A test that pins the"))
+            out.append(_row("", "observed outcome below closes it."))
+        else:
+            out.append(_row("· Why", "Detective accepted and ran this exact input, then returned"))
+            out.append(_row("", "the same residual. Repeating the command is a proven loop."))
         out.append(_row("· Observed", f"1. {items[0]}"))
         for i, d in enumerate(items[1:], start=2):
             out.append(_row("", f"{i}. {d}"))
