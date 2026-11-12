@@ -8633,6 +8633,10 @@ def _format_regime(regime, plan=None, applied: tuple[str, ...] = (), target: str
         lines.append(_row("✗ but that name is", _rel_path(regime.shadow.imported)))
     if regime.colliding_conftests:
         lines.append(_row("✗ same module name", ", ".join(regime.colliding_conftests)))
+    # (#98) The auto-loaded pytest plugins the project never declared: disclosed here, never a conflict.
+    from .plugins import plugin_rows
+
+    lines += [_row(label, text) for label, text in plugin_rows(regime.ambient_plugins)]
     if applied:
         lines.append("")
         lines.append("  MIGRATED:")
@@ -12065,7 +12069,7 @@ def _run_regime(args) -> int:
     from .regime import apply_migration, plan_migration, resolve_regime
 
     target_file = _split_target(args.target, args.project_root)[0] if args.target else None
-    regime = resolve_regime(args.project_root, target_file)
+    regime = resolve_regime(args.project_root, target_file, plugins=True)
     plan = plan_migration(regime)
     applied: tuple[str, ...] = ()
     if args.migrate:
@@ -12084,7 +12088,7 @@ def _run_regime(args) -> int:
         # Re-read: the report must describe the tree as it IS now, not as it was before we
         # wrote to it. Reporting the pre-migration regime after migrating is how a tool
         # tells you it fixed something and shows you the evidence that it did not.
-        regime = resolve_regime(args.project_root, target_file)
+        regime = resolve_regime(args.project_root, target_file, plugins=True)
         plan = plan_migration(regime)
     # W1. Every conflict KIND exits 2, so the ledger's `exit` cannot tell shadowed-target from
     # conftest-collision — and after a `--migrate` the conflict should be gone, which makes the same
@@ -12244,6 +12248,12 @@ def _doctor_green(root: str, target_file: str, func_key: str) -> tuple[str, dict
     except Exception:  # noqa: BLE001
         conflicts = ()
     facts["regime_conflict"] = conflicts[0] if conflicts else ""
+    # (#98) Disclosed beside the green facts and consumed by NO decision below: it changes neither the
+    # code nor the exit status. `None` is "could not be read", distinct from "none auto-load".
+    try:
+        facts["ambient_plugins"] = resolve_regime(root, plugins=True).ambient_plugins
+    except Exception:  # noqa: BLE001
+        facts["ambient_plugins"] = None
     facts["pytest_importable"] = _doc.pytest_importable()
     imports = _doc.target_imports(target_file) if target_file else ()
     facts["missing"] = _doc.missing_here(imports) if imports else ()
@@ -12264,6 +12274,18 @@ def _doctor_green(root: str, target_file: str, func_key: str) -> tuple[str, dict
 
 
 def _render_doctor_green(code: str, facts: dict) -> list[str]:
+    """GREEN's rows, then the auto-loaded pytest plugins the project never declared (#98): the same rows
+    `regime` prints (`plugins.plugin_rows`), appended whatever the code, because they change neither the
+    code nor the exit status. A facts dict with no key is 'not read', which prints nothing."""
+    from .plugins import plugin_rows
+
+    return [
+        *_doctor_green_rows(code, facts),
+        *(_row(label, text) for label, text in plugin_rows(facts.get("ambient_plugins"))),
+    ]
+
+
+def _doctor_green_rows(code: str, facts: dict) -> list[str]:
     """GREEN's rows. Every branch names the FIX, because a diagnosis whose remedy the reader has to
     infer is the gap doctor exists to close."""
     out = [_row("GREEN — setup", code)]
@@ -12604,7 +12626,15 @@ def _run_doctor(args) -> int:
             {
                 "target": raw,
                 "asked": list(asked),
-                "green": {"code": doctor_axis_code("green" in asked, True, green_code), "facts": green_facts},
+                "green": {
+                    "code": doctor_axis_code("green" in asked, True, green_code),
+                    "facts": {
+                        **green_facts,
+                        "ambient_plugins": None
+                        if green_facts.get("ambient_plugins") is None
+                        else [asdict(p) for p in green_facts["ambient_plugins"]],
+                    },
+                },
                 "red": {"code": doctor_axis_code("red" in asked, True, red_code), "facts": red},
                 "yellow": {
                     "code": doctor_axis_code("yellow" in asked, bool(target_file), yellow_code),

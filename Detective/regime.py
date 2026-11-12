@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import NewType
 
 from .engine import ShadowedTarget, _resolve_origin, _suite_path, shadowed_target
+from .plugins import AmbientPlugin, ambient_plugins
 from .reachability import _SKIP_DIRS, _pytest_norecursedirs
 from .synthesis.oracle_light import importable_module, package_walk_name
 
@@ -118,6 +119,10 @@ class TestRegime:
     target: str | None = None  # the file under analysis, absolute
     module: str | None = None  # the dotted name the REST of the repo imports it by
     shadow: ShadowedTarget | None = None  # set iff `module` resolves to a different file
+    # The pytest11 entry points this interpreter auto-loads and how the project stands to each (#98). `None`
+    # is NOT READ (enumerating them is opt-in: the regime is resolved on every profile pass); `()` is read
+    # and none auto-loads. The two never share a sign. Disclosed, never a conflict, never disabled.
+    ambient_plugins: tuple[AmbientPlugin, ...] | None = None
 
     @property
     def conflicts(self) -> tuple[str, ...]:
@@ -494,12 +499,15 @@ def _is_ours(conftest: str) -> bool:
         return False
 
 
-def resolve_regime(project_root: str = ".", file: str | None = None) -> TestRegime:
+def resolve_regime(project_root: str = ".", file: str | None = None, *, plugins: bool = False) -> TestRegime:
     """Read the repo's testing regime. Reads only — never writes, never refuses.
 
     ``file`` is optional: without it the repo-level facts still resolve (layout, path, conftests,
     marker), which is what a `regime` report with no target needs. With it, the target-specific
     facts resolve too — the name that imports it, and whether that name means this file.
+
+    ``plugins=True`` also reads the auto-loaded pytest plugins (#98); it is opt-in because this runs on
+    every profile pass and the enumeration is only wanted by the surfaces that disclose it.
     """
     root = os.path.abspath(project_root)
     conftests, colliding, generated = _conftests(root)
@@ -538,6 +546,7 @@ def resolve_regime(project_root: str = ".", file: str | None = None) -> TestRegi
         target=target,
         module=module,
         shadow=shadow,
+        ambient_plugins=ambient_plugins(root, table.get("addopts")) if plugins else None,
     )
 
 
