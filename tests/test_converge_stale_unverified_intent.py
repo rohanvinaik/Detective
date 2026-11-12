@@ -29,6 +29,7 @@ def _result(**overrides):
         missing_lines=(),
         line_complete=True,
         stale_target=False,
+        budget_exhausted=False,
         verification=None,
         admits_certificate=True,
         synthesized_only=False,

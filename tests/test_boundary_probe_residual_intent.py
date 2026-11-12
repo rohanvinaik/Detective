@@ -339,6 +339,7 @@ def _settled(param_names=("x",)):
         line_complete=True,
         missing_lines=(),
         stale_target=False,
+        budget_exhausted=False,
         admits_certificate=True,
         written_path="tests/detective/test_m_f_synth.py",
         synthesized_only=False,

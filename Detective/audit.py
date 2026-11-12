@@ -826,9 +826,10 @@ def audit_suite(
         # `--two-sign` every surviving negative DOF read "un-buildable" and fell to `unclassified`
         # instead of surfacing in killable_gaps, which is what the two-sign audit exists to gate on.
         report = classify_survivors(file, function, project_root, profile_result=result, two_sign=two_sign)
-        # Defensive reads (#60): a report without the Finding-E fields (an older SurvivorReport, a test
-        # stub) must not crash the classification into the advisory except-fallback below — which would
-        # silently zero candidate_equivalent and mis-read a fully-classified suite as a gap.
+        # `load_failed` is read DIRECTLY (#95): `SurvivorReport` declares it, so a rename fails here and
+        # lands in the conservative fallback below (every survivor a gap), never in a clean verdict. A
+        # test double must carry it, as it must carry every field this block reads. The reads below it
+        # stay defaulted (#60) and are counted in the absorption guard's open registry.
         _load_failed = bool(report.load_failed)
         _harvest_routing_failed = bool(getattr(report, "routing_error", ""))
         _report_expressible = getattr(report, "inputs_expressible", None)

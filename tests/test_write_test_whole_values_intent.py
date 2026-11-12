@@ -37,6 +37,8 @@ def _result():
         param_names=("text",),
         environment_gated=(),
         admits_certificate=True,
+        stale_target=False,
+        budget_exhausted=False,
     )
 
 

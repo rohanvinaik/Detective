@@ -30,6 +30,7 @@ def _report(equivalent):
         authored_fence=(),  # Q8: the real SurvivorReport carries this; the double must too
         equivalent=tuple(equivalent),
         unclassified=(),
+        load_failed=False,  # #95: read directly; the real SurvivorReport declares it
     )
 
 

@@ -25,6 +25,7 @@ def _complete_result():
         line_complete=True,
         missing_lines=(),
         stale_target=False,
+        budget_exhausted=False,
         admits_certificate=True,
         written_path="tests/detective/test_dsl_add_synth.py",
         synthesized_only=False,
