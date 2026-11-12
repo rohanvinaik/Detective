@@ -5078,7 +5078,9 @@ def _converge_action(
     if kind in ("install_pytest", "fix_collection"):
         return _dead_suite_action(kind, fn, root, session_reason, d.marker_declared, d.then)
     if kind in ("declare_clock", "declare_env", "environment_fixture"):
-        return _environment_gate_action(kind, result.environment_gated, d, fn)
+        return _environment_gate_action(
+            kind, result.environment_gated, d, fn, fixture_purpose(bool(result.missing_lines), bool(blocked))
+        )
     if kind == "consult_named_tests":
         return _consult_named_tests_action(
             list(result.missing_lines),
@@ -5208,7 +5210,29 @@ def _process_state_fixture_hint(reads: list[str]) -> str:
     return "; ".join(hints) + (f" (+{len(targets) - 3} more)" if len(targets) > 3 else "")
 
 
-def _environment_gate_action(kind: str, reads: tuple[str, ...], d: Decision, fn: str) -> list[str]:
+def fixture_purpose(has_line_gap: bool, has_killable: bool) -> str:
+    """What a fixture hand-back over an environment read is FOR (pure — pinned).
+
+    The block used to say "build the external state the uncovered line(s) read" whenever the read gated
+    anything, so a function whose every line was covered, with only killable mutants whose goldens the read
+    refuses, was told to reach lines that were not open. Three states, three headers:
+
+      "lines"    a line gap sits behind the read: the test must reach those lines
+      "mutants"  no line is open; killable mutants remain whose golden the read refuses (the function's
+                 value depends on state no argument sets), so only a test that controls that state pins them
+      "both"     both are open
+      "none"     neither is open (the block is not reached from a settled run); the generic wording
+    """
+    if has_line_gap and has_killable:
+        return "both"
+    if has_line_gap:
+        return "lines"
+    return "mutants" if has_killable else "none"
+
+
+def _environment_gate_action(
+    kind: str, reads: tuple[str, ...], d: Decision, fn: str, purpose: str = "lines"
+) -> list[str]:
     """The block for a line gap gated only by state an argument cannot set (#101): the capability that
     declares it, or the fixture hand-back — never an ``--input`` ask no value of an argument can answer."""
     shown = _environment_gate_shown(reads)
@@ -5233,12 +5257,48 @@ def _environment_gate_action(kind: str, reads: tuple[str, ...], d: Decision, fn:
     from .capabilities import process_state_covers
 
     process = [r for r in reads if process_state_covers(r)]
+    killable = len(d.state.get("killable", ()))
+    header, why = {
+        "lines": (
+            "WRITE TEST:  build the external state the uncovered line(s) read, in a fixture",
+            "the line(s) sit behind a read no --input and no declarable capability reaches:",
+        ),
+        "mutants": (
+            f"WRITE TEST:  pin the {killable} killable mutant(s) with a test that controls the state read",
+            "no line is uncovered; the mutant(s) stay killable: the function reads state no argument sets:",
+        ),
+        "both": (
+            f"WRITE TEST:  reach the uncovered line(s) and pin {killable} killable mutant(s), "
+            "controlling the state read",
+            "the line(s) and the mutant(s) depend on a read no --input or capability reaches:",
+        ),
+    }.get(
+        purpose,
+        (
+            "WRITE TEST:  build the external state the function reads, in a fixture",
+            "the function reads state no --input and no declarable capability reaches:",
+        ),
+    )
     return [
-        "WRITE TEST:  build the external state the uncovered line(s) read, in a fixture",
+        header,
         "",
-        _row("· Why", "the line(s) sit behind a read no --input and no declarable capability reaches:"),
+        _row("· Why", why),
         _row("", f"  {shown}"),
-        _row("", "a fixture (a tmp file, a monkeypatched read) or a hand-written test reaches them."),
+        _row(
+            "",
+            "a fixture (a tmp file, a monkeypatched read) or a hand-written test "
+            + ("reaches them." if purpose == "lines" else "pins them."),
+        ),
+        *(
+            [
+                _row(
+                    "",
+                    "every golden the search could write is refused, so no --input value pins them either.",
+                )
+            ]
+            if purpose in ("mutants", "both")
+            else []
+        ),
         *(
             [
                 _row(

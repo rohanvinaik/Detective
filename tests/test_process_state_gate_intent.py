@@ -139,3 +139,70 @@ def test_decompose_names_the_fixture_for_a_process_state_gate_and_not_an_env_dec
     assert "build that state in a test, then re-run" in page and "declare --env on converge" not in page
     proof = SimpleNamespace(environment_gated=(_FILE,), missing_lines=(5,))
     assert "declare --env" in "\n".join(_residual_action(None, proof, None, "b.py::backend"))
+
+
+# ── what the hand-back is FOR (integrator follow-up to the process-state routing) ─────────────────────
+
+from Detective.cli import fixture_purpose  # noqa: E402
+
+_COVERED = (
+    "import sys\n\n\ndef numeric_backend_for(name: str) -> str:\n"
+    "    mod = sys.modules.get(name)\n    if mod is None:\n        return name\n"
+    "    return f\"{name} {getattr(mod, '__version__', '')}\".strip()\n"
+)
+_COVERED_TESTS = (
+    "from mod import numeric_backend_for\n\n\ndef test_unloaded():\n"
+    '    assert numeric_backend_for("definitely_not_loaded_xyz") == "definitely_not_loaded_xyz"\n\n\n'
+    'def test_loaded_weak():\n    assert numeric_backend_for("json").startswith("json")\n'
+)
+
+
+def test_fixture_purpose_names_which_of_the_open_things_the_block_is_for():
+    assert fixture_purpose(True, False) == "lines"
+    assert fixture_purpose(False, True) == "mutants"
+    assert fixture_purpose(True, True) == "both"
+    assert fixture_purpose(False, False) == "none"
+
+
+def _converge_page(tmp_path, source, test, name="mod"):
+    project = tmp_path / "proj"
+    (project / "tests").mkdir(parents=True)
+    (project / "pyproject.toml").write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
+    (project / f"{name}.py").write_text(source)
+    (project / "tests" / f"test_{name}.py").write_text(test)
+    assert _run(project, "regime", "--migrate", "--project-root", str(project)).returncode == 0
+    return project, _run(
+        project, "converge", f"{name}.py::{'numeric_backend_for' if name == 'mod' else 'backend'}"
+    )
+
+
+def test_every_line_covered_and_only_killable_mutants_the_block_names_the_mutants_not_a_line_gap(tmp_path):
+    project, done = _converge_page(tmp_path, _COVERED, _COVERED_TESTS)
+    page = done.stdout
+    assert "✗ uncovered" not in page, "the fixture covers every line"
+    assert "still killable" in page
+    block = page.split("WRITE TEST")[-1]
+    assert "killable mutant(s)" in block.splitlines()[0]
+    assert "uncovered line(s)" not in page.split("FINAL")[0].split("WRITE TEST")[-1]
+    assert "reads process state via sys.modules" in block and "monkeypatch.setitem(sys.modules" in block
+    assert "no --input value pins them either" in block
+
+
+def test_a_line_gap_alone_keeps_the_line_header_and_both_name_both(tmp_path):
+    _, done = _converge_page(tmp_path, _ZERO_ARG, "def test_unrelated():\n    assert 1 + 1 == 2\n", "b")
+    assert "build the external state the uncovered line(s) read" not in done.stdout.split("WRITE TEST")[0]
+    header = done.stdout.split("WRITE TEST:")[-1].splitlines()[0]
+    assert "uncovered line(s)" in header and "killable mutant(s)" in header, "a line gap AND killable mutants"
+
+
+def test_following_the_pages_next_step_never_prints_a_second_input_ask(tmp_path):
+    project, first = _converge_page(tmp_path, _COVERED, _COVERED_TESTS)
+    assert "DO THIS" not in first.stdout and "--input" not in first.stdout.split("WRITE TEST")[-1].replace(
+        "no --input", ""
+    )
+    decision = json.loads(_run(project, "converge", "mod.py::numeric_backend_for", "--json").stdout)[
+        "decision"
+    ]
+    assert decision["step"]["kind"] == "hand_back" and decision["step"]["argv"] is None
+    again = _run(project, *decision["step"]["then"])
+    assert "DO THIS" not in again.stdout, "the next step is the hand-back again, never an --input command"
