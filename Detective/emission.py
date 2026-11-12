@@ -183,6 +183,22 @@ def toolchain_pin() -> str | None:
 
 
 def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, object]], workdir: str) -> dict:
+    """The gate's result record, carrying the emission's own identity (#94).
+
+    `language`, `warrant` and `declared_environment` were computed on the emission and read by nothing:
+    the record named only the toolchain the gate FOUND (`environment`). A certificate over an emission
+    must say which language it was, which receipt it claims to preserve, and which toolchain it was
+    DECLARED against, so a reader can see when the declaration and the pin differ."""
+    result = _run_c_gate(emission, obligations, workdir)
+    return {
+        **result,
+        "language": emission.language,
+        "warrant": emission.warrant,
+        "declared_environment": emission.environment,
+    }
+
+
+def _run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, object]], workdir: str) -> dict:
     """The bridge shell (impure — unit-guarded): compile the harness under the pinned toolchain
     and replay the PORTABLE obligations, comparing exactly. Returns the full result record —
     disposition, per-arm counts, the environment pin, and every mismatch with its input (the

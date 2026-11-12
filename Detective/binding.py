@@ -322,8 +322,8 @@ class ExecutionBinding:
     """Everything a call site needs to EXECUTE and RENDER a target once its binding is resolved.
 
     ``underlying`` is the raw function to hand ``_compile_mutant`` (for ``__globals__``) and to wrap;
-    ``make_receiver`` (None for function/static) builds the receiver each call; ``call_expr`` /
-    ``import_name`` render the generated test's call and import; ``refusal`` (non-None) is a NAMED
+    ``make_receiver`` (None for function/static) builds the receiver each call; ``call_expr``
+    renders the generated test's call; ``refusal`` (non-None) is a NAMED
     reason the target cannot be pinned by synthesis (a property, an unsupported descriptor, or a
     constructor that needs arguments) — surfaced instead of a silent ``0/N killed``."""
 
@@ -332,7 +332,6 @@ class ExecutionBinding:
     underlying: Any
     make_receiver: Callable[[], Any] | None
     call_expr: str
-    import_name: str
     refusal: str | None
     # For an explicit ``--receiver-factory``, the exact import the emitted test needs to reconstruct
     # the receiver (``from pkg.mod import make``) — the factory lives outside the target's own module,
@@ -387,16 +386,14 @@ def resolve_execution(
     function has none. A property or unknown descriptor is refused by name."""
     binding = binding_from_node(node, qualname)
     ns = getattr(live, "__globals__", {}) or {}
-    call_expr, import_name = call_expr_and_import(binding, None)
+    call_expr, _ = call_expr_and_import(binding, None)
     factory_spec = factory.factory if factory is not None else None
     factory_render = factory.render if factory is not None else None
 
     if binding.kind is BindingKind.FUNCTION:
-        return ExecutionBinding(binding, None, live, None, call_expr, import_name, None)
+        return ExecutionBinding(binding, None, live, None, call_expr, None)
     if binding.kind is BindingKind.STATIC_METHOD:
-        return ExecutionBinding(
-            binding, None, underlying_function(live, binding), None, call_expr, import_name, None
-        )
+        return ExecutionBinding(binding, None, underlying_function(live, binding), None, call_expr, None)
     if binding.kind is BindingKind.PROPERTY:
         return ExecutionBinding(
             binding,
@@ -404,7 +401,6 @@ def resolve_execution(
             live,
             None,
             call_expr,
-            import_name,
             f"needs-fixture — {binding.owner}.{binding.attribute} is a property; it has no call "
             "signature to synthesize (a property is read, not called)",
         )
@@ -415,7 +411,6 @@ def resolve_execution(
             live,
             None,
             call_expr,
-            import_name,
             f"needs-fixture — {qualname} is an unsupported descriptor; its call convention is not "
             "modelled, so no receiver is guessed",
         )
@@ -429,7 +424,6 @@ def resolve_execution(
                 live,
                 None,
                 call_expr,
-                import_name,
                 f"needs-receiver — could not resolve the owner class {binding.owner!r} of "
                 f"{qualname} in its module",
             )
@@ -437,7 +431,7 @@ def resolve_execution(
             lambda: owner_cls, f"{binding.owner}.{binding.attribute}", f"class:{binding.owner}"
         )
         return ExecutionBinding(
-            binding, plan, underlying_function(live, binding), plan.factory, call_expr, import_name, None
+            binding, plan, underlying_function(live, binding), plan.factory, call_expr, None
         )
 
     # INSTANCE_METHOD — the case that needs a constructed receiver.
@@ -450,16 +444,13 @@ def resolve_execution(
             live,
             None,
             call_expr,
-            import_name,
             f"needs-receiver — {binding.owner}() could not be constructed without arguments{hint}",
         )
-    inst_call, inst_import = call_expr_and_import(binding, plan)
+    inst_call, _ = call_expr_and_import(binding, plan)
     # When the plan came from an explicit factory, the emitted test calls `make()` and must import
     # `make` from its own module — not the target owner. A zero-arg `Owner()` plan keeps the default
     # owner import (import_stmt=None), since `Owner` is already imported from the target's module.
     import_stmt = (
         factory.import_stmt if (factory is not None and plan.identity.startswith("factory:")) else None
     )
-    return ExecutionBinding(
-        binding, plan, live, plan.factory, inst_call, inst_import, None, import_stmt=import_stmt
-    )
+    return ExecutionBinding(binding, plan, live, plan.factory, inst_call, None, import_stmt=import_stmt)

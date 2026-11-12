@@ -51,6 +51,11 @@ BY_DESIGN: dict[str, str] = {
         "The current sys.monitoring harvest must not consult or take the legacy profile slot, so this "
         "decision deliberately has no current production caller. It is not a pin of current capture."
     ),
+    "field_consumption.field_consumption_disposition": (
+        "The field-consumption guard's own decision (#94). `Detective/field_consumption.py` is, like "
+        "`consumption.py`, a repo-discipline instrument deliberately not wired to any verb; its consumer is "
+        "tests/test_field_consumption_intent.py."
+    ),
     "consumption.consumption_disposition": (
         "This guard's own decision. `Detective/consumption.py` is deliberately not wired to any "
         "verb — it is a repo-discipline instrument, and its consumer is this test."
