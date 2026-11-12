@@ -10127,6 +10127,23 @@ def _format_rewrite(r) -> str:
             "       none, so which questions it answered cannot be established. Re-take the receipt\n"
             "       under an engine that publishes its policy, then verify the rewrite again."
         ),
+        # (#93) An ABSTAIN decided by survivor classification not running on the REWRITTEN source: three
+        # causes with different remedies, which one sentence ("could not run") used to merge.
+        "ABSTAIN:classification_unavailable": (
+            "STOP.  UNPROVEN — survivor classification produced no report on the rewritten source, so\n"
+            "       no new behaviour could be looked for. Re-run; if it repeats, the classifier itself\n"
+            "       failed on this source and no change to the receipt will help."
+        ),
+        "ABSTAIN:classification_load_failed": (
+            "STOP.  UNPROVEN — the rewritten source could not be loaded for classification. Re-running\n"
+            "       will not change it: fix the import or syntax error, or the environment the rewrite\n"
+            "       needs, then verify the rewrite again."
+        ),
+        "ABSTAIN:classification_invalid_measurement": (
+            "STOP.  UNPROVEN — the classification measurement on the rewritten source was not valid\n"
+            "       (cut, or its harvest not contained), though the source itself loaded. Re-run it;\n"
+            "       nothing needs fixing first."
+        ),
         "STALE_RECEIPT": (
             "DONE:  nothing was rewritten — the current source is identical to the receipt's original."
         ),
@@ -11584,6 +11601,11 @@ def _run_verify_rewrite(args, file, function) -> int:
     # is the criterion for wiring `outcome` at all: where a verb's named ending is recoverable from
     # its exit code, this field would only duplicate a column the ledger already has.
     observe("outcome", "verify-rewrite", result.verdict)
+    # (#93) `--learn` asked once, here, so the page and `--json` can carry the named outcome: the two
+    # skips are distinct "so a reader sees WHY nothing was learned" (`learn_disposition`'s docstring).
+    from .censor import learn_disposition
+
+    learning = learn_disposition(result.verdict, args.learn)
     budget = None
     if getattr(args, "budget", False):
         from .budget import budget_exit
@@ -11595,6 +11617,8 @@ def _run_verify_rewrite(args, file, function) -> int:
         payload = asdict(result)
         if budget is not None:
             payload["budget"] = asdict(budget)
+        if args.learn:
+            payload["learn_disposition"] = learning
         print(json.dumps(_with_exit(payload, code), indent=2, default=str))
     else:
         print(_format_rewrite(result))
@@ -11605,9 +11629,13 @@ def _run_verify_rewrite(args, file, function) -> int:
     # the near-misses, κ-scores them over the call graph via the SAME corpus fixpoint `censor
     # --promote` uses, and persists the promoted ones. Reported on stderr so the --json verdict
     # on stdout stays a clean RewriteVerification.
-    from .censor import learn_disposition
-
-    if learn_disposition(result.verdict, args.learn) == "learn":
+    if learning == "skip_unchanged":
+        if not args.json:
+            _notify_stderr(
+                f"--learn: nothing was learned — the verdict is {result.verdict}, and only a CHANGED rewrite "
+                "carries rejected-rewrite near-misses"
+            )
+    elif learning == "learn":
         from .atomic_store import StoreRefused
         from .censor import censors_from_verification
         from .promotion_ledger import corpus_fixpoint, ledger_key, load_ledger, save_ledger
@@ -12658,8 +12686,12 @@ def _signpost_rows(verb: str, root: str, target_file: str = "") -> list[str]:
         )
         if fault == "none" and not missing:
             return []
-        if signpost_disposition(herb, True, False, False) != "preempted_by_setup":
-            return []
+        # (#93) Dispatch on the CODE. Only these two can arise here (green=True, red/yellow=False):
+        # `unknown_herb` is NAMED rather than falling through to "no signpost" with `emit`, because a verb
+        # whose herb nobody declared must not silently acquire permission to speak under a live fault.
+        posting = signpost_disposition(herb, True, False, False)
+        if posting in ("emit", "emit_with_note", "preempted_by_process"):
+            return []  # no GREEN preemption of this verb: nothing for a setup signpost to say
         named = fault if fault != "none" else "dependency_not_importable"
         if fault == "none":
             detail = f"{', '.join(missing)} not importable by this interpreter"
@@ -12668,9 +12700,14 @@ def _signpost_rows(verb: str, root: str, target_file: str = "") -> list[str]:
         else:
             detail = f"the regime reports {named}"
         scope = f" '{os.path.relpath(target_file, root)}'" if target_file else ""
+        outranks = (
+            f"a GREEN finding outranks this {herb} verdict"
+            if posting == "preempted_by_setup"
+            else f"'{verb}' has no declared herb (COMMAND_HERB), so its rank is unestablished"
+        )
         return [
             "",
-            _row("⚠ SETUP FAULT", f"{named} — a GREEN finding outranks this {herb} verdict"),
+            _row("⚠ SETUP FAULT", f"{named} — {outranks}"),
             _row("", detail),
             _row("· Why withheld", "this read would have been measured THROUGH that fault, so it"),
             _row("", "would be a measurement of your ENVIRONMENT rather than of your"),

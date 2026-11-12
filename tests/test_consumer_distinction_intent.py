@@ -129,8 +129,8 @@ BY_DESIGN: dict[str, str] = {
         "Stated by the accessor's docstring: it 'drops only the foreign_only ones … KEPT: owned … AND "
         "unwitnessed (a kill with no recorded killer is this target's kill, not a foreign dependency — "
         "never dropped for missing attribution)'. This is the one call site of the foreign_only / "
-        "unwitnessed split, and it keeps those two apart. For review: the decision's own docstring says "
-        "`unwitnessed` is 'never invented into the receipt'."
+        "unwitnessed split, and it keeps those two apart. The decision's docstring (#93) says what "
+        "`unwitnessed` means: no witness is INVENTED for it; keeping the obligation is the consumer's call."
     ),
     "reachability.reach_disposition @ reachability.reachable_test_paths": (
         "A filter whose question is the decision's own first line, 'may a collected test execute the "
@@ -182,54 +182,11 @@ BY_DESIGN: dict[str, str] = {
     ),
 }
 
-# The code documents these distinctions as ones a reader or a later step needs, and each site loses
-# or re-derives them. Eight on 2026-09-26, the day the guard was built; two resolved the same day by
-# fixes their decisions' docstrings already dictated (EP-G4: `decompose_terminal`, `parameter_scope`
-# now dispatch on the code). The founder rules on the rest.
-OPEN: dict[str, str] = {
-    "array_inputs.array_source_disposition @ array_inputs.array_source": (
-        "`finite` and `exact` are passed as the constants True, True, so two pinned branches cannot fire "
-        "from production: exactness is pre-guarded by the `type(value) is ndarray` check, and finiteness "
-        "is re-derived inline AFTER the decision (`numpy.isfinite`), beside a float-width gate — the gate "
-        "that runs is unpinned. The reachable refusals `outside_bound` and `unsupported_dtype` both become "
-        "None and nothing reports which. Question: pass the measured facts in (the finiteness read must "
-        "stay behind the dtype check, since isfinite rejects object dtypes), and does a reader need the "
-        "reason?"
-    ),
-    "censor.learn_disposition @ cli._run_verify_rewrite": (
-        "The decision's docstring: 'the two skips are distinct so a reader sees WHY nothing was learned "
-        "(flag off vs. rewrite clean)'. The only consumer prints a line for `learn` alone, so `--learn` on "
-        "a verdict other than CHANGED prints nothing and the WHY reaches no one. Question: what the "
-        "`skip_unchanged` line says (`skip_disabled` is the flag being off, which needs no line)."
-    ),
-    "converge.regression_recovery @ converge._converge_impl": (
-        "Asked once, with retried=False, and only `retry_unminimized` is compared. After the retry, "
-        "`ship` versus `restore_prior` is decided by re-reading `regressed` (`if regressed:`), never by "
-        "asking the decision with retried=True, so its retried branch is pinned and unreached from "
-        "production. The behaviour agrees today. Remedy: ask it again after the retry, dispatch on the code."
-    ),
-    "rewrite.rewrite_classification_status @ rewrite.verify_rewrite": (
-        "Three reasons classification could not run (`unavailable`: no report; `load_failed`; "
-        "`invalid_measurement`) become one bool, `classification_ran`, and one sentence ('survivor "
-        "classification could not run on the rewritten source — abstaining'). A load failure is fixed "
-        "in the environment and an invalid measurement by re-running (exit 2 against 3 in §4's "
-        "alphabet), the shape of §3.1's verify-rewrite exit-2 collision. Question: should the verdict or "
-        "its sentence carry the reason?"
-    ),
-    "doctor.signpost_disposition @ cli._signpost_rows": (
-        "Asked with green=True, red=False, yellow=False, where only `preempted_by_setup`, `emit` and "
-        "`unknown_herb` can arise. `unknown_herb` falls through with `emit` into `return []`, so the "
-        "command speaks with no signpost. The decision's docstring: unknown_herb is 'NAMED, never admitted "
-        "by fall-through. A command whose herb nobody declared must not silently acquire permission to "
-        "speak'. Reachable only for a verb missing from COMMAND_HERB, which is the drift it exists to name."
-    ),
-    "emission.value_portability @ emission.run_c_gate": (
-        "`numeric_model_risk` and `inexpressible` (and any return that is not an int) are summed into one "
-        "`skipped` count. The decision's docstring gives them different standings: `numeric_model_risk` "
-        "is 'skipped and COUNTED (the modulo qualifier)', `inexpressible` is 'codec v2 territory, named "
-        "and deferred'. Question: should the gate count them apart?"
-    ),
-}
+# Empty: every site the guard found OPEN is resolved by a typed, named outcome (#93, founder ruling
+# 2026-09-26 item 17). Eight on 2026-09-26, the day the guard was built; two fixed the same day (EP-G4:
+# `decompose_terminal`, `parameter_scope`), the other six by #93. A NEW finding that is a real gap is added
+# here WITH its reason; a fix deletes the entry (`collapse_stale` makes the deletion compulsory).
+OPEN: dict[str, str] = {}
 
 
 @pytest.fixture(scope="module")
@@ -317,9 +274,9 @@ def test_every_reason_actually_says_something() -> None:
 
 def test_the_open_collapses_are_exactly_what_we_know_about() -> None:
     """`len(OPEN)` is the number this guard exists to make visible. It was 8 when the guard was built
-    (2026-09-26) and 6 after the two EP-G4 fixes the same day. A fix or a ruling makes it go DOWN; a
-    new finding arriving makes it go UP. Either is a deliberate edit here, never a silent drift."""
-    assert len(OPEN) == 6
+    (2026-09-26), 6 after the two EP-G4 fixes the same day, and 0 after #93. A new finding arriving makes
+    it go UP, a fix DOWN. Either is a deliberate edit here, never a silent drift."""
+    assert len(OPEN) == 0
 
 
 def test_a_site_is_never_in_both_registries() -> None:

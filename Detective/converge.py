@@ -1533,7 +1533,9 @@ def owned_obligation_disposition(discharger_is_foreign: list[bool]) -> str:
     * ``owned``        — at least one NON-foreign discharger. Self-contained; it enters the receipt.
     * ``foreign_only`` — has dischargers, and EVERY one is foreign. Excluded from the receipt; the
       fallback is the principled self-contained path (converge re-derives it with its own test).
-    * ``unwitnessed``  — no discharger at all. Nothing pins it; never invented into the receipt.
+    * ``unwitnessed``  — no discharger at all. Nothing pins it, and no witness is INVENTED for it:
+      no discharger is attributed to it. This decision does not say whether the obligation is kept —
+      its consumer keeps it, because an absent attribution is not a foreign dependency (#93).
 
     ``foreign_only`` and ``unwitnessed`` must not collapse into one falsy check: the first is a
     dependency this policy deliberately REFUSES to own, the second is a plain absence of evidence —
@@ -2717,11 +2719,10 @@ def _converge_impl(
         return ", ".join(lost[:3]) + (f" (+{len(lost) - 3} more)" if len(lost) > 3 else "")
 
     regressed, named_lost = _regression()
-    if (
-        regression_recovery(regressed, pre_minimal is not None, False) == RETRY_UNMINIMIZED
-        and pre_minimal is not None
-        and write_dir
-    ):
+    # (#93) The retry is possible only when a pre-trim superset exists AND somewhere to write it; the
+    # decision is asked with that fact, so RETRY_UNMINIMIZED is never returned for a run that cannot retry.
+    recovery = regression_recovery(regressed, pre_minimal is not None and bool(write_dir), False)
+    if recovery == RETRY_UNMINIMIZED and pre_minimal is not None:
         # The TRIMMED suite pins less than the prior one — but this run also found witnesses, and
         # restoring the prior file would throw them away with the bad trim. Measured 2026-09-06 on
         # `typed_synthesis._extract`: the witness pass wrote 4 distinguishing tests, minimization
@@ -2752,7 +2753,10 @@ def _converge_impl(
         if final_result.budget_exhausted and not budget_cut:
             budget_cut, cut_phase = True, "regression-retry"
         regressed, named_lost = _regression()
-    if regressed:
+        # (#93) Asked AGAIN after the retry, retried=True: ship versus restore is the decision's
+        # code, not a second reading of `regressed`.
+        recovery = regression_recovery(regressed, True, True)
+    if recovery == RESTORE_PRIOR:
         if named_lost:
             say(
                 f"kept the suite already on disk — this run's would stop pinning "
@@ -2794,7 +2798,7 @@ def _converge_impl(
     #
     # NOT after a restore: `accumulated` then describes the file we just threw away, and the
     # properties of the one we kept are exactly what this run could not recover.
-    if not regressed:
+    if recovery == SHIP:
         pins.save(root, func_key, fn_digest, list(accumulated.values()))
 
     final = final_result.value_survived

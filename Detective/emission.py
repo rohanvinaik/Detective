@@ -17,7 +17,8 @@ container is codec-v2 (named, deferred). Float comparison is EXACT by design: a 
 IEEE divergence (e.g. contraction differences) reads CHANGED, because the conservative
 direction is a false CHANGED, never a false PRESERVED.
 
-Pure decisions (`value_portability`, `emission_disposition`, `c_literal`) are pinned; the
+Pure decisions (`value_portability`, `obligation_portability`, `emission_disposition`,
+`c_literal`) are pinned; the
 compile-and-run bridge is the impure instrument shell (toolchain abstention on a missing
 compiler — the `count_opcodes` pattern), unit-guarded.
 """
@@ -53,6 +54,32 @@ def value_portability(value) -> str:
     if isinstance(value, str):
         return "portable"
     return "inexpressible"
+
+
+def obligation_portability(arg_codes: list[str], expected_code: str, expected_is_int: bool) -> str:
+    """How one recorded obligation rides the v1 codec, from `value_portability`'s codes (#93, pure —
+    pinned). The gate used to sum every obligation that could not ride into ONE `skipped` count, but
+    `value_portability` gives its two non-portable codes different standings. Named codes, in this
+    precedence (an obligation holding several kinds is classed by the strongest):
+
+      "inexpressible"       an argument or the expected value is a container, None or an object —
+                            codec v2 territory, named and deferred
+      "numeric_model_risk"  an argument or the expected value is real in Python but outside the
+                            target's numeric model (an int beyond i64, a non-finite float) — skipped
+                            and COUNTED, the modulo qualifier
+      "return_not_integer"  every value is portable, but the expected value is not an integer: the
+                            v1 return channel prints `%lld`, so a bool, float or str result cannot
+                            be compared there
+      "portable"            rides the v1 codec end to end
+    """
+    codes = [*arg_codes, expected_code]
+    if "inexpressible" in codes:
+        return "inexpressible"
+    if "numeric_model_risk" in codes:
+        return "numeric_model_risk"
+    if not expected_is_int:
+        return "return_not_integer"
+    return "portable"
 
 
 def emission_disposition(
@@ -165,17 +192,21 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
     import shutil
 
     portable, skipped = [], 0
+    unridden: list[str] = []  # the named standing of each obligation that could not ride, in order
     for args, expected in obligations:
-        arg_ok = all(value_portability(a) == "portable" for a in args)
-        ret_ok = (
-            not isinstance(expected, bool)
-            and isinstance(expected, int)
-            and value_portability(expected) == "portable"
+        standing = obligation_portability(
+            [value_portability(a) for a in args],
+            value_portability(expected),
+            not isinstance(expected, bool) and isinstance(expected, int),
         )
-        if arg_ok and ret_ok:
+        if standing == "portable":
             portable.append((args, expected))
         else:
             skipped += 1
+            unridden.append(standing)
+    skipped_by = {
+        kind: unridden.count(kind) for kind in ("numeric_model_risk", "inexpressible", "return_not_integer")
+    }
 
     pin = toolchain_pin()
     cc = shutil.which("cc")
@@ -195,6 +226,7 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
             "mismatches": [],
             "portable": len(portable),
             "skipped": skipped,
+            "skipped_by": skipped_by,
         }
 
     src = c_harness(emission, portable)
@@ -205,6 +237,7 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
             "mismatches": [],
             "portable": len(portable),
             "skipped": skipped,
+            "skipped_by": skipped_by,
         }
     c_path = os.path.join(workdir, "emission_gate.c")
     bin_path = os.path.join(workdir, "emission_gate")
@@ -220,6 +253,7 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
             "mismatches": [],
             "portable": len(portable),
             "skipped": skipped,
+            "skipped_by": skipped_by,
             "compile_error": build.stderr[-500:],
         }
     run = subprocess.run([bin_path], capture_output=True, text=True, timeout=120, check=False)
@@ -230,6 +264,7 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
             "mismatches": [],
             "portable": len(portable),
             "skipped": skipped,
+            "skipped_by": skipped_by,
         }
     lines = run.stdout.splitlines()
     mismatches = []
@@ -240,6 +275,7 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
             "mismatches": [],
             "portable": len(portable),
             "skipped": skipped,
+            "skipped_by": skipped_by,
         }
     for (args, expected), line in zip(portable, lines, strict=True):
         if int(line) != expected:
@@ -250,4 +286,5 @@ def run_c_gate(emission: CrossLangEmission, obligations: list[tuple[tuple, objec
         "mismatches": mismatches,
         "portable": len(portable),
         "skipped": skipped,
+        "skipped_by": skipped_by,
     }

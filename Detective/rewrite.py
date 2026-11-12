@@ -615,6 +615,24 @@ def rewrite_classification_status(report_present: bool, load_failed: bool, measu
     return "observed"
 
 
+# (#93) What each reason classification could not run MEANS for the reader, phrased as the remedy: the
+# three differ (a load failure is fixed in the environment, an invalid measurement by re-running).
+_CLASSIFICATION_SAID = {
+    "unavailable": (
+        "survivor classification produced no report on the rewritten source — re-run; if it repeats, "
+        "the classifier itself failed on this source"
+    ),
+    "load_failed": (
+        "the rewritten source could not be loaded for classification — fix the import or syntax error "
+        "or the environment; re-running will not help"
+    ),
+    "invalid_measurement": (
+        "the classification measurement on the rewritten source was not valid (cut, or its harvest not "
+        "contained) — re-run it; the source itself loaded"
+    ),
+}
+
+
 def replay_selection(node_ids: list[str], proof_suite: list[str]) -> str:
     """Which frozen basis verify-rewrite REPLAYS against the rewritten source (#114, pure — pinned).
 
@@ -700,7 +718,7 @@ def receipt_baseline_standing(
     return "valid"
 
 
-def abstain_reason(verdict: str, baseline: str, order_standing: str) -> str:
+def abstain_reason(verdict: str, baseline: str, order_standing: str, classification: str = "observed") -> str:
     """The machine-readable cause an ABSTAIN carries on ``reason``, or "" (#114, pure — pinned).
 
     The cause rides only when it actually DECIDED the verdict: on a CHANGED result the baseline's
@@ -710,13 +728,19 @@ def abstain_reason(verdict: str, baseline: str, order_standing: str) -> str:
     outranks an order cause.
 
       "receipt_<code>"   the receipt cannot be a baseline (`receipt_baseline_standing`)
+      "classification_<code>"  survivor classification did not run on the rewritten source
+                         (`rewrite_classification_status`: unavailable / load_failed /
+                         invalid_measurement — #93: three causes with different remedies, an
+                         environment fix against a re-run, which one sentence used to merge)
       <order standing>   the baseline's argument-order evidence (`order_evidence_standing`)
-      ""                 not an ABSTAIN, or one neither of those decided (classification did not run)
+      ""                 not an ABSTAIN, or one none of those decided
     """
     if verdict != "ABSTAIN":
         return ""
     if baseline != "valid":
         return f"receipt_{baseline}"
+    if classification != "observed":
+        return f"classification_{classification}"
     if order_standing != "clear":
         return order_standing
     return ""
@@ -929,8 +953,8 @@ def verify_rewrite(
     classification_ran = classification_status == "observed"
     if baseline != "valid":
         say(f"⚠ {_BASELINE_STANDING_SAID[baseline]}")
-    if not classification_ran:
-        say("⚠ survivor classification could not run on the rewritten source — abstaining")
+    if classification_status != "observed":
+        say(f"⚠ {_CLASSIFICATION_SAID[classification_status]} — abstaining")
     # The baseline's argument-order standing. NOT folded into `receipt_valid` — see
     # `rewrite_verdict`: a directly observed difference must still read CHANGED, never be hidden
     # behind an abstention about what the baseline failed to ask.
@@ -960,5 +984,5 @@ def verify_rewrite(
         # stamping them there would invite a reader to treat a proven difference as an evidence gap.
         # An invalid receipt decides an ABSTAIN before argument order is consulted (`rewrite_verdict`
         # checks it first), so its standing is the cause whenever it is not `valid` (#114).
-        reason=abstain_reason(verdict_str, baseline, order_standing),
+        reason=abstain_reason(verdict_str, baseline, order_standing, classification_status),
     )
