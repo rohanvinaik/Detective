@@ -204,7 +204,10 @@ def test_the_number_of_reflected_only_fields_is_deliberate(sweep) -> None:
     library caller and no attribute read: legitimate, but a decision, so it is a visible edit here."""
     fields = sweep[0]
     reflected = [k for k in fields if _code(sweep, k) == REFLECTED]
-    assert len(reflected) == 35, f"{len(reflected)} reflected-only fields: {sorted(reflected)}"
+    # 36 since D#80: `equivalence.SurvivorReport.unarmed_harvest` names the tests whose loop count ran past
+    # the probe cap, so the harvest took them under the wall alone. It changes no verdict and no page, so
+    # nothing reads it; `--json` reports it for a reader who asks which tests the count could not bound.
+    assert len(reflected) == 36, f"{len(reflected)} reflected-only fields: {sorted(reflected)}"
 
 
 # ---------------------------------------------------------------- the registries cannot rot
