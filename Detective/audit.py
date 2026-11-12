@@ -584,6 +584,30 @@ def missing_line_standing(
     return "unconsulted" if unconsulted_dynamic else "unexecuted"
 
 
+def unconsulted_gap_standing(killable_gaps: int, line_standings: list[str], named_tests: list[str]) -> str:
+    """Whether the ONLY thing open is lines that tests not consulted might run (#107, #77, pure — pinned).
+
+    `missing_line_standing`'s ``unconsulted`` says a line is open only because tests that dispatch by a
+    computed name were never consulted. The ladders used to read such a line as a gap, and so printed
+    `DO THIS: detective converge …`: converge writes a test from an input for a line no consulted test
+    runs, and over a line a NAMED test already runs it writes nothing the line did not have. The ladder
+    must consume the standing, not the count of missing lines:
+
+      "none"             no executable line is open
+      "unconsulted_only" at least one line is open, every open line is ``unconsulted``, no killable mutant
+                         is left, and the tests that were not consulted are named: the next move is to
+                         consult them, and converge changes nothing
+      "writable"         a line is open and something converge writes remains: a killable mutant, or a
+                         line of another standing (one a test written from an input covers). Any
+                         ``unconsulted`` line is named beside it, not instead of it
+    """
+    if not line_standings:
+        return "none"
+    if killable_gaps == 0 and named_tests and all(s == "unconsulted" for s in line_standings):
+        return "unconsulted_only"
+    return "writable"
+
+
 def write_refused_standing(killed_by: str) -> str:
     """Whether the suite already detects a survivor whose search was refused because the function writes
     files or makes a process effect (#105, D#141, pure — pinned).

@@ -3436,6 +3436,7 @@ def converge_next_action(
     has_diverged: bool = False,
     write_refused: str = "none",
     env_gate: str = "none",
+    unconsulted_only: bool = False,
 ) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
@@ -3503,6 +3504,12 @@ def converge_next_action(
       that only after the run was spent. A declarable capability outranks killable mutants too (an uncovered
       clock or env read makes every golden inadmissible); the fixture hand-back yields to a killable
       witness, which is real.
+    ``consult_named_tests`` (#107, #77) — the only residual is lines open because tests that dispatch by a
+      computed name were never consulted (`audit.unconsulted_gap_standing` reads ``unconsulted_only``): no
+      killable mutant, and no line of another standing. converge writes a test from an input for a line no
+      consulted test runs, and a named test may already run this one, so `close_the_gap` would be a command
+      that changes nothing. Ranked beside ``env_gate`` and above the gap ask; with a killable mutant open
+      the gap ask is right and the tests are named beside it.
     ``close_the_gap`` — the suite runs and a real residual remains. Witnesses and `--input` are
       the documented interface, and here they actually work.
 
@@ -3563,6 +3570,8 @@ def converge_next_action(
     # outranks the gap ask when no killable witness is left to pin.
     if gated in ("declare_clock", "declare_env") or (gated and has_line_gap and not has_killable):
         return gated
+    if unconsulted_only and not has_killable:
+        return "consult_named_tests"
     return "close_the_gap"
 
 
@@ -3942,6 +3951,20 @@ def _converge_routing(
             universe is not None and universe.clock is not None,
             universe is not None and bool(universe.env),
         ),
+        unconsulted_only=_converge_unconsulted_gap(result, rep) == "unconsulted_only",
+    )
+
+
+def _converge_unconsulted_gap(result, rep) -> str:
+    """`unconsulted_gap_standing`'s code for one converge result: whether the open lines are open only
+    because tests that dispatch by name were not consulted (#107, #77). A killable mutant open counts as
+    one, as the ladder reads it (`_converge_blocked`)."""
+    from .audit import unconsulted_gap_standing
+
+    return unconsulted_gap_standing(
+        1 if _converge_blocked(result, rep) else 0,
+        list(_line_standings(result.missing_lines, getattr(result, "missing_line_standings", ())).values()),
+        list(getattr(result, "not_consulted_dynamic", ()) or ()),
     )
 
 
@@ -4107,6 +4130,8 @@ def converge_step(
         return "run", ""
     if code == "step_budget_divergent":
         return "hand_back", "divergent"
+    if code == "consult_named_tests":
+        return "hand_back", "consult_named_tests"
     if code == "declare_clock":
         return "run", ""
     if code == "declare_env":
@@ -4340,7 +4365,7 @@ def _converge_commands(
         # The same run under a frozen clock (#101): the epoch is an example, any freeze covers the read.
         held = universe if universe is not None else UniverseOptions(two_sign=two_sign)
         return _converge_rerun(dataclasses.replace(held, clock=_EXAMPLE_CLOCK_EPOCH), fn), None
-    if code == "environment_fixture":
+    if code in ("environment_fixture", "consult_named_tests"):
         return None, rerun
     # declare_env: the variable's value is the person's, so no command can be printed for it (a
     # placeholder never enters an argv).
@@ -5022,6 +5047,8 @@ def _converge_action(
         return _dead_suite_action(kind, fn, root, session_reason, d.marker_declared, d.then)
     if kind in ("declare_clock", "declare_env", "environment_fixture"):
         return _environment_gate_action(kind, result.environment_gated, d, fn)
+    if kind == "consult_named_tests":
+        return _consult_named_tests_action(list(result.missing_lines), result.not_consulted_dynamic, rerun)
     if kind == "step_budget_divergent":
         n_div = len(d.state.get("step_budget_divergent", []))
         return [
@@ -5047,8 +5074,8 @@ def _converge_action(
         # below is impossible for them. Saying so up front is the difference between a driver that
         # supplies a fixture and one that loops forever on inputs that never land.
         if result.missing_lines and getattr(result, "environment_gated", ()):
-            return _environment_gated_caveat(result.environment_gated) + action
-        return action
+            action = _environment_gated_caveat(result.environment_gated) + action
+        return action + _unconsulted_beside_rows(result)
     # A synthesized suite has never been read by anyone. "Every behaviour pinned" is true of
     # it and is NOT "reviewed": with no pre-existing test, the pins record what the code does
     # TODAY — a bug included is a bug frozen, and the next `converge` will defend it. That is
@@ -7044,6 +7071,7 @@ def audit_next_action(
     errored: int = 0,
     write_refused: int = 0,
     redundant_kept: int = 0,
+    unconsulted_only: bool = False,
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -7063,6 +7091,14 @@ def audit_next_action(
                           command, legitimately: whether the TEST or the CODE is wrong is a call
                           only a human has standing to make.
       "provide_sample"    the search ran and no input reached the function — a sample, not a migrate
+      "consult_named_tests" (#107, #77) every open line is open only because tests that dispatch by a
+                          computed name were never consulted, and no killable mutant is left. converge
+                          writes a test from an input for a line no consulted test runs; it writes
+                          nothing over a line a named test may already run, so `DO THIS: converge` would
+                          be a command that changes nothing. The block names the tests, and the re-audit
+                          follows the person's move. ``unconsulted_only`` is `unconsulted_gap_standing`
+                          reading ``unconsulted_only``; with a killable mutant or a line of another
+                          standing still open converge is right, and the tests are named beside it
       "close_the_gap"     real killable mutants or uncovered lines — converge writes them
       "prune_by_hand"     every redundant test is one `--remove` keeps by its own pre-edit decision: a row
                           of a live parametrized test, an id no definition answers to, an ambiguous id,
@@ -7118,6 +7154,8 @@ def audit_next_action(
         return "fix_failing_test"
     if block == "provide_sample":
         return block
+    if unconsulted_only and killable_gaps == 0:
+        return "consult_named_tests"
     if killable_gaps > 0 or missing_lines > 0:
         return "close_the_gap"
     if redundant_tests > 0:
@@ -7153,6 +7191,10 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
       ("stop", "repair_errored_test")       an errored test: its fixture is repaired, then re-audit —
                                             under ``two_sign`` too, never ``run``: a setup with a
                                             broken fixture is not clean (Wesker#17)
+      ("hand_back", "consult_named_tests")  every open line is open only because tests that dispatch by a
+                                            computed name were not consulted (#107, #77): the person calls
+                                            the target by name in them, or accepts the named unknown, then
+                                            re-audits. converge changes nothing here, so no step is ``run``
       ("hand_back", "prune_by_hand")        every redundant test is a parametrized row `--remove` keeps:
                                             the person prunes them, then re-audits (under ``two_sign`` the
                                             step is ``run``, as for remove_redundant)
@@ -7181,6 +7223,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
         return "write_test", "pin_write_refused"
     if code in ("close_the_gap", "remove_redundant"):
         return "run", ""
+    if code == "consult_named_tests":
+        return "hand_back", "consult_named_tests"
     if code == "prune_by_hand":
         return ("run", "") if two_sign else ("hand_back", "prune_by_hand")
     if code == "done_divergent":
@@ -7240,6 +7284,20 @@ def _audit_code(a, removing: bool = False) -> str:
         errored=len(a.errored_tests),
         write_refused=a.write_refused,
         redundant_kept=len(_redundant_kept(a)),
+        unconsulted_only=_unconsulted_gap(a) == "unconsulted_only",
+    )
+
+
+def _unconsulted_gap(a) -> str:
+    """`unconsulted_gap_standing`'s code for one audit report: whether the lines still open are open only
+    because tests that dispatch by name were not consulted (#107, #77). The page, the ladder and the
+    record all read this one value."""
+    from .audit import unconsulted_gap_standing
+
+    return unconsulted_gap_standing(
+        len(a.killable_gaps),
+        list(_line_standings(a.missing_lines, getattr(a, "missing_line_standings", ())).values()),
+        list(getattr(a, "not_consulted_dynamic", ()) or ()),
     )
 
 
@@ -7311,7 +7369,13 @@ def _audit_commands(
         return None, _carried_argv(universe, "audit", fn)
     if code == "remove_redundant":
         return _carried_argv(universe, "audit", fn, "--remove"), None
-    if code in ("fix_load", "fix_failing_test", "repair_errored_test", "pin_write_refused"):
+    if code in (
+        "fix_load",
+        "fix_failing_test",
+        "repair_errored_test",
+        "pin_write_refused",
+        "consult_named_tests",
+    ):
         return None, _carried_argv(universe, "audit", fn)
     if code == "provide_sample":
         return None, _converge_rerun(universe, fn)
@@ -7330,7 +7394,10 @@ def _audit_decision(a, removing: bool = False, two_sign: bool = False) -> Decisi
     plan = InputPlan("sample", (), 0, 0) if code == "provide_sample" else None
     note = str(getattr(a, "note", "") or "") if plan is not None else ""
     residual = _audit_residual(a) if code == "flag_equivalents" else None
-    state = {"headline": _audit_headline(a)}
+    state: dict = {"headline": _audit_headline(a)}
+    if code == "consult_named_tests" or _unconsulted_gap(a) != "none":
+        # The tests the open lines wait on, by id: the record names what the block names (#107, #77).
+        state["not_consulted_dynamic"] = list(getattr(a, "not_consulted_dynamic", ()) or ())
     route = repair_measurement_route(tuple(a.cut_reasons)) if code == "repair_measurement" else ""
     return Decision(
         "audit", code, route, kind, remedy, argv, then, plan, note, residual, (), state, two_sign=two_sign
@@ -7411,7 +7478,9 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
         return _failing_test_action(tuple(a.failing_tests), decision.then)
     if kind == "close_the_gap":
         gaps = len(a.killable_gaps)
-        lines = len(a.missing_lines)
+        by_line = _line_standings(a.missing_lines, getattr(a, "missing_line_standings", ()))
+        lines = sum(1 for standing in by_line.values() if standing != "unconsulted")
+        waiting = len(by_line) - lines
         why = ", ".join(
             p
             for p in (
@@ -7425,6 +7494,19 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             "",
             _row("· Why", f"{why} — real gaps, not equivalents."),
             _row("· Writes", "the missing tests, and wires them into pytest."),
+            # Lines open only because named tests were not consulted are not converge's to close: they stay
+            # open beside what it writes, named (#107, #77).
+            *(
+                [
+                    _row(
+                        "· Not converge's",
+                        f"{waiting} line(s) are open only because named test(s) were not consulted:",
+                    ),
+                    _row("", _first_n(a.not_consulted_dynamic, 4)),
+                ]
+                if waiting
+                else []
+            ),
             # A reach gap rides here, not as a measurement repair (#77): the test converge writes is
             # the repair its sentence names.
             *[_row("· Also", cut_reason_sentence(r)) for r in a.cut_reasons],
@@ -7602,6 +7684,43 @@ def _prune_by_hand_block(a, universe: UniverseOptions) -> list[str]:
     return lines
 
 
+def _unconsulted_beside_rows(result) -> list[str]:
+    """Beside a gap converge CAN write, the lines that stay open because named tests were not consulted
+    (#107, #77): named, so the ask above is not read as covering them."""
+    by_line = _line_standings(result.missing_lines, getattr(result, "missing_line_standings", ()))
+    waiting = [ln for ln, standing in by_line.items() if standing == "unconsulted"]
+    named = getattr(result, "not_consulted_dynamic", ()) or ()
+    if not waiting or not named:
+        return []
+    return [
+        "",
+        _row(
+            "· Not converge's", f"line(s) {_first_n(waiting, 8)} stay open until named test(s) are consulted:"
+        ),
+        _row("", _first_n(named, 4)),
+    ]
+
+
+def _consult_named_tests_action(missing_lines: list[int], test_ids, reaudit: str) -> list[str]:
+    """The hand-back for lines open only because tests were not consulted (#107, #77): the tests that
+    dispatch by a computed name, and the two moves a person has. No command of Detective's changes what
+    is known here: converge writes a test from an input for a line no consulted test runs, and a named
+    test may already run it. The re-audit follows the person's move."""
+    ids = list(test_ids)
+    return [
+        f"HAND BACK:  {len(missing_lines)} line(s) wait on {len(ids)} named test(s) that were not consulted.",
+        "",
+        _row("· Not consulted", _first_n(ids, 4)),
+        _row("", "each reaches code by a name the static route cannot follow (getattr / importlib / eval),"),
+        _row("", "so none of them is known to miss the line(s), and none is known to run them."),
+        _row("· Either", "call the target BY NAME in the test, so the route consults it;"),
+        _row("", "or accept the named unknown: the line(s) stay unproven, never uncovered."),
+        _row("· Not converge", "it writes a test from an input for a line no consulted test runs, and a"),
+        _row("", "named test may already run this one, so converge would change nothing."),
+        _row(_THEN_ROW, reaudit),
+    ]
+
+
 def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
     """The endings that follow a clean measurement — removal, the equivalents, and done.
 
@@ -7616,6 +7735,12 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
             _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
             _row("", "a test pointless here can still be the only pin of a function it runs."),
         ]
+    if kind == "consult_named_tests":
+        return _consult_named_tests_action(
+            list(a.missing_lines),
+            a.not_consulted_dynamic,
+            _command_text(_carried_argv(universe, "audit", a.function)),
+        )
     if kind == "prune_by_hand":
         return _prune_by_hand_block(a, universe)
     if kind == "remove_redundant":
