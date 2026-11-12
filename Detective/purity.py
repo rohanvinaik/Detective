@@ -410,6 +410,50 @@ def uncovered_env_reads(
     )
 
 
+# The interpreter's own state (D#96): what the PROCESS holds, not what a caller's argument sets. A function
+# that returns `"numpy" if "numpy" in sys.modules else ...` answers by which modules an earlier test
+# imported, so its golden describes the process that ran it and is order-dependent inside one interpreter.
+_PROCESS_STATE_ATTRS = frozenset(
+    {
+        "modules",
+        "path",
+        "flags",
+        "version",
+        "version_info",
+        "hexversion",
+        "implementation",
+        "platform",
+        "executable",
+        "argv",
+        "prefix",
+        "base_prefix",
+        "exec_prefix",
+        "byteorder",
+        "maxsize",
+        "float_info",
+        "getrecursionlimit",
+        "getdefaultencoding",
+        "getfilesystemencoding",
+    }
+)
+
+
+def process_state_read(dotted: str) -> str:
+    """The reason a dotted name reads PROCESS state, or ``""`` if it does not (D#96, pure — pinned).
+
+    ``sys.<attr>`` for the interpreter-state attributes above, and anything rooted at ``platform``
+    (``platform.system()``, ``platform.python_version()``, …). The reason is its own class: it is not the
+    clock, not the process ENVIRONMENT (`--env` covers ``os.environ`` and nothing here), so no capability
+    controls it and the golden is declined, as any uncovered environment read is.
+    """
+    parts = dotted.split(".") if isinstance(dotted, str) else []
+    if len(parts) >= 2 and parts[0] == "sys" and parts[1] in _PROCESS_STATE_ATTRS:
+        return f"reads process state via sys.{parts[1]}"
+    if len(parts) >= 2 and parts[0] == "platform":
+        return f"reads process state via {'.'.join(parts[:2])}"
+    return ""
+
+
 class _EnvironmentReadVisitor(ast.NodeVisitor):
     """Finds reads of clock / filesystem / process-env / entropy that gate reachability."""
 
@@ -446,4 +490,7 @@ class _EnvironmentReadVisitor(ast.NodeVisitor):
         # this attribute node; naming it once (deduped) covers both.
         if get_name(node) == "os.environ":
             self.reasons.append("reads process env via os.environ")
+        elif reason := process_state_read(get_name(node) or ""):
+            # D#96: `sys.modules`, `sys.version_info`, `platform.system` … — the interpreter's state.
+            self.reasons.append(reason)
         self.generic_visit(node)
