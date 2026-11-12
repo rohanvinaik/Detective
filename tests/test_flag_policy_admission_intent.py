@@ -44,7 +44,7 @@ def _run(argv, monkeypatch, tmp_path):
     import shlex
     from types import SimpleNamespace
 
-    from Detective import cli, engine, equivalents
+    from Detective import audit, cli, equivalents
 
     profiled = []
 
@@ -55,7 +55,8 @@ def _run(argv, monkeypatch, tmp_path):
             value_survivor_records=[{"mutant_id": "STATE_bde50f1f", "diff_summary": "return None -> pass"}],
         )
 
-    monkeypatch.setattr(engine, "profile", measured)
+    # `flag` measures through `audit.audit_profile` (#127), the one measurement audit shares.
+    monkeypatch.setattr(audit, "profile", measured)
     monkeypatch.setattr(equivalents, "add_flag", lambda *a, **kw: None)
     args = cli._build_parser().parse_args([*argv, "--project-root", str(tmp_path)])
     code = cli._run_flag(args, "m.py", "scale")

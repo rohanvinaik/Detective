@@ -11856,7 +11856,7 @@ def _unscored_flag_refusal(args, result) -> int | None:
 
 def _run_flag(args, file, function) -> int:
     from .atomic_store import StoreRefused
-    from .engine import profile
+    from .audit import audit_profile
     from .equivalents import add_flag
 
     if getattr(args, "style", False):
@@ -11876,7 +11876,9 @@ def _run_flag(args, file, function) -> int:
         return 2
     if admission == "needs_two_sign":
         return _flag_needs_two_sign(args)
-    result = profile(file, function, args.project_root, two_sign=two_sign)
+    # The SAME measurement audit's verdicts rest on (`audit_profile`): a mutant audit reports with no verdict
+    # (`original_also_fails`) is unscored here too, and refused below in the words of its cause.
+    result = audit_profile(file, function, args.project_root, two_sign=two_sign)
     unscored = _unscored_flag_refusal(args, result)
     if unscored is not None:
         return unscored

@@ -843,6 +843,35 @@ def cover_standing_sentence(code: str) -> str:
     return _COVER_STANDING_SENTENCES.get(code, f"the per-test kill relation is unavailable ({code})")
 
 
+def audit_profile(
+    file: str,
+    function: str,
+    project_root: str = ".",
+    *,
+    two_sign: bool = False,
+    progress: Callable[[int, int, float], None] | None = None,
+    trace_progress: Callable[[int, int, float], None] | None = None,
+) -> Any:
+    """The ONE measurement an audit's verdicts rest on (#127, pure of decisions — one derivation).
+
+    `audit_suite` and `flag` must classify over the same profile. `flag` used to run its own default profile
+    (cached, not isolated), in which a test that already fails on the unmutated code is excluded from the
+    floor, so a mutant that audit reports as having NO VERDICT (``original_also_fails``) was a plain survivor
+    there, and `flag` offered and recorded ``equivalent`` for it. The options below are the ones that change
+    the verdicts (an isolated, uncached run), plus the per-test relation, which changes none."""
+    return profile(
+        file,
+        function,
+        project_root,
+        progress=progress,
+        trace_progress=trace_progress,
+        two_sign=two_sign,
+        isolated=True,
+        use_cache=False,
+        full_matrix=True,
+    )
+
+
 @restores_process_state(declared_roots)
 def audit_suite(
     file: str,
@@ -866,16 +895,8 @@ def audit_suite(
     # μ⁻ OUTPUT perturbations, so a surviving negative DOF surfaces in killable_gaps and — via the
     # unchanged audit_check_failed — makes `audit --two-sign --check` fail on an ENGINE-found unpinned
     # output invariant, extending Q8's authored-fence gate to the perturbations the engine finds.
-    result = profile(
-        file,
-        function,
-        project_root,
-        progress=progress,
-        trace_progress=trace_progress,
-        two_sign=two_sign,
-        isolated=True,
-        use_cache=False,
-        full_matrix=True,
+    result = audit_profile(
+        file, function, project_root, two_sign=two_sign, progress=progress, trace_progress=trace_progress
     )
     # A test belongs to THIS function's suite only if it discharges an obligation for
     # it — kills one of its mutants OR covers one of its lines (`function_test_suite`, the one
