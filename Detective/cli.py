@@ -5205,9 +5205,21 @@ def _converge_action(
                 flag_lines.append(
                     f'       If you can PROVE one equivalent: {_command_text(flag)} --note "why"{more}'
                 )
+        # A residual of stale returns only (#140 item 1): the remedy is two --input values whose results
+        # differ, so the DONE names the command to run with them, as a template — never a flag.
+        second_call = (
+            [
+                "       To kill it, supply two inputs whose results differ:",
+                f"         {_command_text(_converge_rerun(universe, fn))} "
+                '--input "(<A>,)" --input "(<B>,)"   # replace every <...> slot',
+            ]
+            if basis == "history"
+            else []
+        )
         return [
             "DONE:  every killable behaviour Detective found is pinned.",
             *(f"       {line}" for line in residual_done_why(basis).split("\n")),
+            *second_call,
             *flag_lines,
             *style_handoff,
             *review,
@@ -7299,6 +7311,7 @@ def audit_next_action(
     unconsulted_only: bool = False,
     reach_unobserved_only: bool = False,
     untyped: int = 0,
+    equivalents: str = "legacy",
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -7358,6 +7371,12 @@ def audit_next_action(
       "flag_equivalents"  every killable behaviour pinned; what remains is undecidable, and `flag`
                           is the one claim a human makes against the engine — never offered while
                           a real gap is open, which is why it ranks below all of them
+      "done_identical"    (#142) the residual is only mutants identical to the original: equivalent by
+                          identity, nothing to prove and nothing to flag. ``equivalents`` is
+                          `equivalents_route`'s ``identical_only``
+      "supply_second_call" (#140) the residual is only stale-return survivors: no single input tells one from
+                          the function, a second call whose result differs kills it, and `flag` is never
+                          offered. ``equivalents`` is ``history_only``; the person supplies two inputs
       "done_unclassified" no gaps, but survivors the search could not run on. Not gaps, not
                           equivalents — a named unknown rather than a clean DONE
       "done_complete"     complete and minimal
@@ -7410,12 +7429,40 @@ def audit_next_action(
     if write_refused > 0:
         return "pin_write_refused"
     if candidate_equivalent > 0 and has_equivalent_ids:
+        if equivalents == "identical_only":
+            return "done_identical"
+        if equivalents == "history_only":
+            return "supply_second_call"
         return "flag_equivalents"
     if diverged > 0:
         return "done_divergent"
     if unclassified > 0:
         return "done_unclassified"
     return "done_complete"
+
+
+def equivalents_route(flaggable: int, candidate_equivalent: int, identical: int, history: int) -> str:
+    """What an audit's equivalents residual is made of, for the ladder (#140, #142, pure — pinned).
+
+    `audit_next_action` received ``bool(candidate_equivalent_ids)``, which counts identical mutants and
+    stale-return survivors too, so a residual made only of them still returned ``flag_equivalents``. The
+    ladder consumes the classes instead, as the report rows already do:
+
+      "none"           no candidate-equivalent survivor
+      "flag"           at least one survivor is genuinely flaggable (`_flaggable_ids`): the human's claim
+      "identical_only" every one is identical to the original: nothing to prove, nothing to flag
+      "history_only"   every one is a stale return (with or without identical ones): a second call kills it
+      "unflaggable"    anything else with nothing flaggable (crash-only, a mix): the basis block says what
+    """
+    if candidate_equivalent <= 0:
+        return "none"
+    if flaggable > 0:
+        return "flag"
+    if identical >= candidate_equivalent:
+        return "identical_only"
+    if history > 0 and history + identical >= candidate_equivalent:
+        return "history_only"
+    return "unflaggable"
 
 
 def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
@@ -7438,6 +7485,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
                                             computed name were not consulted (#107, #77): the person calls
                                             the target by name in them, or accepts the named unknown, then
                                             re-audits. converge changes nothing here, so no step is ``run``
+      ("supply", "history_second_call")     the residual is only stale-return survivors (#140): the person
+                                            supplies two inputs whose results differ; `flag` is not offered
       ("hand_back", "untyped_route")        a test could not be typed on its route (Wesker#17): run
                                             it through the CLI or a live session, then re-audit
       ("hand_back", "observe_reach")        every open line is open only because a consulted test's reach was
@@ -7479,7 +7528,9 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
         return ("run", "") if two_sign else ("hand_back", "prune_by_hand")
     if code == "done_divergent":
         return "hand_back", "divergent"
-    if code in ("flag_equivalents", "done_unclassified", "done_complete"):
+    if code == "supply_second_call":
+        return "supply", "history_second_call"
+    if code in ("flag_equivalents", "done_unclassified", "done_complete", "done_identical"):
         return ("run", "") if two_sign else ("done", "")
     if code == "removing_now":
         return "done", ""
@@ -7533,6 +7584,12 @@ def _audit_code(a, removing: bool = False) -> str:
         # A direct read (§9.7): a renamed field must raise, never read as "no errored test" and close DONE.
         errored=len(a.errored_tests),
         untyped=len(a.untyped_tests),
+        equivalents=equivalents_route(
+            len(_audit_residual(a)[1]),
+            int(a.candidate_equivalent or 0),
+            len(a.identical_ids),
+            len(a.history_dependent_ids),
+        ),
         write_refused=a.write_refused,
         redundant_kept=len(_redundant_kept(a)),
         unconsulted_only=_unconsulted_gap(a) == "unconsulted_only",
@@ -7615,7 +7672,14 @@ def _audit_commands(
     if code == "close_the_gap" or (
         two_sign
         and code
-        in ("remove_redundant", "prune_by_hand", "flag_equivalents", "done_unclassified", "done_complete")
+        in (
+            "remove_redundant",
+            "prune_by_hand",
+            "flag_equivalents",
+            "done_unclassified",
+            "done_complete",
+            "done_identical",
+        )
     ):
         return _converge_rerun(universe, fn), None
     if code == "prune_by_hand":
@@ -7632,7 +7696,7 @@ def _audit_commands(
         "type_the_route",
     ):
         return None, _carried_argv(universe, "audit", fn)
-    if code == "provide_sample":
+    if code in ("provide_sample", "supply_second_call"):
         return None, _converge_rerun(universe, fn)
     return None, None
 
@@ -7648,7 +7712,9 @@ def _audit_decision(a, removing: bool = False, two_sign: bool = False) -> Decisi
     argv, then = _audit_commands(code, a.function, two_sign)
     plan = InputPlan("sample", (), 0, 0) if code == "provide_sample" else None
     note = str(getattr(a, "note", "") or "") if plan is not None else ""
-    residual = _audit_residual(a) if code == "flag_equivalents" else None
+    residual = (
+        _audit_residual(a) if code in ("flag_equivalents", "done_identical", "supply_second_call") else None
+    )
     state: dict = {"headline": _audit_headline(a)}
     if code == "consult_named_tests" or _unconsulted_gap(a) != "none":
         # The tests the open lines wait on, by id: the record names what the block names (#107, #77).
@@ -8048,6 +8114,30 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
     must never be offered while a real gap is still open.
     """
     universe = UniverseOptions(two_sign=two_sign)
+    if kind == "done_identical":
+        return [
+            "DONE:  every killable behaviour Detective found is pinned and every line covered.",
+            "",
+            _row(
+                "· What remains",
+                f"{len(a.identical_ids)} survivor(s) identical to the original — equivalent by identity:",
+            ),
+            _row("", "nothing to prove, nothing to flag."),
+        ]
+    if kind == "supply_second_call":
+        return [
+            f"AUTHOR INPUT:  {len(a.history_dependent_ids)} stale-return survivor(s) need a second call "
+            "with a different result",
+            "",
+            _row("· Why", "a stale mutant answers each call with the previous call's result, so no single"),
+            _row("", "input tells it from your function; `flag` is not offered, your function is not known"),
+            _row("", "to return one value."),
+            _row(
+                "· Supply",
+                f"{_command_text(_converge_rerun(universe, a.function))} "
+                '--input "(<A>,)" --input "(<B>,)"   # two inputs, different results',
+            ),
+        ]
     if kind == "type_the_route":
         return _untyped_route_action(
             tuple(a.untyped_tests), _command_text(_carried_argv(universe, "audit", a.function))
