@@ -56,6 +56,11 @@ BY_DESIGN: dict[str, str] = {
         "`consumption.py`, a repo-discipline instrument deliberately not wired to any verb; its consumer is "
         "tests/test_field_consumption_intent.py."
     ),
+    "faults.fault_read_disposition": (
+        "The fault-flag rule's own decision (#95), consumed by tests/test_absorbed_rename_intent.py: the "
+        "guard asks it of every defaulted getattr that `absorption.getattr_reads` finds. Like "
+        "`absorption.absorption_disposition` it is a repo-discipline instrument, not wired to any verb."
+    ),
     "consumption.consumption_disposition": (
         "This guard's own decision. `Detective/consumption.py` is deliberately not wired to any "
         "verb — it is a repo-discipline instrument, and its consumer is this test."
