@@ -9133,6 +9133,8 @@ def observation_incomplete_remedy(code: str, deadline: float | None, accepts_dea
                             CUT in the measured case), so the next step is ``--deadline 0``
       "unbounded_timeout"   a `*_timeout` with the wall already off (0): the bound that fired is not the
                             wall, so no ``--deadline`` re-run is offered
+      "step_budget_stop"    a `*_step_budget` (Detective#80): a loop budget stopped a test. It is a count,
+                            not a wall, so no ``--deadline`` re-run changes it and none is offered
       "none"                every other code (a refusal of the execution, an unretainable snapshot, a
                             worker left alive, a monitoring fault): the code and its detail name the cause
                             and no budget, input or option changes it. The one-line ending is DELIBERATE
@@ -9146,6 +9148,8 @@ def observation_incomplete_remedy(code: str, deadline: float | None, accepts_dea
         if deadline is not None and deadline >= 900:
             return "disable_deadline"
         return "raise_deadline"
+    if code.endswith("_step_budget"):
+        return "step_budget_stop"
     return "none"
 
 
@@ -9182,6 +9186,13 @@ def _incomplete_observation_lines(exc, args, argv: list[str]) -> tuple[list[str]
             "",
             _row("· Why", "the remaining execution deadline ran out before this observation finished;"),
             _row("", "a larger wall is the one bound this run can raise."),
+        ]
+    elif remedy == "step_budget_stop":
+        lines += [
+            "",
+            _row("· Next", "no command: a loop budget stopped a test inside the target, deterministically;"),
+            _row("", "a larger --deadline changes nothing. Pin the function with a test that finishes"),
+            _row("", "inside the budget, or supply an --input it finishes on."),
         ]
     elif remedy == "unbounded_timeout":
         lines += [
