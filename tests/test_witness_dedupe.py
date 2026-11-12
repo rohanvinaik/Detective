@@ -39,7 +39,8 @@ def test_identical_witnesses_collapse_to_one_line_with_kill_set():
     assert "VALUE_aaaa1111" in shared
     assert "SWAP_bbbb2222" in shared
     solo = next(ln for ln in arrows if "81" in ln)
-    assert "kills" not in solo
+    # A lone suggestion names its mutant too (#76).
+    assert "(kills 1: BOUNDARY_cccc3333)" in solo
     # The header still counts VERDICTS, not lines — three killable mutants.
     assert "not auto-applied, 3" in out
 

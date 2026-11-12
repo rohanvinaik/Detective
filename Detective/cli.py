@@ -2009,13 +2009,14 @@ def _format_survivor_report(
             grouped.setdefault((args, str(w.original)), []).append(v)
         for (args, original), verdicts in grouped.items():
             w = verdicts[0].witness
-            if len(verdicts) == 1:
-                kills = ""
-            else:
-                ids = ", ".join(v.mutant_id for v in verdicts)
-                kills = f"   (kills {len(verdicts)}: {ids})"
+            # Every suggestion names the mutant(s) it kills, a lone one included (#76): a line that
+            # names none cannot be checked against the mutant it is for.
+            ids = ", ".join(v.mutant_id for v in verdicts)
+            kills = f"   (kills {len(verdicts)}: {ids})"
             if _witness_input(w) is not None:
-                lines.append(f"    → assert f({args}) == {original}   (mutant gives {w.mutant}){kills}")
+                lines.append(
+                    f"    → {suggested_assertion(f'f({args})', original)}   (mutant gives {w.mutant}){kills}"
+                )
             else:
                 objects = ", ".join(type(a).__name__ for a in w.args) or "test-built object"
                 lines.append(
@@ -2332,7 +2333,9 @@ def _final_banner_status(result) -> str:
     else:
         bits = []
         if killable:
-            bits.append(f"{killable} killable")
+            # "killable" is a VALUE gap: a witness exists and no test asserts it. "M/M killed" beside it
+            # counts mutants a test already detects, a crash included, so the two never contradict (#76).
+            bits.append(f"{killable} killable (no value pin)")
         if unresolved:
             bits.append(f"{unresolved} unresolved")
         if gap:
@@ -5781,6 +5784,24 @@ def _line_gap_rows(proof) -> list[tuple[str, dict]]:
 # Who already ran a witness's input (D#140 item 6): True when a current test calls it, False when the reader
 # supplied it with `--input`. The WRITE TEST item names which, because the two are different facts.
 _ALREADY_SAID = {True: "a current test already calls it", False: "supplied already"}
+
+
+def suggested_assertion(call: str, original: str) -> str:
+    """The assertion a suggested test states for ``call`` returning ``original`` (#76, pure — pinned).
+
+    ``assert f(0.0, -0.5) == nan`` is unsatisfiable (``nan != nan``), and a bare ``inf`` is not a name.
+    A repr that is not a Python literal (a non-finite number, an object) is compared by its repr, the
+    form the written pins already use (``assert repr(result) == "nan"``, #78); a literal keeps ``==``.
+    A ``<…>`` observation (a raise, an exhausted iterator) is no value and stays as observed.
+    """
+    text = str(original)
+    if text.startswith("<"):
+        return f"assert {call} == {text}"
+    try:
+        ast.literal_eval(text)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return f"assert repr({call}) == {text!r}"
+    return f"assert {call} == {text}"
 
 
 def _outcome_needs_hand_pin(original: str, mutant: str) -> bool:
