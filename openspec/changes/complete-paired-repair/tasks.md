@@ -17,6 +17,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [ ] 2.2 Finish the seven-site inventory, including the already-migrated count_opcodes; verify hook absence, tool/thread ownership, callback failure qualification and all consumers.
 - [ ] 2.3 Verify concurrent/same-event overlap, both cleanup orders, global-mask changes with existing subscribers, setup rollback, startup cancellation, retirement/inflight delivery and thread-ID reuse.
 - [ ] 2.4 Verify child-thread/subprocess uncertainty and foreign coverage/profiler coexistence across 3.12–3.14; retain per-TestId line, arc, capture and outcome equality.
+- [x] 2.4a (2026-11-12) Wesker#32 closed on `f7b4b67`, re-run under 3.12 and 3.14: an AST guard in each repo fails the build on a hook call outside `Wesker/monitoring.py` (Wesker aed82d8, Detective 64732f6); per-TestId lines and arcs are pinned equal in-process vs isolated, beside a foreign monitoring tool, a `sys.setprofile` hook, cProfile and a running coverage.py (c6718a2, e445e79); setup rollback, a failed rollback, same-event overlap, global-mask changes and thread-id reuse are tested (e94fd07). A pre-existing thread and a child process make reach unknown (`incomplete_preexisting_thread`, `incomplete_subprocess`; 5a7b725, d878e76). Not accepted: capture equality in the corpus; pyinstrument; Detective reading the new reach codes (Wesker#17 stays open for it).
 - [ ] 2.5 Reproduce W#29's six self-measurement containment failures with an unmutated containing parent; do not infer success from the ordinary CI suite.
 - [ ] 2.5a (2026-10-25, not accepted) The spec-full self-measurement on Wesker 6ba533d hit its 180-minute bound. The stall dumps locate a permanent hang: the main thread in `Thread.start()` -> `_started.wait()` from `_run_test_with_timeout`, from 14:57 to 17:27, with no other Python thread (W#29 comment). It is not the `with`-stranding fixed in 91c3b93/b1fd0e1.
 - [ ] 2.5b (2026-10-26, not accepted) The hang's cause and its fixes:
@@ -30,6 +31,12 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
   - `_isolated_worker.py::_build_mutant` exceeding its budget (0/62);
   - the original six (2.5);
   - whether 180 minutes can hold the run (founder decision, W#29).
+- [ ] 2.5c (2026-11-12, not accepted) Spec-full after the Wave 1-3 containment work:
+  - **Run 43102482321 (fb2f8b4):** completed in 2 h 26 min and printed its report over all 24 files for the first time; a named refusal (584 functions partially evaluated: 572 "could not stop: the session's baseline trace", 12 over budget).
+  - **Run 43134316406 (185985c):** ran out its 180 minutes while still evaluating mutants (stall dumps in a different evaluation each time). No report.
+  - **Landed (Wesker f7b4b67):** a test the baseline cannot stop is named and a child-process wait is stopped (62bf514); the baseline's one-time cost is not charged to the first function (576e153); measured code cannot write into the run's output (c2e41e3, W#52); a survivor no test ran against says so (5c40bd8); under `--isolated` the measuring process runs no mutant uncapped (381878c, W#45/#39).
+
+  Not accepted: the sharded run (decision B1, in progress); the 12 over-budget functions; a worker blocked on anything but a child process; W#45's finding that a mutant stopped at the memory cap is recorded `contained=False`, ends its function early and varies run to run.
 - [ ] 2.6 Validate original-measurement warrants for mutant step caps and propagate named wall/observer/arm failures through every gate.
 - [x] 2.6a (2026-10-25) The witness search budgets a mutant with Wesker's calibrated STEP_BUDGET_FACTOR/FLOOR (Detective 01337aa): the `//` -> `/` halving mutant (1,075 iterations) is distinguished, never filed divergent. The strict gate names every no-verdict mutant and fails only on a repairable one (founder ruling). Not accepted: the original's probe cap (STEP_PROBE_CAP), the steps_140m wall split (W#27), and the harvest step budget (D#80 (3)).
 
@@ -55,6 +62,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 
   Not accepted: the residuals in D#143 (unclassifiable refused survivors, `--check-strict`, the refusal's boundary).
 - [ ] 3.5 Re-run D#108/#127 original CLI reproductions, including slow copy/repr/rendering and cancellation, then accept only the demonstrated deadline and authored-input obligations.
+- [x] 3.5a (2026-11-12) Wesker#55 and D#127 closed. Every evaluation gets fresh authored arguments in both modes and an original control (Wesker `FreshArguments`, `original_control_standing`); a failure the original also produces is the unscored `original_also_fails`, named on every Detective surface in the sign of its cause (1da374b). Arguments that cannot be copied or compared are named (`shared_arguments`). Not accepted: D#108's witness-writing loop and its slow copy/repr/rendering cases (3.5 itself).
 - [ ] 3.6 Verify nonfinite literal round trips, evaluated distinctions and NaN assertions through written tests and public reports; leave unrelated D#76 reporting work in B05.
 - [x] 3.7 Reject harvest observations/snapshots admitted after the absolute deadline, include setup/startup in the remaining budget, and reap startup/pre-join cancellation (Detective e5f7c98/bf3f87b, ten controlled regressions; exact 1.2.2 CI). This accepts the added boundary subset, not 3.4–3.6 or the full D#108 field reproduction.
 
@@ -94,6 +102,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
   - Wesker#53: SWAP of identical arguments.
   - Wesker#54: harness dispositions unnamed in the rollup.
   - D#144: a containment intent test that fails intermittently on CI's macOS runners.
+- [x] 6.1c (2026-11-12) Wave 2, pages that said something false. Closed with re-run evidence: D#76 (a suggested assertion is satisfiable and names its mutant), D#77 (the decorator_wrapper sentence), D#86 (library entries restore the process), D#96 (process-state reads refuse the golden), D#101 (clock / fixture / --input routing), D#104 (`audit --remove` re-checks the edited suite in a fresh process), D#107 (helper, alias and constant reach), D#113 and D#115 (next commands carry the run's universe), D#144. Landed in part, each with a status comment on its issue: D#110 (a distinguished mutant is never flagged equivalent; the reach half is open), D#134, D#140 (item 3 waits on the operator catalog), D#142 (`--trace-budget 0` ends UNGATEABLE and asks for the same flags again), D#89 (U5, the audit count qualifier and two display cuts landed; eight items open).
 - [ ] 6.2 Verify human stdout, full report, JSON, ledger and certificate agreement for unknown/multiple refusals, absent/unknown containment and provenance-bearing shape hazards.
 - [ ] 6.3 Round-trip printed witness/mutant identity, full usable outcomes, nonfinite spellings, valid next targets and clock/environment/two-sign context.
 - [ ] 6.4 Complete decision-code/field-consumption guards, foreign missing-evidence handling, plugin disclosure and nested invocation-ledger finalization.
@@ -118,7 +127,7 @@ membership and dependency edges are in `docs/REPAIR_QUEUE_2026-10-24.json`.
 - [ ] 9.2 Establish every required affected-obligation premise; retain tests when the code-kappa/domain basis or another required witness is unavailable.
 - [ ] 9.3 Verify the exact staged edit fresh, reject intervening edits, coordinate source/certificate/index acceptance and restore exact before images on failure.
 - [ ] 9.4 Reaccept cleanup C01–C18 and the joint final-witness case before any purge; failed recovery must stop the next edit.
-- [ ] 9.5 (2026-10-26, D#145) Make the redundant set and the cover count independent of execution order and trace-cache state. Today the kill matrix credits each mutant to its first killer, so the same tree reads a cover of 2 or 3.
+- [x] 9.5 (2026-10-26, D#145; closed 2026-11-12) Make the redundant set and the cover count independent of execution order and trace-cache state. The kill matrix credited each mutant to its first killer, so the same tree read a cover of 2 or 3. Now the redundant set and the cover come from the full per-test kill relation, read from the one profile the audit already runs (Wesker `full_matrix`, `kill_relation`; Detective f51cd6d, 827cfb5), and `cover_standing` names when the relation is not available.
 
 ## 10. B09 — Measured same-answer work elimination
 
