@@ -3154,6 +3154,7 @@ def _format_converge_terse(
     if rep is not None and rep.unclassified:
         lines.append(_row("⚠ unclassified", f"{len(rep.unclassified)} — the search could not run on them"))
         lines.extend(_write_refused_rows(result.write_refused_survivors))
+        lines.extend(_blocked_cause_rows(result.blocked_causes))
     if rep is not None and getattr(rep, "step_budget_divergent", ()):
         lines.append(
             _row(
@@ -6978,6 +6979,7 @@ def _format_audit(
     if a.unclassified:
         lines.append(_row("⚠ unclassified", f"{a.unclassified} — the search could not run on them"))
         lines.extend(_write_refused_rows(a.write_refused_survivors))
+        lines.extend(_blocked_cause_rows(a.blocked_causes))
     if getattr(a, "step_budget_divergent", 0):
         lines.append(
             _row(
@@ -10298,6 +10300,66 @@ def _survivor_rows(label: str, named: list[tuple[str, str]], indent: str = "") -
     ]
     if len(named) > _WRITE_REFUSED_NAMED:
         rows.append(_row("", f"{indent}(+{len(named) - _WRITE_REFUSED_NAMED} more — --json names every one)"))
+    return rows
+
+
+# What each `equivalence.BLOCKED_CAUSES` code means for the reader, one sentence each (Detective#80). The
+# remedies differ, so no two causes share a sentence; a write or effect that was refused has its own rows
+# (`_write_refused_rows`) and is not repeated here.
+_BLOCKED_CAUSE_SENTENCES: dict[str, str] = {
+    "wall-undetermined": (
+        "a call reached its wall-clock bound before it returned; that bounds liveness and is no "
+        "verdict, so a quieter machine or a larger --deadline can settle it"
+    ),
+    "uncopyable-input": (
+        "an input could not be copied to be run twice (a generator, a handle, a single-use object); "
+        "supply one that can be built fresh with --input"
+    ),
+    "truncated-iterator": (
+        "both sides agree on an iterator only as far as it was read; a longer look could still differ, "
+        "so it is not called equivalent. A test that consumes the iterator pins it"
+    ),
+    "payload-missing": (
+        "the outcomes differ but the observation that would show it did not survive, so no witness can "
+        "be shown; re-run, or pin the behaviour with a test of your own"
+    ),
+    "original-step-budget": (
+        "the original itself did not finish inside the probe budget on any input the search tried, so "
+        "there is nothing to compare with; supply an --input the original finishes on"
+    ),
+    "deadline-exhausted": (
+        "the aggregate --deadline ran out before the search reached them; a larger --deadline lets it run"
+    ),
+}
+
+
+def blocked_cause_groups(causes: tuple[tuple[str, str], ...]) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """The unclassified survivors grouped by WHY, in `BLOCKED_CAUSES` order (Detective#80, pure — pinned).
+
+    ``causes`` is `(mutant_id, cause)` per survivor. A refused write or effect is left out: its own rows
+    name it and its repair. A cause this version does not name is kept, after the named ones, under its
+    own code (a page must not drop a cause because it cannot word it)."""
+    from .equivalence import BLOCKED_CAUSES, BLOCKED_EFFECT, BLOCKED_WRITE
+
+    grouped: dict[str, list[str]] = {}
+    for mutant_id, cause in causes:
+        if cause in (BLOCKED_WRITE, BLOCKED_EFFECT):
+            continue
+        grouped.setdefault(cause, []).append(mutant_id)
+    order = [c for c in BLOCKED_CAUSES if c in grouped] + sorted(
+        c for c in grouped if c not in BLOCKED_CAUSES
+    )
+    return tuple((c, tuple(grouped[c])) for c in order)
+
+
+def _blocked_cause_rows(causes: tuple[tuple[str, str], ...]) -> list[str]:
+    """The continuation rows under ``⚠ unclassified`` that say WHY the search could not run, one per
+    cause with its own sentence (Detective#80). One renderer for audit and converge."""
+    rows: list[str] = []
+    for cause, ids in blocked_cause_groups(causes):
+        sentence = _BLOCKED_CAUSE_SENTENCES.get(cause, f"the search was blocked ({cause})")
+        rows.append(_row("", f"{len(ids)} {cause}: {sentence}"))
+        rows.append(_row("", f"  ({', '.join(ids)})"))
     return rows
 
 

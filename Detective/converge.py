@@ -419,6 +419,9 @@ class ConvergeResult:
     # `(mutant_id, change, standing, killer, cause)` (`audit.write_refused_survivors`, #105, D#141):
     # only an `open` one is a residual a written test closes.
     write_refused_survivors: tuple[tuple[str, str, str, str, str], ...] = ()
+    # `(mutant_id, cause)` for each unclassified survivor whose search names why it could not run
+    # (`equivalence.BLOCKED_CAUSES`, Detective#80): the remedies differ, so the page names each.
+    blocked_causes: tuple[tuple[str, str], ...] = ()
     functionally_complete: bool = False  # every KILLABLE mutant killed (equivalents may remain)
     # Second completeness axis + minimality (from Wesker's baseline line-coverage pass).
     line_complete: bool = True  # every executable target line covered by some test
@@ -3180,6 +3183,7 @@ def _converge_impl(
         wiring=wiring,
         survivor_report=survivor_report,
         write_refused_survivors=_named_write_refused(survivor_report, final_result),
+        blocked_causes=tuple(survivor_report.blocked_causes) if survivor_report is not None else (),
         functionally_complete=functionally_complete,
         line_complete=not missing,
         missing_lines=tuple(missing),

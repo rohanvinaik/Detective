@@ -45,6 +45,7 @@ from Wesker.interrupt import bounded_join as _bounded_join
 from Wesker.monitoring import (
     STEP_BUDGET_FACTOR,
     STEP_BUDGET_FLOOR,
+    STEP_PROBE_CAP,
     StepBudgetExceeded,
     is_budget_active,
     step_budget,
@@ -1430,6 +1431,39 @@ _OUTCOME_WRITE_REFUSED = "<write-refused>"
 # marker: a page naming it must not say "the function writes files" of a function that spawns.
 _OUTCOME_EFFECT_REFUSED = "<effect-refused>"
 
+# WHY an input (or a whole search) left a mutant UNCLASSIFIED: the named causes of a `blocked` pair
+# (Detective#80). They all used to read `blocked` and render `wall-undetermined`, but the remedies
+# differ: a wall that fired is the machine's; an input that cannot be copied wants a different input;
+# a refused write or effect wants a test that stubs it; an equal truncated iterator wants a longer
+# look; a distinction whose payload was lost wants a re-run; an original that cannot finish its probe
+# budget wants an input it finishes on; a spent aggregate deadline wants a longer one.
+BLOCKED_WALL = "wall-undetermined"
+BLOCKED_UNCOPYABLE = "uncopyable-input"
+BLOCKED_WRITE = "write-refused"
+BLOCKED_EFFECT = "effect-refused"
+BLOCKED_TRUNCATED = "truncated-iterator"
+BLOCKED_PAYLOAD = "payload-missing"
+BLOCKED_ORIGINAL_BUDGET = "original-step-budget"
+BLOCKED_DEADLINE = "deadline-exhausted"
+BLOCKED_CAUSES: tuple[str, ...] = (
+    BLOCKED_WALL,
+    BLOCKED_UNCOPYABLE,
+    BLOCKED_WRITE,
+    BLOCKED_EFFECT,
+    BLOCKED_TRUNCATED,
+    BLOCKED_PAYLOAD,
+    BLOCKED_ORIGINAL_BUDGET,
+    BLOCKED_DEADLINE,
+)
+# The outcome a side produced -> the cause it blocks the pair with. The original's divergence is its own
+# cause (it exceeded the probe budget); the MUTANT's divergence is a finding, `step-budget-divergent`.
+_BLOCKING_OUTCOME_CAUSE: dict[str, str] = {
+    _OUTCOME_TIMEOUT: BLOCKED_WALL,
+    _OUTCOME_UNCOPYABLE: BLOCKED_UNCOPYABLE,
+    _OUTCOME_WRITE_REFUSED: BLOCKED_WRITE,
+    _OUTCOME_EFFECT_REFUSED: BLOCKED_EFFECT,
+}
+
 
 class UncopyableInputError(ValueError):
     """Raised when candidate inputs cannot be defensively deepcopied (#127)."""
@@ -1525,39 +1559,54 @@ def _observe_receiver_state(receiver: Any) -> str:
     return "{" + ", ".join(f"{k!r}: {_observe(state[k])}" for k in sorted(state)) + "}"
 
 
+def blocked_cause(original_outcome: str, mutant_outcome: str, payload_present: bool) -> str:
+    """Why one input's pair is `blocked`, as a named code, or "" when it is not (Detective#80, pure — pinned).
+
+    The original's outcome is read first, as the pair has always been read: a side that could not run
+    decides before the comparison. Then the mutant's. ``payload_present`` is whether the observations
+    that would render a witness survived: a pair that differs without them has no evidence to show.
+
+    * ``original-step-budget`` — the ORIGINAL exceeded the probe budget on this input
+      (`STEP_PROBE_CAP`): no evidence either way, and the mutant is not run.
+    * ``wall-undetermined`` — a side reached the per-call wall (a liveness bound, never a verdict).
+    * ``uncopyable-input`` — the input cannot be copied to run twice.
+    * ``write-refused`` / ``effect-refused`` — the speculative run tried to write or spawn.
+    * ``truncated-iterator`` — both sides agree on an iterator only up to the observed prefix.
+    * ``payload-missing`` — the outcomes differ but the observation that would show it did not survive.
+    """
+    if original_outcome == _OUTCOME_DIVERGED:
+        return BLOCKED_ORIGINAL_BUDGET
+    original_cause = _BLOCKING_OUTCOME_CAUSE.get(original_outcome, "")
+    if original_cause:
+        return original_cause
+    if mutant_outcome == _OUTCOME_DIVERGED:
+        return ""
+    mutant_cause = _BLOCKING_OUTCOME_CAUSE.get(mutant_outcome, "")
+    if mutant_cause:
+        return mutant_cause
+    # An equal TRUNCATED iterator prefix is UNKNOWN, not equivalent: a suffix past the observed bound
+    # could still differ, so declaring it 'same' would be a false certificate on a long or infinite
+    # generator. A DIFFERING prefix is a real difference and falls through.
+    if original_outcome == mutant_outcome and original_outcome.startswith("<iter~trunc"):
+        return BLOCKED_TRUNCATED
+    if original_outcome != mutant_outcome and not payload_present:
+        return BLOCKED_PAYLOAD
+    return ""
+
+
 def _pair_disposition(original_outcome: str, mutant_outcome: str) -> str:
     """How one input distinguishes a mutant, from the ORIGINAL's and the MUTANT's outcomes.
 
     ``step-budget-divergent`` — mutant exceeded deterministic loop budget relative to original.
-    ``blocked`` — a classifier timeout on either side (#42): the input could not be classified, so
-    the mutant is left UNCLASSIFIED, never silently ``equivalent``. ``same`` — no observable
+    ``blocked`` — the pair could not be classified (`blocked_cause` names why, #42): the mutant is left
+    UNCLASSIFIED, never silently ``equivalent``. ``same`` — no observable
     difference. ``crash-only`` — the mutant NEWLY raises where the original returns (a crash-kill,
     which value-specification accounting does not credit). ``witness`` — a value-killable difference.
     """
-    if original_outcome in (
-        _OUTCOME_TIMEOUT,
-        _OUTCOME_WALL_UNDETERMINED,
-        _OUTCOME_DIVERGED,
-        _OUTCOME_UNCOPYABLE,
-        _OUTCOME_WRITE_REFUSED,
-        _OUTCOME_EFFECT_REFUSED,
-    ):
+    if blocked_cause(original_outcome, mutant_outcome, True):
         return "blocked"
     if mutant_outcome == _OUTCOME_DIVERGED:
         return "step-budget-divergent"
-    if mutant_outcome in (
-        _OUTCOME_TIMEOUT,
-        _OUTCOME_WALL_UNDETERMINED,
-        _OUTCOME_UNCOPYABLE,
-        _OUTCOME_WRITE_REFUSED,
-        _OUTCOME_EFFECT_REFUSED,
-    ):
-        return "blocked"
-    # An equal TRUNCATED iterator prefix is UNKNOWN, not equivalent: a suffix past the observed bound
-    # could still differ, so declaring it 'same' would be a false certificate on a long or infinite
-    # generator. A DIFFERING prefix falls through to 'witness' below — a real kill.
-    if original_outcome == mutant_outcome and original_outcome.startswith("<iter~trunc"):
-        return "blocked"
     if original_outcome == mutant_outcome:
         return "same"
     if mutant_outcome.startswith("<raised ") and not original_outcome.startswith("<raised "):
@@ -1993,6 +2042,26 @@ class _WitnessSearch(NamedTuple):
     diverged: bool
     write_refused: bool
     refused_effects: tuple[str, ...] = ()
+    #: WHY the search left the mutant unclassified (`dominant_blocked_cause` over every input's
+    #: `blocked_cause`, and the fallback's), "" when it did not (Detective#80).
+    blocked_cause: str = ""
+
+
+def dominant_blocked_cause(causes: list[str]) -> str:
+    """The one cause a search that was blocked on several inputs reports (Detective#80, pure — pinned).
+
+    Causes are ranked by `BLOCKED_CAUSES` order: the ones with a remedy of the person's (a write or an
+    effect to stub, an input to change, a wall to give room) before the ones that rest on the search
+    itself, and a spent aggregate deadline last, since any other cause explains the same mutant better.
+    "" when there is none. A cause this version does not name ranks after every named one, and is still
+    reported: absence of a name is not the absence of a cause.
+    """
+    if not causes:
+        return ""
+    return min(
+        causes,
+        key=lambda cause: BLOCKED_CAUSES.index(cause) if cause in BLOCKED_CAUSES else len(BLOCKED_CAUSES),
+    )
 
 
 def _search_witness(
@@ -2022,6 +2091,8 @@ class _PairObservation(NamedTuple):
     mutant: _ObservedOutcome
     write_refused: bool
     refused_effects: tuple[str, ...] = ()
+    #: Why a `blocked` pair is blocked (`blocked_cause`); "" for every other disposition.
+    cause: str = ""
 
 
 def _observe_pair(
@@ -2041,15 +2112,24 @@ def _observe_pair(
     original_observations: list[_ObservedOutcome] = []
     mutant_observations: list[_ObservedOutcome] = []
     effects: list[str] = []
+    # The ORIGINAL runs under Wesker's probe cap (#80), the budget it gives an original on an input no
+    # test fixed a count for: an input the original cannot finish inside it is no evidence either way,
+    # and a 5 s wall used to decide that, which is a different answer on every machine.
     original_outcome = _outcome(
         original,
         args,
         _outcome_budget_s(deadline),
-        cap=None,
+        cap=STEP_PROBE_CAP,
         step_count=orig_steps,
         observations=original_observations,
         refused_effects=effects,
     )
+    if original_outcome == _OUTCOME_DIVERGED:
+        # Nothing to compare against, so the mutant is not run: it would be run unbounded (its cap
+        # rests on the original's count) for an answer that cannot be used.
+        return _PairObservation(
+            "blocked", _NO_OBSERVATION, _NO_OBSERVATION, False, (), BLOCKED_ORIGINAL_BUDGET
+        )
     orig_it = orig_steps[0] if orig_steps else None
     mut_cap = (
         step_cap(orig_it, factor=STEP_BUDGET_FACTOR, floor=STEP_BUDGET_FLOOR) if orig_it is not None else None
@@ -2065,8 +2145,14 @@ def _observe_pair(
     refused = _OUTCOME_WRITE_REFUSED in (original_outcome, mutant_outcome)
     refused_effects = tuple(dict.fromkeys(effects))
     disposition = _pair_disposition(original_outcome, mutant_outcome)
+    if disposition == "blocked":
+        cause = blocked_cause(original_outcome, mutant_outcome, True)
+        return _PairObservation("blocked", _NO_OBSERVATION, _NO_OBSERVATION, refused, refused_effects, cause)
     if disposition in ("witness", "crash-only") and not (original_observations and mutant_observations):
-        return _PairObservation("blocked", _NO_OBSERVATION, _NO_OBSERVATION, refused, refused_effects)
+        # A distinction whose observation payload did not survive: no witness renders from evidence that
+        # is not there.
+        cause = blocked_cause(original_outcome, mutant_outcome, False)
+        return _PairObservation("blocked", _NO_OBSERVATION, _NO_OBSERVATION, refused, refused_effects, cause)
     return _PairObservation(
         disposition,
         original_observations[0] if original_observations else _NO_OBSERVATION,
@@ -2111,6 +2197,7 @@ def _search_witness_detail(
     diverged = False
     write_refused = False
     refused_effects: dict[str, None] = {}
+    causes: list[str] = []
     for args in candidate_inputs:
         # The aggregate wall (issue #31) is checked PER INPUT, not just per mutant: a
         # non-terminating mutant pays #42's 5s classifier timeout on EVERY candidate, so a
@@ -2119,6 +2206,7 @@ def _search_witness_detail(
         # gives), never a false "no input distinguishes it". ``deadline`` is absolute monotonic.
         if _deadline_passed(deadline):
             blocked = True
+            causes.append(BLOCKED_DEADLINE)
             break
         if not _binds(original, args):
             # These args do not FIT the callable, so nothing below measures the function — it
@@ -2152,6 +2240,8 @@ def _search_witness_detail(
             # records nothing.
             diverged = diverged or pair.disposition == "step-budget-divergent"
             blocked = blocked or pair.disposition == "blocked"
+            if pair.disposition == "blocked":
+                causes.append(pair.cause)
             continue
         if pair.disposition == "crash-only":
             # Crash-only kill — not a value-witness (see crash-as-spec), but not nothing
@@ -2162,7 +2252,13 @@ def _search_witness_detail(
             crash_witness = crash_witness or _pair_witness(pair)
             continue
         return _WitnessSearch(
-            _pair_witness(pair), None, blocked, diverged, write_refused, tuple(refused_effects)
+            _pair_witness(pair),
+            None,
+            blocked,
+            diverged,
+            write_refused,
+            tuple(refused_effects),
+            dominant_blocked_cause(causes),
         )
     # FALLBACK — receiver STATE (#25, "fallback only"): the value search found no witness, so retry
     # observing the receiver's post-call state. Extracted whole so this function's job (the value
@@ -2170,6 +2266,10 @@ def _search_witness_detail(
     state_witness, state_blocked = _state_fallback_witness(
         original, mutant, candidate_inputs, deadline=deadline
     )
+    if state_blocked:
+        # The fallback is blocked by the spent aggregate wall, or by a distinction whose observation
+        # did not survive: the same two causes the value search names.
+        causes.append(BLOCKED_DEADLINE if _deadline_passed(deadline) else BLOCKED_PAYLOAD)
     return _WitnessSearch(
         state_witness,
         crash_witness,
@@ -2177,6 +2277,7 @@ def _search_witness_detail(
         diverged,
         write_refused,
         tuple(refused_effects),
+        dominant_blocked_cause(causes),
     )
 
 
@@ -2306,6 +2407,11 @@ class MutantVerdict:
     # ``second_call_pair``. One test making both calls and asserting both results kills the stale
     # mutant, whose second answer is the first call's value. None for every other state.
     history_pair: tuple[Witness, Witness] | None = None
+    # WHY the search left this mutant unclassified (Detective#80): one of `BLOCKED_CAUSES`, set exactly
+    # when ``blocked`` is. The remedies differ (a wall that fired is the machine's, an input that cannot
+    # be copied wants another input, a refused write wants a test that stubs it), so the cause is the
+    # fact a page must name; ``blocked`` alone said only "could not run".
+    blocked_cause: str = ""
 
     @property
     def label(self) -> str:
@@ -2319,7 +2425,7 @@ class MutantVerdict:
         if self.diverged:
             return "step-budget-divergent"
         if self.blocked:
-            return "wall-undetermined"
+            return self.blocked_cause or "unclassified"
         # Not "equivalent-candidate": an execution DOES distinguish this one, by crash. Saying none
         # does is simply false, and it is what sent callers hunting for an input that
         # cannot exist. `find_witness` names the real class; report ITS word, not a rounder one.
@@ -2560,6 +2666,10 @@ class SurvivorReport:
     # ``mutant`` (the description, the kill matrix's key) finds the test that does. ``cause`` is what
     # the speculative run was refused: "write", the process effects' audit events (D#141), or both.
     write_refused_records: tuple[tuple[str, str, str, str, str], ...] = ()
+    # ``(mutant_id, cause)`` for each member of ``unclassified`` whose search says WHY it could not run
+    # (Detective#80): one of `BLOCKED_CAUSES`. A member without a row here is unclassified for a reason
+    # the search does not name (an unbuildable mutant), which a page must not dress as one of them.
+    blocked_causes: tuple[tuple[str, str], ...] = ()
     manual_equivalent: tuple[str, ...] = ()  # mutations manually flagged equivalent (the oracle)
     # Mutations manually flagged a FENCE — an authored MUST-NOT (Def. 12.1 `invalid`: this survival
     # is a bug). A fence with no distinguishing witness is an UNENFORCED negative degree of freedom,
@@ -2861,9 +2971,9 @@ def classify_survivor(
             takes_arguments,
             constant_return,
         )
-    witness, crash_witness, blocked, diverged, write_refused, refused_effects = _search_witness_detail(
-        original, mutant, candidate_inputs, deadline=deadline
-    )
+    search = _search_witness_detail(original, mutant, candidate_inputs, deadline=deadline)
+    witness, crash_witness, blocked = search.witness, search.crash_witness, search.blocked
+    diverged, write_refused, refused_effects = search.diverged, search.write_refused, search.refused_effects
     unsearched = blocked and witness is None and not diverged
     fact = distinguishing_fact(witness is not None, crash_witness is not None, suite_detected)
     return MutantVerdict(
@@ -2883,4 +2993,5 @@ def classify_survivor(
         diverged=diverged and witness is None,
         write_refused=write_refused and unsearched,
         refused_effects=refused_effects if unsearched else (),
+        blocked_cause=search.blocked_cause if unsearched else "",
     )

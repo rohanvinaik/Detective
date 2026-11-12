@@ -141,6 +141,9 @@ class SuiteAudit:
     # (`write_refused_survivors`): the page names the open ones to pin, the crash-detected ones with the
     # test that detects them, and each by what its speculative run was refused (#105, D#141).
     write_refused_survivors: tuple[tuple[str, str, str, str, str], ...] = ()
+    # `(mutant_id, cause)` for each unclassified survivor whose search names why it could not run
+    # (`equivalence.BLOCKED_CAUSES`, Detective#80), the same derivation converge carries.
+    blocked_causes: tuple[tuple[str, str], ...] = ()
     step_budget_divergent: int = 0  # survivors whose loop execution deterministically diverged (#80/#126)
     # Mutants that reached NO verdict in the profile — `(mutant_id, disposition)`, the same derivation
     # converge carries (`validity.unresolved_mutant_records`), so the two verbs name them alike (#126).
@@ -808,6 +811,7 @@ def audit_suite(
     unclassified = 0
     write_refused = 0
     write_refused_named: tuple[tuple[str, str, str, str, str], ...] = ()
+    blocked_causes: tuple[tuple[str, str], ...] = ()
     classified = False
     # The measurement-block signals (Finding E), carried onto the audit so its next action names the
     # SAME escape converge does via `measurement_block_route`. Defaulted here so the advisory
@@ -863,6 +867,7 @@ def audit_suite(
             [list(r) for r in getattr(report, "write_refused_records", ())], result.kill_matrix
         )
         write_refused = sum(1 for s in write_refused_named if s[2] == "open")
+        blocked_causes = tuple(report.blocked_causes)
         step_budget_divergent = len(getattr(report, "step_budget_divergent", ()))
         # An authored fence is an UNENFORCED must-not (Q8) — a gap like killable/unclassified, so it
         # blocks mutant-completeness exactly as they do; never treated as a discharged equivalent.
@@ -1032,6 +1037,7 @@ def audit_suite(
         unclassified=unclassified,
         write_refused=write_refused,
         write_refused_survivors=write_refused_named,
+        blocked_causes=blocked_causes,
         step_budget_divergent=step_budget_divergent,
         unresolved_mutants=unresolved_mutant_records(getattr(result, "unscored_records", None) or ()),
         value_killed=result.value_killed,

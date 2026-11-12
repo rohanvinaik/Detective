@@ -57,6 +57,7 @@ from .binding import ReceiverFactory, resolve_execution, wrap_callable
 from .call_sites import discover_call_site_inputs, infer_param_types
 from .capture import capture_call_inputs
 from .equivalence import (
+    BLOCKED_DEADLINE,
     MutantVerdict,
     SourceExpr,
     SurvivorReport,
@@ -3863,6 +3864,9 @@ def classify_survivors(
     # kill matrix's key), and what was refused ("write", or the refused events). Gathered across every
     # pool and narrowed to the FINAL unclassified list below, so a retry that classifies one drops it.
     _write_refused_ids: dict[str, tuple[str, str, str, str, str]] = {}
+    # Why each unclassified survivor's search could not run, by the same id (Detective#80):
+    # `(mutant_id, cause)`, a `BLOCKED_CAUSES` code.
+    _blocked_cause_ids: dict[str, tuple[str, str]] = {}
 
     def _classify_pool(
         pool: list[tuple],
@@ -3892,6 +3896,11 @@ def classify_survivors(
                 _fence.append(rec.get("diff_summary", ""))
             else:  # "unclassified" — no verdict to trust and no flag speaks for it
                 _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
+                if verdict is not None and verdict.blocked_cause:
+                    _blocked_cause_ids[_unclassified[-1]] = (
+                        str(rec.get("mutant_id", "") or ""),
+                        verdict.blocked_cause,
+                    )
                 if verdict is not None and (verdict.write_refused or verdict.refused_effects):
                     _write_refused_ids[_unclassified[-1]] = (
                         str(rec.get("mutant_id", "") or ""),
@@ -3907,6 +3916,10 @@ def classify_survivors(
             # #42's per-mutant timeout uses — never defaulted to a false candidate-equivalent.
             if _cls_exhausted():
                 _unclassified.append(rec.get("mutant", rec.get("mutant_id", "?")))
+                _blocked_cause_ids[_unclassified[-1]] = (
+                    str(rec.get("mutant_id", "") or ""),
+                    BLOCKED_DEADLINE,
+                )
                 continue
             mutant = by_id.get(rec.get("mutant_id", ""))
             # Compile the mutant from the UNBOUND original (its `__globals__` seeds the mutant's
@@ -4287,6 +4300,7 @@ def classify_survivors(
         takes_arguments=_takes_arguments,
         write_refused=tuple(u for u in unclassified if u in _write_refused_ids),
         write_refused_records=tuple(_write_refused_ids[u] for u in unclassified if u in _write_refused_ids),
+        blocked_causes=tuple(_blocked_cause_ids[u] for u in unclassified if u in _blocked_cause_ids),
         manual_equivalent=tuple(manual_equivalent),
         authored_fence=tuple(fence),
         inputs_expressible=expressible,
