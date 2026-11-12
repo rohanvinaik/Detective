@@ -947,7 +947,7 @@ def verify_rewrite(
         say("⚠ this engine publishes no mutation policy id — cannot establish which questions it asks")
     classification_status = rewrite_classification_status(
         report is not None,
-        bool(getattr(report, "load_failed", False)),
+        report.load_failed if report is not None else False,
         bool(getattr(report, "measurement_valid", False)),
     )
     classification_ran = classification_status == "observed"

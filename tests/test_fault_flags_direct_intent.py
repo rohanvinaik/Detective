@@ -90,3 +90,24 @@ def test_a_reported_false_is_present_false_and_a_reported_true_cuts() -> None:
     cut = normalize_validity(_wesker_result(budget_exhausted=True))
     assert "absent:budget_exhausted" not in cut.capability_flags
     assert "budget_exhausted" in cut.cut_reasons
+
+
+# ---------------------------------------------------------------- load_failed
+
+
+def test_an_audit_that_cannot_say_whether_the_module_failed_to_load_is_not_read_as_loaded() -> None:
+    """`_audit_measurement_block` reads `load_failed` off the SuiteAudit, which declares it. An object that
+    lacks it must raise at the read; the old default said 'the module loaded'."""
+    from Detective.cli import _audit_measurement_block
+
+    with pytest.raises(AttributeError, match="load_failed"):
+        _audit_measurement_block(types.SimpleNamespace())
+
+
+def test_the_classification_status_is_decided_on_a_present_report_or_names_its_absence() -> None:
+    """verify_rewrite passes `report.load_failed` only when a report exists; with none, the first code
+    (`unavailable`) is what the decision returns, whatever else is passed."""
+    from Detective.rewrite import rewrite_classification_status
+
+    assert rewrite_classification_status(False, False, True) == "unavailable"
+    assert rewrite_classification_status(True, True, True) == "load_failed"

@@ -221,7 +221,7 @@ FAULT_OPEN: dict[str, int] = {
     "environment_gated": 4,
     "failing_tests": 5,
     "floor_failing_tests": 9,
-    "load_failed": 5,
+    "load_failed": 0,
     "load_failure": 3,
     "missing_line_standings": 4,
     "not_consulted": 3,

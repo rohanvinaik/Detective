@@ -829,7 +829,7 @@ def audit_suite(
         # Defensive reads (#60): a report without the Finding-E fields (an older SurvivorReport, a test
         # stub) must not crash the classification into the advisory except-fallback below — which would
         # silently zero candidate_equivalent and mis-read a fully-classified suite as a gap.
-        _load_failed = bool(getattr(report, "load_failed", False))
+        _load_failed = bool(report.load_failed)
         _harvest_routing_failed = bool(getattr(report, "routing_error", ""))
         _report_expressible = getattr(report, "inputs_expressible", None)
         _report_note = getattr(report, "note", "") or ""

@@ -3894,7 +3894,7 @@ def _converge_routing(
     # and whether the module failed to IMPORT (a dep/sibling problem migrate cannot fix). All read
     # off the survivor report / result, defaulting to the previous behaviour when absent.
     _rep_expressible = getattr(rep, "inputs_expressible", None) if rep is not None else None
-    _rep_load_failed = bool(getattr(rep, "load_failed", False)) if rep is not None else False
+    _rep_load_failed = rep.load_failed if rep is not None else False
     _wrote_runnable_suite = bool(getattr(result, "written_path", ""))
     # The module loaded and the search RAN, but no input reached the function (expressibility
     # UNKNOWN — an unannotated ndarray/object param, every candidate raised — not the known-False
@@ -7159,7 +7159,7 @@ def _audit_measurement_block(a) -> str:
     converge renders, never the generic "converge writes the missing tests" that once sent an
     unloadable module to a converge that also could not run (Finding E).
     """
-    load_failed = bool(getattr(a, "load_failed", False))
+    load_failed = a.load_failed
     # The reasons the failing floor itself caused do not outrank the floor (`reasons_beyond_floor`): a mutant
     # whose only failing test fails on the unmutated code is the floor's doing. Everything else still does.
     cut_kind = measurement_cut_kind(

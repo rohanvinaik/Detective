@@ -2905,7 +2905,7 @@ def _converge_impl(
     # a harvest that could not route ran no test, so its survivors were never offered a real input.
     _validity = normalize_validity(
         final_result,
-        load_failed=bool(getattr(survivor_report, "load_failed", False)),
+        load_failed=survivor_report.load_failed if survivor_report is not None else False,
         routing_failed=bool(getattr(survivor_report, "routing_error", "")),
     )
     _verify_result: ProfilingResult | None = None
