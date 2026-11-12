@@ -64,6 +64,7 @@ from .engine import (
 from .equivalence import (
     SourceExpr,
     SurvivorReport,
+    _stretched_wall,
     literal_source,
     structural_input_difficulty,
     structural_shape,
@@ -2059,7 +2060,11 @@ def _converge_impl(
 
     def _verified(setup_code: str, assertion_code: str, project_root: str) -> bool:
         remaining = _budget_s()
-        timeout = 5.0 if remaining is None else min(5.0, remaining)
+        # The property's own wall is a liveness bound in reference seconds, stretched by the machine's
+        # calibrated slowdown (Wesker#27) like every other wall that can decide; the aggregate deadline
+        # is a real one and is never stretched.
+        wall = _stretched_wall(5.0)
+        timeout = wall if remaining is None else min(wall, remaining)
         return property_holds(setup_code, assertion_code, project_root, timeout_s=timeout)
 
     budget_cut = False

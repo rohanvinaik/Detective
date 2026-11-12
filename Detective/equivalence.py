@@ -1627,9 +1627,22 @@ def _outcome_budget_s(deadline: float | None) -> float:
     rather than granting it a full cap. ``None`` = no aggregate wall → the per-call cap stands."""
     import time as _t
 
+    wall = _stretched_wall(_CLASSIFY_TIMEOUT_S)
     if deadline is None:
-        return _CLASSIFY_TIMEOUT_S
-    return max(0.0, min(_CLASSIFY_TIMEOUT_S, deadline - _t.monotonic()))
+        return wall
+    return max(0.0, min(wall, deadline - _t.monotonic()))
+
+
+def _stretched_wall(seconds: float) -> float:
+    """A reference-time wall, stretched by this machine's calibrated slowdown (Wesker#27).
+
+    The per-call wall is a liveness bound: a call that reaches it is `wall-undetermined`, no verdict.
+    A fixed 5 s there was a different answer on every machine for the same function, so it follows the
+    calibration Wesker's walls follow (`Wesker.monitoring.machine_slowdown`). Never a shrink, and the
+    aggregate deadline above it is a real one that is never stretched."""
+    from Wesker.monitoring import machine_slowdown
+
+    return seconds * max(machine_slowdown()[0], 1.0)
 
 
 def _deadline_passed(deadline: float | None) -> bool:

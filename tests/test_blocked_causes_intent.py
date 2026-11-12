@@ -206,3 +206,23 @@ def test_the_page_says_a_different_thing_for_each_cause():
     assert "uncopyable-input" in text and "built fresh" in text
     assert "original-step-budget" in text and "probe budget" in text
     assert _blocked_cause_rows(()) == []
+
+
+# ── the per-call wall follows the machine ───────────────────────────────────────
+
+
+def test_the_classifier_wall_is_stretched_by_the_calibrated_slowdown(monkeypatch):
+    import time
+
+    from Wesker import monitoring
+
+    from Detective.equivalence import _CLASSIFY_TIMEOUT_S, _outcome_budget_s
+
+    monkeypatch.setattr(monitoring, "machine_slowdown", lambda refresh=False: (4.0, "slower"))
+    assert _outcome_budget_s(None) == _CLASSIFY_TIMEOUT_S * 4.0
+    # a real aggregate deadline is never stretched
+    assert _outcome_budget_s(time.monotonic() + 1.0) <= 1.0
+    monkeypatch.setattr(monitoring, "machine_slowdown", lambda refresh=False: (1.0, "reference"))
+    assert _outcome_budget_s(None) == _CLASSIFY_TIMEOUT_S
+    monkeypatch.setattr(monitoring, "machine_slowdown", lambda refresh=False: (0.2, "reference"))
+    assert _outcome_budget_s(None) == _CLASSIFY_TIMEOUT_S
