@@ -228,9 +228,9 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         unspecified_behaviors=[_survivor_desc(s) for s in survivors[:_MAX_UNSPECIFIED]],
         tests_discovered=getattr(result, "tests_discovered", -1),
         test_routing=dict(getattr(result, "test_routing", {}) or {}),
-        # getattr-defaulted: an older engine simply does not report it (same contract as
-        # tests_discovered above), and a missing field must never read as "nothing was cut".
-        trace_truncated=list(getattr(result, "trace_truncated", ()) or ()),
+        # Read DIRECTLY (#95): every engine at or above the dependency floor (Wesker 1.2.2) declares
+        # the field, so a rename fails here, at the read, instead of reading as "nothing was cut".
+        trace_truncated=list(result.trace_truncated),
         # Tagged by `verdict_cache.get` on a hit; absent (False) on a fresh measurement. Same
         # getattr contract as above, and for the same reason: unset must read as "this run
         # measured it", which is the claim the renderer can safely make in the present tense.

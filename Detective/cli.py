@@ -774,7 +774,7 @@ def _trace_cut_rows(scope) -> list[str]:
     (the budgets are wall-clock). Saying WHICH run got cut is the difference between a
     re-run that re-measures and an hour spent tuning budgets against a recording.
     """
-    cut = getattr(scope, "trace_truncated", []) or []
+    cut = scope.trace_truncated
     if not cut:
         return []
     cached = getattr(scope, "served_from_cache", False)
@@ -2965,7 +2965,7 @@ def _format_converge(
         lines.append(f"  ⚠ line flag OVERRIDDEN by execution: {stale} — the line was reached; flag ignored")
     # Issue #23: goldens refused because the invocation read default-path
     # files — the capture would have pinned the environment, not the function.
-    for refusal in getattr(result, "environment_coupled", ()):
+    for refusal in result.environment_coupled:
         lines.append(f"  ⚠ {refusal}")
     # The applicability bound's boundary (`engine.widen_admission`), stated in the archive as well:
     # collected tests with no static path to this function were neither widened nor harvested.
@@ -3263,7 +3263,7 @@ def _format_converge_terse(
     # Refused goldens are a residual the USER can act on (supply inputs or a
     # tmp fixture), so they earn a terse row like every other residual class;
     # the full report names each call and touched path (issue #23).
-    if coupled := getattr(result, "environment_coupled", ()):
+    if coupled := result.environment_coupled:
         lines.append(
             _row(
                 "· env-coupled",

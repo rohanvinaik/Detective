@@ -111,3 +111,29 @@ def test_the_classification_status_is_decided_on_a_present_report_or_names_its_a
 
     assert rewrite_classification_status(False, False, True) == "unavailable"
     assert rewrite_classification_status(True, True, True) == "load_failed"
+
+
+# ---------------------------------------------------------------- environment_coupled, trace_truncated
+
+
+def test_an_unreadable_trace_cut_is_not_read_as_no_cut() -> None:
+    """`_trace_cut_rows` reads `trace_truncated` off the ScopeMap, which declares it: a scope that lacks the
+    field raises, where the old default printed no cut rows."""
+    from Detective.cli import _trace_cut_rows
+
+    assert _trace_cut_rows(types.SimpleNamespace(trace_truncated=[])) == []
+    with pytest.raises(AttributeError, match="trace_truncated"):
+        _trace_cut_rows(types.SimpleNamespace())
+
+
+def test_a_profile_that_does_not_report_its_trace_cut_fails_where_the_scope_is_built() -> None:
+    from Detective.scope import scope_from_profiling
+
+    with pytest.raises(AttributeError):
+        scope_from_profiling(types.SimpleNamespace())  # not a profile: no field is invented
+
+
+def test_environment_coupled_is_read_from_the_converge_result() -> None:
+    from Detective.converge import ConvergeResult
+
+    assert "environment_coupled" in ConvergeResult.__dataclass_fields__
