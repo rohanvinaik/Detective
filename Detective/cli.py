@@ -4179,10 +4179,17 @@ class UniverseOptions:
     clock: float | None = None
     env: tuple[str, ...] = ()
     receiver_factory: str | None = None
+    # Whether the run's trace pass was bounded (#142): a printed command never names a bound the run
+    # already lifted. Not universe-defining (`universe_carry` ignores them); they ride here because
+    # this is the one record the handler builds from its parsed arguments.
+    trace_bounded: bool = True
+    trace_session_bounded: bool = True
 
     @classmethod
     def of(cls, args) -> UniverseOptions:
         return cls(
+            trace_bounded=_trace_budget(args) is not None,
+            trace_session_bounded=_trace_session_budget(args) is not None,
             two_sign=bool(getattr(args, "two_sign", False)),
             fast=bool(getattr(args, "fast", False)),
             clock=getattr(args, "clock", None),
@@ -4241,6 +4248,20 @@ def _withheld_sentence(verb: str, missing: tuple[str, ...]) -> str:
     )
 
 
+def trace_remedy(per_test_bounded: bool, session_bounded: bool) -> str:
+    """Which trace bound a cut run can still lift (#142, pure — pinned): ``lift_both``,
+    ``lift_per_test``, ``lift_session`` or ``none_left``. Split out because the printed command named
+    both ``--trace-budget 0 --trace-session-budget 0`` whatever the run carried, so an UNBOUNDED run that
+    was cut was told to pass the flags it already had; ``none_left`` hands back instead."""
+    if per_test_bounded and session_bounded:
+        return "lift_both"
+    if per_test_bounded:
+        return "lift_per_test"
+    if session_bounded:
+        return "lift_session"
+    return "none_left"
+
+
 def _converge_commands(
     code: str,
     route: str,
@@ -4290,7 +4311,14 @@ def _converge_commands(
             return ("regime", fn), None
         if route == "deadline":
             return (*rerun, *inputs, "--deadline", "0"), None
-        return (*rerun, *inputs, "--trace-budget", "0", "--trace-session-budget", "0"), None
+        held = universe if universe is not None else UniverseOptions(two_sign=two_sign)
+        lift = {
+            "lift_both": ("--trace-budget", "0", "--trace-session-budget", "0"),
+            "lift_per_test": ("--trace-budget", "0"),
+            "lift_session": ("--trace-session-budget", "0"),
+            "none_left": None,
+        }[trace_remedy(held.trace_bounded, held.trace_session_bounded)]
+        return ((*rerun, *inputs, *lift) if lift else None), None
     if code in ("fix_verification", "fix_load", "provide_sample", "pin_write_refused"):
         return None, rerun
     if code == "fix_collection":
@@ -4526,6 +4554,11 @@ def _converge_decision(
             bool(getattr(result, "collection_conflicts", ())),
             budget_exhausted,
         )
+        # Both trace bounds already lifted: no trace flag can change this cut, so hand back (#142).
+        if route == "trace_budget" and (
+            trace_remedy(universe.trace_bounded, universe.trace_session_bounded) == "none_left"
+        ):
+            route = "inspect_refusal"
     marker_declared = _marker_declared(root) if code == "fix_collection" else False
     plan: InputPlan | None = None
     note = ""

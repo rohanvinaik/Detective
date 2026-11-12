@@ -351,6 +351,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::trace_remedy": {
+    "cut_reasons": [],
+    "function_digest": "31ce3aff4d704562",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::universe_carry": {
     "cut_reasons": [],
     "function_digest": "25de8e822e692918",

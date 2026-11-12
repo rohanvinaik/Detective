@@ -47,6 +47,12 @@ from Detective.distinction import (
 )
 
 BY_DESIGN: dict[str, str] = {
+    "cli.trace_remedy @ cli._converge_decision": (
+        "This site asks one question (D#142): is any trace bound left to lift? `none_left` means no "
+        "trace flag can change the cut, so the route becomes the hand-back `inspect_refusal`; the three "
+        "`lift_*` codes all mean a command exists, and WHICH flags it carries is decided by the other "
+        "consumer, `_converge_commands`, which maps each of the four codes to its own argument list."
+    ),
     "cli.residual_ids_key @ cli._decision_payload": (
         "The code IS the output here: it is used as the JSON key the residual's ids are written under "
         "(`divergent_ids` for a step-budget divergence, `flaggable_ids` for every other basis; D#142), "
