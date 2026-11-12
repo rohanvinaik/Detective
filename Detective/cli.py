@@ -7141,6 +7141,16 @@ def _format_audit(
         )
         lines.append(_row("", "about nothing — a broken fixture, not a wrong expectation:"))
         lines.append(_row("", _first_n(_errored, 4)))
+    if _untyped := tuple(a.untyped_tests):
+        # Typed `untyped` (Wesker#17): the route that ran them could not say what their non-pass was.
+        lines.append(
+            _row(
+                "⚠ UNTYPED",
+                f"{len(_untyped)} test(s) could not be typed on this route (no pytest phase) — run through "
+                "the CLI / a live session:",
+            )
+        )
+        lines.append(_row("", _first_n(_untyped, 4)))
     if a.killable_gaps:
         lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
     if a.missing_lines:
@@ -7243,6 +7253,7 @@ def audit_next_action(
     redundant_kept: int = 0,
     unconsulted_only: bool = False,
     reach_unobserved_only: bool = False,
+    untyped: int = 0,
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -7290,6 +7301,12 @@ def audit_next_action(
       "repair_errored_test" a test that reaches this function errors in setup or teardown, so it
                           never ran to a verdict (Wesker#17): its fixture is the repair, and every
                           ending below would claim more than the suite established
+      "type_the_route"    (Wesker#17) a test reaching this function could not be TYPED on the route that ran
+                          it (the legacy direct-call route has no pytest phase), so it is neither passing nor
+                          failing, and every ending below would claim more than the suite established. The
+                          remedy is a route that types it: the CLI, a live pytest session. Ranked with
+                          ``repair_errored_test``, its sibling, and ahead of it: the errored test's fixture is
+                          a repair the person can make here, and this one is not
       "pin_write_refused" survivors the search could not run because the function writes files
                           (#105): no search or --input classifies them, so a hand-written test
                           that writes under tmp_path is the next action, and no ending below has it
@@ -7341,6 +7358,8 @@ def audit_next_action(
         if redundant_kept >= redundant_tests:
             return "prune_by_hand"
         return "removing_now" if removing else "remove_redundant"
+    if untyped > 0:
+        return "type_the_route"
     if errored > 0:
         return "repair_errored_test"
     if write_refused > 0:
@@ -7374,6 +7393,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
                                             computed name were not consulted (#107, #77): the person calls
                                             the target by name in them, or accepts the named unknown, then
                                             re-audits. converge changes nothing here, so no step is ``run``
+      ("hand_back", "untyped_route")        a test could not be typed on its route (Wesker#17): run
+                                            it through the CLI or a live session, then re-audit
       ("hand_back", "observe_reach")        every open line is open only because a consulted test's reach was
                                             not fully observed (Wesker#17): the person makes the reach
                                             observable per cause, then re-audits. No --input applies
@@ -7401,6 +7422,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
         return "decide", "fix_failing_test"
     if code == "repair_errored_test":
         return "stop", "repair_errored_test"
+    if code == "type_the_route":
+        return "hand_back", "untyped_route"
     if code == "pin_write_refused":
         return "write_test", "pin_write_refused"
     if code in ("close_the_gap", "remove_redundant"):
@@ -7464,6 +7487,7 @@ def _audit_code(a, removing: bool = False) -> str:
         diverged=int(getattr(a, "step_budget_divergent", 0) or 0),
         # A direct read (§9.7): a renamed field must raise, never read as "no errored test" and close DONE.
         errored=len(a.errored_tests),
+        untyped=len(a.untyped_tests),
         write_refused=a.write_refused,
         redundant_kept=len(_redundant_kept(a)),
         unconsulted_only=_unconsulted_gap(a) == "unconsulted_only",
@@ -7560,6 +7584,7 @@ def _audit_commands(
         "pin_write_refused",
         "consult_named_tests",
         "observe_reach",
+        "type_the_route",
     ):
         return None, _carried_argv(universe, "audit", fn)
     if code == "provide_sample":
@@ -7896,6 +7921,23 @@ def _unconsulted_beside_rows(result) -> list[str]:
     ]
 
 
+def _untyped_route_action(untyped_tests: tuple[str, ...], reaudit: str) -> list[str]:
+    """The hand-back for tests the route could not type (Wesker#17): named, with why and the way out."""
+    return [
+        f"HAND BACK:  {len(untyped_tests)} test(s) could not be typed on this route.",
+        "",
+        _row("· Untyped", _first_n(untyped_tests, 4)),
+        _row(
+            "", "this route has no pytest phase to tell a skip, an expected failure and a setup error from a"
+        ),
+        _row("", "wrong expectation, so none is read as passing and none is accused of failing."),
+        _row(
+            "· Run through", "the CLI (`detective audit`) or a live pytest session, which types every test."
+        ),
+        _row(_THEN_ROW, reaudit),
+    ]
+
+
 def _unobserved_reach_rows(pairs, label: str = "· Reach unobserved") -> list[str]:
     """The rows naming each test whose reach the tracer could not fully observe, with its cause and the
     remedy that is true for that cause (Wesker#17, `audit.reach_remedies`). What such a test did not show
@@ -7961,6 +8003,10 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
     must never be offered while a real gap is still open.
     """
     universe = UniverseOptions(two_sign=two_sign)
+    if kind == "type_the_route":
+        return _untyped_route_action(
+            tuple(a.untyped_tests), _command_text(_carried_argv(universe, "audit", a.function))
+        )
     if kind == "removing_now":
         return [
             _row("· Removing", f"{len(a.redundant_tests)} candidate(s), safety-checked below —"),
@@ -10764,7 +10810,7 @@ def _write_refused_rows(survivors: tuple[tuple[str, str, str, str, str], ...]) -
     return rows
 
 
-def _unmeasured_clause(unclassified: int, errored: int, unresolved: int = 0) -> str:
+def _unmeasured_clause(unclassified: int, errored: int, unresolved: int = 0, untyped: int = 0) -> str:
     """What left an audit's measurement incomplete, each cause in its own words (Wesker#17, pure — pinned).
 
     Split out because `audit_measurement_incomplete` answers only WHETHER, and since Wesker#17 an errored
@@ -10781,6 +10827,10 @@ def _unmeasured_clause(unclassified: int, errored: int, unresolved: int = 0) -> 
         clauses.append(f"{errored} test(s) errored in setup or teardown, so they never ran to a verdict")
     if unresolved > 0:
         clauses.append(f"{unresolved} mutant(s) reached no verdict for a cause you can repair (named above)")
+    if untyped > 0:
+        clauses.append(
+            f"{untyped} test(s) could not be typed on this route, so they are neither passing nor failing"
+        )
     return "; ".join(clauses)
 
 
@@ -10865,7 +10915,10 @@ def _run_audit(args, file, function) -> int:
             (mid, reason, unresolved_gate_standing(reason)) for mid, reason in report.unresolved_mutants
         )
         _gating = tuple(u for u in _unresolved if u[2] in ("repairable", "unknown"))
-        meas_incomplete = audit_measurement_incomplete(report.unclassified, len(_errored), len(_gating))
+        _untyped = tuple(report.untyped_tests)
+        meas_incomplete = audit_measurement_incomplete(
+            report.unclassified, len(_errored), len(_gating), len(_untyped)
+        )
         gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
         payload["gate"] = {
             "spec_gap": spec_gap,
@@ -10873,6 +10926,7 @@ def _run_audit(args, file, function) -> int:
             "unmeasured": {
                 "unclassified": report.unclassified,
                 "errored_tests": list(_errored),
+                "untyped_tests": list(_untyped),
                 "unresolved_mutants": [list(entry) for entry in _unresolved],
             },
             "strict": strict,
@@ -10906,7 +10960,7 @@ def _run_audit(args, file, function) -> int:
             # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search or an
             # errored fixture is a measurement limit, not a finding — the default gate stays a claim
             # about the code. Each cause is named apart (`_unmeasured_clause`).
-            _why = _unmeasured_clause(report.unclassified, len(_errored), len(_gating))
+            _why = _unmeasured_clause(report.unclassified, len(_errored), len(_gating), len(_untyped))
             print(
                 f"  ⚠ measurement incomplete — {_why}; "
                 "NOT a specification gap. Use --check-strict to gate on it.",

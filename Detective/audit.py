@@ -265,6 +265,8 @@ class SuiteAudit:
     # Tests whose baseline is typed `error` — setup or teardown failed, so they never ran to a verdict
     # of their own (Wesker#17). Named apart from `failing_tests`: not a wrong expectation, never gated.
     errored_tests: tuple[str, ...] = ()
+    # Tests the route could not TYPE (Wesker#17): neither passing nor failing, unmeasured.
+    untyped_tests: tuple[str, ...] = ()
     # Each of `missing_lines` with WHY it has no admissible coverage (`missing_line_standing`, #139):
     # `(line, standing)`. A line only a failing test runs is unproven, never "uncovered".
     missing_line_standings: tuple[tuple[int, str], ...] = ()
@@ -317,7 +319,9 @@ def audit_check_failed(killable_gaps: int, missing_lines: int, failing_tests: in
     return bool(killable_gaps) or bool(missing_lines) or bool(failing_tests) or bool(fence)
 
 
-def audit_measurement_incomplete(unclassified: int, errored: int = 0, unresolved: int = 0) -> bool:
+def audit_measurement_incomplete(
+    unclassified: int, errored: int = 0, unresolved: int = 0, untyped: int = 0
+) -> bool:
     """Whether the audit's MEASUREMENT was incomplete — honest tool-side uncertainty, not a code gap.
 
     An UNCLASSIFIED survivor (issue #50) is one the equivalence search could not evaluate — it may be
@@ -334,8 +338,12 @@ def audit_measurement_incomplete(unclassified: int, errored: int = 0, unresolved
     An UNRESOLVED mutant (#80) is the third: one that reached no verdict for a cause the reader CAN
     repair. ``unresolved`` counts only those (`unresolved_gate_standing`); a step-budget divergence or a
     wall bound is named in the gate's payload but never fails it. The three causes share the strict
-    gate's ``2``; the gate's ``--json`` payload names which (``unmeasured``)."""
-    return unclassified > 0 or errored > 0 or unresolved > 0
+    gate's ``2``; the gate's ``--json`` payload names which (``unmeasured``).
+
+    An UNTYPED test (Wesker#17, `function_untyped_tests`) is the errored test's sibling on the legacy
+    direct-call route: it did not pass and the route cannot say what it did, so its evidence is absent. The
+    rule already here for an errored test applies: unmeasured, exit ``2`` under ``--check-strict``."""
+    return unclassified > 0 or errored > 0 or unresolved > 0 or untyped > 0
 
 
 def unresolved_gate_standing(reason: str) -> str:
@@ -477,9 +485,17 @@ def baseline_failure_disposition(named_failing: bool, outcome: str) -> str:
                      named, an engine with no ledger row, where its word is all there is
       "errored"      typed ``error``: setup or teardown failed, so the test never ran to a verdict of its
                      own. Never a wrong expectation: the repair is the fixture, and it is named apart
+      "untyped"      (Wesker#17) typed ``untyped``: the legacy direct-call route, with no pytest phase, could
+                     not say whether this test failed, errored, was skipped or expected to fail (it also
+                     carries marks that route does not evaluate). It is neither a pass nor a failure: an
+                     untypable test must not read as passing, and must not be accused of a wrong
+                     expectation either. Named apart; the remedy is a route that can type it (the CLI, a
+                     live pytest session)
       "not_failing"  a pass, a skip or an expected failure, whatever the engine named; and a test with
                      no typed outcome that the engine did not name
     """
+    if outcome == "untyped":
+        return "untyped"
     if outcome == "error":
         return "errored"
     if outcome == "failed" or (named_failing and outcome == "unrecorded"):
@@ -540,6 +556,29 @@ def function_errored_tests(
             t
             for t, outcome in (typed_outcomes or {}).items()
             if t in suite and baseline_failure_disposition(False, outcome) == "errored"
+        )
+    )
+
+
+def function_untyped_tests(
+    kill_matrix: dict[str, list[str]],
+    line_coverage: dict[str, list[int]],
+    typed_outcomes: dict[str, str] | None = None,
+) -> tuple[str, ...]:
+    """The tests that are this function's business and could not be TYPED on current code (Wesker#17, pure
+    — pinned).
+
+    The sibling of `function_errored_tests` over the same suite and the same reading
+    (`baseline_failure_disposition`): the route that ran them had no pytest phase to say what their non-pass
+    was. They are absent from the measurement, neither passing nor failing, so a renderer names them apart
+    and the strict gate counts them as an incomplete measurement (`audit_measurement_incomplete`). Sorted,
+    because no engine order exists for a test it did not type."""
+    suite = function_test_suite(kill_matrix, line_coverage)
+    return tuple(
+        sorted(
+            t
+            for t, outcome in (typed_outcomes or {}).items()
+            if t in suite and baseline_failure_disposition(False, outcome) == "untyped"
         )
     )
 
@@ -1039,6 +1078,7 @@ def audit_suite(
         list(result.failing_tests), result.kill_matrix, result.line_coverage, _typed
     )
     _errored = function_errored_tests(result.kill_matrix, result.line_coverage, _typed)
+    _untyped = function_untyped_tests(result.kill_matrix, result.line_coverage, _typed)
     # THE REDUNDANT SET AND THE COVER (#145). The kill matrix on the result credits each mutant to its
     # FIRST killer, an artifact of execution order that follows the trace cache's warmth, so nothing
     # printed or acted on is computed from it: the relation over (test, mutant) is what the profile
@@ -1101,6 +1141,7 @@ def audit_suite(
         # whose setup or teardown failed never ran to a verdict, and is named apart.
         failing_tests=_failing,
         errored_tests=_errored,
+        untyped_tests=_untyped,
         killable_gaps=killable_gaps,
         missing_lines=tuple(missing),
         missing_line_standings=tuple(
