@@ -1470,6 +1470,10 @@ class TraceTier:
     executable_lines: int
     covered_lines: int
     mutant_count: int
+    # The mutation POLICY ``mutant_count`` was estimated under (#127): one-sign by default. Under
+    # ``two_sign`` it counts the static universe only; the type-conditional OUTPUT mutants need the
+    # codomain the run observes, so it is a lower bound there.
+    two_sign: bool = False
 
 
 @restores_process_state(declared_roots)
@@ -1479,6 +1483,7 @@ def trace_tier(
     project_root: str = ".",
     *,
     trace_progress: Callable[[int, int, float], None] | None = None,
+    two_sign: bool = False,
 ) -> TraceTier:
     """Compute :class:`TraceTier` — the trace-only tier (issue #52), reusing the exact discovery and
     trace primitives ``profile`` does but STOPPING before mutation. No kills, no verdict; the fan-in,
@@ -1511,7 +1516,10 @@ def trace_tier(
     )
     covered = {ln for lines in coverage.values() for ln in lines}
     pure = _is_pure(node, is_method="." in (qualname or ""))
-    mutant_count = sum(1 for _ in generate_mutants(node, filter_categories(node, pure)))  # type: ignore[arg-type]
+    # The run's POLICY (#127): `filter_categories` opts the μ⁻ OUTPUT operators in under two-sign, so the
+    # estimate counts the universe the audit it prices will measure, not always the one-sign one.
+    categories = filter_categories(node, pure, two_sign=two_sign)  # type: ignore[arg-type]
+    mutant_count = sum(1 for _ in generate_mutants(node, categories))
     return TraceTier(
         function=f"{rel}::{qualname}",
         tests_reaching=sum(1 for lines in coverage.values() if lines),
@@ -1519,6 +1527,7 @@ def trace_tier(
         executable_lines=len(exec_lines),
         covered_lines=len(exec_lines & covered),
         mutant_count=mutant_count,
+        two_sign=two_sign,
     )
 
 

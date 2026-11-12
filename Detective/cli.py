@@ -3279,8 +3279,15 @@ def _format_converge_terse(
     # golden-refusal row above — those lines cannot be reached by ANY --input, so they are a
     # fixture/manual hand-back, not an input to author.
     if (gated := getattr(result, "environment_gated", ())) and result.missing_lines:
+        _held = decision.run_universe if decision is not None else UniverseOptions()
         lines.append(
-            _row("· env-gated", f"{len(gated)} read(s) gate uncovered line(s) — fixture/manual, not --input")
+            _row(
+                "· env-gated",
+                env_gated_row_text(
+                    environment_gate_kind(list(gated), _held.clock is not None, bool(_held.env)),
+                    len(gated),
+                ),
+            )
         )
     # Shape-hazardous tests held out of the speculative search (shaped-defer): a NAMED disclosure so a
     # residual is never silently attributed to the code when a deferred test might have killed it.
@@ -3434,6 +3441,31 @@ def environment_gate_kind(reads: list[str], clock_supplied: bool, env_supplied: 
     if process:
         return "process_state"
     return "fixture" if other else "none"
+
+
+def env_gated_row_text(kind: str, reads: int) -> str:
+    """The terse `· env-gated` row's words, from `environment_gate_kind`'s code (pure — pinned).
+
+    The row said "fixture/manual, not --input" for every read, directly above a `DO THIS … --clock` for a
+    clock read that `--clock` covers. The row and the action block must name one remedy, so the row takes
+    the same code the ladder routes on:
+
+      "clock"          a freeze covers the read: `--clock`
+      "env"            a declared variable covers it: `--env`
+      "clock_env"      both
+      "process_state"  the interpreter's own state: a test that controls it
+      "fixture"        a read no capability covers: a fixture or a hand-written test
+      "none"           every read is already covered by what this run declared
+    """
+    head = f"{reads} read(s) gate uncovered line(s) — "
+    return head + {
+        "clock": "`--clock` covers them, not --input",
+        "env": "`--env` covers them, not --input",
+        "clock_env": "`--clock` and `--env` cover them, not --input",
+        "process_state": "a test that controls the interpreter state, not --input",
+        "fixture": "fixture/manual, not --input",
+        "none": "covered by what this run declared (--clock/--env); not an --input",
+    }.get(kind, f"unrecognised gate kind {kind}")
 
 
 def converge_next_action(
@@ -6957,6 +6989,7 @@ def _format_audit_plan(
         if est_s is not None
         else f"{tier1.mutant_count} mutant(s) — no prior rate yet to estimate from (first run here)"
     )
+    est += f" [{plan_policy_label(tier1.two_sign)}]"
     return "\n".join(
         [
             _RULE,
@@ -6976,6 +7009,18 @@ def _format_audit_plan(
                 "   # pay tier 2 for the specification verdict",
             ),
         ]
+    )
+
+
+def plan_policy_label(two_sign: bool) -> str:
+    """The policy an `audit --plan` mutant estimate was made under, as the words the page prints (pure —
+    pinned). The estimate used to count the one-sign universe whatever the run asked for, so a
+    `--two-sign` plan priced an audit it would not run. Two-sign counts the static universe; its
+    type-conditional OUTPUT mutants need the codomain the run observes, so the number is a lower bound."""
+    return (
+        "two-sign universe, static count — OUTPUT mutants that depend on observed return types come on top"
+        if two_sign
+        else "one-sign universe"
     )
 
 
@@ -10852,7 +10897,13 @@ def _run_audit(args, file, function) -> int:
             _static = read_function(_node, function).detail if _node is not None else ""
         except (OSError, SyntaxError):
             _static = ""
-        tier1 = trace_tier(file, function, args.project_root, trace_progress=_stream_trace_progress(function))
+        tier1 = trace_tier(
+            file,
+            function,
+            args.project_root,
+            trace_progress=_stream_trace_progress(function),
+            two_sign=getattr(args, "two_sign", False),
+        )
         est_s = mutation_estimate_seconds(tier1.mutant_count, _read_per_mutant_ms())
         if args.json:
             return _emit_json(
@@ -10867,7 +10918,11 @@ def _run_audit(args, file, function) -> int:
                         "covered_lines": tier1.covered_lines,
                         "executable_lines": tier1.executable_lines,
                     },
-                    "tier2": {"mutant_count": tier1.mutant_count, "estimate_seconds": est_s},
+                    "tier2": {
+                        "mutant_count": tier1.mutant_count,
+                        "estimate_seconds": est_s,
+                        "policy": plan_policy_label(tier1.two_sign),
+                    },
                 },
                 0,
             )
