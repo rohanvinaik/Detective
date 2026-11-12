@@ -47,6 +47,12 @@ from Detective.distinction import (
 )
 
 BY_DESIGN: dict[str, str] = {
+    "cli.residual_ids_key @ cli._decision_payload": (
+        "The code IS the output here: it is used as the JSON key the residual's ids are written under "
+        "(`divergent_ids` for a step-budget divergence, `flaggable_ids` for every other basis; D#142), "
+        "so each code yields a different record and neither is sent down the other's path. The site "
+        "reads as a collapse only because a subscript key is not a comparison."
+    ),
     "engine.rescue_disposition @ engine.classify_survivors": (
         "`nothing` and `no_input` both mean neither the --input ask nor the capture rescue runs, which is "
         "all this site decides: with no residual there is nothing to rescue, and a function that takes "

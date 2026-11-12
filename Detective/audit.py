@@ -145,6 +145,10 @@ class SuiteAudit:
     # Mutants that reached NO verdict in the profile — `(mutant_id, disposition)`, the same derivation
     # converge carries (`validity.unresolved_mutant_records`), so the two verbs name them alike (#126).
     unresolved_mutants: tuple[tuple[str, str], ...] = ()
+    # What `--remove` would do with each redundant test, by `suite_edit.removal_disposition` over the
+    # suite as it stands (#142): ``(test, code)``, ``remove`` for one it would delete. Empty when the
+    # audit proposes no removal, or for a report built by something that did not resolve them.
+    redundant_dispositions: tuple[tuple[str, str], ...] = ()
     # The candidate-equivalents' actual ids. `flag` takes an id, so a count alone cannot
     # produce a runnable command: the report said "`flag <mutant_id>`" and left the reader to
     # go find one. The classifier already has them; keeping only `len()` is what made the
@@ -933,6 +937,8 @@ def audit_suite(
         kill_matrix=relation.matrix,
         kill_attribution=relation.standing,
     )
+    from .suite_edit import removal_dispositions
+
     return SuiteAudit(
         function=result.function_key,
         test_count=len(test_names),
@@ -941,6 +947,11 @@ def audit_suite(
         line_complete=not missing and validity.admits_certificate,
         line_basis=line_basis,
         redundant_tests=tuple(sorted(redundant)),
+        redundant_dispositions=tuple(
+            sorted(removal_dispositions(file, os.path.abspath(project_root), sorted(redundant)).items())
+        )
+        if redundant
+        else (),
         # Scoped by `suite` for the SAME reason test_names is, and it must stay that way:
         # `result.failing_tests` is the baseline's REPO-WIDE list (the baseline runs every
         # discovered test, for every function), so passing it through raw put thousands of

@@ -402,6 +402,47 @@ def _resolve_definitions(project_root: str, file: str, ids: set[str]) -> dict[st
     return found
 
 
+def _removal_plan(
+    file: str, project_root: str, names: list[str]
+) -> tuple[dict[str, str], dict[str, list[tuple[str, str]]]]:
+    """Resolve each candidate against the CURRENT suite source, before any file is touched.
+
+    Returns the candidates `removal_disposition` keeps, each with its code, and the plan for the rest:
+    ``{test file: [(id, qualified name)]}``, every entry one supported definition.
+    """
+    wanted = set(names)
+    # A bracketed name is one CASE of a parametrized test — a row, not a function. The function is
+    # alive (its other rows earn their keep), so it must not be deleted to get at the row.
+    outcomes: dict[str, str] = {
+        n: "parametrized_row" for n in wanted if nodeid_kind(n) == "parametrized_case"
+    }
+    rest = sorted(wanted - set(outcomes))
+    found = _resolve_definitions(project_root, file, set(rest)) if rest else {}
+    plan: dict[str, list[tuple[str, str]]] = {}
+    for ident in rest:
+        defs = found.get(ident, set())
+        path, qual = next(iter(defs)) if len(defs) == 1 else ("", "")
+        disposition = removal_disposition(nodeid_kind(ident), len(defs), _definition_shape(qual))
+        if disposition == "remove":
+            plan.setdefault(path, []).append((ident, qual))
+        else:
+            outcomes[ident] = disposition
+    return outcomes, plan
+
+
+def removal_dispositions(file: str, project_root: str, names: list[str]) -> dict[str, str]:
+    """`removal_disposition`'s code for each candidate, read off the suite as it stands (#142).
+
+    The SAME resolution `apply_removals` makes before it edits, so a page that says what ``--remove``
+    would do with a test cannot disagree with what ``--remove`` then does. It reads; it writes nothing.
+    A candidate that resolves to one supported definition is ``remove``; whether a sibling function
+    still needs it is measured only by ``--remove`` itself and is not claimed here.
+    """
+    outcomes, plan = _removal_plan(file, project_root, names)
+    planned = {ident: "remove" for items in plan.values() for ident, _qual in items}
+    return {**outcomes, **planned}
+
+
 def apply_removals(
     file: str, project_root: str, names: list[str], expected_digests: dict[str, str] | None = None
 ) -> RemovalReport:
@@ -426,23 +467,7 @@ def apply_removals(
     fixture-taking test and drops it (measured: 2 tests re-collected where 4 remained). A caller that needs
     the edited suite measured does it in a fresh process (`cli._fresh_audit`).
     """
-    wanted = set(names)
-    # A bracketed name is one CASE of a parametrized test — a row, not a function. The function is
-    # alive (its other rows earn their keep), so it must not be deleted to get at the row.
-    outcomes: dict[str, str] = {
-        n: "parametrized_row" for n in wanted if nodeid_kind(n) == "parametrized_case"
-    }
-    rest = sorted(wanted - set(outcomes))
-    found = _resolve_definitions(project_root, file, set(rest)) if rest else {}
-    plan: dict[str, list[tuple[str, str]]] = {}
-    for ident in rest:
-        defs = found.get(ident, set())
-        path, qual = next(iter(defs)) if len(defs) == 1 else ("", "")
-        disposition = removal_disposition(nodeid_kind(ident), len(defs), _definition_shape(qual))
-        if disposition == "remove":
-            plan.setdefault(path, []).append((ident, qual))
-        else:
-            outcomes[ident] = disposition
+    outcomes, plan = _removal_plan(file, project_root, names)
     changed: list[str] = []
     for path, items in sorted(plan.items()):
         rel = basis_key(project_root, path)

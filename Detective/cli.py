@@ -6763,7 +6763,7 @@ def audit_next_action(
     diverged: int = 0,
     errored: int = 0,
     write_refused: int = 0,
-    redundant_rows: int = 0,
+    redundant_kept: int = 0,
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -6784,12 +6784,13 @@ def audit_next_action(
                           only a human has standing to make.
       "provide_sample"    the search ran and no input reached the function — a sample, not a migrate
       "close_the_gap"     real killable mutants or uncovered lines — converge writes them
-      "prune_by_hand"     every redundant test is a row of a live parametrized test, which `--remove` keeps
-                          ("rows are never edited"): the directive is the hand-prune, not `--remove`, which
-                          would remove nothing (#142), including while `--remove` runs, whose result then
-                          closes with this directive still last (A4). ``redundant_rows`` counts the
-                          redundant tests whose `removal_disposition` is ``parametrized_row`` — the
-                          fact `--remove` keeps them by
+      "prune_by_hand"     every redundant test is one `--remove` keeps by its own pre-edit decision: a row
+                          of a live parametrized test, an id no definition answers to, an ambiguous id,
+                          a shape it cannot remove intact. The directive is the hand-back naming each
+                          with its reason, not `--remove`, which would remove nothing (#142), including
+                          while `--remove` runs, whose result then closes with this directive still
+                          last (A4). ``redundant_kept`` counts the redundant tests whose recorded
+                          `removal_disposition` is anything but ``remove``
       "removing_now"      `--remove` is EXECUTING: recommending it mid-run would be a stale
                           self-instruction computed for the pre-action state
       "remove_redundant"  tests that kill no mutant and cover no line another does not
@@ -6840,7 +6841,7 @@ def audit_next_action(
     if killable_gaps > 0 or missing_lines > 0:
         return "close_the_gap"
     if redundant_tests > 0:
-        if redundant_rows >= redundant_tests:
+        if redundant_kept >= redundant_tests:
             return "prune_by_hand"
         return "removing_now" if removing else "remove_redundant"
     if errored > 0:
@@ -6958,20 +6959,20 @@ def _audit_code(a, removing: bool = False) -> str:
         # A direct read (§9.7): a renamed field must raise, never read as "no errored test" and close DONE.
         errored=len(a.errored_tests),
         write_refused=a.write_refused,
-        redundant_rows=_redundant_row_count(a.redundant_tests),
+        redundant_kept=len(_redundant_kept(a)),
     )
 
 
-def _redundant_row_count(redundant_tests) -> int:
-    """How many redundant tests are rows of a live parametrized test — the ones `--remove` keeps first, by
-    `removal_disposition`'s own decision (#142), not by reading the id's spelling here."""
-    from .suite_edit import nodeid_kind, removal_disposition
+def _redundant_kept(a) -> tuple[tuple[str, str], ...]:
+    """The redundant tests `--remove` would NOT delete, each with `removal_disposition`'s code (#142).
 
-    return sum(
-        1
-        for test in redundant_tests
-        if removal_disposition(nodeid_kind(test), 1, "function") == "parametrized_row"
-    )
+    Read from the dispositions the audit recorded against the suite as it stands
+    (`SuiteAudit.redundant_dispositions`), the same resolution `--remove` makes before it edits. A report
+    that recorded none (a redundant set with no dispositions) names none here, and the ladder then
+    directs `--remove` as it always did: an unrecorded disposition is not a kept test.
+    """
+    recorded = tuple(getattr(a, "redundant_dispositions", ()) or ())
+    return tuple((test, code) for test, code in recorded if code != "remove")
 
 
 def _audit_headline(a) -> str:
@@ -7291,6 +7292,32 @@ def _two_sign_setup_action(errored: int, argv: tuple[str, ...] | None) -> list[s
     ]
 
 
+def _prune_by_hand_block(a, universe: UniverseOptions) -> list[str]:
+    """The hand-back for redundant tests `--remove` would keep, each kind under its own reason (#142).
+
+    One sentence per `removal_disposition` code, from `removal_outcome_why`, the owner `--remove`'s own
+    page reads, so this page and that one cannot say different things about the same test.
+    """
+    from .suite_edit import removal_outcome_why
+
+    by_code: dict[str, list[str]] = {}
+    for test, code in _redundant_kept(a):
+        by_code.setdefault(code, []).append(test)
+    lines = [
+        "PRUNE BY HAND:  --remove would remove none of the redundant test(s)",
+        "",
+        _row("· Why", f"{len(a.redundant_tests)} test(s) kill no mutant AND cover no line another does not,"),
+        _row("", "but --remove keeps every one of them, for the reason beside it:"),
+    ]
+    for code in sorted(by_code):
+        lines.append(_row("· " + code.replace("_", " "), removal_outcome_why(code)))
+        lines.append(_row("", _first_n(sorted(by_code[code]), 4)))
+    lines.append(
+        _row(_THEN_ROW, f"{_command_text(_carried_argv(universe, 'audit', a.function))}   # re-audit")
+    )
+    return lines
+
+
 def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
     """The endings that follow a clean measurement — removal, the equivalents, and done.
 
@@ -7306,16 +7333,7 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
             _row("", "a test pointless here can still be the only pin of a function it runs."),
         ]
     if kind == "prune_by_hand":
-        rows = [t for t in a.redundant_tests]
-        return [
-            "PRUNE BY HAND:  the redundant test(s) are parametrized rows; --remove would remove nothing",
-            "",
-            _row("· Why", f"{len(rows)} test(s) kill no mutant AND cover no line another does not, but each"),
-            _row("", "is a row of a live parametrized test, and rows are never edited"),
-            _row("", "(the function stays alive while any row earns its keep)."),
-            _row("· Rows", _first_n(rows, 4)),
-            _row(_THEN_ROW, f"{_command_text(_carried_argv(universe, 'audit', a.function))}   # re-audit"),
-        ]
+        return _prune_by_hand_block(a, universe)
     if kind == "remove_redundant":
         return [
             f"DO THIS:  {_command_text(_carried_argv(universe, 'audit', a.function, '--remove'))}",
