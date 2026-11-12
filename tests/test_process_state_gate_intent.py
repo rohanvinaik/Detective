@@ -48,7 +48,7 @@ def _run(cwd: Path, *argv: str) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=900,
         check=False,
-        env=dict(os.environ),
+        env={k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"},
     )
 
 

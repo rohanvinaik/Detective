@@ -227,7 +227,7 @@ def test_an_identical_mutant_only_residual_end_to_end(tmp_path):
             text=True,
             timeout=900,
             check=False,
-            env=dict(os.environ),
+            env={k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"},
         )
 
     assert run("regime", "--migrate", "--project-root", str(root)).returncode == 0

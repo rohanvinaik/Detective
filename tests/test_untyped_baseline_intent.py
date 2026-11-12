@@ -10,6 +10,7 @@ These tests pin the disposition, the page row, the ladder code and the strict ga
 is untyped and on one where every test is.
 """
 
+import os
 import subprocess
 import sys
 import types
@@ -156,7 +157,12 @@ def test_a_library_audit_of_marked_tests_types_them_untyped_and_names_them(tmp_p
         '@pytest.mark.xfail(reason="no")\ndef test_b():\n    assert f(2) == 99\n'
     )
     done = subprocess.run(
-        [sys.executable, "-c", _SCRIPT], cwd=tmp_path, capture_output=True, text=True, check=False
+        [sys.executable, "-c", _SCRIPT],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"},
     )
     assert done.returncode == 0, done.stderr
     assert "test_a" in done.stdout and "test_b" in done.stdout, done.stdout
