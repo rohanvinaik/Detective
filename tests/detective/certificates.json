@@ -169,6 +169,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/cli.py::_final_banner": {
+    "cut_reasons": [],
+    "function_digest": "ae53510ba46a3d3d",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/cli.py::_final_banner_status": {
     "cut_reasons": [],
     "function_digest": "88bafc2ca452e244",
