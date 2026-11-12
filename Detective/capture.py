@@ -59,7 +59,6 @@ __all__ = [
     "is_budget_active",
     "profile_hook_disposition",
     "step_budget",
-    "HARVEST_STEP_BUDGET",
     "harvest_stop_status",
 ]
 
@@ -84,13 +83,13 @@ class HarvestResult(Sequence[tuple]):
     samples: tuple[tuple, ...] = ()
     codomain: frozenset[str] = frozenset()
     contained: bool = True
-    status: str = (
-        "empty"  # "complete", "enough", "empty", "cut", "sample_limit", "uncontained", "step_budget"
-    )
+    status: str = "empty"  # "complete", "enough", "empty", "cut", "sample_limit", "uncontained"
     deadline_passed: bool = False
-    #: A test was stopped by the per-test loop budget (Detective#80): a deterministic stop, kept apart from
-    #: ``status == "cut"`` (a wall that fired), so a harvest that suffered both still says both.
-    step_stopped: bool = False
+    #: The tests the loop budget could not bound (Detective#80): each ran past `STEP_PROBE_CAP` inside the
+    #: target, so the count could not decide it and it ran AGAIN, unarmed, under the calibrated wall alone;
+    #: the harvest is taken from that run. A fact for the full report and ``--json``, not a cut: it makes
+    #: nothing partial.
+    unarmed: tuple[str, ...] = ()
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -106,7 +105,7 @@ class HarvestResult(Sequence[tuple]):
                 and self.contained == other.contained
                 and self.status == other.status
                 and self.deadline_passed == other.deadline_passed
-                and self.step_stopped == other.step_stopped
+                and self.unarmed == other.unarmed
             )
         if isinstance(other, (list, tuple)):
             return list(self.samples) == list(other)
@@ -165,11 +164,10 @@ class _HarvestExecution:
     step_stopped: bool = False
 
 
-HARVEST_STEP_BUDGET = "step_budget"  # a test was stopped by the loop budget — deterministic, partial
 HARVEST_UNCONTAINED = "uncontained"
 
 
-def harvest_stop_status(base: str, contained: bool, step_stopped: bool, timed_out: bool) -> str:
+def harvest_stop_status(base: str, contained: bool, timed_out: bool) -> str:
     """The status a harvest ends with once its tests have run (Detective#80, pure — pinned).
 
     ``base`` is the status the loop reached on its own (``empty`` / ``complete`` / ``enough`` / ``cut``
@@ -177,19 +175,15 @@ def harvest_stop_status(base: str, contained: bool, step_stopped: bool, timed_ou
 
     * ``uncontained`` — a worker could not be stopped: nothing measured after it is trustworthy.
     * ``cut``         — a per-test wall fired: a liveness bound, so the harvest is partial.
-    * ``step_budget`` — a test was stopped by the loop budget: the same partial harvest, but a
-      DETERMINISTIC stop and not the machine's, which no larger wall changes.
     * otherwise ``base`` stands.
 
-    The wall outranks the budget because it is the one a larger ``--deadline`` can cure and so the
-    remedy to name first; the budget stop is kept regardless, on `HarvestResult.step_stopped`.
+    A loop budget is not among them. A test the count stopped is run again unarmed (see
+    `capture_call_inputs`), so only the wall can cut it, and a test that merely loops long is complete.
     """
     if not contained:
         return HARVEST_UNCONTAINED
     if timed_out:
         return "cut"
-    if step_stopped:
-        return HARVEST_STEP_BUDGET
     return base
 
 
@@ -202,6 +196,18 @@ def _stretched_timeout(seconds: float) -> float:
     from Wesker.monitoring import machine_slowdown
 
     return seconds * max(machine_slowdown()[0], 1.0)
+
+
+def _remaining(per_test_timeout: float, deadline: float | None) -> float:
+    """A test's wall: its own, clipped to what the aggregate deadline has left."""
+    if deadline is None:
+        return per_test_timeout
+    return min(per_test_timeout, max(0.0, deadline - time.monotonic()))
+
+
+def _test_label(test: Callable[..., Any]) -> str:
+    """The name a test is reported by in `HarvestResult.unarmed`."""
+    return getattr(test, "__qualname__", None) or getattr(test, "__name__", None) or repr(test)
 
 
 def harvest_disposition(have_enough: bool, deadline_passed: bool) -> str:
@@ -379,7 +385,10 @@ def capture_call_inputs(
     Each test runs under a loop budget of ``step_cap`` iterations of the target (default Wesker's
     ``STEP_PROBE_CAP``, the budget an original gets where no test fixed a count) and a wall of
     ``per_test_timeout`` reference seconds stretched by this machine's calibrated slowdown. A test the
-    budget stops ends the harvest ``step_budget`` (partial, named); one the wall stops ends it ``cut``.
+    budget stops is UNARMED, the engine's rule for an original that does not finish inside the probe
+    cap: the count cannot decide it, so it runs again under the wall alone and the harvest is taken from
+    that run (what the stopped run captured is dropped). Only the wall can then cut it (``cut``); the
+    test is named on ``HarvestResult.unarmed``.
     """
     code = getattr(original, "__code__", None)
     if code is None or not tests:
@@ -393,7 +402,7 @@ def capture_call_inputs(
     snapshot_errors: list[tuple[str, str]] = []
     all_contained = True
     any_timed_out = False
-    any_step_stopped = False
+    unarmed: list[str] = []
 
     def _on_start(
         frame_code: Any,
@@ -441,6 +450,8 @@ def capture_call_inputs(
                 if deadline is not None
                 else per_test_timeout
             )
+            captured_before = len(captured)
+            seen_before = set(seen)
             run = _run_for_effects(
                 t,
                 timeout_s=timeout_s,
@@ -450,6 +461,23 @@ def capture_call_inputs(
                 deadline=deadline,
                 step_cap=step_cap,
             )
+            if run.step_stopped and run.contained:
+                # The count cannot decide this test (it loops past the probe cap in the target): it is
+                # UNARMED, so it runs once more under the wall alone and the harvest is taken from that
+                # run. Whatever the stopped run captured is dropped first, so the result is one run's.
+                del captured[captured_before:]
+                seen.clear()
+                seen.update(seen_before)
+                snapshot_errors.clear()
+                unarmed.append(_test_label(t))
+                run = _run_for_effects(
+                    t,
+                    timeout_s=_remaining(per_test_timeout, deadline),
+                    code=code,
+                    event=sys.monitoring.events.PY_START,
+                    observer=_on_start,
+                    deadline=deadline,
+                )
             if snapshot_errors:
                 reason, error_type = snapshot_errors[0]
                 raise ObservationIncomplete(
@@ -458,14 +486,13 @@ def capture_call_inputs(
                     contained=run.contained,
                 )
             any_timed_out = any_timed_out or run.timed_out
-            any_step_stopped = any_step_stopped or run.step_stopped
             if not run.contained:
                 all_contained = False
                 break
         if status == "empty" and captured:
             status = "enough" if len(captured) >= max_samples else "complete"
 
-    status = harvest_stop_status(status, all_contained, any_step_stopped, any_timed_out)
+    status = harvest_stop_status(status, all_contained, any_timed_out)
 
     deadline_passed = deadline is not None and time.monotonic() >= deadline
     return HarvestResult(
@@ -473,7 +500,7 @@ def capture_call_inputs(
         contained=all_contained,
         status=status,
         deadline_passed=deadline_passed,
-        step_stopped=any_step_stopped,
+        unarmed=tuple(unarmed),
     )
 
 
@@ -485,6 +512,7 @@ def capture_return_types(
     per_test_timeout: float = 5.0,
     deadline: float | None = None,
     step_cap: int | None = STEP_PROBE_CAP,
+    unarmed: list[str] | None = None,
 ) -> frozenset[str]:
     """The set of type NAMES of values the target RETURNS while ``tests`` run — the observed
     codomain for μ⁻ Fork 2 (the two-sign contract's type-conditional output perturbations).
@@ -527,6 +555,7 @@ def capture_return_types(
                 if deadline is not None
                 else per_test_timeout
             )
+            names_before = set(names)
             run = _run_for_effects(
                 t,
                 timeout_s=timeout_s,
@@ -536,7 +565,22 @@ def capture_return_types(
                 deadline=deadline,
                 step_cap=step_cap,
             )
-            stop = harvest_stop_status("complete", run.contained, run.step_stopped, run.timed_out)
+            if run.step_stopped and run.contained:
+                # Unarmed, as in `capture_call_inputs`: the stopped run's types are dropped and the test
+                # runs again under the wall alone; the codomain is taken from that run.
+                names.clear()
+                names.update(names_before)
+                if unarmed is not None:
+                    unarmed.append(_test_label(t))
+                run = _run_for_effects(
+                    t,
+                    timeout_s=_remaining(per_test_timeout, deadline),
+                    code=code,
+                    event=sys.monitoring.events.PY_RETURN,
+                    observer=_on_return,
+                    deadline=deadline,
+                )
+            stop = harvest_stop_status("complete", run.contained, run.timed_out)
             if stop != "complete":
                 # Partial types are diagnostic only: a codomain missing what a stopped test would have
                 # returned is not the observed codomain, and the status says which bound stopped it.
@@ -546,7 +590,6 @@ def capture_return_types(
                         contained=run.contained,
                         status=stop,
                         deadline_passed=deadline is not None and time.monotonic() >= deadline,
-                        step_stopped=run.step_stopped,
                     )
                 )
 

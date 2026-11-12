@@ -6,10 +6,10 @@ with six different remedies shared one code and one page sentence: a person told
 looking for a slow machine when the input could not be copied. A cause is now a named code on the pair,
 the search, the verdict, the survivor report, the decision record and the page.
 
-And the original's own cap: the search ran the ORIGINAL with `cap=None`, so a 5 s wall decided whether
-it finished, which is a different answer on every machine. It now runs under Wesker's probe cap
-(`STEP_PROBE_CAP`), and an original that cannot finish inside it is `original-step-budget`: no evidence
-either way, and the mutant is not run against nothing.
+And the original's own cap: the search runs the ORIGINAL under Wesker's probe cap (`STEP_PROBE_CAP`). An
+original that runs past it is NOT refused: the count cannot decide that input, so the comparison is
+UNARMED, as the engine leaves an observation whose original did not finish inside the cap. The original
+runs again under the wall alone, the mutant uncapped by count, and only `wall-undetermined` can block it.
 
 `terminated-distinct` / `terminated-same` were considered and not added: they are renames of `witness`
 and `same`, which already mean exactly "both sides terminated and the outcomes differ / agree".
@@ -50,9 +50,9 @@ TRUNC = "<iter~trunc map ['1']>"
         ("1", _OUTCOME_EFFECT_REFUSED, True, "effect-refused"),
         (TRUNC, TRUNC, True, "truncated-iterator"),
         ("1", "2", False, "payload-missing"),
-        # the ORIGINAL exceeding its probe budget is its own cause
-        (_OUTCOME_DIVERGED, "1", True, "original-step-budget"),
-        (_OUTCOME_DIVERGED, _OUTCOME_TIMEOUT, True, "original-step-budget"),
+        # an ORIGINAL the count stopped and nobody re-ran unarmed: only the wall can bound it
+        (_OUTCOME_DIVERGED, "1", True, "wall-undetermined"),
+        (_OUTCOME_DIVERGED, _OUTCOME_TIMEOUT, True, "wall-undetermined"),
         # the original is read first, as the pair always was
         (_OUTCOME_TIMEOUT, _OUTCOME_UNCOPYABLE, True, "wall-undetermined"),
         # not blocked
@@ -157,25 +157,41 @@ def _unbounded_loop(n):
     return i
 
 
-def test_an_original_that_cannot_finish_its_probe_budget_is_named_and_the_mutant_is_not_run():
-    ran: list[str] = []
-
-    def mutant(n):
-        ran.append("mutant")
-        return 0
-
-    pair = _observe_pair(_unbounded_loop, mutant, (STEP_PROBE_CAP * 10,), None)
-    assert (pair.disposition, pair.cause) == ("blocked", "original-step-budget")
-    assert ran == [], "a mutant is not run against an original that produced nothing"
+def test_an_original_past_the_probe_cap_is_compared_unarmed_not_refused():
+    # 300,000 iterations of the ORIGINAL, past the cap: the count cannot decide it, the wall bounds it.
+    differs = lambda n: -1  # noqa: E731
+    pair = _observe_pair(_unbounded_loop, differs, (STEP_PROBE_CAP + 100_000,), None)
+    assert (pair.disposition, pair.cause) == ("witness", "")
+    same = _observe_pair(_unbounded_loop, _unbounded_loop, (STEP_PROBE_CAP + 100_000,), None)
+    assert (same.disposition, same.cause) == ("same", "")
 
 
-def test_the_budget_is_the_count_not_the_clock():
-    # Well inside the 5 s wall, far past the cap: the count decides, so the answer does not depend on
-    # how fast the machine is.
-    pair = _observe_pair(_unbounded_loop, _unbounded_loop, (STEP_PROBE_CAP + 100,), None)
-    assert pair.cause == "original-step-budget"
-    ok = _observe_pair(_unbounded_loop, _unbounded_loop, (STEP_PROBE_CAP - 10,), None)
-    assert (ok.disposition, ok.cause) == ("same", "")
+def test_the_mutant_is_uncapped_by_count_where_there_is_no_original_count():
+    # The mutant does as much work as the original (past the cap); with no original count to scale from
+    # it is not stopped by one.
+    pair = _observe_pair(_unbounded_loop, _longer_loop, (STEP_PROBE_CAP + 100_000,), None)
+    assert pair.disposition == "witness" and pair.cause == ""
+
+
+def test_where_the_original_finished_the_mutants_count_cap_is_unchanged():
+    def forever(n):
+        while True:
+            pass
+
+    pair = _observe_pair(_unbounded_loop, forever, (50,), None)
+    assert pair.disposition == "step-budget-divergent"
+
+
+def test_a_search_over_an_original_that_loops_300000_times_still_classifies():
+    search = _search_witness_detail(_unbounded_loop, _longer_loop, [(300_000,)])
+    assert search.witness is not None and not search.blocked and search.blocked_cause == ""
+
+
+def _longer_loop(n):
+    i = 0
+    while i < n:
+        i += 1
+    return i + 1
 
 
 # ── the page ────────────────────────────────────────────────────────────────────
@@ -198,13 +214,11 @@ def test_causes_are_grouped_in_order_and_refusals_are_left_to_their_own_rows():
 
 
 def test_the_page_says_a_different_thing_for_each_cause():
-    rows = _blocked_cause_rows(
-        (("M1", "wall-undetermined"), ("M2", "uncopyable-input"), ("M3", "original-step-budget"))
-    )
+    rows = _blocked_cause_rows((("M1", "wall-undetermined"), ("M2", "uncopyable-input")))
     text = "\n".join(rows)
     assert "wall-undetermined" in text and "wall-clock bound" in text
     assert "uncopyable-input" in text and "built fresh" in text
-    assert "original-step-budget" in text and "probe budget" in text
+    assert "original-step-budget" not in text
     assert _blocked_cause_rows(()) == []
 
 

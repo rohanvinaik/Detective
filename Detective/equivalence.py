@@ -1435,15 +1435,15 @@ _OUTCOME_EFFECT_REFUSED = "<effect-refused>"
 # (Detective#80). They all used to read `blocked` and render `wall-undetermined`, but the remedies
 # differ: a wall that fired is the machine's; an input that cannot be copied wants a different input;
 # a refused write or effect wants a test that stubs it; an equal truncated iterator wants a longer
-# look; a distinction whose payload was lost wants a re-run; an original that cannot finish its probe
-# budget wants an input it finishes on; a spent aggregate deadline wants a longer one.
+# look; a distinction whose payload was lost wants a re-run; a spent aggregate deadline wants a longer
+# one. An original that runs past the probe cap is NOT a cause: the count cannot decide that input, so
+# the pair is compared unarmed under the wall, as the engine does (`_observe_pair`).
 BLOCKED_WALL = "wall-undetermined"
 BLOCKED_UNCOPYABLE = "uncopyable-input"
 BLOCKED_WRITE = "write-refused"
 BLOCKED_EFFECT = "effect-refused"
 BLOCKED_TRUNCATED = "truncated-iterator"
 BLOCKED_PAYLOAD = "payload-missing"
-BLOCKED_ORIGINAL_BUDGET = "original-step-budget"
 BLOCKED_DEADLINE = "deadline-exhausted"
 BLOCKED_CAUSES: tuple[str, ...] = (
     BLOCKED_WALL,
@@ -1452,11 +1452,12 @@ BLOCKED_CAUSES: tuple[str, ...] = (
     BLOCKED_EFFECT,
     BLOCKED_TRUNCATED,
     BLOCKED_PAYLOAD,
-    BLOCKED_ORIGINAL_BUDGET,
     BLOCKED_DEADLINE,
 )
-# The outcome a side produced -> the cause it blocks the pair with. The original's divergence is its own
-# cause (it exceeded the probe budget); the MUTANT's divergence is a finding, `step-budget-divergent`.
+# The outcome a side produced -> the cause it blocks the pair with. The MUTANT's divergence is a finding,
+# `step-budget-divergent`, not a block. An ORIGINAL the count stopped is undecided by count and only the
+# wall can bound it: `_observe_pair` runs it again unarmed, so the arm in `blocked_cause` guards a caller
+# that hands it such an outcome directly, and names it by the one bound that can still decide it.
 _BLOCKING_OUTCOME_CAUSE: dict[str, str] = {
     _OUTCOME_TIMEOUT: BLOCKED_WALL,
     _OUTCOME_UNCOPYABLE: BLOCKED_UNCOPYABLE,
@@ -1566,16 +1567,15 @@ def blocked_cause(original_outcome: str, mutant_outcome: str, payload_present: b
     decides before the comparison. Then the mutant's. ``payload_present`` is whether the observations
     that would render a witness survived: a pair that differs without them has no evidence to show.
 
-    * ``original-step-budget`` — the ORIGINAL exceeded the probe budget on this input
-      (`STEP_PROBE_CAP`): no evidence either way, and the mutant is not run.
-    * ``wall-undetermined`` — a side reached the per-call wall (a liveness bound, never a verdict).
+    * ``wall-undetermined`` — a side reached the per-call wall (a liveness bound, never a verdict), or
+      the original was stopped by a count and never re-run unarmed (only the wall can bound it).
     * ``uncopyable-input`` — the input cannot be copied to run twice.
     * ``write-refused`` / ``effect-refused`` — the speculative run tried to write or spawn.
     * ``truncated-iterator`` — both sides agree on an iterator only up to the observed prefix.
     * ``payload-missing`` — the outcomes differ but the observation that would show it did not survive.
     """
     if original_outcome == _OUTCOME_DIVERGED:
-        return BLOCKED_ORIGINAL_BUDGET
+        return BLOCKED_WALL
     original_cause = _BLOCKING_OUTCOME_CAUSE.get(original_outcome, "")
     if original_cause:
         return original_cause
@@ -2126,8 +2126,11 @@ def _observe_pair(
     mutant_observations: list[_ObservedOutcome] = []
     effects: list[str] = []
     # The ORIGINAL runs under Wesker's probe cap (#80), the budget it gives an original on an input no
-    # test fixed a count for: an input the original cannot finish inside it is no evidence either way,
-    # and a 5 s wall used to decide that, which is a different answer on every machine.
+    # test fixed a count for. One that runs past it is NOT refused: the count cannot decide that input,
+    # so the comparison is UNARMED, as the engine leaves an observation whose original did not finish
+    # inside the cap (`mutant_step_cap`): the original runs again under the calibrated wall alone and
+    # the mutant runs uncapped by count (there is no original count to scale from). Only the wall can
+    # then cut it, and `wall-undetermined` names that.
     original_outcome = _outcome(
         original,
         args,
@@ -2138,10 +2141,16 @@ def _observe_pair(
         refused_effects=effects,
     )
     if original_outcome == _OUTCOME_DIVERGED:
-        # Nothing to compare against, so the mutant is not run: it would be run unbounded (its cap
-        # rests on the original's count) for an answer that cannot be used.
-        return _PairObservation(
-            "blocked", _NO_OBSERVATION, _NO_OBSERVATION, False, (), BLOCKED_ORIGINAL_BUDGET
+        orig_steps.clear()
+        original_observations.clear()
+        effects.clear()
+        original_outcome = _outcome(
+            original,
+            args,
+            _outcome_budget_s(deadline),
+            cap=None,
+            observations=original_observations,
+            refused_effects=effects,
         )
     orig_it = orig_steps[0] if orig_steps else None
     mut_cap = (
@@ -2683,6 +2692,10 @@ class SurvivorReport:
     # (Detective#80): one of `BLOCKED_CAUSES`. A member without a row here is unclassified for a reason
     # the search does not name (an unbuildable mutant), which a page must not dress as one of them.
     blocked_causes: tuple[tuple[str, str], ...] = ()
+    # The tests the capture harvest's loop budget could not bound (Detective#80): each loops past the probe
+    # cap inside the target, so it ran again under the wall alone and the harvest was taken from that run.
+    # A fact about the measurement, not a cut.
+    unarmed_harvest: tuple[str, ...] = ()
     manual_equivalent: tuple[str, ...] = ()  # mutations manually flagged equivalent (the oracle)
     # Mutations manually flagged a FENCE — an authored MUST-NOT (Def. 12.1 `invalid`: this survival
     # is a bug). A fence with no distinguishing witness is an UNENFORCED negative degree of freedom,

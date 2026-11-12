@@ -3743,6 +3743,7 @@ def classify_survivors(
     # tests (`capture.harvest_disposition`). It used to run every discovered test with no check
     # anywhere — the 51-minute silent witness pass of 2026-09-05, its wall long gone.
     _harvest_not_consulted = 0
+    _harvest_unarmed: tuple[str, ...] = ()
     # A classification harvest's routing failure (#91) — the input harvest's, or the codomain fallback's
     # (#92): its evidence, "" while routing ran. A failed harvest runs no test, so its emptiness says
     # nothing about what the covering tests pass — carried on the report so the caller cuts the
@@ -3753,6 +3754,7 @@ def classify_survivors(
 
     def _harvest() -> list[tuple]:
         nonlocal _deferred_shaped_capture, _harvest_not_consulted, _harvest_routing_error, _harvest_contained
+        nonlocal _harvest_unarmed
         func_names = [qn for qn, _ in walk_functions(tree)]
         discovered = discover_test_callables(
             root, os.path.relpath(full, root), func_names, extra_dirs=list(extra_test_dirs) or None
@@ -3767,6 +3769,9 @@ def classify_survivors(
         res = capture_call_inputs(original, pool, deadline=_cls_abs_deadline)
         if hasattr(res, "contained") and not res.contained:
             _harvest_contained = False
+        # The tests the loop budget could not bound ran unarmed under the wall (Detective#80): a fact for
+        # the report, not a cut.
+        _harvest_unarmed = tuple(dict.fromkeys((*_harvest_unarmed, *getattr(res, "unarmed", ()))))
         return list(res)
 
     def _first_exercising(candidates: list[tuple]) -> tuple | None:
@@ -4301,6 +4306,7 @@ def classify_survivors(
         write_refused=tuple(u for u in unclassified if u in _write_refused_ids),
         write_refused_records=tuple(_write_refused_ids[u] for u in unclassified if u in _write_refused_ids),
         blocked_causes=tuple(_blocked_cause_ids[u] for u in unclassified if u in _blocked_cause_ids),
+        unarmed_harvest=_harvest_unarmed,
         manual_equivalent=tuple(manual_equivalent),
         authored_fence=tuple(fence),
         inputs_expressible=expressible,
