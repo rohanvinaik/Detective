@@ -34,6 +34,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/audit.py::count_basis": {
+    "cut_reasons": [],
+    "function_digest": "0c8675a87d09cb23",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/audit.py::function_errored_tests": {
     "cut_reasons": [],
     "function_digest": "23688dc31cdcdb43",
@@ -85,6 +91,12 @@
   "Detective/audit.py::removal_measurement_state": {
     "cut_reasons": [],
     "function_digest": "af12de8d9666f62f",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/audit.py::removal_recheck_standing": {
+    "cut_reasons": [],
+    "function_digest": "0b788bd3790ffa84",
     "refusal": "",
     "standing": "complete"
   },
@@ -277,6 +289,18 @@
   "Detective/cli.py::no_tests_attribution": {
     "cut_reasons": [],
     "function_digest": "d71fbb93750aaf5e",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::no_verdict_ratio_clause": {
+    "cut_reasons": [],
+    "function_digest": "2d1b685767ff5293",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/cli.py::original_also_fails_text": {
+    "cut_reasons": [],
+    "function_digest": "fe54e19f159ba197",
     "refusal": "",
     "standing": "complete"
   },
@@ -836,6 +860,12 @@
     "refusal": "",
     "standing": "complete"
   },
+  "Detective/validity.py::floor_cause_standing": {
+    "cut_reasons": [],
+    "function_digest": "c5b86b8fffbf5969",
+    "refusal": "",
+    "standing": "complete"
+  },
   "Detective/validity.py::holder_names": {
     "cut_reasons": [],
     "function_digest": "70f50dbc0a20944b",
@@ -863,6 +893,24 @@
   "Detective/validity.py::not_entered_reasons": {
     "cut_reasons": [],
     "function_digest": "28910ebd426fc4c2",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/validity.py::original_also_fails_cause": {
+    "cut_reasons": [],
+    "function_digest": "1a0f05cf345497d0",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/validity.py::original_also_fails_reasons": {
+    "cut_reasons": [],
+    "function_digest": "222452b339505b26",
+    "refusal": "",
+    "standing": "complete"
+  },
+  "Detective/validity.py::reasons_beyond_floor": {
+    "cut_reasons": [],
+    "function_digest": "219597198788a821",
     "refusal": "",
     "standing": "complete"
   },
