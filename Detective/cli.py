@@ -3185,6 +3185,7 @@ def _format_converge_terse(
         # (#139): a line only a failing test runs is unproven, never "uncovered".
         lines += _missing_line_rows(gap, getattr(result, "missing_line_standings", ()))
         lines += _not_consulted_dynamic_rows(getattr(result, "not_consulted_dynamic", ()))
+        lines += _unobserved_reach_page_rows(result, bool(rep is not None and rep.killable))
         # Name each uncovered line's OWN reach requirement (the branch it sits behind), so it is not
         # conflated with a mutant's kill input — the boundary mutant on `if x < 0` wants `x == 0`, but
         # the body is reached only when `x < 0`. Capped so the block stays inside its line budget. Only
@@ -3448,6 +3449,7 @@ def converge_next_action(
     write_refused: str = "none",
     env_gate: str = "none",
     unconsulted_only: bool = False,
+    reach_unobserved_only: bool = False,
 ) -> str:
     """Converge's ONE next action, given whether the SUITE ITSELF ran (pure — pinned).
 
@@ -3524,6 +3526,9 @@ def converge_next_action(
       consulted test runs, and a named test may already run this one, so `close_the_gap` would be a command
       that changes nothing. Ranked beside ``env_gate`` and above the gap ask; with a killable mutant open
       the gap ask is right and the tests are named beside it.
+    ``observe_reach`` (Wesker#17) — the only residual is lines open because a consulted test's reach was not
+      fully observed (`audit.unconsulted_gap_standing` reads ``reach_unobserved_only``): unknown, never
+      uncovered, and no `--input` applies. Ranked with ``consult_named_tests``.
     ``close_the_gap`` — the suite runs and a real residual remains. Witnesses and `--input` are
       the documented interface, and here they actually work.
 
@@ -3595,6 +3600,8 @@ def converge_next_action(
         return gated
     if unconsulted_only and not has_killable:
         return "consult_named_tests"
+    if reach_unobserved_only and not has_killable:
+        return "observe_reach"
     return "close_the_gap"
 
 
@@ -3975,6 +3982,7 @@ def _converge_routing(
             universe is not None and bool(universe.env),
         ),
         unconsulted_only=_converge_unconsulted_gap(result, rep) == "unconsulted_only",
+        reach_unobserved_only=_converge_unconsulted_gap(result, rep) == "reach_unobserved_only",
     )
 
 
@@ -3988,6 +3996,7 @@ def _converge_unconsulted_gap(result, rep) -> str:
         1 if _converge_blocked(result, rep) else 0,
         list(_line_standings(result.missing_lines, getattr(result, "missing_line_standings", ())).values()),
         list(getattr(result, "not_consulted_dynamic", ()) or ()),
+        [test for test, _ in getattr(result, "unobserved_reach", ()) or ()],
     )
 
 
@@ -4153,8 +4162,8 @@ def converge_step(
         return "run", ""
     if code == "step_budget_divergent":
         return "hand_back", "divergent"
-    if code == "consult_named_tests":
-        return "hand_back", "consult_named_tests"
+    if code in ("consult_named_tests", "observe_reach"):
+        return "hand_back", code
     if code == "declare_clock":
         return "run", ""
     if code == "declare_env":
@@ -4388,7 +4397,7 @@ def _converge_commands(
         # The same run under a frozen clock (#101): the epoch is an example, any freeze covers the read.
         held = universe if universe is not None else UniverseOptions(two_sign=two_sign)
         return _converge_rerun(dataclasses.replace(held, clock=_EXAMPLE_CLOCK_EPOCH), fn), None
-    if code in ("environment_fixture", "consult_named_tests"):
+    if code in ("environment_fixture", "consult_named_tests", "observe_reach"):
         return None, rerun
     # declare_env: the variable's value is the person's, so no command can be printed for it (a
     # placeholder never enters an argv).
@@ -5071,7 +5080,16 @@ def _converge_action(
     if kind in ("declare_clock", "declare_env", "environment_fixture"):
         return _environment_gate_action(kind, result.environment_gated, d, fn)
     if kind == "consult_named_tests":
-        return _consult_named_tests_action(list(result.missing_lines), result.not_consulted_dynamic, rerun)
+        return _consult_named_tests_action(
+            list(result.missing_lines),
+            result.not_consulted_dynamic,
+            rerun,
+            getattr(result, "unobserved_reach", ()),
+        )
+    if kind == "observe_reach":
+        return _observe_reach_action(
+            list(result.missing_lines), getattr(result, "unobserved_reach", ()), rerun
+        )
     if kind == "step_budget_divergent":
         n_div = len(d.state.get("step_budget_divergent", []))
         return [
@@ -6724,12 +6742,20 @@ def _first_n(items, n: int) -> str:
 # The row each `audit.missing_line_standing` code renders (#139). Only a line no test executes is
 # "uncovered". One that a test runs is unproven, and its reason names the remedy its standing has.
 _UNPROVEN_ROW = "✗ unproven"
+# The standings whose lines are UNKNOWN by observation, not uncovered: a test not consulted, or one whose
+# reach was not fully seen. Neither takes an `--input`, and neither is a gap converge writes.
+_UNOBSERVED_STANDINGS = ("unconsulted", "reach_unobserved")
 _MISSING_LINE_ROWS = (
     ("unexecuted", "✗ uncovered", ""),
     (
         "unconsulted",
         _UNPROVEN_ROW,
         "no consulted test runs it; tests that dispatch by name were not consulted (named below)",
+    ),
+    (
+        "reach_unobserved",
+        _UNPROVEN_ROW,
+        "no observed test runs it; a test's reach was not fully observed (named below)",
     ),
     ("run_by_failing", _UNPROVEN_ROW, "run only by a failing test"),
     ("run_by_errored", _UNPROVEN_ROW, "run only by a test that errored in setup or teardown"),
@@ -6760,6 +6786,11 @@ _MISSING_LINE_REPORT = (
         "unconsulted",
         "no consulted test runs (tests that dispatch by name were not consulted)",
         "consult the tests named below; no --input applies until they are known not to reach it",
+    ),
+    (
+        "reach_unobserved",
+        "not run by any observed test; a test's reach was not fully observed",
+        "make that reach observable (the tests are named below); no --input applies",
     ),
     (
         "run_by_failing",
@@ -6793,7 +6824,9 @@ def _missing_line_report(result) -> list[str]:
             lines.append(f"  ✗ line gap: {len(group)} executable line(s) {phrase}: {group}")
             if remedy:
                 lines.append(f"      {remedy}")
-    reachable = [ln for ln, standing in by_line.items() if standing not in ("run_by_failing", "unconsulted")]
+    reachable = [
+        ln for ln, standing in by_line.items() if standing not in ("run_by_failing", *_UNOBSERVED_STANDINGS)
+    ]
     if reachable:
         lines += _target_lines(result.signature)
         if _tmpl := _input_template(result.param_names):
@@ -6801,6 +6834,22 @@ def _missing_line_report(result) -> list[str]:
                 f"      template: {_tmpl}   # replace every <...> slot to execute line(s) {reachable}"
             )
     return lines
+
+
+def _unobserved_reach_page_rows(report, has_killable: bool) -> list[str]:
+    """The page rows for tests whose reach was not fully observed (Wesker#17): each test with its cause, and —
+    beside a killable count — that the count was taken without the evidence those tests did not show. A
+    test not seen to run a mutant's line is not run against that mutant, so its kill may be missing."""
+    pairs = list(getattr(report, "unobserved_reach", ()) or ())
+    if not pairs:
+        return []
+    rows = _unobserved_reach_rows(pairs)
+    if has_killable:
+        rows.append(
+            _row("", "the killable count above is taken without what these tests did not show; a test is not")
+        )
+        rows.append(_row("", "run against a mutant of a line it is not seen to run, so one may kill some."))
+    return rows
 
 
 def _not_consulted_dynamic_rows(test_ids) -> list[str]:
@@ -7038,6 +7087,7 @@ def _format_audit(
         # One row per standing (#139), in the renderer converge's page shares.
         lines += _missing_line_rows(list(a.missing_lines), getattr(a, "missing_line_standings", ()))
     lines += _not_consulted_dynamic_rows(getattr(a, "not_consulted_dynamic", ()))
+    lines += _unobserved_reach_page_rows(a, bool(a.killable_gaps))
     if getattr(a, "authored_fence", 0):
         # A FENCE is a GAP, not an equivalent (Q8): an authored must-not the suite does not enforce.
         # Shown with the ✗ gaps and above the flagged-equivalent line so the two are never conflated.
@@ -7132,6 +7182,7 @@ def audit_next_action(
     write_refused: int = 0,
     redundant_kept: int = 0,
     unconsulted_only: bool = False,
+    reach_unobserved_only: bool = False,
 ) -> str:
     """Audit's ONE next action, as a named code (pure — pinned). The order IS the judgement.
 
@@ -7159,6 +7210,12 @@ def audit_next_action(
                           follows the person's move. ``unconsulted_only`` is `unconsulted_gap_standing`
                           reading ``unconsulted_only``; with a killable mutant or a line of another
                           standing still open converge is right, and the tests are named beside it
+      "observe_reach"     (Wesker#17) every open line is open only because a consulted test's reach was not
+                          fully observed (a thread that outlived it, one alive before it, a child process),
+                          and no killable mutant is left. What such a test did not show is unknown, never
+                          uncovered, and no --input applies: the block names each test with its cause and
+                          the remedy that is true for it. ``reach_unobserved_only`` is
+                          `unconsulted_gap_standing` reading ``reach_unobserved_only``
       "close_the_gap"     real killable mutants or uncovered lines — converge writes them
       "prune_by_hand"     every redundant test is one `--remove` keeps by its own pre-edit decision: a row
                           of a live parametrized test, an id no definition answers to, an ambiguous id,
@@ -7216,6 +7273,8 @@ def audit_next_action(
         return block
     if unconsulted_only and killable_gaps == 0:
         return "consult_named_tests"
+    if reach_unobserved_only and killable_gaps == 0:
+        return "observe_reach"
     if killable_gaps > 0 or missing_lines > 0:
         return "close_the_gap"
     if redundant_tests > 0:
@@ -7255,6 +7314,9 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
                                             computed name were not consulted (#107, #77): the person calls
                                             the target by name in them, or accepts the named unknown, then
                                             re-audits. converge changes nothing here, so no step is ``run``
+      ("hand_back", "observe_reach")        every open line is open only because a consulted test's reach was
+                                            not fully observed (Wesker#17): the person makes the reach
+                                            observable per cause, then re-audits. No --input applies
       ("hand_back", "prune_by_hand")        every redundant test is a parametrized row `--remove` keeps:
                                             the person prunes them, then re-audits (under ``two_sign`` the
                                             step is ``run``, as for remove_redundant)
@@ -7283,8 +7345,8 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
         return "write_test", "pin_write_refused"
     if code in ("close_the_gap", "remove_redundant"):
         return "run", ""
-    if code == "consult_named_tests":
-        return "hand_back", "consult_named_tests"
+    if code in ("consult_named_tests", "observe_reach"):
+        return "hand_back", code
     if code == "prune_by_hand":
         return ("run", "") if two_sign else ("hand_back", "prune_by_hand")
     if code == "done_divergent":
@@ -7345,6 +7407,7 @@ def _audit_code(a, removing: bool = False) -> str:
         write_refused=a.write_refused,
         redundant_kept=len(_redundant_kept(a)),
         unconsulted_only=_unconsulted_gap(a) == "unconsulted_only",
+        reach_unobserved_only=_unconsulted_gap(a) == "reach_unobserved_only",
     )
 
 
@@ -7358,6 +7421,7 @@ def _unconsulted_gap(a) -> str:
         len(a.killable_gaps),
         list(_line_standings(a.missing_lines, getattr(a, "missing_line_standings", ())).values()),
         list(getattr(a, "not_consulted_dynamic", ()) or ()),
+        [test for test, _ in getattr(a, "unobserved_reach", ()) or ()],
     )
 
 
@@ -7435,6 +7499,7 @@ def _audit_commands(
         "repair_errored_test",
         "pin_write_refused",
         "consult_named_tests",
+        "observe_reach",
     ):
         return None, _carried_argv(universe, "audit", fn)
     if code == "provide_sample":
@@ -7458,6 +7523,8 @@ def _audit_decision(a, removing: bool = False, two_sign: bool = False) -> Decisi
     if code == "consult_named_tests" or _unconsulted_gap(a) != "none":
         # The tests the open lines wait on, by id: the record names what the block names (#107, #77).
         state["not_consulted_dynamic"] = list(getattr(a, "not_consulted_dynamic", ()) or ())
+        # ... and the tests whose reach was not observed, each with its cause (Wesker#17).
+        state["unobserved_reach"] = [list(pair) for pair in getattr(a, "unobserved_reach", ()) or ()]
     route = repair_measurement_route(tuple(a.cut_reasons)) if code == "repair_measurement" else ""
     return Decision(
         "audit", code, route, kind, remedy, argv, then, plan, note, residual, (), state, two_sign=two_sign
@@ -7539,7 +7606,7 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
     if kind == "close_the_gap":
         gaps = len(a.killable_gaps)
         by_line = _line_standings(a.missing_lines, getattr(a, "missing_line_standings", ()))
-        lines = sum(1 for standing in by_line.values() if standing != "unconsulted")
+        lines = sum(1 for standing in by_line.values() if standing not in _UNOBSERVED_STANDINGS)
         waiting = len(by_line) - lines
         why = ", ".join(
             p
@@ -7560,9 +7627,14 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
                 [
                     _row(
                         "· Not converge's",
-                        f"{waiting} line(s) are open only because named test(s) were not consulted:",
+                        f"{waiting} line(s) are unknown, not uncovered, until these are settled:",
                     ),
-                    _row("", _first_n(a.not_consulted_dynamic, 4)),
+                    *(
+                        [_row("", "not consulted: " + _first_n(a.not_consulted_dynamic, 4))]
+                        if a.not_consulted_dynamic
+                        else []
+                    ),
+                    *_unobserved_reach_rows(getattr(a, "unobserved_reach", ()), label=""),
                 ]
                 if waiting
                 else []
@@ -7746,26 +7818,46 @@ def _prune_by_hand_block(a, universe: UniverseOptions) -> list[str]:
 
 def _unconsulted_beside_rows(result) -> list[str]:
     """Beside a gap converge CAN write, the lines that stay open because named tests were not consulted
-    (#107, #77): named, so the ask above is not read as covering them."""
+    (#107, #77) or a consulted test's reach was not observed (Wesker#17): named, so the ask above is not
+    read as covering them."""
     by_line = _line_standings(result.missing_lines, getattr(result, "missing_line_standings", ()))
-    waiting = [ln for ln, standing in by_line.items() if standing == "unconsulted"]
+    waiting = [ln for ln, standing in by_line.items() if standing in _UNOBSERVED_STANDINGS]
     named = getattr(result, "not_consulted_dynamic", ()) or ()
-    if not waiting or not named:
+    pairs = getattr(result, "unobserved_reach", ()) or ()
+    if not waiting or not (named or pairs):
         return []
     return [
         "",
         _row(
-            "· Not converge's", f"line(s) {_first_n(waiting, 8)} stay open until named test(s) are consulted:"
+            "· Not converge's", f"line(s) {_first_n(waiting, 8)} are unknown, not uncovered, until settled:"
         ),
-        _row("", _first_n(named, 4)),
+        *([_row("", "not consulted: " + _first_n(named, 4))] if named else []),
+        *_unobserved_reach_rows(pairs, label=""),
     ]
 
 
-def _consult_named_tests_action(missing_lines: list[int], test_ids, reaudit: str) -> list[str]:
+def _unobserved_reach_rows(pairs, label: str = "· Reach unobserved") -> list[str]:
+    """The rows naming each test whose reach the tracer could not fully observe, with its cause and the
+    remedy that is true for that cause (Wesker#17, `audit.reach_remedies`). What such a test did not show
+    is UNKNOWN: never "uncovered", never an `--input` ask."""
+    from .audit import reach_remedies
+
+    rows: list[str] = []
+    for test, reach in list(pairs or ()):
+        for cause, remedy in reach_remedies(reach):
+            rows.append(_row(label if not rows else "", f"{test} — {cause}"))
+            rows.append(_row("", f"  remedy: {remedy}"))
+    return rows
+
+
+def _consult_named_tests_action(
+    missing_lines: list[int], test_ids, reaudit: str, unobserved_reach=()
+) -> list[str]:
     """The hand-back for lines open only because tests were not consulted (#107, #77): the tests that
     dispatch by a computed name, and the two moves a person has. No command of Detective's changes what
     is known here: converge writes a test from an input for a line no consulted test runs, and a named
-    test may already run it. The re-audit follows the person's move."""
+    test may already run it. The re-audit follows the person's move. Lines that are also open because a
+    consulted test's reach was not observed (Wesker#17) are named beside, each with its cause."""
     ids = list(test_ids)
     return [
         f"HAND BACK:  {len(missing_lines)} line(s) wait on {len(ids)} named test(s) that were not consulted.",
@@ -7777,6 +7869,25 @@ def _consult_named_tests_action(missing_lines: list[int], test_ids, reaudit: str
         _row("", "or accept the named unknown: the line(s) stay unproven, never uncovered."),
         _row("· Not converge", "it writes a test from an input for a line no consulted test runs, and a"),
         _row("", "named test may already run this one, so converge would change nothing."),
+        *_unobserved_reach_rows(unobserved_reach),
+        _row(_THEN_ROW, reaudit),
+    ]
+
+
+def _observe_reach_action(missing_lines: list[int], unobserved_reach, reaudit: str) -> list[str]:
+    """The hand-back for lines open only because a consulted test's reach was not fully observed
+    (Wesker#17): each test with its cause and the remedy true for it. The line(s) are unknown, never
+    uncovered, so no `--input` is asked for and converge is not directed: it would write a test from an
+    input over a line a named test may already run."""
+    pairs = list(unobserved_reach or ())
+    return [
+        f"HAND BACK:  {len(missing_lines)} line(s) may be run by {len(pairs)} test(s) of unobserved reach.",
+        "",
+        *_unobserved_reach_rows(pairs),
+        _row(
+            "· Not --input", "the line(s) are unknown, not uncovered: a test already consulted may run them,"
+        ),
+        _row("", "so an input would write a test over a line the suite may already pin."),
         _row(_THEN_ROW, reaudit),
     ]
 
@@ -7799,6 +7910,13 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
         return _consult_named_tests_action(
             list(a.missing_lines),
             a.not_consulted_dynamic,
+            _command_text(_carried_argv(universe, "audit", a.function)),
+            getattr(a, "unobserved_reach", ()),
+        )
+    if kind == "observe_reach":
+        return _observe_reach_action(
+            list(a.missing_lines),
+            getattr(a, "unobserved_reach", ()),
             _command_text(_carried_argv(universe, "audit", a.function)),
         )
     if kind == "prune_by_hand":

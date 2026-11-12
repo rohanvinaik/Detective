@@ -432,6 +432,8 @@ class ConvergeResult:
     missing_line_standings: tuple[tuple[int, str], ...] = ()
     # Tests not consulted because they dispatch by a name the static route cannot follow (#107, #77), named.
     not_consulted_dynamic: tuple[str, ...] = ()
+    # Tests whose reach the tracer could not fully observe, `(test id, reach code)` (Wesker#17).
+    unobserved_reach: tuple[tuple[str, str], ...] = ()
     # WHICH evidence the line axis rested on (#59): "admissible" when the engine supplied an
     # outcome-qualified view, "observed" when it could not and the weaker union was used. A
     # certificate that cannot say which one it stood on implies the stronger, and the difference
@@ -1747,6 +1749,13 @@ def _named_write_refused(report: Any, result: Any) -> tuple[tuple[str, str, str,
     return write_refused_survivors([list(r) for r in records], dict(getattr(result, "kill_matrix", {}) or {}))
 
 
+def _unobserved_reach(result: Any) -> dict[str, str]:
+    """`audit.baseline_unobserved_reach` over a converge result: the tests whose reach was not observed."""
+    from .audit import baseline_unobserved_reach
+
+    return baseline_unobserved_reach(result)
+
+
 def _missing_line_standings(result: Any, missing: list[int]) -> tuple[tuple[int, str], ...]:
     """``(line, standing)`` for each missing line (#139), read off ``result``'s observed coverage and its
     typed failing and errored tests, the derivation audit's page reads. The decision is
@@ -1774,6 +1783,7 @@ def _missing_line_standings(result: Any, missing: list[int]) -> tuple[tuple[int,
                 list(failing),
                 list(errored),
                 list(getattr(result, "not_consulted_dynamic", ()) or ()),
+                list(_unobserved_reach(result)),
             ),
         )
         for ln in missing
@@ -3194,6 +3204,7 @@ def _converge_impl(
         missing_lines=tuple(missing),
         missing_line_standings=missing_standings,
         not_consulted_dynamic=tuple(getattr(final_result, "not_consulted_dynamic", ()) or ()),
+        unobserved_reach=tuple(sorted(_unobserved_reach(final_result).items())),
         line_basis=line_basis,
         line_owner_ids=line_owner_ids,
         manually_unreachable=len(manually_unreachable),

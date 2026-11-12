@@ -270,6 +270,9 @@ class SuiteAudit:
     missing_line_standings: tuple[tuple[int, str], ...] = ()
     # Tests not consulted because they dispatch by a name the static route cannot follow (#107, #77), named.
     not_consulted_dynamic: tuple[str, ...] = ()
+    # Tests whose reach the tracer could not fully observe, `(test id, reach code)` (Wesker#17): a line they
+    # may run is `reach_unobserved`, unknown and never uncovered.
+    unobserved_reach: tuple[tuple[str, str], ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -547,6 +550,7 @@ def missing_line_standing(
     failing_tests: list[str],
     errored_tests: list[str],
     unconsulted_dynamic: list[str] | None = None,
+    unobserved_reach: list[str] | None = None,
 ) -> str:
     """Why an executable line has no admissible coverage, read off what its observations show (#139,
     pure — pinned).
@@ -570,6 +574,13 @@ def missing_line_standing(
                           claim about execution the measurement did not make, and an --input would write a
                           test over a line a test may already run. The remedy is to consult them.
 
+      "reach_unobserved"  (Wesker#17) no observed test executes it, and ``unobserved_reach`` names tests whose
+                          reach the tracer could not fully see (a thread that outlived the test, one alive
+                          before it, a child process): each may run it in the part it did not observe. Its
+                          absence is unknown, never a negative, and no --input applies: the remedy is
+                          per cause (`reach_remedies`). It outranks ``unconsulted``: those tests WERE
+                          consulted, and their evidence is partial.
+
     ``line_coverage`` is the OBSERVED union per test (`result.line_coverage`); ``failing_tests`` and
     ``errored_tests`` are `function_failing_tests` and `function_errored_tests`. A failing runner
     outranks an errored one, as the floor outranks a fixture in both ladders.
@@ -581,31 +592,81 @@ def missing_line_standing(
         return "run_by_errored"
     if runners:
         return "run_inadmissibly"
+    if unobserved_reach:
+        return "reach_unobserved"
     return "unconsulted" if unconsulted_dynamic else "unexecuted"
 
 
-def unconsulted_gap_standing(killable_gaps: int, line_standings: list[str], named_tests: list[str]) -> str:
-    """Whether the ONLY thing open is lines that tests not consulted might run (#107, #77, pure — pinned).
+def unconsulted_gap_standing(
+    killable_gaps: int,
+    line_standings: list[str],
+    named_tests: list[str],
+    unobserved_tests: list[str] | None = None,
+) -> str:
+    """Whether the ONLY thing open is lines whose evidence is unknown by observation (#107, #77, Wesker#17,
+    pure — pinned).
 
     `missing_line_standing`'s ``unconsulted`` says a line is open only because tests that dispatch by a
-    computed name were never consulted. The ladders used to read such a line as a gap, and so printed
+    computed name were never consulted; ``reach_unobserved`` says tests that WERE consulted ran code the
+    tracer could not see. The ladders used to read either as a gap, and so printed
     `DO THIS: detective converge …`: converge writes a test from an input for a line no consulted test
-    runs, and over a line a NAMED test already runs it writes nothing the line did not have. The ladder
+    runs, and over a line a named test may already run it writes nothing the line did not have. The ladder
     must consume the standing, not the count of missing lines:
 
-      "none"             no executable line is open
-      "unconsulted_only" at least one line is open, every open line is ``unconsulted``, no killable mutant
-                         is left, and the tests that were not consulted are named: the next move is to
-                         consult them, and converge changes nothing
-      "writable"         a line is open and something converge writes remains: a killable mutant, or a
-                         line of another standing (one a test written from an input covers). Any
-                         ``unconsulted`` line is named beside it, not instead of it
+      "none"                 no executable line is open
+      "unconsulted_only"     at least one line is ``unconsulted`` and every open line is ``unconsulted`` or
+                             ``reach_unobserved``; no killable mutant is left, and the tests are named: the
+                             next move is to consult them (and, for a reach line, to make its reach
+                             observable), and converge changes nothing
+      "reach_unobserved_only" every open line is ``reach_unobserved``, no killable mutant is left, and the
+                             tests whose reach was not observed are named
+      "writable"             a line is open and something converge writes remains: a killable mutant, or a
+                             line of another standing (one a test written from an input covers). Any
+                             unknown line is named beside it, not instead of it
     """
     if not line_standings:
         return "none"
-    if killable_gaps == 0 and named_tests and all(s == "unconsulted" for s in line_standings):
-        return "unconsulted_only"
-    return "writable"
+    unknown = {"unconsulted", "reach_unobserved"}
+    if killable_gaps != 0 or not set(line_standings) <= unknown:
+        return "writable"
+    if "unconsulted" in line_standings:
+        return "unconsulted_only" if named_tests else "writable"
+    return "reach_unobserved_only" if unobserved_tests else "writable"
+
+
+#: What each named cause of an unobserved reach is, and the remedy that is TRUE for it (Wesker#17).
+_REACH_CAUSES = {
+    "incomplete_thread": (
+        "a thread it started outlived its traced run",
+        "join the thread before the test returns, so its work finishes inside the observed run",
+    ),
+    "incomplete_preexisting_thread": (
+        "a thread alive before it ran target code during it (a pool warmed at import)",
+        "create the pool or thread inside the test, so the tracer follows it",
+    ),
+    "incomplete_subprocess": (
+        "it creates a process; what the child runs is outside this interpreter",
+        "a mutant installed here never reaches a child's code, so this test cannot kill one: "
+        "call the target in this process",
+    ),
+}
+
+
+def reach_causes(reach: str) -> list[str]:
+    """The named causes in one ledger row's ``reach`` (Wesker#17, pure — pinned): ``complete`` and an
+    empty value name none; ``a+b`` names both, in the order given. A name this does not know is returned
+    as it came, never dropped: an unobserved reach is unknown, and an unrecognised cause is still one."""
+    return [cause for cause in str(reach).split("+") if cause and cause != "complete"]
+
+
+def reach_remedies(reach: str) -> list[tuple[str, str]]:
+    """``(cause sentence, remedy)`` for each cause of an unobserved reach, in the row's order (Wesker#17,
+    pure — pinned). An unrecognised cause reads as itself with the remedy "inspect the trace ledger row",
+    so it is named rather than assigned another cause's remedy."""
+    return [
+        _REACH_CAUSES.get(cause, (f"its reach is {cause}", "inspect the trace ledger row for that test"))
+        for cause in reach_causes(reach)
+    ]
 
 
 def write_refused_standing(killed_by: str) -> str:
@@ -669,6 +730,22 @@ def baseline_typed_outcomes(result: Any) -> dict[str, str]:
         if test_id and outcome and outcome != "unrecorded":
             outcomes[test_id] = outcome
     return outcomes
+
+
+def baseline_unobserved_reach(result: Any) -> dict[str, str]:
+    """The tests whose reach the tracer could not fully observe, with the code saying why (Wesker#17).
+
+    Each `trace_evidence` row carries ``reach``: ``complete``, or one or more of ``incomplete_thread``,
+    ``incomplete_preexisting_thread`` and ``incomplete_subprocess`` joined by ``+``. Such a row holds an
+    empty or partial line set, and what it lacks is UNKNOWN, never a negative. A row that reports no
+    ``reach`` (a hand-built or older row) is left out rather than read as complete or as incomplete."""
+    out: dict[str, str] = {}
+    for row in getattr(result, "trace_evidence", None) or ():
+        test_id = str(getattr(row, "test_id", "") or "")
+        reach = str(getattr(row, "reach", "") or "")
+        if test_id and reach_causes(reach):
+            out[test_id] = reach
+    return out
 
 
 @dataclass(frozen=True)
@@ -1035,11 +1112,13 @@ def audit_suite(
                     list(_failing),
                     list(_errored),
                     list(getattr(result, "not_consulted_dynamic", ()) or ()),
+                    list(baseline_unobserved_reach(result)),
                 ),
             )
             for ln in missing
         ),
         not_consulted_dynamic=tuple(getattr(result, "not_consulted_dynamic", ()) or ()),
+        unobserved_reach=tuple(sorted(baseline_unobserved_reach(result).items())),
         manually_unreachable=len(manually_unreachable),
         contradicted_line_flags=contradicted_flags,
         minimal_test_count=None if minimal is None else len(minimal),
