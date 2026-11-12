@@ -167,6 +167,9 @@ class SuiteAudit:
     # WHICH of `candidate_equivalent_ids` are history-dependent (D#140 item 1): a stale return that only a
     # second call with a different result kills. Never offered to `flag`, never asked an `--input` for.
     history_dependent_ids: tuple[str, ...] = ()
+    # WHICH of `candidate_equivalent_ids` are identical to the original (D#142 item 2): equivalent by
+    # identity, so no proof is owed and `flag` is never offered.
+    identical_ids: tuple[str, ...] = ()
     # ``(mutant id, test)`` for each crash-only mutant a current test detects by crash (D#110, D#113): "" for
     # the test when the kill matrix named none. The page names them, so "detected by crash" says by what.
     crash_detected_by: tuple[tuple[str, str], ...] = ()
@@ -787,6 +790,7 @@ def audit_suite(
     crash_only_equivalent = 0
     crash_only_ids: tuple[str, ...] = ()
     history_dependent_ids: tuple[str, ...] = ()
+    identical_ids: tuple[str, ...] = ()
     crash_detected_by: tuple[tuple[str, str], ...] = ()
     contradicted_mutant_flags: tuple[tuple[str, str], ...] = ()
     crash_only_undetected = 0
@@ -830,6 +834,7 @@ def audit_suite(
         crash_only_equivalent = sum(1 for v in report.equivalent if v.crash_only)
         crash_only_ids = tuple(v.mutant_id for v in report.equivalent if v.crash_only)
         history_dependent_ids = tuple(v.mutant_id for v in report.history_dependent)
+        identical_ids = tuple(v.mutant_id for v in report.identical_to_original)
         from .equivalence import crash_only_status
 
         crash_only_undetected = crash_only_status([v for v in report.equivalent if v.crash_only])[1]
@@ -1007,6 +1012,7 @@ def audit_suite(
         crash_only_equivalent=crash_only_equivalent,
         crash_only_ids=crash_only_ids,
         history_dependent_ids=history_dependent_ids,
+        identical_ids=identical_ids,
         crash_detected_by=crash_detected_by,
         contradicted_mutant_flags=contradicted_mutant_flags,
         crash_only_undetected=crash_only_undetected,

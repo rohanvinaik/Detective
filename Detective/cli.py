@@ -1783,6 +1783,29 @@ def _probe_status_line(boundary_probe: str, probes: int) -> str:
 _HISTORY_CODES = ("second_call_pair", "needs_second_call")
 
 
+def _identical_row(count: int) -> str:
+    """The terse row for mutants that ARE the original (D#142 item 2): equivalent by identity, so there is
+    no proof to owe and nothing to `flag`. Its own row, never `unproven-equiv`."""
+    return _row(
+        "· identical",
+        f"{count} — the mutant's source equals your function's (equivalent by identity); "
+        "nothing to prove, nothing to `flag`",
+    )
+
+
+def _identical_report_lines(identical) -> list[str]:
+    """The full report's block for mutants identical to the original (D#142 item 2). Wesker should not
+    generate them (Wesker #53); until it stops, naming them for what they are is the page's duty."""
+    cats = ", ".join(sorted({v.category for v in identical}))
+    lines = [
+        f"  identical to the original ({len(identical)}: {cats}) — the mutant's source equals your "
+        "function's, so it is equivalent BY IDENTITY: no distinguishing input exists, none is owed, and "
+        "`flag` is not offered:"
+    ]
+    lines += [f"    → mutant {v.mutant_id} [{v.category}]: (no textual change)" for v in identical]
+    return lines
+
+
 def _history_row(count: int, with_pair: int) -> str:
     """The terse row for history-dependent survivors (D#140 item 1): a stale return, killed only by a
     second call whose result differs. It names whether converge holds the two inputs."""
@@ -1855,8 +1878,11 @@ def _format_survivor_report(
     lines: list[str] = []
     # Two classes, because they take different actions and only one of them is a request.
     crash_only = [v for v in rep.equivalent if v.crash_only]
-    unproven = [v for v in rep.equivalent if not v.crash_only and v.history not in _HISTORY_CODES]
+    unproven = [
+        v for v in rep.equivalent if not v.crash_only and v.history not in _HISTORY_CODES and not v.identical
+    ]
     history = [v for v in rep.equivalent if not v.crash_only and v.history in _HISTORY_CODES]
+    identical = [v for v in rep.equivalent if not v.crash_only and v.identical]
     divergent = list(getattr(rep, "step_budget_divergent", ()))
     if (unproven or history) and not rep.killable and not rep.unclassified and not divergent:
         lines.append(
@@ -1893,6 +1919,8 @@ def _format_survivor_report(
             lines.append(f"      template: {_tmpl}   # replace every <...> slot before running")
     if history:
         lines += _history_report_lines(history, signature, param_names)
+    if identical:
+        lines += _identical_report_lines(identical)
     if crash_only:
         cats = ", ".join(sorted({v.category for v in crash_only}))
         n_det, n_undet = crash_only_status(crash_only)
@@ -2064,6 +2092,10 @@ def _residual_verdict_clauses(rep, candidate: int, crash_only: int, flag_offered
     function that takes no argument is offered no input to add, and a crash-only survivor is called
     detected only where a current test fails under it."""
     clauses = []
+    identical = len(rep.identical_to_original) if rep is not None else 0
+    if identical:
+        clauses.append(f"{identical} identical to the original (equivalent by identity; nothing to prove)")
+    candidate -= identical
     history = _history_count(rep)
     if history:
         clauses.append(
@@ -2117,7 +2149,7 @@ def _plain_terms(result) -> str:
     # #36: this row leads candidate-equivalents with "supply an input" (usually killable with a
     # richer one) — TRUE of candidate-equivalent, FALSE of crash-only (no value can pin them), so
     # count only the former here.
-    cand = len(rep.candidate_equivalent) if rep is not None else 0
+    cand = len(rep.plain_candidate_equivalent) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
     unresolved = result.final_survivors if rep is None and not result.functionally_complete else 0
     uncertain = len(rep.unclassified) if rep is not None else 0
@@ -2272,7 +2304,9 @@ def _final_banner_status(result) -> str:
     # #36: candidate-equivalent (no input distinguishes it) and crash-only (a crash input DOES) are
     # different residual classes; the banner must not fuse them into "N unproven-equivalent". Consume
     # the named partitions, never len(rep.equivalent) which is their union.
-    cand = len(rep.candidate_equivalent) if rep is not None else 0
+    cand = len(rep.plain_candidate_equivalent) if rep is not None else 0
+    history = len(rep.history_dependent) if rep is not None else 0
+    identical = len(rep.identical_to_original) if rep is not None else 0
     crash_only = len(rep.crash_only) if rep is not None else 0
     killable = len(rep.killable) if rep is not None else 0
     unresolved = result.final_survivors if rep is None and not result.functionally_complete else 0
@@ -2282,12 +2316,16 @@ def _final_banner_status(result) -> str:
     # arbitrary amount is outside any finite family). The report body already carries
     # the qualifier ("every operator-universe mutant tested"); the banner is where
     # over-trust actually happens, so the banner says it too.
-    if result.complete and cand == 0 and crash_only == 0:
+    if result.complete and cand == 0 and crash_only == 0 and history == 0 and identical == 0:
         status = "✓ COMPLETE (operator universe)"
     elif result.complete:
         modulo = []
         if cand:
             modulo.append(f"{cand} unproven-equivalent")
+        if history:
+            modulo.append(f"{history} history-dependent")
+        if identical:
+            modulo.append(f"{identical} identical to the original")
         if crash_only:
             modulo.append(f"{crash_only} crash-only value gap{'s' if crash_only != 1 else ''}")
         status = f"✓ COMPLETE (operator universe · modulo {' · '.join(modulo)})"
@@ -3166,6 +3204,8 @@ def _format_converge_terse(
         # partitions the banner and verdict also consume (single source).
         if unproven := rep.plain_candidate_equivalent:
             lines.append(_row("· unproven-equiv", f"{len(unproven)} — {_UNPROVEN_EQUIV_BASIS}"))
+        if identical := rep.identical_to_original:
+            lines.append(_identical_row(len(identical)))
         if history := rep.history_dependent:
             lines.append(
                 _history_row(len(history), sum(1 for v in history if v.history == "second_call_pair"))
@@ -5183,6 +5223,8 @@ def _headline_counts(proof, rep) -> str:
     if rep is not None:
         if rep.plain_candidate_equivalent:
             parts.append(f"{len(rep.plain_candidate_equivalent)} candidate-equivalent")
+        if rep.identical_to_original:
+            parts.append(f"{len(rep.identical_to_original)} identical to the original")
         if rep.history_dependent:
             parts.append(f"{len(rep.history_dependent)} history-dependent")
         if rep.crash_only:
@@ -5932,6 +5974,8 @@ def _flaggable_ids(rep, basis: str, param_names: tuple[str, ...] | None) -> list
     for v in getattr(rep, "equivalent", ()) or ():
         if getattr(v, "crash_only", False) or getattr(v, "diverged", False):
             continue
+        if getattr(v, "identical", False):
+            continue  # D#142 item 2: equivalent by identity, nothing to prove
         if getattr(v, "history", "") in ("second_call_pair", "needs_second_call"):
             continue  # D#140 item 1: its remedy is a second call, never a proof of equivalence
         if basis == "unprobed" and getattr(v, "category", "") == "BOUNDARY":
@@ -6046,7 +6090,9 @@ def _residual_counts(rep) -> tuple[int, int]:
     duck-typed report (an older engine, a test stub) carries only ``equivalent``."""
     eq = list(getattr(rep, "equivalent", ()) or ()) if rep is not None else []
     crash = sum(1 for v in eq if getattr(v, "crash_only", False))
-    return len(eq) - crash, crash
+    # A mutant identical to the original is equivalent BY IDENTITY (D#142 item 2): not a residual.
+    identical = sum(1 for v in eq if getattr(v, "identical", False) and not getattr(v, "crash_only", False))
+    return len(eq) - crash - identical, crash
 
 
 def marked_cut(text: str, limit: int) -> str:
@@ -6822,8 +6868,11 @@ def _format_audit(
         lines.append(_row("⚠ flag overridden", f"executed: {stale} — execution outranks the flag"))
     # Split the breakdown out: "no input distinguishes them" is false of the crash-only class.
     _history = len(a.history_dependent_ids)
-    if unproven_eq := a.candidate_equivalent - a.crash_only_equivalent - _history:
+    _identical = len(a.identical_ids)
+    if unproven_eq := a.candidate_equivalent - a.crash_only_equivalent - _history - _identical:
         lines.append(_row("· unproven-equiv", f"{unproven_eq} survivor(s) — {_UNPROVEN_EQUIV_BASIS}"))
+    if _identical:
+        lines.append(_identical_row(_identical))
     if _history:
         lines.append(_history_row(_history, 0))
     if a.crash_only_equivalent:
@@ -7106,7 +7155,8 @@ def _audit_headline(a) -> str:
     return audit_headline_verdict(
         a.complete,
         a.complete_modulo_equivalent,
-        a.candidate_equivalent,
+        # A mutant identical to the original is equivalent by identity (D#142 item 2), not "unproven".
+        a.candidate_equivalent - len(getattr(a, "identical_ids", ()) or ()),
         getattr(a, "crash_only_equivalent", 0),
         a.total_mutants,
     )
@@ -7118,7 +7168,8 @@ def _audit_residual(a) -> tuple[str, tuple[str, ...]]:
     converge's DONE block renders, and `flag` is never offered for a crash-only mutant."""
     crash_ids = set(getattr(a, "crash_only_ids", ()) or ())
     history_ids = set(getattr(a, "history_dependent_ids", ()) or ())
-    candidates = tuple(i for i in a.candidate_equivalent_ids if i not in crash_ids)
+    identical_ids = set(getattr(a, "identical_ids", ()) or ())
+    candidates = tuple(i for i in a.candidate_equivalent_ids if i not in crash_ids and i not in identical_ids)
     return (
         residual_done_basis(
             len(candidates),

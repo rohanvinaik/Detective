@@ -78,6 +78,7 @@ from .equivalence import (
     is_expressible,
     is_scalar_type,
     mirrored_inputs,
+    mutant_identity,
     probe_rows,
     returns_one_constant,
     search_history_pair,
@@ -2250,6 +2251,24 @@ def _synth_inferred_inputs(
     return [tuple(values)], inferred
 
 
+def _is_identical_mutant(mutant: Any) -> bool:
+    """Whether a Wesker mutant's tree is its original's (D#142 item 2): object handling around
+    `mutant_identity`. A mutant that is absent, or whose trees cannot be dumped, is not identical."""
+    if mutant is None:
+        return False
+    try:
+        dumps = (ast.dump(mutant.original_node), ast.dump(mutant.mutated_node))
+    # BLE001: a tree that cannot be dumped is "unknown", which is not identity
+    except Exception:  # noqa: BLE001
+        return False
+    standing = mutant_identity(*dumps)
+    if standing == "identical":
+        return True
+    if standing == "unknown":
+        return False  # a missing tree says nothing: not identity
+    return False  # "differs"
+
+
 def _args_among(args: tuple, calls: Sequence[tuple]) -> bool:
     """Whether ``args`` equals one of ``calls`` (D#140 item 6, pure — pinned). Equality, with a value that
     cannot be compared (an array, an object raising in ``__eq__``) counting as different: the answer only
@@ -3909,6 +3928,7 @@ def classify_survivors(
                 mutant_fn,
                 pool,
                 form_b=form_b_mode(rec.get("dimension") or ""),
+                identical=_is_identical_mutant(mutant),
                 takes_arguments=_takes_arguments,
                 constant_return=_constant_return,
                 # A crash-survivor record is a reshaped KILL record and carries `killed_by`; a
@@ -4013,7 +4033,11 @@ def classify_survivors(
     # The rescue re-runs the whole classification over a richer pool — real work, so it is
     # skipped once the aggregate wall is gone (issue #31): a cut run keeps its first-pass
     # verdicts rather than starting a second search it cannot finish.
-    rescuable = any((not v.killable and not v.crash_only) or _inexpressible_witness(v) for v in verdicts)
+    # An identical mutant (D#142 item 2) is equivalent by identity: no richer input rescues it.
+    rescuable = any(
+        (not v.killable and not v.crash_only and not v.identical) or _inexpressible_witness(v)
+        for v in verdicts
+    )
     _rescue = rescue_disposition(
         bool(expressible), rescuable, any(_inexpressible_witness(v) for v in verdicts), _takes_arguments
     )

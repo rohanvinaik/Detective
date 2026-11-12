@@ -2298,6 +2298,10 @@ class MutantVerdict:
     # supply it as `--input` is asking for what the suite has, and the run that follows returns the same
     # residual. The ask is a test to write, not an input to supply. Meaningful only when ``killable``.
     witness_in_suite: bool = False
+    # The mutant's source IS the original's (D#142 item 2): `mutant_identity` read "identical" from the two
+    # syntax trees. It is equivalent BY IDENTITY, so no proof is owed and `flag` is never offered; it is
+    # never searched, never killable, and counts under its own named state.
+    identical: bool = False
     # ``(first, second)``: two calls of the ORIGINAL that return different values, the evidence behind
     # ``second_call_pair``. One test making both calls and asserting both results kills the stale
     # mutant, whose second answer is the first call's value. None for every other state.
@@ -2308,6 +2312,8 @@ class MutantVerdict:
         """One-word disposition for reports."""
         if self.killable:
             return "killable"
+        if self.identical:
+            return "identical-to-original"
         if self.history in _HISTORY_DEPENDENT:
             return "history-dependent"
         if self.diverged:
@@ -2452,6 +2458,16 @@ def entry_statement_line(node: ast.AST) -> int | None:
     ):
         first = body[1]
     return getattr(first, "lineno", None)
+
+
+def mutant_identity(original_dump: str, mutated_dump: str) -> str:
+    """Whether a mutant's syntax tree is its original's (D#142 item 2, pure — pinned): ``identical`` when
+    both dumps exist and are equal, ``differs`` when both exist and are not, ``unknown`` when either is
+    missing. Absence is not a value: a tree that could not be dumped says nothing, and an empty diff
+    summary alone (Wesker also leaves it empty when a node cannot be unparsed) is not identity."""
+    if not original_dump or not mutated_dump:
+        return "unknown"
+    return "identical" if original_dump == mutated_dump else "differs"
 
 
 def returned_value_outcome(outcome: str) -> bool:
@@ -2636,10 +2652,18 @@ class SurvivorReport:
         return tuple(v for v in self.candidate_equivalent if v.history in _HISTORY_DEPENDENT)
 
     @property
+    def identical_to_original(self) -> tuple[MutantVerdict, ...]:
+        """The survivors whose mutant IS the original (D#142 item 2): equivalent by identity, a subset of
+        ``candidate_equivalent`` (the total and the partition stay whole) with a state of its own."""
+        return tuple(v for v in self.candidate_equivalent if v.identical)
+
+    @property
     def plain_candidate_equivalent(self) -> tuple[MutantVerdict, ...]:
-        """``candidate_equivalent`` without the history-dependent ones: the survivors whose remedy is an
-        input reaching a mutated branch, or a `flag` once proven."""
-        return tuple(v for v in self.candidate_equivalent if v.history not in _HISTORY_DEPENDENT)
+        """``candidate_equivalent`` without the history-dependent and the identical ones: the survivors
+        whose remedy is an input reaching a mutated branch, or a `flag` once proven."""
+        return tuple(
+            v for v in self.candidate_equivalent if v.history not in _HISTORY_DEPENDENT and not v.identical
+        )
 
     @property
     def crash_only(self) -> tuple[MutantVerdict, ...]:
@@ -2797,6 +2821,7 @@ def classify_survivor(
     form_b: str = "",
     takes_arguments: bool = True,
     constant_return: bool = False,
+    identical: bool = False,
 ) -> MutantVerdict:
     """Killable (with a witness) if any input distinguishes the mutant, else an
     equivalent-candidate documented with how many inputs were tried.
@@ -2813,6 +2838,17 @@ def classify_survivor(
     ``deadline`` (absolute monotonic seconds) is the aggregate command wall (issue #31): the
     witness search stops when it passes, and the verdict comes back ``blocked`` — never a
     false candidate-equivalent from a search the budget cut short."""
+    if identical:
+        # D#142 item 2: a mutant that IS the original has nothing to search and nothing to prove.
+        return MutantVerdict(
+            mutant_id=mutant_id,
+            category=category,
+            diff_summary=diff_summary,
+            killable=False,
+            witness=None,
+            searched=0,
+            identical=True,
+        )
     if form_b == "return_stale":
         return _history_verdict(
             mutant_id,
