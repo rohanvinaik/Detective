@@ -414,7 +414,12 @@ class ConvergeResult:
     # `minimize.cover_standing`: whether `redundant_tests` / `minimal_test_count` are claims at all. Any
     # code but `full_matrix` names why the per-test kill relation is unavailable and no set is claimed.
     cover_standing: str = "full_matrix"
-    universe_size: int = 0  # total possible mutants (behavioral DOF) — completeness denominator
+    universe_size: int = 0  # operator mutants the measured policy admits — the completeness denominator
+    # What `universe_size` is (D#134, `universe_standing`): "measured_census" (a comprehensive run: the
+    # mutants scored plus the ones that reached no verdict), "estimate" (a sampled run: the static count
+    # under the measured policy and codomain), "estimate_below_measured" (the estimate fell under what was
+    # measured, so the census stands in and the page says so), "" (an older result: unlabelled).
+    universe_basis: str = ""
     fast: bool = False  # greedy-sampled per pass (vs comprehensive/exhaustive)
     # A-priori PROVEN lower bound on the fraction of the DOF space the greedy run
     # reaches (Wesker.greedy_coverage_guarantee): exhaustive categories contribute
@@ -1902,6 +1907,30 @@ def converge(
     return result
 
 
+def universe_standing(sampled: bool, estimate: int, scored: int, unscored: int) -> tuple[int, str]:
+    """``(universe size, basis)`` for a run's operator-mutant universe (D#134, pure — pinned).
+
+    Every denominator of a report is a count of MUTANTS under the policy that was measured. The universe
+    used to be a static estimate taken before profiling under the one-sign policy, so a two-sign page said
+    ``universe: 2 operator mutants`` beside ``7/12`` and ``universe_size: 2`` beside ``total_mutants: 12``.
+    A percentage is never clamped to hide that: the figure comes from the measured population.
+
+      "measured_census"          a comprehensive run: every mutant the policy generated is either scored or
+                                 reached no verdict, so ``scored + unscored`` IS the universe
+      "estimate"                 a sampled (fast) or cut run measured a subset, so the static count under
+                                 the measured policy and observed codomain is the universe it sampled from
+      "estimate_below_measured"  a sampled run whose estimate fell UNDER what it measured: the estimate is
+                                 wrong for this target, the measured census stands in as a lower bound, and
+                                 the page names that
+    """
+    measured = max(scored, 0) + max(unscored, 0)
+    if not sampled:
+        return measured, "measured_census"
+    if estimate >= measured:
+        return estimate, "estimate"
+    return measured, "estimate_below_measured"
+
+
 def zero_survivor_standing(scored: int, unscored: int) -> str:
     """What a converge pass with no value-survivor left has established (pure — pinned).
 
@@ -2061,8 +2090,9 @@ def _converge_impl(
     # The mutant UNIVERSE (behavioral degrees of freedom) — a cheap AST count, the
     # denominator of specification completeness; reported so the user sees how much of the
     # space was covered. Comprehensive tests all of it; fast samples a greedy subset/pass.
-    _cats = filter_categories(node, is_pure(node, is_method="." in (qualname or "")))
-    universe_size = estimate_universe_size(node, _cats)
+    # The categories of the policy THIS run measures (two-sign adds the μ⁻ families): a one-sign count
+    # beside a two-sign population is a denominator of another unit (D#134).
+    _cats = filter_categories(node, is_pure(node, is_method="." in (qualname or "")), two_sign=two_sign)
 
     iterations: list[ConvergeIteration] = []
     written_path: str | None = None
@@ -3051,6 +3081,16 @@ def _converge_impl(
     # inputs the witness search does not synthesize? Advisory only — the CLI uses it to caution
     # against a false `flag` on a survivor that may be killable-with-harder-input, never a gate.
     structural_difficulty = structural_input_difficulty(**structural_shape(node))
+    # The universe, from the measured policy and count unit (D#134): the estimate is taken under the same
+    # categories and the codomain the final profile observed, and a comprehensive run's own census is
+    # the exact figure. Never the one-sign estimate computed before profiling.
+    universe_size, universe_basis = universe_standing(
+        # A cut run did not measure everything it generated, so its census is not the universe either.
+        fast or bool(budget_cut),
+        estimate_universe_size(node, _cats, getattr(final_result, "observed_return_types", None) or None),
+        final_result.total_mutants,
+        len(getattr(final_result, "unscored_records", None) or ()),
+    )
     # The argument-order budget's disclosure, read off the FINAL profile's census (policy 7).
     _swap_withheld, _swap_generated, _swap_seen = _swap_census_counts(final_result)
     # Rebuild the FunctionBasis with the REAL classified count (review — converge governs its own
@@ -3108,6 +3148,7 @@ def _converge_impl(
         minimal_test_count=None if minimal is None else len(minimal),
         cover_standing=_relation.standing,
         universe_size=universe_size,
+        universe_basis=universe_basis,
         fast=fast,
         initial_total_mutants=initial_total_mutants,
         initial_scored_mutants=initial_scored_mutants,

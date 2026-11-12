@@ -2861,7 +2861,8 @@ def _format_converge(
         # not unchanged).
         policy = f" · policy {result.policy_id}" if getattr(result, "policy_id", None) else ""
         lines.append(
-            f"  universe: {universe} operator mutants · {mode} · "
+            f"  universe: {universe} operator mutants"
+            f"{_UNIVERSE_BASIS.get(getattr(result, 'universe_basis', ''), '')} · {mode} · "
             f"{result.value_killed}/{scored} = {_score(result.value_killed, scored)} "
             f"of scored mutants value-pinned · {tail}{policy}"
         )
@@ -5802,6 +5803,14 @@ def suggested_assertion(call: str, original: str) -> str:
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         return f"assert repr({call}) == {text!r}"
     return f"assert {call} == {text}"
+
+
+# How the universe count was obtained (D#134, `converge.universe_standing`) where it is not the exact
+# census: a sampled run's count is an estimate, and one under the measured population is named as such.
+_UNIVERSE_BASIS = {
+    "estimate": " (estimated under the measured policy)",
+    "estimate_below_measured": " (measured census: the static estimate fell below what was measured)",
+}
 
 
 def _outcome_needs_hand_pin(original: str, mutant: str) -> bool:
