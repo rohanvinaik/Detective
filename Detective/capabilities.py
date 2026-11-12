@@ -64,6 +64,19 @@ def env_covers(reason: str) -> bool:
     return "process env" in reason
 
 
+def process_state_covers(reason: str) -> bool:
+    """Whether this ``environment_reads`` reason is a read of the INTERPRETER's state (D#96, #140 item 2,
+    pure — pinned): ``sys.modules`` / ``sys.path`` / ``sys.flags`` / ``sys.version*`` / ``platform.*``
+    (`purity.process_state_read` words them ``reads process state via …``).
+
+    No declarable capability controls it: ``--clock`` freezes the ``time`` module and ``--env`` applies
+    process-environment variables, and neither sets what the process has imported or which platform it is
+    on. It is named apart from the other uncovered reads because its remedy is specific: a test that
+    controls THAT state (``monkeypatch.setitem(sys.modules, …)``), and because no value of an argument and
+    no golden captured in one interpreter can stand for it."""
+    return "reads process state via" in reason
+
+
 def env_token_disposition(token: str) -> str:
     """Classify one ``--env`` token (#48, pure — pinned): how a NAME=value / NAME- spelling reads.
 

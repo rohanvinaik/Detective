@@ -3381,6 +3381,7 @@ _ENV_GATE_ROUTE = {
     "clock_env": "declare_clock",
     "env": "declare_env",
     "fixture": "environment_fixture",
+    "process_state": "environment_fixture",
 }
 
 
@@ -3400,19 +3401,27 @@ def environment_gate_kind(reads: list[str], clock_supplied: bool, env_supplied: 
                   covers it (`capabilities.clock_covers`)
       "env"       a process-environment read is uncovered and no ``--env`` was declared
       "clock_env" both of the above
+      "process_state"
+                  an uncovered read of the interpreter's own state (``sys.modules``, ``sys.path``,
+                  ``sys.flags``, ``sys.version*``, ``platform.*``; `capabilities.process_state_covers`) and
+                  nothing declarable: a test that controls that state reaches the line, and — unlike a
+                  "fixture" read — it also withholds every golden (the value describes the process that ran
+                  it), so a witness `--input` cannot be pinned either (#96, #140 item 2)
       "fixture"   an uncovered read no declarable capability covers (the filesystem, the PID, entropy,
                   ``datetime.now()``): only a fixture or a hand-written test reaches the line
 
     A declarable capability outranks ``fixture`` when both are present: declaring it changes what is
     known, and the next run names what remains."""
-    from .capabilities import clock_covers, env_covers
+    from .capabilities import clock_covers, env_covers, process_state_covers
 
-    clock = env = other = False
+    clock = env = other = process = False
     for read in reads:
         if clock_covers(read):
             clock = clock or not clock_supplied
         elif env_covers(read):
             env = env or not env_supplied
+        elif process_state_covers(read):
+            process = True
         else:
             other = True
     if clock and env:
@@ -3421,6 +3430,8 @@ def environment_gate_kind(reads: list[str], clock_supplied: bool, env_supplied: 
         return "clock"
     if env:
         return "env"
+    if process:
+        return "process_state"
     return "fixture" if other else "none"
 
 
@@ -3496,6 +3507,9 @@ def converge_next_action(
       (``detected``). Whether a value assertion could also pin one was not searched, and nothing
       Detective runs or takes as input classifies them: a hand-back naming each, never DONE over the
       Incomplete FINAL they leave, and never a `flag` offer for a survivor no search judged.
+    ``environment_fixture`` over a process-state read (``env_gate`` ``process_state``) is also returned when a
+      killable witness is open: no golden can capture the interpreter's own state, so the witness is not an
+      ask a person can close with an `--input`.
     ``declare_clock`` / ``declare_env`` / ``environment_fixture`` (#101) — the only residual is a line
       gap and ``env_gate`` (`environment_gate_kind`) says what gates it: a declarable clock (``--clock``
       closes it), a declarable process environment (``--env``), or a read no capability covers (a
@@ -3568,7 +3582,16 @@ def converge_next_action(
     # A declarable capability is the precondition of ANY sound test of the function (an uncovered clock
     # or env read makes every golden inadmissible), so it outranks killable mutants too; a fixture only
     # outranks the gap ask when no killable witness is left to pin.
-    if gated in ("declare_clock", "declare_env") or (gated and has_line_gap and not has_killable):
+    #
+    # A process-state read (`environment_gate_kind` ``process_state``) outranks the witness too: its goldens
+    # are all refused (the value describes the interpreter that ran it), so the witness `--input` the gap
+    # ask would print cannot be pinned, and a function that takes no argument is never asked for one
+    # (D#140 item 2). The measured case was `--input "()"` over a `sys.modules` gate.
+    if (
+        gated in ("declare_clock", "declare_env")
+        or (gated and has_line_gap and not has_killable)
+        or env_gate == "process_state"
+    ):
         return gated
     if unconsulted_only and not has_killable:
         return "consult_named_tests"
@@ -5148,6 +5171,25 @@ def _environment_gate_shown(reads: tuple[str, ...]) -> str:
     return "; ".join(reads[:3]) + (f" (+{len(reads) - 3} more)" if len(reads) > 3 else "")
 
 
+def _process_state_fixture_hint(reads: list[str]) -> str:
+    """How a test controls the interpreter state ``reads`` name (pure): the monkeypatch for each distinct
+    attribute, read off the reasons `purity.process_state_read` words (``reads process state via sys.modules``
+    / ``…via platform.system``). The first three are named; the cap is disclosed."""
+    targets = list(dict.fromkeys(r.rsplit(" ", 1)[-1] for r in reads))
+    hints = []
+    for target in targets[:3]:
+        if target == "sys.modules":
+            hints.append(
+                "`monkeypatch.setitem(sys.modules, name, module)` / `monkeypatch.delitem(sys.modules, name)`"
+            )
+        elif target.startswith("sys."):
+            hints.append(f"`monkeypatch.setattr(sys, {target.split('.', 1)[1]!r}, value)`")
+        else:
+            module, _, attr = target.partition(".")
+            hints.append(f"`monkeypatch.setattr({module}, {attr!r}, lambda: value)`")
+    return "; ".join(hints) + (f" (+{len(targets) - 3} more)" if len(targets) > 3 else "")
+
+
 def _environment_gate_action(kind: str, reads: tuple[str, ...], d: Decision, fn: str) -> list[str]:
     """The block for a line gap gated only by state an argument cannot set (#101): the capability that
     declares it, or the fixture hand-back — never an ``--input`` ask no value of an argument can answer."""
@@ -5170,12 +5212,25 @@ def _environment_gate_action(kind: str, reads: tuple[str, ...], d: Decision, fn:
             _row("", "no --input value reaches them; --env declares the variable. Its value is"),
             _row("", "yours to choose, so no command is printed for it."),
         ]
+    from .capabilities import process_state_covers
+
+    process = [r for r in reads if process_state_covers(r)]
     return [
         "WRITE TEST:  build the external state the uncovered line(s) read, in a fixture",
         "",
         _row("· Why", "the line(s) sit behind a read no --input and no declarable capability reaches:"),
         _row("", f"  {shown}"),
         _row("", "a fixture (a tmp file, a monkeypatched read) or a hand-written test reaches them."),
+        *(
+            [
+                _row(
+                    "· Process state", "the interpreter's own state is not an argument and no golden captures"
+                ),
+                _row("", "it: a test controls it, e.g. " + _process_state_fixture_hint(process) + "."),
+            ]
+            if process
+            else []
+        ),
         _row(_THEN_ROW, _command_text(d.then or _converge_rerun(d.run_universe, fn))),
     ]
 
@@ -5354,7 +5409,12 @@ def _residual_action(
             out.append(_row("· Declare it", f"{_command_text(fix)}   # then re-run decompose"))
         else:
             out.append(
-                _row("· Fixture", "build that state in a test (or declare --env on converge), then re-run")
+                _row(
+                    "· Fixture",
+                    "build that state in a test, then re-run"
+                    if gate == "process_state"
+                    else "build that state in a test (or declare --env on converge), then re-run",
+                )
             )
         return out
     if rep is None:
