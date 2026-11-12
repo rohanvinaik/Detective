@@ -40,6 +40,7 @@ from .certify import (
     PytestVerification,
     PytestWiring,
     _write,
+    origins_of_tests,
     run_pytest_verification,
     synth_filename,
     wire_pytest,
@@ -408,6 +409,8 @@ class ConvergeResult:
     # line gap un-closable by the guidance. Empty for unconditional lines (no branch to satisfy).
     missing_line_guards: tuple[tuple[int, str], ...] = ()
     redundant_tests: tuple[str, ...] = ()  # redundant for BOTH kills and lines -> deletion PROPOSALS
+    # ``(test id, origin)`` for each (U5, #89): intent (hand-written) / characterization (generated).
+    redundant_origins: tuple[tuple[str, str], ...] = ()
     # Size of the two-axis minimal cover, or None when no cover is established (`cover_standing` is not
     # `full_matrix`) — "not measured", never 0 (#145).
     minimal_test_count: int | None = 0
@@ -3145,6 +3148,7 @@ def _converge_impl(
         contradicted_line_flags=tuple(f"{f.source} (line {f.line})" for f in contradicted_flags),
         missing_line_guards=missing_guards,
         redundant_tests=tuple(sorted(redundant)),
+        redundant_origins=origins_of_tests(os.path.abspath(project_root), sorted(redundant)),
         minimal_test_count=None if minimal is None else len(minimal),
         cover_standing=_relation.standing,
         universe_size=universe_size,

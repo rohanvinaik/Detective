@@ -774,6 +774,13 @@ def witness_origin_of_nodeid(root: str, test_id: str) -> str:
     return witness_origin_of(rel if os.path.isabs(rel) else os.path.join(os.path.abspath(root), rel))
 
 
+def origins_of_tests(root_abs: str, test_ids) -> tuple[tuple[str, str], ...]:
+    """``(test id, origin)`` for each test (U5, #89): the origin the `--json` basis already carries
+    (`witness_origin_of_nodeid`), read once here so the page that proposes a removal can say whose
+    test it proposes removing."""
+    return tuple((tid, witness_origin_of_nodeid(root_abs, tid)) for tid in test_ids)
+
+
 def generated_function_digest(path: str) -> str:
     """The function content digest a generated file RECORDS, or "" when it records none (§14.1).
 

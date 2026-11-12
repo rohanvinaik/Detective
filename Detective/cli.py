@@ -1039,7 +1039,7 @@ def _concise_diff(diff_summary: str) -> str:
             return "  ".join(changed)
     # Fallback: no parseable before/after — show the first non-empty line, truncated.
     first = next((ln.strip() for ln in diff_summary.splitlines() if ln.strip()), "")
-    return f"{first[:100]}…" if len(first) > 100 else first
+    return marked_cut(first, 100)  # a cut is marked with what it dropped (#125, #89)
 
 
 def _comparisons(src: str) -> list[tuple[str, type, str]]:
@@ -2989,8 +2989,11 @@ def _format_converge(
     if result.redundant_tests:
         lines.append(
             f"  PROPOSED removals ({len(result.redundant_tests)}, redundant for BOTH kills and "
-            f"lines — confirm to delete, never auto): {', '.join(result.redundant_tests)}"
+            f"lines — confirm to delete, never auto): "
+            f"{removal_text(result.redundant_tests, result.redundant_origins)}"
         )
+        if note := hand_written_note(result.redundant_origins):
+            lines.append(f"    {note}")
     if result.written_path:
         lines.append(f"  wrote: {_rel_path(result.written_path)}")
     if result.wiring:
@@ -5813,6 +5816,30 @@ _UNIVERSE_BASIS = {
 }
 
 
+_ORIGIN_WORD = {"intent": "hand-written", "characterization": "generated", "unattributed": "origin unknown"}
+
+
+def removal_text(tests, origins) -> str:
+    """The proposed-removal ids, each tagged with who wrote it (U5, #89, pure — pinned). A generated test is
+    tagged too: the absence of a tag must not be what tells a person it is theirs. A test with no recorded
+    origin is untagged (absence is not a value)."""
+    by_id = dict(origins)
+    return ", ".join(f"{t} [{_ORIGIN_WORD.get(by_id[t], by_id[t])}]" if t in by_id else str(t) for t in tests)
+
+
+def hand_written_note(origins) -> str:
+    """The sentence that warns a removal proposal includes a person's own tests (U5, #89, pure — pinned),
+    or "" when it includes none. A kill matrix cannot see intent; a hand-written test carries meaning it
+    does not."""
+    n = sum(1 for _, origin in origins if origin == "intent")
+    if not n:
+        return ""
+    return (
+        f"{n} of these {'is' if n == 1 else 'are'} hand-written: a kill matrix cannot see what a test "
+        "was written to say — read before you remove"
+    )
+
+
 def _outcome_needs_hand_pin(original: str, mutant: str) -> bool:
     """Whether a witness's two outcomes are beyond an ``==`` on the return value.
 
@@ -6923,6 +6950,9 @@ def _format_audit(
         lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
         lines += _original_also_fails_rows(tuple(a.original_also_fails))
     lines += _shared_arguments_rows(a.shared_arguments)
+    if getattr(a, "count_basis", "exact") == "in_process_estimate":
+        # #89: audit reports in-process counts; say what is and is not an estimate in them.
+        lines.append(_row("· counts", "≈ in-process estimate; the killset and the proof are stable"))
     lines += _not_entered_rows(tuple(getattr(a, "not_entered", ()) or ()))
     if a.manual_equivalent:
         lines.append(_row("✓ flagged equivalent", f"{a.manual_equivalent} (your oracle — not gaps)"))
@@ -6933,7 +6963,11 @@ def _format_audit(
         lines.append(_row("· redundant", f"not established — {cover_standing_sentence(a.cover_standing)}"))
     elif a.redundant_tests:
         lines.append(_row("· redundant", f"{len(a.redundant_tests)} test(s) pointless for kills AND lines"))
-        lines.append(_row("", _first_n(a.redundant_tests, 4)))
+        lines.append(_row("", removal_text(a.redundant_tests[:4], a.redundant_origins)))
+        if len(a.redundant_tests) > 4:
+            lines.append(_row("", f"(+{len(a.redundant_tests) - 4} more)"))
+        if note := hand_written_note(a.redundant_origins):
+            lines.append(_row("", note))
     lines.append("")
     if with_action:
         lines += _audit_action(a, removing, decision)
@@ -9904,7 +9938,7 @@ def _format_session_warning(diagnostic: dict[str, Any], project_root: str | None
         )
         lines = []
         for nodeid, detail in errors[:3]:
-            first_line = detail.strip().splitlines()[0][:200] if detail.strip() else "(no detail)"
+            first_line = marked_cut(detail.strip().splitlines()[0], 200) if detail.strip() else "(no detail)"
             lines.append(f"           · {nodeid}: {first_line}\n")
         tail = ""
         if len(errors) > 3:

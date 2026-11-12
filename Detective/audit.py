@@ -250,6 +250,15 @@ class SuiteAudit:
     # Test arguments the engine could not hand out as fresh copies, `"<nodeid> :: <argument> (<standing>)"`
     # (`validity.shared_arguments`): a mutant that writes into them is guarded only by the original control.
     shared_arguments: tuple[str, ...] = ()
+    # How exact the COUNTS on this page are (#89, `count_basis`): "in_process_estimate" when the profile
+    # ran in-process, where the scored count is run-to-run noisy under shared module state while the
+    # killset and the proof are stable; "exact" otherwise. Converge's report carries the same qualifier
+    # (`universe_claim`); audit reports the same in-process counts and carried none.
+    count_basis: str = "exact"
+    # ``(test id, origin)`` for each of `redundant_tests` (U5, #89): "intent" (hand-written),
+    # "characterization" (generated) or "unattributed". A removal proposal that omits who wrote the test
+    # reads a person's intent test as deletable on a kill matrix alone.
+    redundant_origins: tuple[tuple[str, str], ...] = ()
     # Tests whose baseline is typed `error` — setup or teardown failed, so they never ran to a verdict
     # of their own (Wesker#17). Named apart from `failing_tests`: not a wrong expectation, never gated.
     errored_tests: tuple[str, ...] = ()
@@ -962,6 +971,7 @@ def audit_suite(
         )
         if redundant
         else (),
+        redundant_origins=_origins_of_tests(os.path.abspath(project_root), sorted(redundant)),
         # Scoped by `suite` for the SAME reason test_names is, and it must stay that way:
         # `result.failing_tests` is the baseline's REPO-WIDE list (the baseline runs every
         # discovered test, for every function), so passing it through raw put thousands of
@@ -1036,7 +1046,25 @@ def audit_suite(
         not_entered=validity.not_entered,
         original_also_fails=validity.original_also_fails,
         shared_arguments=validity.shared_arguments,
+        count_basis=count_basis(validity.capability_flags),
     )
+
+
+def _origins_of_tests(root_abs: str, test_ids) -> tuple[tuple[str, str], ...]:
+    """`certify.origins_of_tests`, imported where used, as `_origin_census` does."""
+    from .certify import origins_of_tests
+
+    return origins_of_tests(root_abs, test_ids)
+
+
+def count_basis(capability_flags: tuple[str, ...]) -> str:
+    """How exact the counts of a measurement are, from its capability flags (#89, pure — pinned).
+
+    "in_process_estimate"  the validity flagged ``approximate:mutant_universe``: the profile ran in-process,
+                           so the scored COUNT is an estimate (killset and proof are deterministic)
+    "exact"                no such flag: an isolated run, whose count is exact
+    """
+    return "in_process_estimate" if "approximate:mutant_universe" in capability_flags else "exact"
 
 
 def _candidate_test_files(candidates) -> set[str]:
