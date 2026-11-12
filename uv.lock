@@ -279,4 +279,4 @@ wheels = [
 [[package]]
 name = "wesker"
 version = "1.2.2"
-source = { git = "https://github.com/rohanvinaik/Wesker.git?branch=main#185985cd6f69f24ef6b028e92f9fb1707fef0e28" }
+source = { git = "https://github.com/rohanvinaik/Wesker.git?branch=main#f7b4b672e16059357d04c7c0390ee8172039c710" }
