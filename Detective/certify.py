@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from . import pins
-from .certificates import load_certificate
+from .certificates import UNGATEABLE_STANDINGS, load_certificate
 from .decompose import DecompositionPlan, decompose
 from .engine import _resolve, profile
 from .process_state import declared_roots, restores_process_state
@@ -811,7 +811,7 @@ _TERMINAL_STANDINGS = ("complete", "incomplete", "unverified", "floor_failing")
 # …but asserting nothing about the DEFINITION is not the same as asserting nothing at all, and
 # these two were falling through to codes that describe an absence. A record exists; it says the
 # run could not be trusted, and the two say so for different reasons with different remedies.
-_INVALID_STANDINGS = ("stale", "ungateable")
+_INVALID_STANDINGS = ("stale", *UNGATEABLE_STANDINGS)
 _RECORDED_STANDINGS = _TERMINAL_STANDINGS + _INVALID_STANDINGS
 
 
@@ -898,7 +898,10 @@ def _certified_status(cert_standing: str, cert_current: bool, cert_refused: bool
     # collapsing them into one condition is how the second stops being visible.
     if cert_standing == "stale":
         return pins.PINNED_STALE
-    if cert_standing == "ungateable":
+    if cert_standing in UNGATEABLE_STANDINGS:
+        # `ungateable` and its named specialisations (mutants that reached no verdict) share the
+        # status: the status says a re-converge reproduces it; the certificate's own standing and
+        # cut reasons say which cause, and so which remedy.
         return pins.MEASUREMENT_INVALID
     if cert_standing == "floor_failing":
         return pins.FLOOR_FAILING

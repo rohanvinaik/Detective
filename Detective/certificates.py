@@ -48,6 +48,24 @@ CERTIFICATES_FILENAME = "certificates.json"
 # The default location — the ledger's path under the default write-dir.
 CERTIFICATES_REL_PATH = os.path.join(DEFAULT_WRITE_DIR, CERTIFICATES_FILENAME)
 
+# The standings of a measurement that could not support a certificate because SOME MUTANTS reached no
+# verdict and nothing else was wrong (Wesker#27 / Detective#80). `ungateable` stays the standing of a
+# run that was cut, uncontained, failed to load, and so on. These three are the same refusal with a
+# named cause, because the two causes have different remedies: a step-budget stop is deterministic and
+# for good (no input or flag applies), a wall bound that fired is machine-bound (raise
+# WESKER_COMPUTE_BUDGET_S, or run on a quieter machine).
+MUTANTS_DIVERGED = "mutants_diverged"
+MUTANTS_UNDETERMINED = "mutants_undetermined"
+MUTANTS_DIVERGED_AND_UNDETERMINED = "mutants_diverged_and_undetermined"
+NO_VERDICT_STANDINGS: tuple[str, ...] = (
+    MUTANTS_DIVERGED,
+    MUTANTS_UNDETERMINED,
+    MUTANTS_DIVERGED_AND_UNDETERMINED,
+)
+# Every standing that says "this measurement cannot support a certificate" (the umbrella and its named
+# specialisations): the places that used to compare `== "ungateable"` read this instead.
+UNGATEABLE_STANDINGS: tuple[str, ...] = ("ungateable", *NO_VERDICT_STANDINGS)
+
 
 def certificate_refusal(needs_receiver: str, environment_gated: tuple[str, ...]) -> str:
     """Why a converge DECLINED the target rather than merely fell short (§14.1 — pure, pinned).
@@ -94,7 +112,7 @@ def certificate_cut_reasons(standing: str, cut_reasons: tuple[str, ...]) -> tupl
     `measurement_cut_reasons`' 7680 input combinations refuse with an empty tuple, all of them
     ``reported_gateable=False``. Named here rather than persisted as an empty list.
     """
-    if standing != "ungateable":
+    if standing not in UNGATEABLE_STANDINGS:
         return cut_reasons
     return cut_reasons or ("reason_unrecorded",)
 

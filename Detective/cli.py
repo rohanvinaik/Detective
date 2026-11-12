@@ -51,6 +51,7 @@ from Detective.validity import (
 )
 
 from . import __version__
+from .certificates import UNGATEABLE_STANDINGS
 from .equivalence import crash_only_status
 
 # Top-level, not deferred like the `certify` imports: `ledger` pulls in nothing (no engine, no
@@ -3512,7 +3513,7 @@ def converge_next_action(
     # so these checks are order-independent and read the SAME bar as `complete` and the MCP surface.
     if standing == "stale":
         return "rerun_stale"
-    if standing == "ungateable":
+    if standing in UNGATEABLE_STANDINGS:
         return "repair_measurement"
     if standing == "floor_failing":
         return "fix_failing_test"
@@ -3887,6 +3888,9 @@ def _converge_routing(
         # The same field `ConvergeResult.standing` consumes (#114), so this reading cannot drift from it.
         floor_failing=bool(getattr(result, "floor_failing_tests", ())),
         floor_caused=_floor_caused(result),
+        # The reasons the measurement was refused, so an `ungateable` standing is NAMED when every one
+        # is a mutant that reached no verdict (Wesker#27); the same tuple `ConvergeResult.standing` reads.
+        cut_reasons=tuple(getattr(result, "validity_cut_reasons", ()) or ()),
     )
     # Signals that let the next action name the RIGHT escape instead of a catch-all `regime
     # --migrate`: whether THIS run wrote a runnable suite (an empty-baseline reason is then stale),
@@ -3969,8 +3973,10 @@ def converge_exit_code(standing: str) -> int:
     Exit codes are epistemics, not pass/fail (COMMUNICATING_DETERMINISM §4). The ``--json`` and terse
     channels each spelled the rule inline from raw fields; it now consumes `certificate_standing`'s code:
 
-      3  ``stale`` · ``ungateable`` · ``unverified`` — the measurement, or the basis it rests on, cannot
-         be trusted: re-run once its named cause is resolved
+      3  ``stale`` · ``ungateable`` (and its named specialisations ``mutants_diverged`` /
+         ``mutants_undetermined`` / ``mutants_diverged_and_undetermined``) · ``unverified`` — the
+         measurement, or the basis it rests on, cannot be trusted: re-run once its named cause is
+         resolved
       1  ``floor_failing`` — a typed refusal over a TRUSTWORTHY measurement: a test that is this
          function's business fails on current code. Re-running changes nothing, so it is not 3; and
          ``audit --check`` exits 1 for the same fact

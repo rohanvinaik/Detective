@@ -36,6 +36,11 @@ from Wesker.monitoring import MonitoringUnavailable
 from ._contain import budget_is_exhausted, contained_stdout, remaining_budget_ms
 from .binding import ReceiverFactory, parse_receiver_factory, resolve_execution, wrap_callable
 from .capabilities import capability_identity, render_clock_freeze, render_env
+from .certificates import (
+    MUTANTS_DIVERGED,
+    MUTANTS_DIVERGED_AND_UNDETERMINED,
+    MUTANTS_UNDETERMINED,
+)
 from .certify import (
     PytestVerification,
     PytestWiring,
@@ -180,6 +185,33 @@ def _swap_census_counts(profile) -> tuple[int, int, bool]:
     return int(row.get("withheld", 0) or 0), generated, True
 
 
+def ungateable_standing(cut_reasons: tuple[str, ...]) -> str:
+    """The standing of a measurement that cannot support a certificate, from WHY (Wesker#27, pure — pinned).
+
+    ``ungateable`` is the umbrella and the default: it is the standing whenever any reason beyond the
+    two per-mutant ones is present, or none is recorded (a refusal with no reason is not narrowed by
+    inventing one). Only when every cut reason is a mutant that reached no verdict does the standing
+    name which:
+
+    * ``mutants_diverged``      — only ``step_budget_exceeded``: the loop budget stopped a mutant.
+    * ``mutants_undetermined``  — only ``mutant_wall_undetermined``: a liveness wall fired.
+    * ``mutants_diverged_and_undetermined`` — both, and nothing else.
+
+    Neither state is a kill or a survivor, and they never share a sign: the remedies differ.
+    """
+    reasons = set(cut_reasons)
+    diverged = "step_budget_exceeded" in reasons
+    undetermined = "mutant_wall_undetermined" in reasons
+    if not (diverged or undetermined) or reasons - {
+        "step_budget_exceeded",
+        "mutant_wall_undetermined",
+    }:
+        return "ungateable"
+    if diverged and undetermined:
+        return MUTANTS_DIVERGED_AND_UNDETERMINED
+    return MUTANTS_DIVERGED if diverged else MUTANTS_UNDETERMINED
+
+
 def certificate_standing(
     functionally_complete: bool,
     line_complete: bool,
@@ -189,6 +221,7 @@ def certificate_standing(
     admits_certificate: bool = True,
     floor_failing: bool = False,
     floor_caused: bool = False,
+    cut_reasons: tuple[str, ...] = (),
 ) -> str:
     """What a converge result is entitled to CLAIM — one code, read by every surface (#17/#38).
 
@@ -220,6 +253,11 @@ def certificate_standing(
     original because that test fails at baseline. That refusal must not outrank the floor it comes from,
     so it does not displace ``floor_failing`` below. A measurement that could not RUN (any other reason)
     still outranks a failing suite, as it always has.
+
+    ``cut_reasons`` — why the measurement does not admit a certificate (`validity` reasons). Read only
+    to NAME an ``ungateable`` standing (`ungateable_standing`): a refusal whose every reason is a mutant
+    that reached no verdict is ``mutants_diverged`` / ``mutants_undetermined`` (Wesker#27), not the
+    generic ``ungateable``. Defaults empty, which keeps the umbrella.
 
     ``unverified`` — the proof basis ran under real pytest and did not come back green
     (tests_failed / collection_failed / runner_missing / timed_out / no_tests). A mutation score
@@ -258,7 +296,7 @@ def certificate_standing(
     # Defaults True: a caller that has not established validity must not silently acquire the
     # refusal, exactly as with `verification_ran`.
     if not admits_certificate and not (floor_failing and floor_caused):
-        return "ungateable"
+        return ungateable_standing(cut_reasons)
     if floor_failing:
         return "floor_failing"
     if verification_ran and not verification_ok:
@@ -694,6 +732,7 @@ class ConvergeResult:
             floor_failing=bool(self.floor_failing_tests),
             floor_caused=floor_cause_standing(list(self.validity_cut_reasons), bool(self.floor_failing_tests))
             == "floor_caused",
+            cut_reasons=self.validity_cut_reasons,
         )
 
 
