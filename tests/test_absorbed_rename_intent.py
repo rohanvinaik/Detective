@@ -213,7 +213,7 @@ def test_a_dunder_is_the_data_models(tmp_path) -> None:
 # a new one fails, and converting one is a deliberate edit that lowers its number. Measured 2026-11-12.
 FAULT_OPEN: dict[str, int] = {
     "authored_fence": 3,
-    "budget_exhausted": 6,
+    "budget_exhausted": 0,
     "cut_reasons": 6,
     "collection_conflicts": 3,
     "contradicted_flags": 2,

@@ -210,6 +210,7 @@ def test_converge_divergence_action_and_decision() -> None:
         functionally_complete = False
         missing_lines = ()
         stale_target = False
+        budget_exhausted = False
         admits_certificate = True
         verification = None
         written_path = ""

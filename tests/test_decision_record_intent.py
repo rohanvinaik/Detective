@@ -222,6 +222,7 @@ def _gap_result(**overrides):
         environment_gated=(),
         admits_certificate=True,
         stale_target=False,
+        budget_exhausted=False,
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -267,6 +268,7 @@ def test_supply_the_printed_rerun_is_the_records_then():
         admits_certificate=True,
         verification=None,
         stale_target=False,
+        budget_exhausted=False,
     )
     rep = SurvivorReport(verdicts=(), unclassified=())
     d = _converge_decision(result, rep, render_tests=False)
@@ -317,6 +319,7 @@ def test_stop_names_its_remedy_and_the_printed_rerun_is_the_records_then():
         missing_lines=(),
         line_complete=True,
         stale_target=False,
+        budget_exhausted=False,
         verification=types.SimpleNamespace(ok=False, status="tests_failed"),
         admits_certificate=True,
         synthesized_only=False,
@@ -368,6 +371,7 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
         line_complete=True,
         missing_lines=(),
         stale_target=False,
+        budget_exhausted=False,
         admits_certificate=True,
         written_path="tests/detective/test_dsl_add_synth.py",
         synthesized_only=False,
@@ -863,6 +867,7 @@ def _lines_result(line: int = 34, guard: str = "value > 3") -> types.SimpleNames
         admits_certificate=True,
         verification=None,
         stale_target=False,
+        budget_exhausted=False,
     )
 
 

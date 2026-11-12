@@ -46,6 +46,7 @@ def test_unresolved_execution_keeps_its_reason_through_the_real_engine_adapter(
         admits_certificate=validity.admits_certificate,
         cut_reasons=validity.cut_reasons,
         stale_target=False,
+        budget_exhausted=False,
         verification=None,
         written_path="",
         synthesized_only=False,

@@ -2054,7 +2054,7 @@ def _completeness_verdict(result, *, flag_offered: bool = True) -> str:
     distinguish but cannot claim completeness, and we say exactly that."""
     # A CUT run (issue #31) never measured the full universe; its headline is the CUT, not a
     # completeness claim (``result.complete`` is already False, but say WHY, not just "Incomplete").
-    if getattr(result, "budget_exhausted", False):
+    if result.budget_exhausted:
         phase = getattr(result, "cut_phase", "") or "a profiling phase"
         return f"⚠ CUT — aggregate deadline exhausted during {phase}; measurement partial"
     # A floor that does not hold (#114): a test that is this function's business fails on current code,
@@ -2216,7 +2216,7 @@ def _final_banner_status(result) -> str:
     # A CUT run (issue #31) is likewise a non-verdict — the wall stopped it before the
     # universe was measured — so CUT overrides COMPLETE/Incomplete for the same reason
     # STALE does: both would claim a measurement that did not finish.
-    if getattr(result, "budget_exhausted", False):
+    if result.budget_exhausted:
         phase = getattr(result, "cut_phase", "") or "a profiling phase"
         return (
             f"FINAL {result.function}: ⚠ CUT — aggregate deadline exhausted during {phase}; "
@@ -3098,7 +3098,7 @@ def _format_converge_terse(
     # so counts would misrepresent a half-run universe. Name the phase the wall ran out in,
     # the integration signal if the target flooded, and the one action — re-run with more
     # budget — then the banner. Non-gateable: no COMPLETE can appear below this.
-    if getattr(result, "budget_exhausted", False):
+    if result.budget_exhausted:
         phase = getattr(result, "cut_phase", "") or "a profiling phase"
         lines.append(_row("⚠ CUT", f"the aggregate deadline ran out during {phase}"))
         contained = getattr(result, "stdout_bytes", 0)
@@ -4515,7 +4515,7 @@ def _converge_decision(
     universe = universe if universe is not None else UniverseOptions(two_sign=two_sign)
     two_sign = universe.two_sign
     standing, next_action = _converge_routing(result, rep, session_reason, universe)
-    budget_exhausted = bool(getattr(result, "budget_exhausted", False))
+    budget_exhausted = result.budget_exhausted
     code = converge_record_code(next_action, bool(result.stale_target), budget_exhausted)
     route = ""
     if code == "repair_measurement":
@@ -6477,7 +6477,7 @@ def _format_decompose(
     # A CUT decompose (issue #31) never got a completed proof, so it can neither apply nor
     # honestly say "no seam". Name the cut, the integration signal if the target flooded, and
     # the action — this is the original wrap_trace regression's user-visible landing.
-    if getattr(r, "budget_exhausted", False):
+    if r.budget_exhausted:
         phase = getattr(r, "cut_phase", "") or "the proof converge"
         out = [
             _RULE,

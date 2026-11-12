@@ -807,6 +807,7 @@ _ADAPTED_FIELDS: tuple[str, ...] = (
     "collection_errors",
     "execution_mode",
     "shared_arguments",
+    "budget_exhausted",
 )
 
 
@@ -919,7 +920,9 @@ def normalize_validity(
     reasons = measurement_cut_reasons(
         reported_gateable=reports_gateable,
         gateable=gateable,
-        budget_exhausted=bool(getattr(result, "budget_exhausted", False)),
+        # Three-valued (#95): an engine that does not report the flag is recorded `absent:budget_exhausted`
+        # in `capability_flags` (the list is derived from `_ADAPTED_FIELDS`), never read as "not cut".
+        budget_exhausted=bool(raw["budget_exhausted"]) if raw["budget_exhausted"] is not _ABSENT else False,
         coverage_depth=depth,
         containment=containment,
         identity_ambiguous=identity_ambiguous,
