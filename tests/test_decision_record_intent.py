@@ -221,6 +221,7 @@ def _gap_result(**overrides):
         param_names=("value",),
         environment_gated=(),
         admits_certificate=True,
+        stale_target=False,
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)

@@ -229,7 +229,7 @@ FAULT_OPEN: dict[str, int] = {
     "redundant_dispositions": 1,
     "routing_error": 4,
     "shape_hazards": 2,
-    "stale_target": 4,
+    "stale_target": 0,
     "step_budget_divergent": 10,
     "trace_truncated": 2,
     "unresolved_mutants": 2,

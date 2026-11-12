@@ -431,6 +431,7 @@ def test_banner_warranted_floor_vs_diagnostic_counts():
             self.cut_reasons = cut_reasons
             self.admits_certificate = False
             self.measurement_gateable = False
+            self.stale_target = False
 
     # Clean partiality has warranted floor
     clean_partial = DummyResult(("budget_exhausted",))
@@ -456,6 +457,7 @@ def test_isolate_action_identifies_affected_tests():
             self.cut_reasons = ("refuse_signal", "refuse_thread")
             self.admits_certificate = False
             self.measurement_gateable = False
+            self.stale_target = False
             self.functionally_complete = False
             self.line_complete = True
             self.missing_lines = ()

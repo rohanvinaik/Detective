@@ -2208,7 +2208,7 @@ def _final_banner_status(result) -> str:
     # the suite imported the edited module from disk. Stamp it before any
     # status wording — STALE overrides COMPLETE and Incomplete alike, because
     # both would be claims about a measurement that did not happen.
-    if getattr(result, "stale_target", False):
+    if result.stale_target:
         return (
             f"FINAL {result.function}: ⚠ STALE — target changed during run; "
             "measurement invalid, re-run required"
@@ -3073,7 +3073,7 @@ def _format_converge_terse(
     final = decision.final if decision is not None and decision.final is not None else _final_banner(result)
     # A stale headline must not carry counts either — "26 behaviours · 0
     # pinned" is the invalid measurement wearing the headline's authority.
-    stale = getattr(result, "stale_target", False)
+    stale = result.stale_target
     counts = "" if stale else _headline_counts(result, rep)
     lines = [_RULE, f"{fn} — converge{counts}", ""]
 
@@ -3880,7 +3880,7 @@ def _converge_routing(
     standing = certificate_standing(
         bool(result.functionally_complete),
         bool(getattr(result, "line_complete", not result.missing_lines)),
-        bool(getattr(result, "stale_target", False)),
+        bool(result.stale_target),
         _ver is not None,
         _ver is not None and bool(getattr(_ver, "ok", False)),
         bool(getattr(result, "admits_certificate", True)),
@@ -4516,7 +4516,7 @@ def _converge_decision(
     two_sign = universe.two_sign
     standing, next_action = _converge_routing(result, rep, session_reason, universe)
     budget_exhausted = bool(getattr(result, "budget_exhausted", False))
-    code = converge_record_code(next_action, bool(getattr(result, "stale_target", False)), budget_exhausted)
+    code = converge_record_code(next_action, bool(result.stale_target), budget_exhausted)
     route = ""
     if code == "repair_measurement":
         # The TYPED cut reasons (validity.CUT_REASONS), through the same call the page's repair block
