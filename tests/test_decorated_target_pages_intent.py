@@ -69,11 +69,22 @@ def test_a_mutant_that_was_never_built_is_a_defect_to_report_before_any_isolated
 
 
 @pytest.mark.parametrize(
-    "other",
-    ["mutant_not_entered_captured_at_import", "mutant_not_entered_pre_bound_reference", "mutant_not_entered"],
+    "reason",
+    ["mutant_not_entered_captured_at_import", "mutant_not_entered_pre_bound_reference"],
 )
-def test_the_other_causes_keep_their_own_repair(other):
-    assert repair_measurement_route((other,), False, False) == "mutant_phase"
+def test_an_import_time_capture_routes_to_isolated_and_an_isolated_run_does_not_loop(reason):
+    assert repair_measurement_route((reason,), False, False) == "isolate"
+    assert repair_measurement_route((reason,), False, False, True) == "mutant_phase"
+    assert reason in _ROUTE_ADDRESSES["isolate"]
+    assert "--isolated" in cut_reason_sentence(reason)
+
+
+@pytest.mark.parametrize(
+    "other",
+    ["mutant_not_entered_holder_not_found", "mutant_not_entered_not_reached", "mutant_not_entered"],
+)
+def test_the_causes_the_hook_does_not_repair_keep_their_own_route(other):
+    assert repair_measurement_route((other,), False, False) in ("mutant_phase",)
 
 
 def test_the_isolate_route_addresses_the_reason_so_it_is_not_named_twice():
@@ -146,10 +157,7 @@ def _traced_tests(project: Path) -> set[str]:
 )
 def test_isolated_reads_every_body_line_covered_and_completes(tmp_path, name, source):
     """Lines 6-8 (the body) are covered by the three tests; nothing is proposed for removal."""
-    # A plain function reached only through an alias is the pre-bound-reference floor (its own cause, not
-    # this issue's); the control calls it through its module attribute.
-    tests = _TESTS.replace("from mod import FEE as charge", "import mod").replace("charge(", "mod.fee(")
-    project = _project(tmp_path, source, tests if name == "plain" else _TESTS)
+    project = _project(tmp_path, source)
     r = _run(project, "converge", "mod.py::fee", "--isolated")
     _skip_if_cut(r)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -184,3 +192,43 @@ def test_both_modes_route_the_same_tests(cache_project, tmp_path):
         traced[mode] = _traced_tests(project)
     assert traced["in_process"] == traced["isolated"]
     assert {t.rsplit("::", 1)[1] for t in traced["isolated"]} == {"test_small", "test_large", "test_edge"}
+
+
+_HANDLERS = "def fee(n: int) -> int:\n" + _BODY + "\n\nHANDLERS = {'fee': fee}\n"
+_DEFAULT = "def fee(n: int) -> int:\n" + _BODY + "\n\ndef apply(n, f=fee):\n    return f(n)\n"
+_CAPTURES = {
+    "alias": (_PLAIN, _TESTS),
+    "handler_dict": (
+        _HANDLERS,
+        "from mod import HANDLERS\n\n\ndef test_small():\n    assert HANDLERS['fee'](3) == 4\n\n\n"
+        "def test_large():\n    assert HANDLERS['fee'](20) == 40\n\n\n"
+        "def test_edge():\n    assert HANDLERS['fee'](10) == 11\n    assert HANDLERS['fee'](11) == 22\n",
+    ),
+    "default_argument": (
+        _DEFAULT,
+        "from mod import apply\n\n\ndef test_small():\n    assert apply(3) == 4\n\n\n"
+        "def test_large():\n    assert apply(20) == 40\n\n\n"
+        "def test_edge():\n    assert apply(10) == 11\n    assert apply(11) == 22\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_CAPTURES))
+def test_a_plain_function_captured_at_import_is_measured_by_isolated_and_named_in_process(tmp_path, kind):
+    """The issue's alias acceptance for an UNDECORATED target: the import hook compiles the module with the
+    definition replaced, so an alias, a handler dict and a default argument all capture the mutant."""
+    source, tests = _CAPTURES[kind]
+    project = _project(tmp_path / "iso", source, tests)
+    r = _run(project, "converge", "mod.py::fee", "--isolated")
+    _skip_if_cut(r)
+    assert r.returncode == 0, r.stdout + r.stderr
+    final = _final(r.stdout)
+    assert "COMPLETE" in final and "15/15 killed" in final, final
+    assert "uncovered" not in r.stdout
+    inproc = _project(tmp_path / "inproc", source, tests)
+    r = _run(inproc, "converge", "mod.py::fee")
+    _skip_if_cut(r)
+    assert r.returncode == 3, r.stdout + r.stderr
+    assert "detective converge 'mod.py::fee' --isolated" in r.stdout
+    assert "ALIAS" in r.stdout or "CAPTURED at import" in r.stdout
+    assert "could not be BUILT" not in r.stdout

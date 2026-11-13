@@ -36,6 +36,7 @@ import pytest
 from Detective.cli import _audit_measurement_block, _not_entered_rows, repair_measurement_route
 from Detective.validity import (
     CUT_REASONS,
+    HOOK_REPAIRABLE_REASONS,
     NOT_ENTERED_CAUSE_REASONS,
     NOT_ENTERED_REASONS,
     classification_standing,
@@ -150,7 +151,7 @@ def test_only_a_function_no_test_calls_is_a_reach_gap(reasons, kind):
 def test_every_not_entered_reason_routes_to_the_mutant_phase(reason):
     # An in-process decorator capture routes to --isolated (the repair); an isolated run that still reads it
     # has had that repair and stays a floor.
-    in_process = "isolate" if reason == "mutant_not_entered_decorator_wrapper" else "mutant_phase"
+    in_process = "isolate" if reason in HOOK_REPAIRABLE_REASONS else "mutant_phase"
     assert repair_measurement_route((reason,)) == in_process
     assert repair_measurement_route((reason,), isolated=True) == "mutant_phase"
     # ...and a run-level blocker still outranks it.
@@ -382,12 +383,14 @@ def test_a_plain_function_no_test_calls_reads_its_cause_and_converge_moves_the_v
     assert "INCOMPLETE" not in after, after
 
 
-def test_a_captured_copy_names_where_it_lives_and_its_repair_moves_the_verdict(tmp_path):
+def test_a_captured_copy_is_measured_by_the_isolated_import_hook_and_its_repair_moves_the_verdict(tmp_path):
+    """A handler dict holding the original is repaired by the isolated worker (audit measures isolated): the
+    module is compiled with the definition replaced, so the dict holds the mutant. It used to read
+    `not entered`; the repair is now the measurement, and what is left is the suite's own gaps."""
     _project(tmp_path, _CAPTURED, _THROUGH_REGISTRY)
     before = _detective(tmp_path, "audit", "m.py::f").stdout
-    assert "cause captured_at_import" in before, before
-    assert "captured m.HANDLERS['inc']" in before, before
-    assert "replaces only module attributes" in before, before
+    assert "not entered" not in before, before
+    assert "cause captured_at_import" not in before, before
     (tmp_path / "test_direct.py").write_text(_THROUGH_ATTRIBUTE)
     after = _detective(tmp_path, "audit", "m.py::f").stdout
     assert "not entered" not in after, after

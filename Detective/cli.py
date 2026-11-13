@@ -43,6 +43,7 @@ from Wesker.engine import (
 
 from Detective.validity import (
     CUT_REASONS,
+    HOOK_REPAIRABLE_REASONS,
     NOT_ENTERED_REASONS,
     cut_reason_sentence,
     floor_cause_standing,
@@ -3828,13 +3829,13 @@ def repair_measurement_route(
     # anything below. `mutant_disposition`: "earliest failed phase first — each answers a question
     # the later ones presuppose". A mutant never built, never bound, or never called is not
     # evidence about coverage depth, so the depth's remedy must not lead over it.
-    # A decorator-captured target (#18): an in-process install rebinds names the wrapper's closure never
-    # reads, so no test through it can enter a mutant — and an isolated run re-installs such a mutant at
-    # import (Wesker's robust mode), which IS the repair. Only for a mutant that was BUILT (a construction
-    # failure is a defect to report first) and only in-process: an isolated run that still reads this
-    # reason has already had the repair, so it stays a floor (`mutant_phase`).
+    # A capture AT IMPORT (#18: a decorator, an alias, a constant, a handler dict, a default argument): an
+    # in-process install rebinds names the capture never reads, so no test through it can enter a mutant,
+    # and an isolated run installs the mutant at import (Wesker's robust mode), which IS the repair. Only
+    # for a mutant that was BUILT (a construction failure is a defect to report first) and only
+    # in-process: an isolated run that still reads one has had the repair, so it stays a floor.
     if (
-        "mutant_not_entered_decorator_wrapper" in cut_reasons
+        any(reason in HOOK_REPAIRABLE_REASONS for reason in cut_reasons)
         and "mutant_construction_failed" not in cut_reasons
         and not isolated
     ):
@@ -3908,7 +3909,7 @@ _ROUTE_ADDRESSES: dict[str, tuple[str, ...]] = {
         "refuse_collector",
         "refuse_fixture",
         "nested_measurement",
-        "mutant_not_entered_decorator_wrapper",
+        *HOOK_REPAIRABLE_REASONS,
     ),
     # These two render EVERY reason in their own stop line (`"; ".join(... for r in reasons)`), so they
     # address all of them; absent from this table they fell to the conservative default below and each

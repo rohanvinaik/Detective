@@ -710,15 +710,20 @@ def cut_reason_sentence(reason: str) -> str:
         " enter the mutant (the target was imported before it, or no test reaches it)",
         "mutant_not_entered_captured_at_import": "one or more mutants were installed but the consulted"
         " tests reach the function through a copy CAPTURED at import — a module-level constant,"
-        " registry, container, field, default argument or partial holding the original; the install"
-        " replaces only module attributes, never the captured copy, so no test calling through it can"
-        " enter a mutant — a floor of this measurement with this reason, not a gap in your suite: to"
-        " measure them, call the function through its module attribute (module.fn(...)) in a test",
+        " registry, container, field, default argument or partial holding the original; the in-process"
+        " install replaces only module attributes, never the captured copy, so no test calling through it"
+        " can enter a mutant. --isolated measures it: its worker compiles the module with the function's"
+        " definition replaced, so every capture at import takes the mutant. Where an --isolated run still"
+        " reads this, the hook could not enter the mutant (the target was imported before it, or no test"
+        " reaches it) — a floor of this measurement; in-process, calling the function through its module"
+        " attribute (module.fn(...)) in a test also enters it",
         "mutant_not_entered_pre_bound_reference": "one or more mutants were installed but the consulted"
         " tests reach the function through an ALIAS — a module binds the original under another name"
-        " (from m import fn as alias), and the install rebinds by NAME, so callers through the alias run"
-        " the original; call the function by its own name in a test (import m; m.fn(...)), or pin the"
-        " alias's caller",
+        " (from m import fn as alias, or FEE = fn), and the in-process install rebinds by NAME, so callers"
+        " through the alias run the original. --isolated measures it: its worker compiles the module with"
+        " the function's definition replaced, so the alias is bound to the mutant. Where an --isolated run"
+        " still reads this, the hook could not enter the mutant (the target was imported before it, or no"
+        " test reaches it); in-process, call the function by its own name (import m; m.fn(...))",
         "mutant_not_entered_holder_not_found": "one or more mutants were installed and the consulted"
         " tests reached the function on the baseline, yet none entered a mutant and no module-level"
         " holder of the original was found — the reference lives where the bounded scan does not look"
@@ -985,3 +990,13 @@ def normalize_validity(
         if "shared_arguments" not in missing
         else (),
     )
+
+
+# The not-entered reasons an isolated run's import hook repairs (Wesker `robust_retry_standing`): whatever
+# took a reference to the original AT IMPORT takes the mutant when the module is compiled with the
+# definition replaced. In-process they route to --isolated; an isolated run that still reads one has had it.
+HOOK_REPAIRABLE_REASONS: tuple[str, ...] = (
+    "mutant_not_entered_decorator_wrapper",
+    "mutant_not_entered_pre_bound_reference",
+    "mutant_not_entered_captured_at_import",
+)
