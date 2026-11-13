@@ -692,7 +692,7 @@ position-independent: editing *other* functions never invalidates this one.
 - **A cache hit is replayed, never fresh:** its trace rows are stamped `provenance="replayed"` on read, so
   they may order work but never prove.
 - **The key has two readers** — `cache_key` builds it and `put` re-parses it for single-valid-copy — so the
-  field count lives in `_PARAM_FIELDS` and `put` calls `params_suffix()`. *Why:
+  question a row answers is read by NAME (`key_question`), never by position from the end. *Why:
   [H8](docs/HISTORY.md#h8).*
 
 **The session baseline is paid once per session and built lazily** (`Wesker.engine.LazySessionBaseline`),

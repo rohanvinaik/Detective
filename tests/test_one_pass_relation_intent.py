@@ -173,11 +173,12 @@ def test_asking_for_the_relation_changes_the_verdict_cache_key_and_not_asking_le
     plain = cache_key(*args)
     assert cache_key(*args, full_matrix=False) == plain
     assert cache_key(*args, full_matrix=True) != plain
-    # the two coexist in the cache: same field count, different params suffix (see `verdict_cache.put`)
-    from Detective.verdict_cache import params_suffix
+    # the two coexist in the cache: same field count, different question (see `verdict_cache.put`)
+    from Detective.verdict_cache import key_prefix, key_question
 
     assert cache_key(*args, full_matrix=True).count(":") == plain.count(":")
-    assert params_suffix(cache_key(*args, full_matrix=True)) != params_suffix(plain)
+    prefix = key_prefix("f.py::g")
+    assert key_question(cache_key(*args, full_matrix=True), prefix) != key_question(plain, prefix)
 
 
 def test_the_plain_and_the_relation_bearing_verdict_do_not_evict_each_other(tmp_path):

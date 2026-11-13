@@ -46,37 +46,145 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def canonical_test_identity(node_id: str, origin: str) -> str:
+    """The identity a test fingerprints under, the same whichever route collected it (#100, pure — pinned).
+
+    A test collected as a live pytest item carries its node id relative to the rootdir
+    (``tests/t.py::test_x``). The same test reached through a re-collection route (a file the run wrote
+    after the session collected) carries only its bare name (``test_x``). Both are the one test in the one
+    file, so a fingerprint that folds the id in as given keys the writing session's final verdict apart
+    from every later session's: the next run missed its own row. The identity is the test's FILE (the
+    real path ``origin``) and its member path inside it (everything after the first ``::`` of a full id,
+    the whole of a bare one, parametrization included). A test whose file is unknown keeps the id it has.
+    """
+    if not origin:
+        return node_id
+    member = node_id.partition("::")[2] if "::" in node_id else node_id
+    return f"{origin}::{member}"
+
+
+def fixture_origin_scope(path: str, installed_roots: list[str]) -> str:
+    """Whether a fixture-definition file is part of the PROJECT or an installed package (#100, pure — pinned).
+
+    "installed"  under the interpreter's standard library or site-packages: pytest's own fixtures
+                 (``request``, ``tmp_path``) and distribution plugins. Their identity is already in the
+                 verdict's key through the pytest regime digest (pytest version, plugin versions), and a
+                 live item stamps them while a re-collected one does not, so folding the file into the
+                 test's fingerprint made one test hash two ways.
+    "project"    anywhere else: an edit to it can change what a test does, so it stays in the hash.
+    """
+    for root in installed_roots:
+        if root and (path == root or path.startswith(root.rstrip("/") + "/")):
+            return "installed"
+    return "project"
+
+
+def _installed_roots() -> list[str]:
+    """The real paths of the interpreter's standard library and site-packages directories (the accessor
+    for `fixture_origin_scope`)."""
+    import os
+    import sysconfig
+
+    paths = sysconfig.get_paths()
+    return [
+        os.path.realpath(paths[k]) for k in ("stdlib", "platstdlib", "purelib", "platlib") if paths.get(k)
+    ]
+
+
+def _canonical_test(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """A stand-in for ``fn`` that Wesker's `test_fingerprint` hashes the same whichever route collected
+    the test (#100): the same source, the id `canonical_test_identity` names, and only the project's
+    fixture files. The accessor over the two pure decisions; it adds no decision of its own."""
+    import os
+
+    from Wesker.ci import callable_fixture_origins, callable_node_id, callable_origin, callable_source
+
+    origin = os.path.realpath(callable_origin(fn) or "") if callable_origin(fn) else ""
+    identity = canonical_test_identity(callable_node_id(fn), origin)
+    roots = _installed_roots()
+    kept = tuple(
+        path
+        for path in callable_fixture_origins(fn)
+        if fixture_origin_scope(os.path.realpath(path), roots) == "project"
+    )
+
+    def stand_in() -> None:  # never called: only its attributes are read
+        return None
+
+    stand_in.__wrapped__ = callable_source(fn)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    stand_in.__name__ = stand_in.__qualname__ = identity
+    if origin:
+        stand_in.__wesker_origin__ = origin  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    stand_in.__wesker_fixture_origins__ = kept  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    return stand_in
+
+
 def tests_fingerprint(tests: list[Callable[..., Any]]) -> str:
-    """Order-independent execution-context hash of the discovered TestIds (#15/#20).
+    """Order-independent execution-context hash of the discovered TestIds (#15/#20, #100).
 
     Delegates each item to Wesker's routing/proof cache identity, which covers exact node ID, whole
     test module, fixture definitions, and governing conftests. Two caches answering the same
     question must not disagree about whether a fixture edit changed it; source-only here used to
     serve a stale final verdict before the correctly-invalidated routing layer could even run.
+
+    Each test is first put in its canonical form (`_canonical_test`): the SAME file must fingerprint the
+    same in the session that wrote it and in the next one, which it did not (#100): a written test's
+    bare node id and its un-stamped installed-package fixtures hashed differently from the live item the
+    next session collected, so a writing converge never hit its own final row.
     """
     from Wesker.trace_cache import test_fingerprint
 
-    return _sha("\n".join(sorted(test_fingerprint(t) for t in tests)))
+    return _sha("\n".join(sorted(test_fingerprint(_canonical_test(t)) for t in tests)))
 
 
-# The key is a POSITIONAL CONTRACT with two readers: `cache_key` builds it, `put` re-parses it
-# to find which entries are stale copies of the same question. Nothing tied them together, so
-# `put` hardcoded "the last two fields are :max:pass" as a bare `rfind`. Appending the trace
-# budgets silently redefined that slice as ":pass:budgets", and a `--fast` run then evicted the
-# comprehensive entry it should have sat beside — same function, different question, one copy
-# destroyed. The field count lives HERE, beside the builder, and any new trailing param must
-# bump it. Better still: keep params trailing and content leading, so this stays a count.
-_PARAM_FIELDS = 3  # max_per_category, pass_index, trace_budgets
+# The key has two readers: `cache_key` builds it and `put` re-parses it to find which entries are stale
+# copies of the SAME question. The first reader compared a positional suffix (the last three fields), and
+# the key grew optional tail fields (`:defer_shaped`, `:two_sign`, the regime digest) that made the
+# suffix wander: a default converge's suffix had no pass field at all, so each pass evicted the others;
+# a two-sign pass evicted its sibling; a two-sign put evicted the one-sign row (#100). The question a row
+# answers is now read by NAME (`key_question`), never by position from the end.
+_FIXED_FIELDS = 6  # engine, source hash, tests hash, max_per_category, pass_index, trace_budgets
 
 
-def params_suffix(key: str) -> str:
-    """The trailing param fields of ``key``.
+def key_question(key: str, prefix: str) -> str:
+    """The NAMED parameters that define which question a cached row answers (#100, pure — pinned).
 
-    Two entries sharing this suffix answer the SAME question about the same function, so the
-    older one is a stale copy. Two entries differing in it answer DIFFERENT questions (a fast
-    sample vs a comprehensive run; one trace budget vs another) and must coexist.
+    ``key`` is a `cache_key` and ``prefix`` its `key_prefix`. A row is identified by what it was asked,
+    not by what was measured: ``max`` / ``pass`` / ``budgets`` (the trace budgets, with the ``+relation``
+    mark of a per-test-kill measurement), ``shaped`` (``full`` or ``defer``), ``sign`` (``one`` or
+    ``two``) and ``regime`` (the pytest regime digest, empty when unknown). The engine fingerprint, the
+    function's hash and the tests' hash are deliberately NOT in it: two rows that differ only there
+    answer the same question at different times, so the older is a stale copy and is evicted. Rows that
+    differ in any named parameter are sibling questions (fast vs comprehensive, one pass vs the next,
+    two-sign vs one-sign, deferred vs shaped) and coexist.
+
+    Returns ``""`` for a key that does not parse under the current layout (an older layout's fossil, or
+    a key outside ``prefix``): unreachable by any current request, so the caller evicts it. A
+    parameter is never guessed from position: the optional tail is read marker by marker, in the order
+    `cache_key` writes it, and anything left over is the regime digest or the key is unparseable.
     """
-    return ":" + ":".join(key.rsplit(":", _PARAM_FIELDS)[1:])
+    if not prefix or not key.startswith(prefix):
+        return ""
+    tokens = key[len(prefix) :].split(":")
+    if len(tokens) < _FIXED_FIELDS or "," not in tokens[_FIXED_FIELDS - 1]:
+        return ""
+    max_per_category, pass_index, budgets = tokens[_FIXED_FIELDS - 3 : _FIXED_FIELDS]
+    tail = tokens[_FIXED_FIELDS:]
+    shaped = "full"
+    if tail[:1] == ["defer_shaped"]:
+        shaped = "defer"
+        tail = tail[1:]
+    sign = "one"
+    if tail[:1] == ["two_sign"]:
+        sign = "two"
+        tail = tail[1:]
+    if len(tail) > 1:
+        return ""
+    regime = tail[0] if tail else ""
+    return (
+        f"max={max_per_category};pass={pass_index};budgets={budgets};"
+        f"shaped={shaped};sign={sign};regime={regime}"
+    )
 
 
 ROUTING_REVISION = "2"
@@ -183,10 +291,8 @@ def cache_key(
     budgets = ",".join("∞" if b is None else f"{b:g}" for b in trace_budgets)
     # A profile that also measured the per-test kill relation (#145) carries a field the plain one does
     # not, so the plain verdict must never answer a request for the relation, and the two must COEXIST:
-    # they are different questions about one function. The mark rides in the budgets field, the last of
-    # the params `params_suffix` compares, because `put` evicts a sibling that shares the suffix (a stale
-    # copy of the same question) or differs in FIELD COUNT (a fossil of an older layout), and a trailing
-    # `:full_matrix` field would have made each evict the other on every run. Off leaves the key
+    # they are different questions about one function. The mark rides in the budgets token, which
+    # `key_question` reads by name, so the two are sibling questions and coexist. Off leaves the key
     # byte-identical; only a relation-bearing verdict marks it.
     if full_matrix:
         budgets += "+relation"
@@ -488,29 +594,18 @@ def put(project_root: str, key: str, prefix: str, result: ProfilingResult) -> No
     """Store ``result`` under ``key``, purging this function's stale-hash entries first
     (single-valid-copy) so the file cannot grow unbounded across edits."""
     cache = load(project_root)
-    # Drop any OTHER entry for the same function/params prefix — those are prior versions
-    # that can never be served again (their hash won't match current source). The suffix comes
-    # from `params_suffix`, NOT an inline slice: this is the second reader of the key's field
-    # layout, and the two drifting apart is exactly how a `--fast` run started evicting the
-    # comprehensive entry beside it.
-    same_params_suffix = params_suffix(key)
-    # A row written under an OLDER key layout (fewer trailing params) is a FOSSIL: unreachable,
-    # because the builder now appends a field the reader requires — and unpurgeable by the suffix
-    # rule above, because with fewer fields to split, `params_suffix`'s rsplit reaches back into
-    # the TESTS-HASH and yields a suffix nothing current can match. Unreachable AND unpurgeable is
-    # immortal: one dead row per function per layout change, forever, in a file whose entire claim
-    # is single-valid-copy. Evict on field COUNT, which is layout-agnostic and needs no list of
-    # historical formats. Different BUDGETS have the same count and still coexist — they are
-    # different questions, which is what `endswith` is for; a different count is not a sibling
-    # question but a dead one.
-    n_fields = key[len(prefix) :].count(":")
+    # Drop any OTHER entry that answers the SAME question about this function: those are prior versions
+    # (another engine, source or tests hash) that can never be served again. The question is read by
+    # NAME (`key_question`), so a sibling question coexists: a fast run beside a comprehensive one, each
+    # pass of a converge beside the next, two-sign beside one-sign, deferred beside shaped (#100). A row
+    # whose key does not parse under the current layout (`key_question` is empty) is a FOSSIL: unreachable
+    # by any current request, and immortal unless evicted, so it goes with the stale copies.
+    question = key_question(key, prefix)
     cache = {
         k: v
         for k, v in cache.items()
         if not (
-            k.startswith(prefix)
-            and k != key
-            and (k.endswith(same_params_suffix) or k[len(prefix) :].count(":") != n_fields)
+            k.startswith(prefix) and k != key and ((row := key_question(k, prefix)) == "" or row == question)
         )
     }
     cache[key] = _to_json(result)

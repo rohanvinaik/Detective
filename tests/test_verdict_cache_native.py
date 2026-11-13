@@ -19,7 +19,7 @@ from Detective.verdict_cache import (
     cache_key,
     engine_fingerprint,
     key_prefix,
-    params_suffix,
+    key_question,
     tests_fingerprint,
 )
 
@@ -82,15 +82,15 @@ def test_the_engine_does_not_disturb_the_functions_purge_prefix():
     assert _key().startswith(key_prefix("m.py::f"))
 
 
-def test_the_engine_does_not_disturb_the_trailing_param_suffix():
-    """`params_suffix` is the key's second reader and rsplits from the END. The fingerprint is
-    inserted at the FRONT, so two runs differing only in engine still share a params suffix
-    (same question) — and are evicted as stale copies, not kept as siblings."""
+def test_the_engine_does_not_disturb_the_question_a_row_answers():
+    """`key_question` is the key's second reader and reads the NAMED parameters. The fingerprint is
+    inserted at the FRONT, so two runs differing only in engine still answer the same question
+    — and are evicted as stale copies, not kept as siblings."""
     with patch("Detective.verdict_cache.engine_fingerprint", return_value="d0.5.4+w0.7.1"):
         old = _key()
     with patch("Detective.verdict_cache.engine_fingerprint", return_value="d0.5.4+w0.7.2"):
         new = _key()
-    assert params_suffix(old) == params_suffix(new)
+    assert key_question(old, key_prefix("m.py::f")) == key_question(new, key_prefix("m.py::f"))
 
 
 def test_different_budgets_remain_different_questions():
