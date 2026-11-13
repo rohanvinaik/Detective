@@ -1534,6 +1534,18 @@ these.
 
 ---
 
+11. **Knowability II — the wider regime's survivors (follow-up document, 2026-11-07).**
+    `docs/theory/knowability_ii/KNOWABILITY_II.md` takes up Q1 (κ is computed on the premise→survivor
+    graph induced by an exact solver; the call graph is its quotient, where bridges and $d$ live), Q8 (the
+    persisted contract, in its minimal form: a premise ledger with origins, statuses, scopes and an
+    S-version, into which `flag`, `--fence`, `censor` and defaults write), and leaves Q2 open (the premise
+    regime key). It adds what this document did not have: the adequacy paper's Theorem 3.2 run at the point
+    of mutation (weak mutation, KII Thm 3.1), which reproduces the Kaminski sufficient ROR set and finds
+    Wesker's BOUNDARY table incomplete for `<`/`>` (KII Cor 3.3, checked); the survivor-state alphabet
+    (KII §5) that splits `candidate-equivalent — UNPROVEN` into `dead_site` / `masked` / `local_equivalent`
+    / `reachable_if` / `genuine_equivalent`; and the ordering of the teacher's triage (Def 12.1) by κ and
+    surprise before resolution. Build: `openspec/changes/implement-knowability-ii/`.
+
 ## 19. Status Ledger
 
 *The smoothness of a document is not evidence of its truth; this ledger keeps proved / transported /

@@ -41,6 +41,8 @@ kill by **crash** or **timeout** proves only that the code *runs*, not what it c
 
 ---
 
+**Planned (not present behaviour):** `docs/theory/knowability_ii/KNOWABILITY_II.md` extends the map above to the wider regime's survivors — a typed survivor state, a premise ledger, three resolvers and κ-ordered teacher questions; `openspec/changes/implement-knowability-ii/` is the build. Until a task there is checked, this file describes what exists.
+
 ## 0.1 Vocabulary
 
 The words the output, the code and the docs use, each as it is meant here.

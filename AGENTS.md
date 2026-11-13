@@ -343,3 +343,14 @@ self-profiling.
 2. **Trace the signal all the way to the decision.** The measurement/decision gap hides at EVERY layer: engine → loop →
    aggregation → gate/badge. Each layer must **consume** the computed signal, never re-derive a narrower proxy. Verify
    end-to-end, not per-layer.
+
+## Knowability II (planned change — `openspec/changes/implement-knowability-ii/`)
+
+The follow-up to the knowability paper, `docs/theory/knowability_ii/KNOWABILITY_II.md`, and its staged
+plan for BOTH repositories. Cold start: read `docs/theory/knowability_ii/CONSTRAINT_BLOCK.md`, run
+`python docs/theory/knowability_ii/local_guards_check.py` (must print `OK`), then take the first unchecked
+task in `openspec/changes/implement-knowability-ii/tasks.md` whose dependencies are checked. Every task
+names its files, its pure decision, its intent test and its acceptance line. Invariants the plan keeps:
+features default off; with them off nothing moves (V5); `SCORED_DISPOSITIONS` and value-vs-run unchanged;
+nothing promoted by assertion; no new dependency. The premise store it adds (`.detective/premises.json`)
+is USER DATA like `inputs.json`: never delete it in place.

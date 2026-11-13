@@ -196,3 +196,19 @@ for globally, so the construction is a compute budget, not a violation.
 5. **The bounded-curvature bound** — measure d on the obligation graph; prove greedy degrading in d.
 6. **Build ordering** — Form A + Fork 1 is buildable now (the walking skeleton); Form A + Fork 2 and
    Form B are the completeness passes; censors blocked on Q1–Q2.
+
+---
+
+## Knowability II — what a survivor of the wider regime can say (follow-up, 2026-11-07)
+
+**Commitment:** the knowability paper's Theorem 3.2 is exact at every mutation site with the site's local
+value as the codomain (weak mutation); a program-text survivor's residual is a typed state (reach / infect /
+propagate as constraints, decided by an exact standard-library solver over the function's premises); open
+states are resolved by three resolvers in order — structure, the corpus (censors as proposed premises),
+the teacher (the finite triage, now ORDERED by κ and surprise, both emitted as brackets with an S-version).
+`dead_site` and `masked` are the code contradicting itself and route to a code change, never a flag.
+**Where:** `knowability_ii/KNOWABILITY_II.md` (§3 Thm 3.1, Cor 3.2–3.3, Prop 3.4; §5 the alphabet; §6 three
+resolvers; §7 κ and surprise; §8 the two-signed category map; §11 predictions; §12 status). Handoff:
+`knowability_ii/CONSTRAINT_BLOCK.md`. Plan: `openspec/changes/implement-knowability-ii/tasks.md`.
+**Takes up:** §18 Q1 (κ's graph: the premise→survivor graph, with the call graph as its quotient), Q2 (the
+premise regime key, still open), Q8 (the persisted contract, as the premise ledger).
