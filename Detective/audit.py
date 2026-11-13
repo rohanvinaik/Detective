@@ -35,7 +35,7 @@ from typing import Any
 from Wesker.ci import walk_functions
 from Wesker.monitoring import MonitoringUnavailable
 
-from .engine import FunctionBasis, classify_survivors, function_basis, profile
+from .engine import SUITE_DETECTION_KILLS, FunctionBasis, classify_survivors, function_basis, profile
 from .line_flags import classify_missing_lines, load_line_flags
 from .minimize import (
     _obligations_by_test,
@@ -1074,6 +1074,12 @@ def audit_suite(
     except Exception:  # noqa: BLE001
         killable_gaps = tuple(
             f"{r.get('category', '?')} [{r.get('mutant_id', '?')}]" for r in result.value_survivor_records
+        )
+        # The records above include crash-kill records, and each says on itself that a test detects it by
+        # crash. Read that here (#101): left at its default 0, the `✗ real gaps` row said "no test kills"
+        # of a mutant whose own record names the crash, as if the count had been measured.
+        killable_crash_detected = sum(
+            1 for r in result.value_survivor_records if r.get("killed_by") in SUITE_DETECTION_KILLS
         )
         mutant_complete = result.value_survived == 0
         step_budget_divergent = 0

@@ -3539,6 +3539,14 @@ def codomain_source(two_sign: bool, carried: bool) -> str:
     return CODOMAIN_CARRIED if carried else CODOMAIN_HARVEST
 
 
+# The `killed_by` values on a value-survivor record that make it `MutantVerdict.suite_detected`: a
+# crash-survivor record is a reshaped KILL record and carries `killed_by`, a true survivor carries none,
+# and a timeout or divergence does not show crash detection (#80). One spelling, read by
+# `classify_survivors` and by audit's classification fallback, so the page's crash count is the same fact
+# whether or not the classification ran (#101).
+SUITE_DETECTION_KILLS: tuple[str, ...] = ("crash", "exception")
+
+
 @restores_process_state(declared_roots)
 def classify_survivors(
     file: str,
@@ -4021,10 +4029,7 @@ def classify_survivors(
                 identical=_is_identical_mutant(mutant),
                 takes_arguments=_takes_arguments,
                 constant_return=_constant_return,
-                # A crash-survivor record is a reshaped KILL record and carries `killed_by`; a
-                # true survivor carries none. Only crash/exception detection counts — a timeout or
-                # divergence does not show crash detection (#80).
-                suite_detected=rec.get("killed_by") in ("crash", "exception"),
+                suite_detected=rec.get("killed_by") in SUITE_DETECTION_KILLS,
                 deadline=_cls_abs_deadline,
             )
             # D#110: name WHICH test detects it, and whether the recorded `equivalent` flag is contradicted

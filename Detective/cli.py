@@ -4003,18 +4003,37 @@ def measurement_block_route(
     return ""
 
 
+def open_residual(complete: bool, divergent: bool, survivors_open: bool) -> bool:
+    """Whether a killable or unclassified survivor is still open on a measurement (#101).
+
+    The one reading of converge's ``has_killable`` (`_converge_blocked`) and of audit's `· Writes` row,
+    which says what that converge will do. Audit passed its killable count instead, so a function with an
+    unclassified survivor open read "converge hands back to a fixture" while converge's own ladder read
+    `close_the_gap` and asked for inputs.
+
+    ``complete`` is the completeness flag: converge's `functionally_complete`, audit's `mutant_complete`
+    (the same four survivor fields of the same report, and the certificate's admission). A divergent
+    residual has its own hand-back, so there the flag, which divergence makes false, is not the question:
+    ``survivors_open`` (a killable, unclassified or fenced survivor) is.
+    """
+    return survivors_open if divergent else not complete
+
+
 def _converge_blocked(result, rep) -> bool:
     """Whether a killable or unclassified survivor is still open on a converge result.
 
     `functionally_complete` is the authoritative engine decision. A missing survivor report does not
     turn residual survivors into DONE — that was the exact measurement/decision split the routing
-    exists to prevent, and it produced "DONE" above `FINAL ... Incomplete` on a live run.
+    exists to prevent, and it produced "DONE" above `FINAL ... Incomplete` on a live run. The decision
+    is `open_residual`; this reads the converge result and its survivor report into it.
     """
-    if rep is not None and getattr(rep, "step_budget_divergent", ()):
-        # Only the divergent residual has its own hand-back. An ordinary incomplete
-        # result may still need a sample, an internal-condition input, or a fence repair.
-        return bool(rep.killable or rep.unclassified or getattr(rep, "authored_fence", ()))
-    return not result.functionally_complete
+    divergent = rep is not None and bool(getattr(rep, "step_budget_divergent", ()))
+    survivors_open = (
+        rep is not None
+        and divergent
+        and bool(rep.killable or rep.unclassified or getattr(rep, "authored_fence", ()))
+    )
+    return open_residual(result.functionally_complete, divergent, survivors_open)
 
 
 def write_refused_residual(
@@ -7974,7 +7993,13 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
                     environment_route(
                         environment_gate_kind(list(a.environment_gated), False, False),
                         bool(lines),
-                        bool(gaps),
+                        # converge's own fact, not the killable count (#101): an unclassified survivor
+                        # keeps converge on `close_the_gap`, so it does not hand back to a fixture.
+                        open_residual(
+                            a.mutant_complete,
+                            bool(a.step_budget_divergent),
+                            bool(a.killable_gaps or a.unclassified or a.authored_fence),
+                        ),
                     )
                 ),
             ),
