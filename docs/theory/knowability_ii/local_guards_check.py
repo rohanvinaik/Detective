@@ -30,15 +30,25 @@ import sys
 
 REGIONS = "LEG"
 TRUTH = {
-    "<": (1, 0, 0), "<=": (1, 1, 0), ">": (0, 0, 1), ">=": (0, 1, 1),
-    "==": (0, 1, 0), "!=": (1, 0, 1), "True": (1, 1, 1), "False": (0, 0, 0),
+    "<": (1, 0, 0),
+    "<=": (1, 1, 0),
+    ">": (0, 0, 1),
+    ">=": (0, 1, 1),
+    "==": (0, 1, 0),
+    "!=": (1, 0, 1),
+    "True": (1, 1, 1),
+    "False": (0, 0, 0),
 }
 ORIGINALS = ["<", "<=", ">", ">=", "==", "!="]
 
 # Kaminski, Ammann & Offutt (2013), Table: the sufficient ROR replacements per operator.
 KAMINSKI = {
-    "<": {"<=", "!=", "False"}, "<=": {"<", "==", "True"}, ">": {">=", "!=", "False"},
-    ">=": {">", "==", "True"}, "==": {"<=", ">=", "False"}, "!=": {"<", ">", "True"},
+    "<": {"<=", "!=", "False"},
+    "<=": {"<", "==", "True"},
+    ">": {">=", "!=", "False"},
+    ">=": {">", "==", "True"},
+    "==": {"<=", ">=", "False"},
+    "!=": {"<", ">", "True"},
 }
 
 # Wesker/engine.py ``_BoundaryMutator`` as read on 2026-11-07 (commit 2fbd029).
@@ -69,14 +79,22 @@ def check_1() -> bool:
         match = guards == KAMINSKI[orig]
         ok &= holds and match
         fps = ", ".join(f"{op}:{{{''.join(sorted(footprint(orig, op)))}}}" for op in sorted(alts))
-        print(f"  {orig:>2}: guards={sorted(guards)}  sufficient-for-all={holds}  matches-Kaminski={match}   [{fps}]")
+        print(
+            f"  {orig:>2}: guards={sorted(guards)}  sufficient-for-all={holds}  matches-Kaminski={match}   [{fps}]"
+        )
     return ok
 
 
 def check_2() -> bool:
     print("CHECK 2 — the same theorem on Wesker's BOUNDARY table (uncertified targets = the gap)")
-    expected_gap = {"<": ["!="], ">": ["!="], "==": ["<", "<=", ">", ">="], "!=": ["<", "<=", ">", ">="],
-                    "<=": [], ">=": []}
+    expected_gap = {
+        "<": ["!="],
+        ">": ["!="],
+        "==": ["<", "<=", ">", ">="],
+        "!=": ["<", "<=", ">", ">="],
+        "<=": [],
+        ">=": [],
+    }
     ok = True
     for orig in ORIGINALS:
         regime = {WESKER_SWAP[orig], "True", "False"}
