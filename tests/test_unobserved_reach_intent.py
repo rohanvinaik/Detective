@@ -161,6 +161,16 @@ def test_reach_causes_and_remedies():
     assert len(reach_remedies("incomplete_thread+incomplete_preexisting_thread+incomplete_subprocess")) == 3
     assert "never reaches a child's code" in reach_remedies("incomplete_subprocess")[0][1]
     assert reach_remedies("incomplete_novel")[0][0] == "its reach is incomplete_novel"
+    # Wesker W#29: the observer itself failed while tracing the test. Its own sentence and remedy, not the
+    # unrecognised-cause fallback ("inspect the trace ledger row") and not another cause's.
+    cause, remedy = reach_remedies("incomplete_observation")[0]
+    assert cause != "its reach is incomplete_observation" and "tracer failed" in cause
+    assert "stop what it starts" in remedy and "inspect the trace ledger" not in remedy
+    assert len(reach_remedies("incomplete_thread+incomplete_observation")) == 2
+    assert (
+        reach_remedies("incomplete_thread+incomplete_observation")[0]
+        != reach_remedies("incomplete_observation")[0]
+    )
     assert reach_remedies("complete") == []
 
 

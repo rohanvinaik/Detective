@@ -699,6 +699,12 @@ _REACH_CAUSES = {
         "a thread alive before it ran target code during it (a pool warmed at import)",
         "create the pool or thread inside the test, so the tracer follows it",
     ),
+    "incomplete_observation": (
+        "the tracer failed while observing it (a thread or callback it left running was still delivering "
+        "events when the trace was read)",
+        "make the test stop what it starts (join the thread, close the callback) before it returns, so "
+        "the trace is read after its work ends",
+    ),
     "incomplete_subprocess": (
         "it creates a process; what the child runs is outside this interpreter",
         "a mutant installed here never reaches a child's code, so this test cannot kill one: "
