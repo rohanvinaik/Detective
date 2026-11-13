@@ -1,0 +1,3401 @@
+From 38bec049b24714e35d5d5d69823b8ac74c1cda18 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:32:38 +0000
+Subject: [PATCH 1/5] =?UTF-8?q?feat(#44):=20every=20=CE=BC=E2=81=BB=20oper?=
+ =?UTF-8?q?ator=20is=20generated=20where=20the=20OBSERVED=20codomain=20lic?=
+ =?UTF-8?q?enses=20it,=20per=20return=20site?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The defect, verbatim from the issues. #44 AC1: "`run_function_profiling` has no `two_sign` argument.
+A caller chooses two-sign by passing the categories from `filter_categories(node, two_sign=True)`", and
+"Six operators are not fully generated. Partial: dict (no key/value swap) and raise (no inject).
+Unsupported: field, class, clamp and state-extra." AC2: "Typing is by the function's observed codomain,
+not by the return site. `tag(n)` returns None on one branch and a str on the other. Its tests reach only
+the str branch, so the observed codomain is `{str}`. Its unexecuted `return None` gets four rewrites that
+raise on None." And: "`negative_policy.unbuilt` is hashed into the two-sign policy id, but it is not a
+field of `MutationPolicy`." (Detective #120-#123 are the generation side of the same gaps; their family
+intent tests follow in their own commits.)
+
+Why the obvious fix is wrong. The catalog called each premise "missing" because the observed codomain was
+a bare set of type NAMES: a dict return could not show its values were hashable, a record its fields, a
+class its base, a number its range, a function the exceptions it raises or the arguments it leaves alone.
+Inventing a premise (guess a range, pick an attribute, pick an exception) makes the fence the engine's
+guess, and a runtime dispatch that is a no-op where the premise fails is a built-in survivor. The baseline
+run observes the VALUES, so the premise is obtained, not assumed: `Wesker.codomain.observe_codomain` runs
+the tests once against the original and records every return (line, value), every exception that left the
+function and each argument's structural state before and after every call. A premised operator is then
+generated at a return site only where the perturbation was APPLIED to every value the site returned, did
+not raise, and changed at least one; the attempt IS the premise (Def. 11.10). The result stays a
+`frozenset[str]` (type names, `@line:type`, `@line!ok=<mode>`, `@line!no=<mode>=<why>`, `@!ok=`, `@!no=`,
+`@!truncated`), the type Detective's verdict cache already carries.
+
+What each state of the pure decisions means.
+- `site_mode_standing`: function_wide (a legacy type-name observation types the whole function, as
+  before) / unobserved (the baseline never executed this statement: only the always-applicable modes
+  reach it) / type_outside (an observed type at this site is outside the mode's) / applies.
+- `raise_standing`: local_class / base_exception / unresolvable / not_constructible / injectable.
+- `clamp_standing`: non_finite / not_ordered / mixed_kinds / single_value / clamps.
+- `extra_write_standing`: calls_truncated / mutated / type_varies / unmutated.
+- `kill_class_of_dimension`: reach_class (an injected raise: any test that calls the function kills it,
+  so the kill measures reach, not specification) / output_perturbation / not_output.
+- `form_b_output_modes` gains the parameterized modes the observation admits (`raise_inject@<exception>`,
+  `state_extra@<parameter>`) after the static ones, which keep their order.
+An incomplete observation (a test was cut) licenses nothing but the always-applicable modes, and says so.
+
+What this commit does. `run_function_profiling(..., two_sign=True)` adds OUTPUT and observes when the
+caller supplied no observation. `_OutputMutator` filters return SITES by the codomain. Nine premised
+value operators (dict swap, ctype to and from a set, field drop/bump/swap, class subclass/base, clamp) are
+runtime helpers in `Wesker.mu_minus` (`perturb_return`: a value the baseline never saw comes back
+unchanged, never a crash kill); raise-inject and state-extra are Form B decorators, built as source like
+every Form B mutant. `MutationPolicy.unbuilt` is a field (None for the one-sign policy, `{}` for the
+two-sign policy); the profile result carries `observed_codomain` and `mu_minus_withheld` (each premise
+that was measured and failed, and each operator whose premise the function never offers) and `to_dict`
+emits both beside `mu_minus_unbuilt`. The catalog is 36 built, 2 realized_by (0; state-noop by the
+positive STATE:remove_assign and STMT, decision D2, Rem. 11.9(b), now also on
+`MutationPolicy.categories["OUTPUT"]["realized_by"]`), none partial or unsupported, each premised entry
+stating its premise. `docs/MU_MINUS_CATALOG.md` follows.
+
+What was NOT closed.
+- Detective still harvests only type names (`Detective/engine.py:1430`, `capture_return_types`). Until
+  that call is replaced by `Wesker.codomain.observe_codomain` (same return type, same cache), a Detective
+  two-sign run generates none of the premised operators and says so in `mu_minus_withheld`. Detective is
+  not edited from this lane.
+- Detective #140 item 3 (the page naming `unbuilt` / `mu_minus_withheld`) is Detective's.
+- The intent test files of the four families follow in their own commits (the code is shared: one
+  vocabulary, one catalog, one policy id).
+- Pre-existing, not from this change: Detective `tests/test_absorbed_rename_intent.py::
+  test_no_registry_entry_names_something_the_pair_now_declares` fails against the staging base
+  (`['bound']` is now declared by Wesker's engine.py).
+
+Policy. One-sign id unchanged (9.a5aeead0de4f). Two-sign id 9+neg.6035bc2f613d -> 9+neg.7a3fc088c5ec
+(tables, premises, site-typing rule and parameterized Form B modes enter the manifest).
+
+Pin: Wesker/engine.py::site_mode_standing FINAL ✓ COMPLETE (operator universe · modulo 2 crash-only value
+gaps) · 13/13 killed · minimal cover 1 test(s) · policy 9.a5aeead0de4f
+
+Tests: observed-codomain 33, isolated 4, catalog 7, catalog doc 5, families/form-b/policy/guards and
+neighbours; 291 passed under Python 3.14 and 291 under 3.12, PYTHONUNBUFFERED unset. ruff clean under
+pinned 0.16.7.
+---
+ CHANGELOG.md                                  |  38 ++
+ Wesker/codomain.py                            | 635 +++++++++++++++++
+ Wesker/engine.py                              | 348 +++++++++-
+ Wesker/mu_minus.py                            | 638 +++++++++++++++++-
+ Wesker/policy.py                              |  67 +-
+ docs/MU_MINUS_CATALOG.md                      | 177 +++--
+ tests/_mu_support.py                          |  88 +++
+ tests/test_mu_minus_catalog_doc_intent.py     |  10 +-
+ tests/test_mu_minus_catalog_intent.py         |  58 +-
+ .../test_mu_minus_observed_codomain_intent.py | 466 +++++++++++++
+ .../test_mu_minus_premised_isolated_intent.py | 173 +++++
+ tests/test_policy.py                          |  13 +-
+ 12 files changed, 2586 insertions(+), 125 deletions(-)
+ create mode 100644 Wesker/codomain.py
+ create mode 100644 tests/_mu_support.py
+ create mode 100644 tests/test_mu_minus_observed_codomain_intent.py
+ create mode 100644 tests/test_mu_minus_premised_isolated_intent.py
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 5e765ce..6d6bcbd 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -192,8 +192,46 @@ recorded under the old id are not reused. W#49 alone moves only the two-sign id:
+   it against `Wesker.mu_minus.MU_MINUS_CATALOG` and the engine tables. The two-sign manifest declares
+   the Fork 2 table, the Form B modes and the unbuilt operators. (W#44)
+ 
++- **Every operator of Def. 11.8 is built; each is generated only where its premise was OBSERVED.** The
++  catalog's seven partial or unsupported operators (the dict key/value swap, ctype to and from a set,
++  field, class, clamp, raise-inject, state-extra) each needed a fact about a function's VALUES that a
++  type name cannot give. `Wesker.codomain.observe_codomain` runs the tests once against the original and
++  records every return (its line and value), every exception that left the function and each argument's
++  state before and after each call; a premised operator is generated at a return site only where the
++  perturbation was APPLIED to every value the site returned and did not raise, so it never raises on an
++  observed value and a value the baseline never saw comes back unchanged. The result is a
++  `frozenset[str]`, the type Detective's cache already carries. 36 built, 2 realized by another operator
++  (0, and state-noop by the positive `STATE:remove_assign` and `STMT`, decision D2), none partial or
++  unsupported. (W#44; Detective #120–#123)
++  - `dict`: the swap, where every observed dict has hashable values. `ctype`: list or tuple to a set where
++    the observed elements are hashable; set to a sorted list and frozenset to a sorted tuple where they are
++    mutually orderable (a deterministic order, not iteration order).
++  - `field`, one field at a time on a dataclass, namedtuple, attrs class or plain object, the field names
++    and types taken from the observed instances: a field to its type's default, moved a step, or exchanged
++    with the previous field of its type. `class`: a copy rebound to a dynamically created subclass (what
++    separates `type(x) is C` from `isinstance`) and, where there is one, to its user base.
++  - `clamp`: into the observed range narrowed by one step on each side, so a value at an edge changes.
++  - `raise`: injects the exception types the function is observed to raise (else those its own body
++    raises) at the return point. An injected raise fails every test that reaches the call, so it is
++    `reach_class` (`kill_class_of_dimension`), not a pin of the output. `state-extra`: one extra write to a
++    mutable argument or receiver the baseline observed never mutated.
++  - A premise that was measured and failed is named per function, with the exception the attempt raised, in
++    the profile's `mu_minus_withheld`; an operator whose premise the function never offers is named there too.
++- **Typing is by return SITE.** `tag(n)` returns a str on one branch and None on the other; a test that
++  reaches only the first observed `{str}` for the function, and the `return None` no test ran got four str
++  rewrites that raise on None. Each return statement now answers for the values it returned
++  (`site_mode_standing`); an unexecuted one gets only the always-applicable modes, and an incomplete
++  observation (a test was cut) licenses nothing else. A type-name-only observation still types the function
++  as a whole. (W#44, AC2)
++- **`run_function_profiling(..., two_sign=True)`** adds OUTPUT to the categories and observes the codomain
++  when the caller supplied none. **`MutationPolicy.unbuilt`** is a field (None for the one-sign policy,
++  `{}` for the two-sign one) instead of only a hashed value. (W#44, AC1)
++
+ The one-sign universe and its id are unchanged by this. Two-sign id `9+neg.aaff90df3dbf` →
+ `9+neg.8144c37b1638`, and the two-sign fingerprint's OUTPUT column rises on every corpus function.
++The premised operators, the site-typing rule, the parameterized Form B modes and the premise of each moved the
++two-sign id again: `9+neg.6035bc2f613d` → `9+neg.7a3fc088c5ec`. The one-sign id `9.a5aeead0de4f` and the
++fingerprint counts are unchanged (the static census has no observation, so none of this reaches it).
+ Still open: stale needs two calls with different results, and Detective's witness search reaches some
+ functions with a single input, where stale reads as candidate-equivalent.
+ 
+diff --git a/Wesker/codomain.py b/Wesker/codomain.py
+new file mode 100644
+index 0000000..444e9c0
+--- /dev/null
++++ b/Wesker/codomain.py
+@@ -0,0 +1,635 @@
++"""The observed codomain: what the baseline run SAW a function return, raise and leave unmutated.
++
++μ⁻ Fork 2 (docs/theory/NEGATIVE_SPECIFICATION.md, Def. 11.10) generates an output perturbation only
++where the OBSERVED codomain guarantees it applies, so it never raises and never mis-attributes. A type
++NAME decides that for ``negate`` (an int) but not for a dict key/value swap (are the values hashable?),
++a field perturbation (which fields?), a class perturbation (is there a base?), a clamp (what range?),
++an injected raise (which exception types?) or an extra write (which argument is mutable and
++untouched?). Those are facts about the values, so this module observes the VALUES, not the type names,
++and decides applicability by APPLYING the perturbation to what it saw (``Wesker.mu_minus``).
++
++The observation is a ``frozenset[str]``, the same type Detective carries through its verdict cache, so
++nothing that held the old type-name set has to change. A token is one of:
++
++* ``T``               a type name, function-wide (the old shape, and still the whole of a legacy
++                      observation that carries no site information);
++* ``@L:T``            the return at source line L returned a ``T``;
++* ``@L!ok=MODE``      MODE was applied to every value returned at line L and succeeded, and changed
++                      at least one of them: it applies there;
++* ``@L!no=MODE=WHY``  MODE's type was returned at line L and applying it raised ``WHY`` (a premise the
++                      observation measured FAILED, not one it did not measure);
++* ``@!ok=MODE`` / ``@!no=MODE=WHY``   the same for a mode about the call, not one return site (an
++                      injected raise, an extra write);
++* ``@!truncated``     the observation is incomplete (a test was cut): nothing type-conditional or
++                      premised may be generated from it.
++
++A mode never contains ``:`` (the dimension separator). Type names never contain ``@``.
++"""
++
++from __future__ import annotations
++
++import ast
++import decimal
++import functools
++import inspect
++import sys
++import time
++from collections.abc import Callable
++from dataclasses import dataclass, field
++from types import CodeType
++from typing import Any
++
++from . import mu_minus as _mu
++
++#: At most this many returns are applied per site, and this many calls are snapshotted. Past it the
++#: observation says so (``truncated``) instead of reading the first N as all of them.
++MAX_RETURNS_PER_SITE = 256
++MAX_CALLS_OBSERVED = 512
++#: The size bound of a state signature: nodes visited, and depth.
++SIGNATURE_BUDGET = 2000
++SIGNATURE_DEPTH = 4
++
++
++# ── The token grammar ───────────────────────────────────────────────────────────────────────────
++
++
++@dataclass(frozen=True)
++class SiteView:
++    """What the observation says about ONE return site (a source line)."""
++
++    types: frozenset[str] = frozenset()
++    ok: frozenset[str] = frozenset()
++    no: tuple[tuple[str, str], ...] = ()
++
++
++@dataclass(frozen=True)
++class Codomain:
++    """A parsed observation. ``sites`` is empty for a legacy (type-names-only) observation."""
++
++    plain: frozenset[str] = frozenset()
++    sites: dict[int, SiteView] = field(default_factory=dict)
++    ok: frozenset[str] = frozenset()
++    no: tuple[tuple[str, str], ...] = ()
++    complete: bool = True
++
++    @property
++    def has_sites(self) -> bool:
++        return bool(self.sites)
++
++    def site(self, line: int) -> SiteView | None:
++        return self.sites.get(line)
++
++
++@functools.cache
++def parse_codomain(tokens: frozenset[str]) -> Codomain:
++    """The structured view of an observation's tokens. Total: a token it does not know is ignored."""
++    plain: set[str] = set()
++    site_types: dict[int, set[str]] = {}
++    site_ok: dict[int, set[str]] = {}
++    site_no: dict[int, set[tuple[str, str]]] = {}
++    ok: set[str] = set()
++    no: set[tuple[str, str]] = set()
++    complete = True
++    for token in tokens:
++        if not token.startswith("@"):
++            plain.add(token)
++            continue
++        head, bang, fact = token[1:].partition("!")
++        if not bang:
++            head, _, type_name = token[1:].partition(":")
++            if head.isdigit() and type_name:
++                site_types.setdefault(int(head), set()).add(type_name)
++            continue
++        line = int(head) if head.isdigit() else None
++        if head and line is None:
++            continue
++        if fact == "truncated":
++            complete = False
++        elif fact.startswith("ok="):
++            if line is None:
++                ok.add(fact[3:])
++            else:
++                site_ok.setdefault(line, set()).add(fact[3:])
++        elif fact.startswith("no="):
++            mode, _, why = fact[3:].partition("=")
++            if line is None:
++                no.add((mode, why))
++            else:
++                site_no.setdefault(line, set()).add((mode, why))
++    lines = set(site_types) | set(site_ok) | set(site_no)
++    sites = {
++        line: SiteView(
++            frozenset(site_types.get(line, ())),
++            frozenset(site_ok.get(line, ())),
++            tuple(sorted(site_no.get(line, ()))),
++        )
++        for line in lines
++    }
++    return Codomain(frozenset(plain), sites, frozenset(ok), tuple(sorted(no)), complete)
++
++
++def premised_modes(codomain: Codomain) -> tuple[str, ...]:
++    """Every return-site premised mode some site admits, in a deterministic order (the order of
++    ``Wesker.mu_minus.VALUE_MODE_BASES``, then the parameter)."""
++    order = {base: i for i, base in enumerate(_mu.VALUE_MODE_BASES)}
++    found = {mode for site in codomain.sites.values() for mode in site.ok}
++    return tuple(
++        sorted(found, key=lambda m: (order.get(_mu.mode_base(m), len(order)), m))
++    )
++
++
++def call_modes(codomain: Codomain) -> tuple[str, ...]:
++    """The Form B modes about the call (an injected raise, an extra write) the observation admits."""
++    return tuple(sorted(codomain.ok))
++
++
++def withheld_here(codomain: Codomain) -> tuple[str, ...]:
++    """What THIS function's observation withheld, named: each premise that was measured and failed,
++    and each operator whose premise the function never offered (``unbuilt``, per function)."""
++    out: list[str] = []
++    if not codomain.complete:
++        out.append(
++            "every premised operator: the observation is incomplete (a test was cut)"
++        )
++    elif not codomain.sites and not codomain.ok and not codomain.no:
++        out.append(
++            "every premised operator (dict swap, ctype to or from a set, field, class, clamp, "
++            "raise-inject, state-extra): "
++            + (
++                "the observation carries type names only, no values"
++                if codomain.plain
++                else "no return was observed"
++            )
++        )
++    for line in sorted(codomain.sites):
++        for mode, why in codomain.sites[line].no:
++            out.append(f"{mode} (return at line {line}): {why}")
++    out.extend(f"{mode}: {why}" for mode, why in codomain.no)
++    return tuple(out)
++
++
++# ── Value state: what an argument looks like, to tell whether a call mutated it ────────────────
++
++
++def state_signature(value: Any) -> Any:
++    """A structural fingerprint of ``value``, equal before and after a call exactly when the call did
++    not write to it (to the depth and size bounds). Containers and plain objects are walked; anything
++    else is its type and identity, so replacing it still shows."""
++    budget = [SIGNATURE_BUDGET]
++    return _signature(value, SIGNATURE_DEPTH, set(), budget)
++
++
++def _signature(value: Any, depth: int, path: set[int], budget: list[int]) -> Any:
++    budget[0] -= 1
++    kind = type(value)
++    if budget[0] < 0:
++        return ("budget",)
++    if value is None or kind in (bool, int, str, bytes, range):
++        return (kind.__name__, value)
++    if kind in (float, complex):
++        return (kind.__name__, repr(value))
++    if id(value) in path:
++        return ("cycle", kind.__name__)
++    if depth <= 0:
++        return ("opaque", kind.__name__, id(value))
++    path.add(id(value))
++    try:
++        if kind in (list, tuple) or kind.__name__ == "deque":
++            return (
++                kind.__name__,
++                tuple(_signature(x, depth - 1, path, budget) for x in value),
++            )
++        if kind is dict:
++            return (
++                "dict",
++                tuple(
++                    (
++                        _signature(k, depth - 1, path, budget),
++                        _signature(v, depth - 1, path, budget),
++                    )
++                    for k, v in value.items()
++                ),
++            )
++        if kind in (set, frozenset, bytearray):
++            return (
++                kind.__name__,
++                tuple(
++                    sorted(repr(_signature(x, depth - 1, path, budget)) for x in value)
++                ),
++            )
++        attrs = getattr(value, "__dict__", None)
++        if type(attrs) is dict:
++            return ("object", kind.__name__, _signature(attrs, depth - 1, path, budget))
++        return ("opaque", kind.__name__, id(value))
++    finally:
++        path.discard(id(value))
++
++
++# ── The observer ────────────────────────────────────────────────────────────────────────────────
++
++
++@dataclass
++class _Site:
++    """What one return site has shown so far."""
++
++    types: set[str] = field(default_factory=set)
++    returns: int = 0
++    truncated: bool = False
++    offered: dict[str, int] = field(default_factory=dict)
++    succeeded: dict[str, int] = field(default_factory=dict)
++    changed: set[str] = field(default_factory=set)
++    failed: dict[str, str] = field(default_factory=dict)
++    kinds: set[str] = field(default_factory=set)
++    low: Any = None
++    high: Any = None
++
++
++@dataclass
++class _Argument:
++    """What one parameter has shown across the calls."""
++
++    calls: int = 0
++    supported: int = 0
++    mutated: bool = False
++
++
++class _Observer:
++    """The accumulator the three monitoring callbacks write to."""
++
++    def __init__(self, code: CodeType) -> None:
++        self.code = code
++        self.positions = list(code.co_positions())
++        self.sites: dict[int, _Site] = {}
++        self.params = code.co_varnames[: code.co_argcount + code.co_kwonlyargcount]
++        self.arguments: dict[str, _Argument] = {p: _Argument() for p in self.params}
++        self.pending: dict[int, dict[str, tuple[Any, Any]]] = {}
++        self.calls = 0
++        self.calls_truncated = False
++        self.raised_ok: set[str] = set()
++        self.raised_no: dict[str, str] = {}
++
++    def _line(self, offset: int) -> int:
++        index = offset // 2
++        if 0 <= index < len(self.positions):
++            return self.positions[index][0] or 0
++        return 0
++
++    def on_start(
++        self, _code: CodeType, _offset: int, frame: Any = None, **_k: Any
++    ) -> None:
++        if frame is None:
++            return
++        if self.calls >= MAX_CALLS_OBSERVED:
++            self.calls_truncated = True
++            return
++        self.calls += 1
++        locals_ = frame.f_locals
++        signatures: dict[str, tuple[Any, Any]] = {}
++        for param in self.params:
++            arg = locals_.get(param)
++            self.arguments[param].calls += 1
++            if _mu.extra_write_supported(arg):
++                self.arguments[param].supported += 1
++                # The OBJECT is kept, not the name: the body may rebind the name to another object.
++                signatures[param] = (arg, state_signature(arg))
++        self.pending[id(frame)] = signatures
++
++    def _settle(self, frame: Any, returned: bool) -> None:
++        signatures = self.pending.pop(id(frame), None)
++        if signatures is None or not returned:
++            return
++        for param, (arg, before) in signatures.items():
++            if state_signature(arg) != before:
++                self.arguments[param].mutated = True
++
++    def on_return(
++        self, _code: CodeType, offset: int, retval: Any, frame: Any = None, **_k: Any
++    ) -> None:
++        if frame is not None:
++            self._settle(frame, True)
++        site = self.sites.setdefault(self._line(offset), _Site())
++        site.returns += 1
++        site.types.add(type(retval).__name__)
++        if site.returns > MAX_RETURNS_PER_SITE:
++            site.truncated = True
++            return
++        try:
++            offered = _mu.candidate_modes(retval)
++        # BLE001: a value whose own attributes raise offers nothing; it is not a fault of the target
++        except Exception:  # noqa: BLE001
++            offered = []
++        for mode in offered:
++            site.offered[mode] = site.offered.get(mode, 0) + 1
++            try:
++                out = _mu.apply_value_mode(mode, retval)
++            # BLE001: the attempt IS the premise; the exception's type is the reason it failed
++            except Exception as exc:  # noqa: BLE001
++                site.failed.setdefault(mode, type(exc).__name__)
++                continue
++            site.succeeded[mode] = site.succeeded.get(mode, 0) + 1
++            if _differs(out, retval):
++                site.changed.add(mode)
++        kind = _mu.bound_kind(retval)
++        if kind:
++            site.kinds.add(kind)
++        elif type(retval) in (float, decimal.Decimal):
++            site.kinds.add("-nonfinite")
++        else:
++            site.kinds.add(f"-{type(retval).__name__}")
++        if kind:
++            try:
++                if site.low is None or retval < site.low:
++                    site.low = retval
++                if site.high is None or retval > site.high:
++                    site.high = retval
++            except TypeError:
++                site.kinds.add("-unordered")
++
++    def on_unwind(
++        self,
++        _code: CodeType,
++        _offset: int,
++        exc: BaseException,
++        frame: Any = None,
++        **_k: Any,
++    ) -> None:
++        if frame is not None:
++            self._settle(frame, False)
++        cls = type(exc)
++        path = f"{cls.__module__}.{cls.__qualname__}"
++        reason = raise_standing(
++            "<" in path,
++            issubclass(cls, Exception),
++            _mu.resolve_exception(path, None) is cls,
++            _mu.injected_exception(path, None) is not None,
++        )
++        if reason == "injectable":
++            self.raised_ok.add(path)
++        else:
++            self.raised_no.setdefault(path, reason)
++
++
++def raise_standing(
++    local_class: bool, is_exception: bool, resolvable: bool, constructible: bool
++) -> str:
++    """Whether an observed raised class can be injected (#123, pure — pinned).
++
++    Split out because the answer is four independent facts of the class and each has its own remedy:
++
++      local_class        defined inside a function: no importable path names it
++      base_exception     a BaseException that is not an Exception: the engine's own interrupts derive
++                         from it, and nothing may inject one
++      unresolvable       its dotted path does not lead back to the class
++      not_constructible  it needs constructor arguments a message cannot supply
++      injectable         it can be raised from a path and a message
++    """
++    if local_class:
++        return "local_class"
++    if not is_exception:
++        return "base_exception"
++    if not resolvable:
++        return "unresolvable"
++    if not constructible:
++        return "not_constructible"
++    return "injectable"
++
++
++def _differs(after: Any, before: Any) -> bool:
++    """Whether a perturbation changed a value (a comparison that raises counts as a change)."""
++    if type(after) is not type(before):
++        return True
++    try:
++        return not bool(after == before)
++    # BLE001: an __eq__ that raises on two values cannot say they are equal
++    except Exception:  # noqa: BLE001
++        return True
++
++
++def site_tokens(line: int, site: _Site, complete: bool) -> set[str]:
++    """The tokens one finished site contributes."""
++    out = {f"@{line}:{t}" for t in site.types}
++    if site.truncated:
++        out.add(f"@{line}!no=*=returns_truncated")
++        return out
++    if not complete:
++        return out
++    for mode, offered in site.offered.items():
++        succeeded = site.succeeded.get(mode, 0)
++        if succeeded == site.returns and mode in site.changed:
++            out.add(f"@{line}!ok={mode}")
++        elif succeeded == site.returns:
++            out.add(f"@{line}!no={mode}=no_effect_observed")
++        elif mode in site.failed and offered == site.returns:
++            out.add(f"@{line}!no={mode}={site.failed[mode]}")
++    out.update(_clamp_tokens(line, site))
++    return out
++
++
++def clamp_standing(kinds: list[str], finite_ordered: bool, narrowable: bool) -> str:
++    """Whether a site's observed returns admit the clamp (#122, pure — pinned).
++
++    non_finite    a NaN or an infinity was returned: the range has no finite edge to narrow
++    not_ordered   some value has no ordered kind the clamp is defined for (a str, a None, a list,
++                  an aware datetime): not a clamp site, and no premise failed
++    mixed_kinds   int and Decimal, or a date and a datetime, are not one ordered range
++    single_value  every observed value is the same: the range has nothing to narrow
++    clamps        a single ordered kind with a range that narrows
++    """
++    if "-nonfinite" in kinds:
++        return "non_finite"
++    if not kinds or any(k.startswith("-") or not k for k in kinds):
++        return "not_ordered"
++    if len(set(kinds)) != 1:
++        return "mixed_kinds"
++    if not finite_ordered or not narrowable:
++        return "single_value"
++    return "clamps"
++
++
++def _clamp_tokens(line: int, site: _Site) -> set[str]:
++    standing = clamp_standing(
++        sorted(site.kinds),
++        site.low is not None,
++        site.low is not None and site.high is not None and site.low < site.high,
++    )
++    if standing in ("mixed_kinds", "non_finite"):
++        return {f"@{line}!no=return_clamp={standing}"}
++    if standing == "single_value":
++        return {f"@{line}!no=return_clamp=single_value"}
++    if standing != "clamps":
++        return set()
++    bounds = _mu.narrowed_bounds(site.low, site.high)
++    if bounds is None:
++        return {f"@{line}!no=return_clamp=single_value"}
++    low, high = bounds
++    return {f"@{line}!ok=return_clamp@{_mu.encode_bound(low)},{_mu.encode_bound(high)}"}
++
++
++def _own_raise_names(func_node: ast.AST | None) -> list[str]:
++    """The exception names a function's OWN body raises (nested scopes excluded), minus any name the
++    function itself binds (a parameter, an assignment, an ``except ... as`` name). A bare re-raise
++    names nothing."""
++    if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
++        return []
++    bound = {a.arg for a in ast.walk(func_node.args) if isinstance(a, ast.arg)}
++    stack: list[ast.AST] = list(func_node.body)
++    raised: list[ast.expr] = []
++    while stack:
++        node = stack.pop()
++        if isinstance(
++            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
++        ):
++            continue
++        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
++            bound.add(node.id)
++        if isinstance(node, ast.ExceptHandler) and node.name:
++            bound.add(node.name)
++        if isinstance(node, ast.Raise) and node.exc is not None:
++            raised.append(node.exc)
++        stack.extend(ast.iter_child_nodes(node))
++    names: list[str] = []
++    for exc in raised:
++        target = exc.func if isinstance(exc, ast.Call) else exc
++        parts: list[str] = []
++        while isinstance(target, ast.Attribute):
++            parts.append(target.attr)
++            target = target.value
++        if isinstance(target, ast.Name) and target.id not in bound:
++            parts.append(target.id)
++            name = ".".join(reversed(parts))
++            if name not in names:
++                names.append(name)
++    return names
++
++
++def call_tokens(
++    observer: _Observer, original: Callable[..., Any], func_node: ast.AST | None
++) -> set[str]:
++    """The function-level tokens: injectable raises and extra-write arguments."""
++    out: set[str] = set()
++    if observer.raised_ok or observer.raised_no:
++        for path in sorted(observer.raised_ok):
++            out.add(f"@!ok=raise_inject@{path}")
++        for path, why in sorted(observer.raised_no.items()):
++            out.add(f"@!no=raise_inject@{path}={why}")
++    else:
++        namespace = getattr(original, "__globals__", None)
++        names = _own_raise_names(func_node)
++        for name in names:
++            if _mu.injected_exception(name, namespace) is not None:
++                out.add(f"@!ok=raise_inject@{name}")
++            else:
++                out.add(f"@!no=raise_inject@{name}=unresolvable")
++        if not names:
++            out.add("@!no=raise_inject=no_exception_type_observed_or_raised")
++    candidates = False
++    for param, seen in observer.arguments.items():
++        if not seen.supported:
++            continue
++        candidates = True
++        standing = extra_write_standing(
++            seen.calls, seen.supported, seen.mutated, observer.calls_truncated
++        )
++        if standing == "unmutated":
++            out.add(f"@!ok=state_extra@{param}")
++        else:
++            out.add(f"@!no=state_extra@{param}={standing}")
++    if not candidates:
++        out.add("@!no=state_extra=no_mutable_argument_observed")
++    return out
++
++
++def extra_write_standing(
++    calls: int, supported: int, mutated: bool, truncated: bool
++) -> str:
++    """Whether a parameter admits an extra write (#123, pure — pinned).
++
++    The write is an UNINTENDED side effect only on an argument the function leaves alone, and it
++    must be possible on every call the mutant will see:
++
++      calls_truncated  the observation stopped counting calls: "never mutated" was not established
++      mutated          the function writes to it: an added write is not unintended
++      type_varies      it was a mutable object in some calls and something else in others
++      unmutated        mutable and untouched in every observed call
++    """
++    if truncated:
++        return "calls_truncated"
++    if mutated:
++        return "mutated"
++    if supported != calls:
++        return "type_varies"
++    return "unmutated"
++
++
++def observe_codomain(
++    original: Callable[..., Any] | None,
++    tests: list[Callable[..., None]],
++    *,
++    func_node: ast.AST | None = None,
++    per_test_ms: float = 5000.0,
++    deadline: float | None = None,
++) -> frozenset[str]:
++    """Run ``tests`` against ``original`` and return the observed codomain (the token set above).
++
++    Each test runs once, under the engine's own bounded runner. A test that is cut (a wall, a loop
++    budget, an uncontained worker) makes the observation INCOMPLETE: the result is then only
++    ``@!truncated``, because a codomain missing what the cut test would have returned licenses no
++    type-conditional perturbation. A test that merely FAILS on the original is not a cut: what it
++    returned before failing was returned. Generators have no return value to observe and give the
++    empty observation."""
++    from .engine import _run_test_with_timeout, baseline_probe_disposition
++    from .monitoring import MonitoringObservationFailed, subscribe
++
++    code = getattr(original, "__code__", None)
++    if (
++        code is None
++        or not tests
++        or code.co_flags & (inspect.CO_GENERATOR | inspect.CO_ASYNC_GENERATOR)
++    ):
++        return frozenset()
++    observer = _Observer(code)
++    events = sys.monitoring.events
++    handles = [
++        subscribe((code,), events.PY_START, observer.on_start),
++        subscribe((code,), events.PY_RETURN, observer.on_return),
++        subscribe((code,), events.PY_UNWIND, observer.on_unwind),
++    ]
++    complete = True
++    try:
++        for test in tests:
++            remaining = (
++                per_test_ms
++                if deadline is None
++                else min(per_test_ms, max(0.0, (deadline - time.monotonic()) * 1000.0))
++            )
++            if remaining <= 0:
++                complete = False
++                break
++            outcome = _run_test_with_timeout(test, original, True, remaining)
++            if outcome in (
++                "undetermined",
++                "diverged",
++                "uncontained",
++                "nested_measurement",
++            ) or (baseline_probe_disposition(outcome) == "uncontained"):
++                complete = False
++                break
++    finally:
++        for handle in handles:
++            handle.close()
++    observer_failed = False
++    for handle in handles:
++        try:
++            handle.check()
++        except MonitoringObservationFailed:
++            observer_failed = True
++    if not complete or observer_failed:
++        # The subscription's own failure is an observer fault, never the target's: the observation
++        # is incomplete and says so, so nothing premised is generated from it.
++        return frozenset({"@!truncated"})
++    tokens: set[str] = set()
++    for line, site in observer.sites.items():
++        tokens |= site_tokens(line, site, complete)
++        tokens |= site.types
++    tokens |= call_tokens(observer, original, func_node)
++    return frozenset(tokens)
+diff --git a/Wesker/engine.py b/Wesker/engine.py
+index 26046cc..5ff051b 100644
+--- a/Wesker/engine.py
++++ b/Wesker/engine.py
+@@ -29,6 +29,14 @@ from dataclasses import dataclass, field, replace
+ from enum import Enum
+ from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeGuard
+ 
++from .codomain import (
++    Codomain,
++    call_modes,
++    observe_codomain,
++    parse_codomain,
++    premised_modes,
++    withheld_here,
++)
+ from .interrupt import (
+     JoinedWorker,
+     MeasurementRefused,
+@@ -74,7 +82,14 @@ from .memory_guard import over_budget as _over_budget
+ from .memory_guard import reclaim as _reclaim
+ from .memory_guard import resolve_budget as _resolve_budget
+ from .memory_guard import run_baseline_bytes as _mem_baseline
+-from .mu_minus import GENERATOR_MATERIALIZE_CAP, YIELD_MODES, begin_test, form_b
++from .mu_minus import (
++    GENERATOR_MATERIALIZE_CAP,
++    VALUE_MODE_BASES,
++    YIELD_MODES,
++    begin_test,
++    form_b,
++    mode_base,
++)
+ from .subsumption import distinct_obligations as _distinct_obligations
+ from .subsumption import redundancy_groups
+ from .swap_plan import SWAP_PAIR_BUDGET, swap_label, swap_plan
+@@ -760,6 +775,13 @@ class ProfilingResult:
+     # signal, not weak tests. -1 = not populated (older callers), so consumers can
+     # tell "no tests" apart from "unknown". Prevents a silent, misleading 0%.
+     tests_discovered: int = -1
++    # μ⁻ (#44): the observed codomain this run's OUTPUT mutants were generated under (the sorted token
++    # set of `Wesker.codomain`: type names, per-return-site types, and the premises the baseline
++    # measured), and what that observation WITHHELD for this function, named. Both empty when no OUTPUT
++    # operator was in the run. `mu_minus_withheld` is the per-function counterpart of the policy's
++    # `unbuilt`: an operator the function's values never admitted, with the premise that failed.
++    observed_codomain: tuple[str, ...] = ()
++    mu_minus_withheld: tuple[str, ...] = ()
+     # Per-function routing census (#15): the exact partition that decided the target-first seed.
+     # Counts only — TestIds remain in trace_evidence/proof_basis. Empty means routing was not used
+     # (standalone/unscoped/older caller), never "all buckets were zero".
+@@ -991,6 +1013,18 @@ class ProfilingResult:
+             d["operator_census"] = {
+                 cat.value: row for cat, row in self.operator_census.items()
+             }
++        # The μ⁻ observation and what it withheld here (#44): emitted whenever the run observed
++        # anything or withheld anything, so "nothing withheld" is distinguishable from "no OUTPUT
++        # operator was run" (the absence of both keys).
++        if self.observed_codomain or self.mu_minus_withheld:
++            # Local import: `policy` imports this module. `mu_minus_unbuilt` is the two-sign POLICY's
++            # own field (what no run of that policy generates); `mu_minus_withheld` is what this
++            # function's values did not admit. A reader needs both to read a two-sign COMPLETE.
++            from .policy import mutation_policy
++
++            d["observed_codomain"] = list(self.observed_codomain)
++            d["mu_minus_withheld"] = list(self.mu_minus_withheld)
++            d["mu_minus_unbuilt"] = mutation_policy(two_sign=True).unbuilt
+         if self.survivor_records:
+             d["survivor_records"] = self.survivor_records
+         # The value-unspecified set: true survivors PLUS crash kills. This is what a
+@@ -2050,6 +2084,17 @@ def _templated_return(mode: str, value: ast.expr) -> ast.expr | None:
+     return _instantiate_output_template(_OUTPUT_TEMPLATES[mode], value)
+ 
+ 
++def _value_operator_return(mode: str, value: ast.expr) -> ast.expr:
++    """A premised value operator (``Wesker.mu_minus.apply_value_mode``) instantiated over the return
++    value, evaluated once. The runtime helper degrades to the value unchanged on one the baseline never
++    saw, so the rewrite can never be a crash kill."""
++    src = (
++        '__import__("Wesker.mu_minus", fromlist=["perturb_return"])'
++        f".perturb_return({mode!r}, __mu_value__)"
++    )
++    return _instantiate_output_template(src, value)
++
++
+ class _OutputMutator(_BaseMutator):
+     """Output-space (codomain) perturbation — μ⁻ Form A (return-site rewrite).
+ 
+@@ -2077,9 +2122,19 @@ class _OutputMutator(_BaseMutator):
+     a nested def is that helper's codomain and is skipped.
+     """
+ 
+-    def __init__(self, target: int, mode: str = "return_none", *a, **k) -> None:  # type: ignore[no-untyped-def]
++    def __init__(  # type: ignore[no-untyped-def]
++        self,
++        target: int,
++        mode: str = "return_none",
++        *a,
++        codomain: Codomain | None = None,
++        **k,
++    ) -> None:
+         super().__init__(target, *a, **k)
+         self.mode = mode
++        # The observed codomain this mutator filters return SITES by (#44, AC2). None means
++        # unfiltered: the static census and a test that compiles one mode over a bare function.
++        self.codomain = codomain
+         self._entered = False
+         self._params: list[str] = []
+ 
+@@ -2154,14 +2209,48 @@ class _OutputMutator(_BaseMutator):
+             )
+         elif self.mode in _OUTPUT_TEMPLATES:
+             repl = _templated_return(self.mode, value)
++        elif mode_base(self.mode) in VALUE_MODE_BASES:
++            repl = _value_operator_return(self.mode, value)
+         else:
+             return None
+         if repl is None or ast.dump(repl) == ast.dump(value):
+             return None  # no-op: the return already IS this value (or this template's constant)
+         return repl
+ 
++    def _admits_site(self, node: ast.Return) -> bool:
++        """Whether the observed codomain admits this mode at THIS return statement (#44, AC2).
++
++        The return site, not the function, is the unit: ``tag(n)`` returns None on one branch and a str
++        on the other, and a test that reaches only the str branch observes ``{str}`` for the function.
++        Typing the whole function by that set generated four str rewrites on the ``return None`` no test
++        executed, each one a crash on None. Here each statement answers for the values IT returned:
++        a type-conditional mode needs its own site's observed types inside the mode's, a premised mode
++        needs the observation to have applied it to every value this site returned, and a statement the
++        baseline never executed has no observed codomain, so only the always-applicable modes reach it.
++        """
++        codomain = self.codomain
++        if codomain is None or self.mode in _FORK_1_MODES:
++            return True
++        if not codomain.complete:
++            return False
++        site = codomain.site(node.lineno)
++        if mode_base(self.mode) in VALUE_MODE_BASES:
++            return site is not None and self.mode in site.ok
++        applicable = _TYPE_CONDITIONAL_TYPES.get(self.mode)
++        if applicable is None:
++            return True
++        standing = site_mode_standing(
++            codomain.has_sites,
++            site is not None,
++            sorted(site.types) if site is not None else [],
++            sorted(applicable),
++        )
++        if standing == "function_wide":
++            return output_mode_applies(codomain.plain, applicable)
++        return standing == "applies"
++
+     def visit_Return(self, node: ast.Return) -> ast.AST:
+-        if self.applied or node.value is None:
++        if self.applied or node.value is None or not self._admits_site(node):
+             return self.generic_visit(node)
+         repl = self._perturbed(node.value)
+         if repl is None:
+@@ -2996,13 +3085,15 @@ def _count_targets(
+         )
+     # OUTPUT (μ⁻ Form A): independent sub-modes over return sites, same shape as EXCEPTION.
+     if category == MutationCategory.OUTPUT:
++        codomain = parse_codomain(observed) if observed else None
+         return (
+             sum(
+-                _count_output_targets(func_node, mode)
++                _count_output_targets(func_node, mode, codomain)
+                 for mode, _desc in _output_sub_modes(observed)
+             )
+-            # Form B: a generator's yields, or any other function's stale return and raise.
+-            + _count_output_wrapper_targets(func_node)
++            # Form B: a generator's yields, or any other function's stale return and raise, and the
++            # parameterized modes the observation admits.
++            + _count_output_wrapper_targets(func_node, observed)
+         )
+     # Single-transformer categories: run the mutator in record mode and count
+     # its notes. VALUE additionally needs docstring positions so documentation
+@@ -3521,26 +3612,141 @@ def output_mode_applies(observed: frozenset[str], applicable: frozenset[str]) ->
+     return bool(observed) and observed <= applicable
+ 
+ 
++#: The always-applicable modes (Fork 1): total on any value, so no observation gates them.
++_FORK_1_MODES = frozenset(mode for mode, _desc in _OUTPUT_SUB_MODES)
++
++#: A type-conditional mode's applicable types, by mode.
++_TYPE_CONDITIONAL_TYPES: dict[str, frozenset[str]] = {
++    mode: types for mode, _desc, types in _OUTPUT_TYPE_CONDITIONAL
++}
++
++# μ⁻ Fork 2, premised — the Form A operators whose applicability is a fact about the VALUES a site
++# returned, not about their type names (#120–#122). Each is generated at a return site only where the
++# baseline run APPLIED it to every value the site returned and it did not raise
++# (``Wesker.codomain.observe_codomain``); a parameterized mode carries its parameter after ``@``. The
++# third column is the premise, stated so the catalog, the policy and the doc read one sentence.
++_OUTPUT_VALUE_SUB_MODES = (
++    (
++        "return_swap_items",
++        "return value -> its keys and values swapped (is the key/value binding load-bearing?)",
++        "every dict returned at the site has hashable values",
++    ),
++    (
++        "return_to_set",
++        "return value -> the same elements as a set (are order and multiplicity load-bearing?)",
++        "every list or tuple returned at the site has hashable elements",
++    ),
++    (
++        "return_from_set",
++        "return value -> the same elements in sorted order (is the unordered, unique container load-bearing?)",
++        "every set or frozenset returned at the site has mutually orderable elements",
++    ),
++    (
++        "return_field_drop",
++        "return value -> one field set to its type's default (is the field load-bearing?)",
++        "every value returned at the site is a record with that field, of a type that has a default",
++    ),
++    (
++        "return_field_bump",
++        "return value -> one numeric, boolean or string field moved a step (is the field's exact value pinned?)",
++        "every value returned at the site is a record with that field, of a numeric, boolean, str or bytes type",
++    ),
++    (
++        "return_field_swap",
++        "return value -> two same-typed fields exchanged, each with the previous field of its type (is each field's position pinned?)",
++        "every value returned at the site is a record with both fields, of one type",
++    ),
++    (
++        "return_class_subclass",
++        "return value -> an instance of a subclass (is the exact class load-bearing?)",
++        "every value returned at the site is an instance of a Python-defined class that can be copied and rebound to a subclass",
++    ),
++    (
++        "return_class_base",
++        "return value -> an instance of its base class (is the exact class load-bearing?)",
++        "every value returned at the site is an instance of a class with a user base class, copied and rebound to it",
++    ),
++    (
++        "return_clamp",
++        "return value -> clipped into the observed range narrowed by one step (is the range invariant pinned at its edges?)",
++        "every value returned at the site is one finite, mutually ordered kind (int and float, Decimal, date, naive datetime, timedelta) with at least two distinct values",
++    ),
++)
++_VALUE_MODE_DESCRIPTIONS = {
++    mode: desc for mode, desc, _premise in _OUTPUT_VALUE_SUB_MODES
++}
++
++
++def describe_value_mode(mode: str) -> str:
++    """The description of a premised mode, with its parameter named (``return_field_drop@x``)."""
++    base, _, param = mode.partition("@")
++    desc = _VALUE_MODE_DESCRIPTIONS[base]
++    return f"{desc} [{param}]" if param else desc
++
++
++def site_mode_standing(
++    has_sites: bool, site_observed: bool, site_types: list[str], applicable: list[str]
++) -> str:
++    """Whether a type-conditional μ⁻ mode applies at ONE return site (#44, AC2, pure — pinned).
++
++    The return site, not the function, is the unit of Def. 11.10: a function that returns None on one
++    branch and a str on the other has a different observed codomain at each statement, and a test that
++    reaches only the str branch must not license a str rewrite of the ``return None`` it never ran.
++
++      function_wide  the observation carries no site information (a legacy type-name set): the whole
++                     function's observed types decide, as before
++      unobserved     the observation is per-site and the baseline never executed this statement: it
++                     has no observed codomain, so only the always-applicable modes reach it
++      type_outside   an observed type at this site is outside the mode's: it would raise there
++      applies        every value this site returned is of a type the mode admits
++    """
++    if not has_sites:
++        return "function_wide"
++    if not site_observed:
++        return "unobserved"
++    return (
++        "applies"
++        if output_mode_applies(frozenset(site_types), frozenset(applicable))
++        else "type_outside"
++    )
++
++
+ def _output_sub_modes(
+     observed: frozenset[str] | None = None,
+ ) -> tuple[tuple[str, str], ...]:
+     """The OUTPUT sub-mode list — the SINGLE SOURCE for both counting and generation, so
+     count == generation by construction (the issue-#9 invariant) whatever ``observed`` is.
+ 
+-    ``observed`` is the set of return-type names harvested from a baseline run (μ⁻ Fork 2). With it,
+-    the type-conditional perturbations whose type is present are appended; without it (the static
+-    census, or an unobservable return) only the always-applicable Fork-1 set is returned.
+-    """
++    ``observed`` is the observed codomain (μ⁻ Fork 2; ``Wesker.codomain``). With it, a type-conditional
++    mode is listed when some return site admits it, and a premised mode when the baseline applied it at
++    some site; without it (the static census, or an unobservable return) only the always-applicable
++    Fork-1 set is returned. An INCOMPLETE observation (a test was cut) lists the Fork-1 set alone: a
++    codomain missing what the cut test would have returned licenses nothing."""
+     modes = list(_OUTPUT_SUB_MODES)
+-    if observed:
+-        modes.extend(
+-            (name, desc)
+-            for name, desc, types in _OUTPUT_TYPE_CONDITIONAL
+-            if output_mode_applies(observed, types)
+-        )
++    if not observed:
++        return tuple(modes)
++    codomain = parse_codomain(observed)
++    if not codomain.complete:
++        return tuple(modes)
++    for name, desc, applicable in _OUTPUT_TYPE_CONDITIONAL:
++        if _mode_reaches_a_site(codomain, applicable):
++            modes.append((name, desc))
++    modes.extend((mode, describe_value_mode(mode)) for mode in premised_modes(codomain))
+     return tuple(modes)
+ 
+ 
++def _mode_reaches_a_site(codomain: Codomain, applicable: frozenset[str]) -> bool:
++    """Whether a type-conditional mode applies at some return site of the observation."""
++    if not codomain.has_sites:
++        return output_mode_applies(codomain.plain, applicable)
++    return any(
++        site_mode_standing(True, True, sorted(site.types), sorted(applicable))
++        == "applies"
++        for site in codomain.sites.values()
++        if site.types
++    )
++
++
+ # μ⁻ Form B — perturbations of an output the return-site rewrite cannot reach (Def. 11.6), delivered
+ # by the runtime in `Wesker.mu_minus`. Generators: the yielded SEQUENCE. One mutant per sub-mode; the
+ # perturbation is a pure iterator transform, so it never raises.
+@@ -3574,6 +3780,17 @@ _OUTPUT_CALL_SUB_MODES = (
+         "raise_swallow",
+         "a raise -> swallowed, returning None (is the raise-versus-return contract pinned?)",
+     ),
++    # The two parameterized call modes (#123). Their parameter (an exception path, a parameter name)
++    # is part of the mode and comes from the OBSERVED codomain, so they are listed by base name here
++    # and generated per parameter by `form_b_output_modes`.
++    (
++        "raise_inject",
++        "the return -> a raise of an exception type the function raises (is the function's reach pinned?)",
++    ),
++    (
++        "state_extra",
++        "the return -> preceded by one extra write to an argument the function leaves alone (is the absence of side effects pinned?)",
++    ),
+ )
+ 
+ _GENERATOR_MATERIALIZE_CAP = GENERATOR_MATERIALIZE_CAP
+@@ -3616,7 +3833,11 @@ def _has_own_raise(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+     return False
+ 
+ 
+-def form_b_output_modes(is_generator: bool, has_own_raise: bool) -> tuple[str, ...]:
++def form_b_output_modes(
++    is_generator: bool,
++    has_own_raise: bool,
++    observed_call_modes: list[str] | None = None,
++) -> tuple[str, ...]:
+     """Which μ⁻ Form B perturbations a target's codomain admits (#44, pure — pinned).
+ 
+     Split out because the answer is read off two facts of the function's OWN body, and generation and
+@@ -3627,13 +3848,17 @@ def form_b_output_modes(is_generator: bool, has_own_raise: bool) -> tuple[str, .
+     * any other function delivers a return value, so it gets ``return_stale`` (is the output a pure
+       function of THIS call, with no leaked state?) and, when its own body raises, ``raise_swallow``
+       (is the raise-versus-return contract pinned?). A function that never raises has no such
+-      contract to swallow; a raise reaching it from a callee is that callee's contract.
++      contract to swallow; a raise reaching it from a callee is that callee's contract;
++    * ``observed_call_modes`` are the parameterized modes the OBSERVATION admitted for it
++      (``raise_inject@<exception>``, ``state_extra@<parameter>``), appended after the static ones, so
++      the static modes keep their order. A generator takes none: its output is its yields.
+     """
+     if is_generator:
+         return tuple(mode for mode, _desc in _OUTPUT_YIELD_SUB_MODES)
++    extra = tuple(observed_call_modes or ())
+     if has_own_raise:
+-        return ("return_stale", "raise_swallow")
+-    return ("return_stale",)
++        return ("return_stale", "raise_swallow", *extra)
++    return ("return_stale", *extra)
+ 
+ 
+ def _form_b_node(
+@@ -3674,8 +3899,17 @@ def _make_generator_wrapper(
+     return factory
+ 
+ 
++def _observed_call_modes(observed: frozenset[str] | None) -> list[str]:
++    """The parameterized Form B modes an observation admits (none for no or an incomplete one)."""
++    if not observed:
++        return []
++    codomain = parse_codomain(observed)
++    return list(call_modes(codomain)) if codomain.complete else []
++
++
+ def _generate_output_wrappers(
+     func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    observed: frozenset[str] | None = None,
+ ) -> list[Mutant]:
+     """μ⁻ Form B mutants: one per mode :func:`form_b_output_modes` admits.
+ 
+@@ -3689,7 +3923,9 @@ def _generate_output_wrappers(
+     is_generator = _has_own_yield(func_node)
+     descriptions = dict(_OUTPUT_YIELD_SUB_MODES + _OUTPUT_CALL_SUB_MODES)
+     mutants: list[Mutant] = []
+-    for mode in form_b_output_modes(is_generator, _has_own_raise(func_node)):
++    for mode in form_b_output_modes(
++        is_generator, _has_own_raise(func_node), _observed_call_modes(observed)
++    ):
+         if is_generator:
+             node: ast.AST = ast.Expr(
+                 value=ast.Constant(value=f"WRAPPER:{mode}:{lineno}")
+@@ -3704,7 +3940,7 @@ def _generate_output_wrappers(
+                 category=cat,
+                 original_node=func_node,
+                 mutated_node=node,
+-                description=f"{mid}: {descriptions[mode]}",
++                description=f"{mid}: {_call_mode_description(descriptions, mode)}",
+                 location=lineno,
+                 mutant_id=mid,
+                 target_index=0,
+@@ -3716,13 +3952,26 @@ def _generate_output_wrappers(
+     return mutants
+ 
+ 
++def _call_mode_description(descriptions: dict[str, str], mode: str) -> str:
++    """The description of a Form B mode, a parameterized one by its base with the parameter named."""
++    if mode in descriptions:
++        return descriptions[mode]
++    base, _, param = mode.partition("@")
++    return f"{descriptions[base]} [{param}]"
++
++
+ def _count_output_wrapper_targets(
+     func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    observed: frozenset[str] | None = None,
+ ) -> int:
+-    """Form B OUTPUT targets: the modes :func:`form_b_output_modes` admits, read off the same two
+-    facts generation reads, so count == generation."""
++    """Form B OUTPUT targets: the modes :func:`form_b_output_modes` admits, read off the same facts
++    generation reads (the function's own body and the observation), so count == generation."""
+     return len(
+-        form_b_output_modes(_has_own_yield(func_node), _has_own_raise(func_node))
++        form_b_output_modes(
++            _has_own_yield(func_node),
++            _has_own_raise(func_node),
++            _observed_call_modes(observed),
++        )
+     )
+ 
+ 
+@@ -3745,23 +3994,27 @@ def isolated_mutant_node(mutant: Mutant) -> ast.AST:
+ 
+ 
+ def _record_output_dimensions(
+-    func_node: ast.FunctionDef | ast.AsyncFunctionDef, mode: str
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    mode: str,
++    codomain: Codomain | None = None,
+ ) -> list[str]:
+     """Dimension keys for one OUTPUT (μ⁻) sub-mode, in transformer-visit order."""
+     tree = copy.deepcopy(func_node)
+-    mutator = _OutputMutator(-1, mode)
++    mutator = _OutputMutator(-1, mode, codomain=codomain)
+     mutator.keys = []
+     mutator.visit(tree)
+     return mutator.keys
+ 
+ 
+ def _count_output_targets(
+-    func_node: ast.FunctionDef | ast.AsyncFunctionDef, mode: str
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    mode: str,
++    codomain: Codomain | None = None,
+ ) -> int:
+     """Targets for one OUTPUT sub-mode. Counted by RUNNING the mutator in record mode, so the
+     counter and the transformer cannot drift — the no-op and eligibility skips live in exactly
+     one place (``_OutputMutator._perturbed``)."""
+-    return len(_record_output_dimensions(func_node, mode))
++    return len(_record_output_dimensions(func_node, mode, codomain))
+ 
+ 
+ def _generate_output_perturbations(
+@@ -3781,10 +4034,13 @@ def _generate_output_perturbations(
+     """
+     mutants: list[Mutant] = []
+     cat = MutationCategory.OUTPUT
++    codomain = parse_codomain(observed) if observed else None
+ 
+     for mode, desc in _output_sub_modes(observed):
+-        keys = _record_output_dimensions(func_node, mode) if greedy else []
+-        target_count = len(keys) if greedy else _count_output_targets(func_node, mode)
++        keys = _record_output_dimensions(func_node, mode, codomain) if greedy else []
++        target_count = (
++            len(keys) if greedy else _count_output_targets(func_node, mode, codomain)
++        )
+         budget = (
+             _live_dimension_count(keys)
+             if max_per_category is None
+@@ -3799,7 +4055,7 @@ def _generate_output_perturbations(
+ 
+         for i in selected:
+             mutated_tree = copy.deepcopy(func_node)
+-            transformer = _OutputMutator(i, mode)
++            transformer = _OutputMutator(i, mode, codomain=codomain)
+             mutated_node = transformer.visit(mutated_tree)
+             ast.fix_missing_locations(mutated_node)
+ 
+@@ -5612,7 +5868,7 @@ def generate_mutants(
+                 )
+             )
+             # Form B: the yields of a generator; the stale return and the raise of anything else.
+-            mutants.extend(_generate_output_wrappers(func_node))
++            mutants.extend(_generate_output_wrappers(func_node, observed_return_types))
+             continue
+ 
+         target_count = _count_targets(func_node, cat)
+@@ -9777,6 +10033,7 @@ def run_function_profiling(
+     widen_tests: list[Callable[..., None]] | None = None,
+     observed_return_types: frozenset[str] | None = None,
+     full_matrix: bool = False,
++    two_sign: bool = False,
+ ) -> ProfilingResult:
+     """Profiling mode — generate mutants (exhaustive by default), evaluate with budget.
+ 
+@@ -9809,9 +10066,28 @@ def run_function_profiling(
+             first-killer run skips. It adds a field and changes no verdict: each mutant's killed /
+             survived / unscored disposition and its ``killed_by`` are what they are with it off, in
+             both execution modes.
++        two_sign: Run the two-sign contract σ(P, μ ∪ μ⁻) (#44). The OUTPUT category is added to
++            ``categories`` (a caller may still pass the categories of
++            ``filter_categories(node, two_sign=True)`` itself, which already hold it), and, when the
++            caller supplied no ``observed_return_types``, the codomain is OBSERVED here
++            (:func:`Wesker.codomain.observe_codomain`): the tests run once against the original and
++            every return site, raised exception and argument is recorded, so each μ⁻ operator is
++            generated only where its observed premise holds. A caller that supplies its own
++            observation (Detective's type-name harvest) keeps it, and gets the operators that
++            observation can license. False (default) generates exactly what ``categories`` names.
+     """
+     start = time.monotonic()
+     _baseline_cost_before = baseline_build_seconds()
++    if two_sign:
++        categories = set(categories) | {MutationCategory.OUTPUT}
++        if observed_return_types is None and pregenerated is None:
++            observed_return_types = observe_codomain(
++                original_func,
++                test_functions,
++                func_node=func_node,
++                per_test_ms=per_mutant_timeout_ms,
++                deadline=None if budget_ms is None else start + budget_ms / 1000.0,
++            )
+     # Reuse a caller's already-generated mutant list when given (an adaptive probe generates
+     # once and hands the same list to both the probe and the follow-up run), else generate.
+     # Deterministic, so the reused list is identical to a fresh generation here.
+@@ -10753,6 +11029,12 @@ def run_function_profiling(
+         trace_truncated=sorted(_trace_truncated),
+         shared_arguments=_shared_arguments(test_functions),
+         containment_lost=_containment_lost(_baseline_uncontained, _uncontained_results),
++        observed_codomain=tuple(sorted(observed_return_types or ())),
++        mu_minus_withheld=(
++            withheld_here(parse_codomain(frozenset(observed_return_types or ())))
++            if MutationCategory.OUTPUT in categories
++            else ()
++        ),
+     )
+ 
+ 
+diff --git a/Wesker/mu_minus.py b/Wesker/mu_minus.py
+index 39678a1..d20388b 100644
+--- a/Wesker/mu_minus.py
++++ b/Wesker/mu_minus.py
+@@ -25,9 +25,18 @@ Mutant code imports this module at definition time, so it imports only the stand
+ 
+ from __future__ import annotations
+ 
++import builtins
++import collections
++import copy
++import dataclasses
++import datetime
++import decimal
+ import functools
++import importlib
+ import inspect
+ import itertools
++import math
++import types
+ from collections.abc import Callable
+ from dataclasses import dataclass
+ from typing import Any
+@@ -44,6 +53,17 @@ YIELD_MODES = (
+ )
+ CALL_MODES = ("return_stale", "raise_swallow")
+ 
++#: The Form B modes that take a parameter after ``@``: ``raise_inject@<exception path>`` injects the
++#: named exception at the return point, ``state_extra@<parameter>`` adds one extra write to that
++#: argument before return. Their parameter is part of the mode, so each is its own mutant.
++PARAMETERIZED_CALL_MODES = ("raise_inject", "state_extra")
++
++#: The Form B modes whose kill measures REACH, not specification (Def. 11.8(viii), the catalog's own
++#: note on ``raise``): an injected raise fails every test that calls the function, whatever it asserts.
++#: A kill by one of these is ``reach_class``, never a pin of the output, and the detection/contract
++#: split of a kill record reads it by :func:`kill_class_of_dimension`.
++REACH_CLASS_MODES = ("raise_inject",)
++
+ # What the wrapper copies from the function it wraps. `__annotations__` is deliberately absent:
+ # reading it evaluates deferred annotations, which can raise and must never run as a side effect of
+ # building a mutant (W#47).
+@@ -183,6 +203,519 @@ def _swallow_wrapper(fn: Callable[..., Any]) -> Callable[..., Any]:
+     return _like(call, fn)
+ 
+ 
++# ── Value operators: Form A rewrites that need an OBSERVED premise (Def. 11.10, Fork 2) ──────────
++#
++# Fork 2 generates a perturbation only where the OBSERVED codomain guarantees it applies, so it never
++# raises and never mis-attributes. A type name is not always enough: whether a dict's values are
++# hashable, a record's fields are named, a class has a base, a set's elements are orderable or a
++# returned number lies in a range are facts about the VALUES the baseline run saw. The observer
++# (``Wesker.codomain``) therefore does not guess them from a type: it APPLIES each candidate to every
++# value it observes and records the mode as applicable at a return site only if the application
++# succeeded on all of them. The premise IS the attempt.
++#
++# Every function below is a plain, total-on-premise perturbation of ONE value. ``apply_value_mode``
++# raises where the premise fails (the observer reads that as "not applicable"); ``perturb_return`` is
++# what a mutant calls, and degrades to the value unchanged on a failure, so a value the baseline never
++# saw can still not turn the perturbation into a crash kill.
++
++#: ``Py_TPFLAGS_HEAPTYPE``: the class was built by Python code (``class``, ``type()``, ``namedtuple``),
++#: which is what a record or user class is; a C extension type (datetime, decimal) is not.
++_HEAPTYPE = 1 << 9
++
++#: The value kinds a default or a bump is defined for. Another type's constructor may run arbitrary
++#: code, so no default is invented for it.
++_DEFAULTABLE = (
++    bool,
++    int,
++    float,
++    complex,
++    str,
++    bytes,
++    bytearray,
++    list,
++    tuple,
++    dict,
++    set,
++    frozenset,
++    decimal.Decimal,
++)
++_BUMPABLE = (bool, int, float, str, bytes)
++
++#: Every value-operator mode, in the order the catalog and the policy list them.
++VALUE_MODE_BASES = (
++    "return_swap_items",
++    "return_to_set",
++    "return_from_set",
++    "return_field_drop",
++    "return_field_bump",
++    "return_field_swap",
++    "return_class_subclass",
++    "return_class_base",
++    "return_clamp",
++)
++
++
++def mode_base(mode: str) -> str:
++    """The mode without its parameter: ``return_field_drop@x`` -> ``return_field_drop``."""
++    return mode.partition("@")[0]
++
++
++def mode_param(mode: str) -> str:
++    """The mode's parameter (the text after ``@``), "" when it has none."""
++    return mode.partition("@")[2]
++
++
++def is_hashable(value: Any) -> bool:
++    """Whether ``hash(value)`` succeeds (a tuple holding a list does not)."""
++    try:
++        hash(value)
++    except Exception:  # noqa: BLE001
++        return False
++    return True
++
++
++def record_fields(value: Any) -> dict[str, Any] | None:
++    """The named fields of a record instance, in declaration order, or None when it is not one.
++
++    A record is an instance of a Python-defined class: a dataclass, a namedtuple, an attrs class, or a
++    plain object (``__dict__`` or ``__slots__``). A builtin or C-extension value is not a record."""
++    cls = type(value)
++    if isinstance(value, type) or not cls.__flags__ & _HEAPTYPE:
++        return None
++    if dataclasses.is_dataclass(value):
++        return {f.name: getattr(value, f.name) for f in dataclasses.fields(value)}
++    names = getattr(cls, "_fields", None)
++    if isinstance(value, tuple) and isinstance(names, tuple):
++        return dict(zip(names, value, strict=True))
++    attrs = getattr(cls, "__attrs_attrs__", None)
++    if attrs:
++        return {a.name: getattr(value, a.name) for a in attrs}
++    out: dict[str, Any] = {}
++    slots: list[str] = []
++    for klass in reversed(cls.__mro__):
++        declared = klass.__dict__.get("__slots__", ())
++        for name in (declared,) if isinstance(declared, str) else declared:
++            if name not in ("__dict__", "__weakref__"):
++                slots.append(name)
++    for name in slots:
++        out[name] = getattr(value, name)
++    instance_dict = getattr(value, "__dict__", None)
++    if type(instance_dict) is dict:
++        out.update(instance_dict)
++    return out or None
++
++
++def _default_of(value: Any) -> Any:
++    """The type's own default of ``value`` (0, 0.0, "", [], ...). Only builtin kinds have one."""
++    kind = type(value)
++    if kind not in _DEFAULTABLE:
++        raise TypeError(f"no safe default for {kind.__name__}")
++    return False if kind is bool else kind()
++
++
++def _bump(value: Any) -> Any:
++    """``value`` moved one step: +1, flipped, or one character longer."""
++    kind = type(value)
++    if kind is bool:
++        return not value
++    if kind in (int, float):
++        return value + 1
++    if kind is str:
++        return value + "~"
++    if kind is bytes:
++        return value + b"~"
++    raise TypeError(f"cannot bump {kind.__name__}")
++
++
++def _with_fields(value: Any, updates: dict[str, Any]) -> Any:
++    """A COPY of the record with ``updates`` written, the original untouched. The write bypasses
++    ``__setattr__`` and ``__post_init__``: the perturbation is an inconsistent record, on purpose."""
++    if isinstance(value, tuple) and hasattr(value, "_replace"):
++        return value._replace(**updates)
++    out = copy.copy(value)
++    if out is value:
++        raise TypeError(f"{type(value).__name__} copies to itself")
++    for name, new in updates.items():
++        object.__setattr__(out, name, new)
++    return out
++
++
++def _is_user_instance(value: Any) -> bool:
++    return not isinstance(value, type) and bool(type(value).__flags__ & _HEAPTYPE)
++
++
++def _user_base(cls: type) -> type | None:
++    """The first user (Python-defined) base class of ``cls``, None when it has none."""
++    for base in cls.__mro__[1:]:
++        if base.__flags__ & _HEAPTYPE:
++            return base
++    return None
++
++
++@functools.cache
++def _subclass_of(cls: type) -> type:
++    """A subclass of ``cls`` that reads the same (name, module, qualname) and shares its layout, so
++    ``__class__`` can be rebound to it. Built once per class: ``__init_subclass__`` runs once."""
++    return type(
++        cls.__name__,
++        (cls,),
++        {
++            "__module__": cls.__module__,
++            "__qualname__": cls.__qualname__,
++            "__slots__": (),
++        },
++    )
++
++
++def _rebound(value: Any, cls: type) -> Any:
++    """A copy of ``value`` whose class is ``cls``; the original keeps its own."""
++    if isinstance(value, tuple) and hasattr(cls, "_make"):
++        return cls._make(tuple(value))
++    out = copy.copy(value)
++    if out is value:
++        raise TypeError(f"{type(value).__name__} copies to itself")
++    object.__setattr__(out, "__class__", cls)
++    return out
++
++
++def field_modes(value: Any) -> list[str]:
++    """The ``field`` modes one record offers: drop and bump per field, swap per same-typed field
++    with the previous field of its type. Field names and types come from the instance itself."""
++    fields = record_fields(value)
++    if not fields:
++        return []
++    out: list[str] = []
++    for name, held in fields.items():
++        if type(held) in _DEFAULTABLE:
++            out.append(f"return_field_drop@{name}")
++        if type(held) in _BUMPABLE:
++            out.append(f"return_field_bump@{name}")
++    last_of_kind: dict[str, str] = {}
++    for name, held in fields.items():
++        kind = type(held).__name__
++        if kind in last_of_kind:
++            out.append(f"return_field_swap@{last_of_kind[kind]},{name}")
++        last_of_kind[kind] = name
++    return out
++
++
++def candidate_modes(value: Any) -> list[str]:
++    """Every value-operator mode ``value``'s TYPE offers. Whether it applies is decided by applying
++    it (:func:`apply_value_mode`); the clamp is offered by the observer, which sees the range."""
++    kind = type(value)
++    out: list[str] = []
++    if kind is dict:
++        out.append("return_swap_items")
++    if kind in (list, tuple):
++        out.append("return_to_set")
++    if kind in (set, frozenset):
++        out.append("return_from_set")
++    out.extend(field_modes(value))
++    if _is_user_instance(value):
++        out.append("return_class_subclass")
++        if _user_base(kind) is not None:
++            out.append("return_class_base")
++    return out
++
++
++def apply_value_mode(mode: str, value: Any) -> Any:
++    """The perturbation ``mode`` of ``value``. Raises where its premise fails on this value."""
++    base, param = mode_base(mode), mode_param(mode)
++    if base == "return_swap_items":
++        if type(value) is not dict:
++            raise TypeError("not a dict")
++        return {v: k for k, v in value.items()}
++    if base == "return_to_set":
++        if type(value) not in (list, tuple):
++            raise TypeError("not a list or tuple")
++        return set(value)
++    if base == "return_from_set":
++        if type(value) is set:
++            return sorted(value)
++        if type(value) is frozenset:
++            return tuple(sorted(value))
++        raise TypeError("not a set")
++    if base in ("return_field_drop", "return_field_bump"):
++        fields = record_fields(value)
++        if fields is None:
++            raise TypeError("not a record")
++        held = fields[param]
++        return _with_fields(
++            value,
++            {param: _default_of(held) if base == "return_field_drop" else _bump(held)},
++        )
++    if base == "return_field_swap":
++        fields = record_fields(value)
++        if fields is None:
++            raise TypeError("not a record")
++        first, _, second = param.partition(",")
++        return _with_fields(value, {first: fields[second], second: fields[first]})
++    if base == "return_class_subclass":
++        return _rebound(value, _subclass_of(type(value)))
++    if base == "return_class_base":
++        parent = _user_base(type(value))
++        if parent is None:
++            raise TypeError("no user base class")
++        return _rebound(value, parent)
++    if base == "return_clamp":
++        low, _, high = param.partition(",")
++        lower, upper = decode_bound(low), decode_bound(high)
++        if value < lower:
++            return lower
++        if value > upper:
++            return upper
++        return value
++    raise ValueError(f"not a value-operator mode: {mode!r}")
++
++
++def perturb_return(mode: str, value: Any) -> Any:
++    """What a Form A value-operator mutant returns: ``apply_value_mode``, except that a value its
++    premise does not hold for (one the baseline never saw) comes back UNCHANGED. A perturbation that
++    raised there would be scored as a crash kill the suite never earned."""
++    try:
++        return apply_value_mode(mode, value)
++    # BLE001: a value outside the observed premise is left alone, never a crash kill
++    except Exception:  # noqa: BLE001
++        return value
++
++
++def bound_kind(value: Any) -> str:
++    """The ordered kind a clamp is defined for, "" when it has none (pure over the value's type).
++
++    num (int, float; finite, not bool), dec (finite Decimal), date, dt (naive datetime), td."""
++    kind = type(value)
++    if kind is int or (kind is float and math.isfinite(value)):
++        return "num"
++    if kind is decimal.Decimal and value.is_finite():
++        return "dec"
++    if kind is datetime.date:
++        return "date"
++    if kind is datetime.datetime and value.tzinfo is None:
++        return "dt"
++    if kind is datetime.timedelta:
++        return "td"
++    return ""
++
++
++_MICROSECOND = datetime.timedelta(microseconds=1)
++
++
++def encode_bound(value: Any) -> str:
++    """A range bound as a mode-safe token: no ``:`` (the dimension separator) and no ``@``."""
++    kind = type(value)
++    if kind is int:
++        return f"i{value}"
++    if kind is float:
++        return f"f{value.hex()}"
++    if kind is decimal.Decimal:
++        return f"D{value}"
++    if kind is datetime.date:
++        return f"d{value.toordinal()}"
++    if kind is datetime.datetime:
++        return f"n{(value - datetime.datetime.min) // _MICROSECOND}"  # noqa: DTZ901
++    if kind is datetime.timedelta:
++        return f"t{value // _MICROSECOND}"
++    raise TypeError(f"no bound token for {kind.__name__}")
++
++
++def decode_bound(token: str) -> Any:
++    """The inverse of :func:`encode_bound`."""
++    tag, text = token[:1], token[1:]
++    if tag == "i":
++        return int(text)
++    if tag == "f":
++        return float.fromhex(text)
++    if tag == "D":
++        return decimal.Decimal(text)
++    if tag == "d":
++        return datetime.date.fromordinal(int(text))
++    if tag == "n":
++        return datetime.datetime.min + int(text) * _MICROSECOND  # noqa: DTZ901
++    if tag == "t":
++        return int(text) * _MICROSECOND
++    raise ValueError(f"not a bound token: {token!r}")
++
++
++def _step(value: Any, direction: int) -> Any:
++    """``value`` moved one step toward ``direction`` (+1 up, -1 down): 1 for an int, the adjacent float,
++    the adjacent Decimal, one day for a date, one microsecond for a datetime or timedelta. At the
++    type's own limit it stays."""
++    kind = type(value)
++    try:
++        if kind is int:
++            return value + direction
++        if kind is float:
++            return math.nextafter(value, math.inf if direction > 0 else -math.inf)
++        if kind is decimal.Decimal:
++            ctx = decimal.Context(prec=max(28, len(value.as_tuple().digits) + 2))
++            return value.next_plus(ctx) if direction > 0 else value.next_minus(ctx)
++        if kind is datetime.date:
++            return value + direction * datetime.timedelta(days=1)
++        return value + direction * _MICROSECOND
++    except OverflowError:
++        return value
++
++
++def narrowed_bounds(low: Any, high: Any) -> tuple[Any, Any] | None:
++    """The observed range [low, high] narrowed by one step on each side (Def. 11.8(vii)), so a value
++    at an edge changes. None when the range is a single value: there is nothing to narrow. A range
++    one step wide cannot lose a step on both sides, so it keeps its upper edge."""
++    if not low < high:
++        return None
++    lower = _step(low, +1)
++    if lower > high:
++        lower = low
++    upper = _step(high, -1)
++    if upper < lower:
++        upper = high
++    return lower, upper
++
++
++# ── Effect operators: raise-inject and state-extra (Def. 11.8 (viii), Form B) ───────────────────
++
++
++def resolve_exception(path: str, namespace: dict[str, Any] | None) -> type | None:
++    """The exception class a path names, or None. ``ValueError`` and ``errors.MyError`` resolve from
++    the function's own globals and then the builtins; ``pkg.mod.Name`` from an importable module."""
++    parts = path.split(".")
++    head, rest = parts[0], parts[1:]
++    found: Any = None
++    if namespace and head in namespace:
++        found = namespace[head]
++    elif hasattr(builtins, head):
++        found = getattr(builtins, head)
++    else:
++        for cut in range(len(parts) - 1, 0, -1):
++            try:
++                found = importlib.import_module(".".join(parts[:cut]))
++            # BLE001, S112: a path that does not import names no class; the next shorter prefix is tried
++            except Exception:  # noqa: BLE001, S112
++                continue
++            rest = parts[cut:]
++            break
++        else:
++            return None
++    for name in rest:
++        found = getattr(found, name, None)
++    if isinstance(found, type) and issubclass(found, Exception):
++        return found
++    return None
++
++
++def injected_exception(path: str, namespace: dict[str, Any] | None) -> Exception | None:
++    """An instance of the named exception built with one message, None where it cannot be built."""
++    cls = resolve_exception(path, namespace)
++    if cls is None:
++        return None
++    try:
++        return cls("injected by Wesker mu-minus (raise_inject)")
++    # BLE001: an exception that needs other constructor arguments cannot be injected
++    except Exception:  # noqa: BLE001
++        return None
++
++
++def extra_write_supported(arg: Any) -> bool:
++    """Whether :func:`extra_write` can add one entry to ``arg`` (pure over the object's kind)."""
++    if type(arg) in (list, dict, set, bytearray, collections.deque):
++        return True
++    if isinstance(arg, (type, types.ModuleType, types.FunctionType)):
++        return False
++    return type(getattr(arg, "__dict__", None)) is dict
++
++
++def extra_write(arg: Any) -> None:
++    """The unintended side effect: one entry added to ``arg`` that the function never writes."""
++    kind = type(arg)
++    if kind is dict:
++        arg["__wesker_extra__"] = None
++    elif kind in (list, collections.deque):
++        arg.append(None)
++    elif kind is set:
++        arg.add("__wesker_extra__")
++    elif kind is bytearray:
++        arg.append(0)
++    else:
++        arg.__dict__["__wesker_extra__"] = None
++
++
++def _inject_wrapper(fn: Callable[..., Any], path: str) -> Callable[..., Any]:
++    """``fn`` that raises the named exception at its return point instead of returning. Where the
++    exception cannot be built the call returns as ``fn`` does: a no-op, never a different failure."""
++    namespace = getattr(fn, "__globals__", None)
++    if inspect.iscoroutinefunction(fn):
++
++        async def acall(*args: Any, **kwargs: Any) -> Any:
++            out = await fn(*args, **kwargs)
++            exc = injected_exception(path, namespace)
++            if exc is not None:
++                raise exc
++            return out
++
++        return _like(acall, fn)
++
++    def call(*args: Any, **kwargs: Any) -> Any:
++        out = fn(*args, **kwargs)
++        exc = injected_exception(path, namespace)
++        if exc is not None:
++            raise exc
++        return out
++
++    return _like(call, fn)
++
++
++def _state_extra_wrapper(fn: Callable[..., Any], param: str) -> Callable[..., Any]:
++    """``fn`` that adds one extra write to its argument ``param`` before it returns."""
++    try:
++        signature: inspect.Signature | None = inspect.signature(fn)
++    except (TypeError, ValueError):
++        signature = None
++
++    def touch(args: tuple, kwargs: dict) -> None:
++        if signature is None:
++            return
++        try:
++            arg = signature.bind(*args, **kwargs).arguments[param]
++            if extra_write_supported(arg):
++                extra_write(arg)
++        # BLE001, S110: an argument that cannot take the write is left alone; never a crash kill
++        except Exception:  # noqa: BLE001, S110
++            pass
++
++    if inspect.iscoroutinefunction(fn):
++
++        async def acall(*args: Any, **kwargs: Any) -> Any:
++            out = await fn(*args, **kwargs)
++            touch(args, kwargs)
++            return out
++
++        return _like(acall, fn)
++
++    def call(*args: Any, **kwargs: Any) -> Any:
++        out = fn(*args, **kwargs)
++        touch(args, kwargs)
++        return out
++
++    return _like(call, fn)
++
++
++def kill_class_of_dimension(dimension: str) -> str:
++    """The class of a kill of the mutant at ``dimension`` (pure — pinned).
++
++    ``reach_class``: the mutant is an injected raise, so any test that merely CALLS the function
++    kills it whatever it asserts; the kill measures reach, not specification (Def. 11.8(viii)).
++    ``output_perturbation``: every other OUTPUT mutant, whose kill is a test pinning the output.
++    ``not_output``: the dimension is not an OUTPUT one. A reader splitting detection from contract
++    reads this instead of re-deriving the sub-mode from the id."""
++    parts = dimension.split(":")
++    if len(parts) < 2 or parts[0] != "OUTPUT":
++        return "not_output"
++    return (
++        "reach_class"
++        if mode_base(parts[1]) in REACH_CLASS_MODES
++        else "output_perturbation"
++    )
++
++
+ def form_b(mode: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+     """The Form B perturbation ``mode`` as a decorator ``fn -> perturbed fn``.
+ 
+@@ -197,6 +730,11 @@ def form_b(mode: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+         return _stale_wrapper
+     if mode == "raise_swallow":
+         return _swallow_wrapper
++    base, param = mode_base(mode), mode_param(mode)
++    if base == "raise_inject" and param:
++        return lambda fn: _inject_wrapper(fn, param)
++    if base == "state_extra" and param:
++        return lambda fn: _state_extra_wrapper(fn, param)
+     raise ValueError(f"not a μ⁻ Form B mode: {mode!r}")
+ 
+ 
+@@ -214,7 +752,10 @@ class MuMinusOperator:
+     * ``partial``     — some of its variants generated (``modes``); ``note`` names the rest and why;
+     * ``realized_by`` — an existing operator already asks exactly this question (``modes`` names
+       it), so a separate mutant would duplicate it;
+-    * ``unsupported`` — not generated; ``note`` says why it cannot be built soundly.
++    * ``unsupported`` — not generated; ``note`` says why it cannot be built soundly. No operator
++      stands here since #44: each premise the catalog once called missing is OBSERVED by the baseline
++      run (``Wesker.codomain``), so what remains per function is a premise that function never offers,
++      named in the profile's ``mu_minus_withheld``.
+ 
+     ``modes`` entries are category-qualified (``OUTPUT:return_drop``, ``STATE:remove_assign``)."""
+ 
+@@ -224,6 +765,10 @@ class MuMinusOperator:
+     status: str
+     modes: tuple[str, ...]
+     note: str = ""
++    #: The OBSERVED premise a premised operator is generated under (Def. 11.10): the fact about the
++    #: baseline's values that guarantees it applies and never raises. "" for an operator whose
++    #: applicability is a type name alone, or none.
++    premise: str = ""
+ 
+ 
+ _I, _II, _III, _IV = "(i) universal", "(ii) boolean", "(iii) numeric", "(iv) string"
+@@ -373,37 +918,57 @@ MU_MINUS_CATALOG: tuple[MuMinusOperator, ...] = (
+         _V,
+         "A",
+         "built",
+-        ("OUTPUT:return_ctype",),
+-        "list <-> tuple and set <-> frozenset; list -> set is not total (unhashable "
+-        "elements) and set -> list has no deterministic order",
++        ("OUTPUT:return_ctype", "OUTPUT:return_to_set", "OUTPUT:return_from_set"),
++        "list <-> tuple and set <-> frozenset always; list or tuple -> set where the "
++        "observed elements are hashable; set -> list and frozenset -> tuple in sorted order "
++        "where the observed elements are mutually orderable (otherwise not generated, and "
++        "named per function)",
++        "return_to_set: every list or tuple returned at the site has hashable elements; "
++        "return_from_set: every set or frozenset returned at the site has mutually "
++        "orderable elements",
+     ),
+     MuMinusOperator(
+         "dict",
+         _V,
+         "A",
+-        "partial",
+-        ("OUTPUT:return_drop", "OUTPUT:return_field_default"),
+-        "drop-field (the last key) and default-field (the last key's value -> None); the "
+-        "key/value swap raises on an unhashable value, so it is not total on dict",
++        "built",
++        (
++            "OUTPUT:return_drop",
++            "OUTPUT:return_field_default",
++            "OUTPUT:return_swap_items",
++        ),
++        "drop-field (the last key), default-field (the last key's value -> None) and the "
++        "key/value swap, which is generated only where the observed values are hashable",
++        "return_swap_items: every dict returned at the site has hashable values (observed)",
+     ),
+     MuMinusOperator(
+         "field",
+         _VI,
+         "A",
+-        "unsupported",
+-        (),
+-        "the observed codomain is a bare type name: it cannot show that a return is a "
+-        "record, nor its fields' types, so neither applicability nor the field's own "
+-        "family is known before generation",
++        "built",
++        (
++            "OUTPUT:return_field_drop",
++            "OUTPUT:return_field_bump",
++            "OUTPUT:return_field_swap",
++        ),
++        "one field at a time, on a dataclass, namedtuple, attrs class or plain object: a "
++        "field to its type's default, a numeric, boolean or string field moved a step, two "
++        "same-typed fields exchanged, each with the previous field of its type; one mutant per "
++        "field, named in the mode",
++        "every value returned at the site is a record that has the field, with a type the "
++        "perturbation is defined for; field names and types are read off the observed instances",
+     ),
+     MuMinusOperator(
+         "class",
+         _VI,
+-        "A/B",
+-        "unsupported",
+-        (),
+-        "a super- or sub-type instance has to be constructed, and no total construction "
+-        "follows from a type name",
++        "A",
++        "built",
++        ("OUTPUT:return_class_subclass", "OUTPUT:return_class_base"),
++        "a copy of the observed instance rebound to a dynamically created subclass, and, "
++        "where its class has a user base class, to that base; the first distinguishes "
++        "type(x) is C from isinstance",
++        "every value returned at the site is an instance of a Python-defined class that can be "
++        "copied and rebound (and, for the base, has a user base class)",
+     ),
+     MuMinusOperator(
+         "adj",
+@@ -417,9 +982,13 @@ MU_MINUS_CATALOG: tuple[MuMinusOperator, ...] = (
+         "clamp",
+         _VII,
+         "A",
+-        "unsupported",
+-        (),
+-        "clip(v, l, u) needs the range the invariant names; no premise for it is observed",
++        "built",
++        ("OUTPUT:return_clamp",),
++        "clip into the observed [min, max] narrowed by one step on each side, so a value at "
++        "an edge changes (int 1, float adjacent, Decimal adjacent, date a day, datetime and "
++        "timedelta a microsecond)",
++        "every value returned at the site is one finite, mutually ordered kind with at least "
++        "two distinct values",
+     ),
+     MuMinusOperator(
+         "sortbreak",
+@@ -441,10 +1010,15 @@ MU_MINUS_CATALOG: tuple[MuMinusOperator, ...] = (
+         "raise",
+         _VIII,
+         "B",
+-        "partial",
+-        ("OUTPUT:raise_swallow",),
+-        "swallow, where the function's own body raises; an injected raise fails every "
+-        "test that reaches the call, so its kill measures reach, not specification",
++        "built",
++        ("OUTPUT:raise_swallow", "OUTPUT:raise_inject"),
++        "swallow, where the function's own body raises; inject, of the exception types the "
++        "function is observed to raise (else those its own body raises) at the return point. "
++        "An injected raise fails every test that reaches the call, so its kill measures "
++        "reach, not specification: the mode is `reach_class` (REACH_CLASS_MODES), and "
++        "kill_class_of_dimension reads it off the mutant's dimension",
++        "raise_inject: the exception type was observed leaving the function (or, if none was, "
++        "named by a raise in its own body) and can be resolved and built from a message",
+     ),
+     MuMinusOperator(
+         "state-noop",
+@@ -452,15 +1026,19 @@ MU_MINUS_CATALOG: tuple[MuMinusOperator, ...] = (
+         "B",
+         "realized_by",
+         ("STATE:remove_assign", "STMT"),
+-        "omitting a side effect is the positive STATE remove_assign and STMT deletion",
++        "omitting a side effect IS the positive STATE remove_assign and STMT deletion (decision "
++        "D2, Rem. 11.9(b)): they already ask whether the effect is the output, so a separate "
++        "OUTPUT sub-mode would duplicate them. MutationPolicy.categories names the realization",
+     ),
+     MuMinusOperator(
+         "state-extra",
+         _VIII,
+         "B",
+-        "unsupported",
+-        (),
+-        "an extra mutation must choose which object and attribute to change; the function "
+-        "determines no such target",
++        "built",
++        ("OUTPUT:state_extra",),
++        "one extra entry written to an argument or receiver before return (a dict key, a "
++        "list or deque element, a set member, an attribute); one mutant per such parameter",
++        "the parameter was a mutable container or object in every observed call and the baseline "
++        "observed it NOT mutated in any; the extra write is the unintended side effect",
+     ),
+ )
+diff --git a/Wesker/policy.py b/Wesker/policy.py
+index 620255b..2b5eb49 100644
+--- a/Wesker/policy.py
++++ b/Wesker/policy.py
+@@ -42,6 +42,7 @@ from .engine import (
+     _OUTPUT_CALL_SUB_MODES,
+     _OUTPUT_SUB_MODES,
+     _OUTPUT_TYPE_CONDITIONAL,
++    _OUTPUT_VALUE_SUB_MODES,
+     _OUTPUT_YIELD_SUB_MODES,
+     _STATE_SUB_MODES,
+     MutationCategory,
+@@ -58,7 +59,7 @@ from .monitoring import (
+     STEP_BUDGET_FLOOR,
+     STEP_PROBE_CAP,
+ )
+-from .mu_minus import MU_MINUS_CATALOG
++from .mu_minus import MU_MINUS_CATALOG, REACH_CLASS_MODES
+ from .swap_plan import SWAP_PAIR_BUDGET
+ 
+ # 2: DATAFLOW landed (issue #10) — reference substitution enters the universe,
+@@ -241,6 +242,13 @@ class MutationPolicy:
+     categories: dict[str, dict[str, Any]]
+     exclusions: tuple[str, ...]
+     fingerprint_counts: dict[str, dict[str, int]]
++    #: The μ⁻ operators of Def. 11.8 this policy does NOT generate at all, by catalog key, with the
++    #: reason (#44). It is part of the two-sign policy id (``negative_policy.unbuilt``) and is now a
++    #: field, so a consumer can read and name it. None for the one-sign policy, which has no μ⁻
++    #: member: "not applicable" and "nothing unbuilt" are different states. Empty for the two-sign
++    #: policy once every operator is built: what a particular function's values did not admit is
++    #: per function, in the profile's ``mu_minus_withheld``.
++    unbuilt: dict[str, str] | None = None
+ 
+     def to_json(self) -> str:
+         """Canonical serialization — stable key order, no whitespace variance."""
+@@ -379,6 +387,13 @@ def _categories(two_sign: bool = False) -> dict[str, dict[str, Any]]:
+                 mode: {"question": desc, "types": sorted(types)}
+                 for mode, desc, types in _OUTPUT_TYPE_CONDITIONAL
+             },
++            # Fork 2, premised (Def. 11.10): the operators whose applicability is a fact about the
++            # VALUES a return site returned. Each is generated at a site only where the baseline
++            # applied it to every value there and it did not raise; the premise is the sentence.
++            "value_conditional": {
++                mode: {"question": desc, "premise": premise}
++                for mode, desc, premise in _OUTPUT_VALUE_SUB_MODES
++            },
+             # Form B (Def. 11.6): what the return-site rewrite cannot reach. Static (no observed
+             # type decides it), so it is in the census and the fingerprint.
+             "form_b": {
+@@ -386,14 +401,29 @@ def _categories(two_sign: bool = False) -> dict[str, dict[str, Any]]:
+                 "call": dict(_OUTPUT_CALL_SUB_MODES),
+                 "rule": (
+                     "a generator gets the yield modes; any other function gets "
+-                    "return_stale, and raise_swallow when its own body raises "
++                    "return_stale, raise_swallow when its own body raises, and the "
++                    "parameterized modes its observation admits: raise_inject@<exception> for "
++                    "each exception type observed leaving it (else each its own body raises), "
++                    "state_extra@<parameter> for each mutable argument observed never mutated "
+                     "(form_b_output_modes)"
+                 ),
++                "reach_class": list(REACH_CLASS_MODES),
++            },
++            # An operator of Def. 11.8 that an existing operator already asks exactly (state-noop is the
++            # positive STATE:remove_assign and STMT deletion, decision D2, Rem. 11.9(b); 0 is
++            # return_const), so a separate OUTPUT sub-mode would duplicate it. Named here so a receipt
++            # does not read the absence of a sub-mode as an unmeasured operator.
++            "realized_by": {
++                op.key: {"modes": list(op.modes), "note": op.note}
++                for op in MU_MINUS_CATALOG
++                if op.status == "realized_by"
+             },
+             "form": (
+                 "A — return-site rewrite. sub_modes apply to every return (Fork 1); a "
+-                "type_conditional mode applies only where every observed return type is "
+-                "in its types (Fork 2, output_mode_applies), and never raises there. "
++                "type_conditional mode applies only at a return site where every observed "
++                "return type is in its types (Fork 2, output_mode_applies, site_mode_standing), "
++                "and never raises there; a value_conditional mode only at a site where the "
++                "baseline APPLIED it to every value returned and it did not raise. "
+                 "B — the target's own definition with Wesker.mu_minus.form_b(<mode>) "
+                 "applied innermost, so every evaluator, the isolated worker included, "
+                 "builds it from source. return_stale holds the previous call's return only "
+@@ -405,6 +435,15 @@ def _categories(two_sign: bool = False) -> dict[str, dict[str, Any]]:
+     return cats
+ 
+ 
++def _unbuilt() -> dict[str, str]:
++    """The catalog operators this policy does not generate, with the reason (partial or unsupported)."""
++    return {
++        op.key: f"{op.status}: {op.note}"
++        for op in MU_MINUS_CATALOG
++        if op.status in ("partial", "unsupported")
++    }
++
++
+ def _policy_category_set(two_sign: bool) -> list[MutationCategory]:
+     """The categories the policy covers. The DEFAULT one-sign policy excludes OUTPUT (μ⁻);
+     the two-sign policy σ(P, μ ∪ μ⁻) adds it. Iterating this rather than the raw enum is what
+@@ -587,16 +626,25 @@ def mutation_policy(two_sign: bool = False) -> MutationPolicy:
+             "type_conditional": [
+                 mode for mode, _desc, _types in _OUTPUT_TYPE_CONDITIONAL
+             ],
++            "value_conditional": [mode for mode, _desc, _p in _OUTPUT_VALUE_SUB_MODES],
++            "typing": (
++                "by RETURN SITE: each return statement's own observed values decide its modes; "
++                "a statement the baseline never executed gets only the always-applicable modes "
++                "(site_mode_standing)"
++            ),
++            "state_noop": (
++                "realized by the positive STATE:remove_assign and STMT deletion (decision D2, "
++                "Rem. 11.9(b)); no OUTPUT sub-mode"
++            ),
+             "form_b": [
+                 mode for mode, _desc in _OUTPUT_YIELD_SUB_MODES + _OUTPUT_CALL_SUB_MODES
+             ],
+             # What a two-sign certificate does NOT measure, named with its reason, so a
+             # receipt cannot be read as covering the whole of Def. 11.8 (Wesker.mu_minus).
+-            "unbuilt": {
+-                op.key: f"{op.status}: {op.note}"
+-                for op in MU_MINUS_CATALOG
+-                if op.status in ("partial", "unsupported")
+-            },
++            "unbuilt": _unbuilt(),
++            # The premise each premised operator is generated under, so a changed premise moves
++            # the id of every receipt that rested on the old one.
++            "premises": {op.key: op.premise for op in MU_MINUS_CATALOG if op.premise},
+         }
+     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+@@ -611,4 +659,5 @@ def mutation_policy(two_sign: bool = False) -> MutationPolicy:
+         categories=manifest["categories"],
+         exclusions=tuple(manifest["exclusions"]),
+         fingerprint_counts=fingerprint,
++        unbuilt=manifest["negative_policy"]["unbuilt"] if two_sign else None,
+     )
+diff --git a/docs/MU_MINUS_CATALOG.md b/docs/MU_MINUS_CATALOG.md
+index 5c62f5b..c1b310a 100644
+--- a/docs/MU_MINUS_CATALOG.md
++++ b/docs/MU_MINUS_CATALOG.md
+@@ -22,13 +22,22 @@ default one-sign policy generates no `OUTPUT` mutant, and its id does not move w
+ 
+ | standing | operators |
+ |---|---|
+-| built | 30 |
+-| partial | 2 (dict, raise) |
++| built | 36 |
++| partial | 0 |
+ | realized by another operator | 2 (0, state-noop) |
+-| unsupported | 4 (field, class, clamp, state-extra) |
++| unsupported | 0 |
+ 
+-The two-sign policy manifest names every partial and unsupported operator with its reason
+-(`negative_policy.unbuilt`), so a two-sign certificate cannot be read as covering all 38.
++Every operator is built or realized. The seven that were partial or unsupported (dict, ctype's set
++conversions, field, class, clamp, raise-inject, state-extra) each needed a premise the old observation
++could not supply: a type NAME. The baseline run observes the VALUES a function returns and the
++arguments it leaves alone, so each premise is now observed (see "Premised operators").
++
++`MutationPolicy.unbuilt` is a field (None for the one-sign policy, which has no μ⁻ member; `{}` for
++the two-sign policy) and is part of the two-sign policy id (`negative_policy.unbuilt`). What a
++particular function's values did not admit is per function, in the profile's `mu_minus_withheld`:
++each premise that was measured and failed, and each operator whose premise the function never offered,
++with the reason. A two-sign certificate therefore cannot be read as covering what a function's values
++never allowed.
+ 
+ ## How an operator is delivered
+ 
+@@ -38,11 +47,25 @@ Two forks decide where a Form A operator applies (Def. 11.10):
+ 
+ - **Fork 1, always applicable.** none, const and identity are total on any value. They apply to
+   every `return <expr>`; identity needs a parameter other than `self`/`cls`.
+-- **Fork 2, type-conditional.** The mode is emitted only where EVERY observed return type is in its
+-  applicable types: `output_mode_applies`, the subset condition observed ⊆ types, never mere
+-  intersection. Form A rewrites the return site statically, so a mode one branch cannot take would
+-  raise on that branch. A heterogeneous return (`int | str`) therefore forgoes it. The observed
+-  codomain is Detective's harvest of `type(return).__name__` over the tests the run consults.
++- **Fork 2, type-conditional.** The mode is emitted at a return site only where EVERY value observed
++  returning THERE is of a type in its applicable types: `output_mode_applies`, the subset condition
++  observed ⊆ types, never mere intersection. Form A rewrites the return site statically, so a mode one
++  branch cannot take would raise on that branch. A heterogeneous return (`int | str`) therefore forgoes
++  it.
++- **The unit is the return SITE** (`site_mode_standing`; #44, AC2). `tag(n)` returns a str on one
++  branch and None on the other; a test that reaches only the first observes `{str}` for the function,
++  and typing the function by it gave the `return None` no test ran four rewrites that raise on None.
++  Each return statement now answers for its own values: a statement the baseline never executed has no
++  observed codomain, so only the always-applicable modes reach it. An observation that carries no site
++  information (a bare set of type names, Detective's harvest) still types the function as a whole.
++- **The observed codomain** is `Wesker.codomain.observe_codomain`: the tests run once against the
++  original, and every return (its line, its value), every exception that left the function and every
++  argument's state before and after each call are recorded. `run_function_profiling(..., two_sign=True)`
++  runs it when the caller supplied no observation, and adds OUTPUT to the categories. The result is a
++  `frozenset[str]` (the type Detective's verdict cache carries): type names, `@line:type` per site,
++  `@line!ok=<mode>` / `@line!no=<mode>=<why>` for the premised modes, `@!ok=` / `@!no=` for the modes
++  about the call, and `@!truncated` for an incomplete observation (a test was cut), which licenses
++  nothing but the always-applicable modes.
+ 
+ The Fork 2 rewrites added by #44 are expression templates (`_OUTPUT_TEMPLATES`):
+ - Each evaluates the return expression **exactly once**, so a perturbation is p ∘ f. The
+@@ -71,6 +94,33 @@ read off the function's OWN body (nested scopes excluded):
+ - a generator gets the yield modes;
+ - any other function gets `return_stale`, plus `raise_swallow` where its own body raises.
+ 
++## Premised operators
++
++A premised operator (Def. 11.10) applies only where a fact about the observed VALUES guarantees it. The
++fact is established by APPLYING the perturbation to every value the site returned
++(`Wesker.mu_minus.apply_value_mode`): the mode is generated at the site only if no application raised
++and at least one changed its value. A failed application is recorded with the exception's type, so the
++function's profile says which premise failed. The premise is therefore the guarantee that the operator
++never raises on an observed value, and a value the baseline never saw comes back unchanged from the
++mutant (`perturb_return`), never as a crash kill.
++
++| sub-mode | premise |
++|---|---|
++| `return_swap_items` | every dict returned at the site has hashable values |
++| `return_to_set` | every list or tuple returned at the site has hashable elements |
++| `return_from_set` | every set or frozenset returned at the site has mutually orderable elements |
++| `return_field_drop` | every value returned at the site is a record with that field, of a type that has a default |
++| `return_field_bump` | every value returned at the site is a record with that field, of a numeric, boolean, str or bytes type |
++| `return_field_swap` | every value returned at the site is a record with both fields, of one type |
++| `return_class_subclass` | every value returned at the site is an instance of a Python-defined class that can be copied and rebound to a subclass |
++| `return_class_base` | every value returned at the site is an instance of a class with a user base class, copied and rebound to it |
++| `return_clamp` | every value returned at the site is one finite, mutually ordered kind (int and float, Decimal, date, naive datetime, timedelta) with at least two distinct values |
++
++A parameterized mode carries its parameter after `@`: the field (`return_field_drop@x`), the pair
++(`return_field_swap@x,y`), the narrowed bounds (`return_clamp@i5,i9`). The two parameterized Form B
++modes are `raise_inject@<exception path>` and `state_extra@<parameter>`; their premises are in the
++effect family below.
++
+ ## The four states
+ 
+ - **built**: generated; the sub-modes listed realize it.
+@@ -95,6 +145,8 @@ read off the function's OWN body (nested scopes excluded):
+ | a Form B mutant is never bytecode-equivalent | TCE would otherwise mark every Form B survivor equivalent unrun | `tests/test_mu_minus_form_b_intent.py::test_a_form_b_mutant_is_never_bytecode_equivalent_to_the_original` |
+ | the engine's interrupts are never swallowed | Abandoned, MeasurementRefused and StepBudgetExceeded are BaseException | `tests/test_mu_minus_form_b_intent.py::test_swallow_returns_none_for_an_ordinary_raise_only` |
+ | the call shape survives | sync, async, method, classmethod, staticmethod, property, async generator | `tests/test_mu_minus_form_b_intent.py::test_methods_and_descriptors_bind_once_under_the_innermost_decorator`, `tests/test_mu_minus_form_b_intent.py::test_async_functions_stay_awaitable`, `tests/test_mu_minus_form_b_intent.py::test_an_async_generator_stays_an_async_generator` |
++| a return site answers for its own observed values | an unexecuted `return None` must not get str rewrites that raise on None (#44 AC2) | `tests/test_mu_minus_observed_codomain_intent.py::test_a_return_site_is_typed_by_its_own_observed_values`, `tests/test_mu_minus_observed_codomain_intent.py::test_site_mode_standing_names_every_state` |
++| the premised operators reach the isolated worker, and are measured as in process | the worker receives nothing but source; converge re-observes in one | `tests/test_mu_minus_premised_isolated_intent.py::test_a_field_mutant_is_killed_by_the_pinning_test_in_the_isolated_worker`, `tests/test_mu_minus_premised_isolated_intent.py::test_an_injected_raise_is_a_reach_kill_in_the_isolated_worker` |
+ | the nine operators built before #44 keep their ids | `flag` keys on a survivor's id and diff | `tests/test_mu_minus_families_intent.py::test_the_nine_built_operators_keep_their_ids` |
+ 
+ Measured end to end through Detective's CLI (`converge --two-sign` on fresh fixtures, Wesker 204a760,
+@@ -207,48 +259,65 @@ int and float, bool excluded.
+ | drop | A | built | `return_drop` | Fork 2 |
+ | dup | A | built | `return_duplicate` | Fork 2 |
+ | singleton | A | built | `return_singleton` | Fork 2 |
+-| ctype | A | built | `return_ctype` | Fork 2 |
+-| dict | A | partial | `return_drop`, `return_field_default` | Fork 2 |
++| ctype | A | built | `return_ctype`, `return_to_set`, `return_from_set` | Fork 2; the set conversions are premised |
++| dict | A | built | `return_drop`, `return_field_default`, `return_swap_items` | Fork 2; the swap is premised |
+ 
+ - **perm.** Reversal of a list or tuple. It is a no-op under set and dict-key semantics, which is why
+   it is not emitted there.
+ - **drop.** Removes the last element of a list or tuple, the last key of a dict (dict's drop-field),
+   or the least-repr element of a set or frozenset.
+ - **singleton.** Keeps the first element, or the least-repr one for a set.
+-- **ctype.** Maps list <-> tuple and set <-> frozenset. list -> set is not total, because elements
+-  may be unhashable. set -> list has no deterministic order.
+-- **dict, partial.** drop-field (`return_drop`) and default-field (`return_field_default`: the last
+-  key's value becomes None) are built. The key<->value swap is NOT built: it raises on an unhashable
+-  value, so it is not total on dict, and a perturbation that raises is a crash kill (Prop. 11.11).
++- **ctype.** Maps list <-> tuple and set <-> frozenset (`return_ctype`, always); a list or tuple to a
++  set (`return_to_set`) where the observed elements are hashable; a set to a sorted list and a
++  frozenset to a sorted tuple (`return_from_set`) where the observed elements are mutually orderable,
++  which is what gives the conversion one deterministic order (not iteration order, which
++  PYTHONHASHSEED moves). Where the premise failed on an observed value the mode is not generated and
++  the function's profile names it with the exception the attempt raised.
++- **dict.** drop-field (`return_drop`), default-field (`return_field_default`: the last key's value
++  becomes None) and the key<->value swap (`return_swap_items`), which is generated only where the
++  observed values are hashable. Equal values collapse under the swap, which still changes the dict.
+ 
+ ### (vi) Structured — Def. 11.8 (vi)
+ 
+ | operator | form | status | sub-modes | applicability |
+ |---|---|---|---|---|
+-| field | A | unsupported | — | — |
+-| class | A/B | unsupported | — | — |
+-
+-- **field.** Applies the field type's own family to one field. The observed codomain is a bare type
+-  name, so it cannot show that a return is a record, nor its fields' types. Neither applicability
+-  nor the family to apply is known before generation. A runtime dispatch would be a no-op wherever
+-  the premise fails, a built-in survivor. It would also have to rebuild the record, which re-runs
+-  its validation, and validation can raise.
+-- **class.** Returns a super- or sub-type instance. That instance has to be constructed, and no
+-  total construction follows from a type name.
++| field | A | built | `return_field_drop`, `return_field_bump`, `return_field_swap` | premised |
++| class | A | built | `return_class_subclass`, `return_class_base` | premised |
++
++- **field.** One field at a time, on a dataclass, a namedtuple, an attrs class or a plain object
++  (`__dict__` or `__slots__`); the field names and types are read off the observed instances. A field
++  goes to its type's default (`return_field_drop`: 0, 0.0, "", [], ... for a builtin kind, never a
++  constructor that could run user code), a numeric, boolean, str or bytes field moves a step
++  (`return_field_bump`: +1, flipped, one character longer), and a field is exchanged with the previous
++  field of its type (`return_field_swap`). One mutant per field, the field named in the mode. The
++  record is COPIED and the field written past `__setattr__` and `__post_init__`: the perturbation is an
++  inconsistent record on purpose, validation cannot raise, and the original is never touched. A site
++  that returned records of two shapes offers no field mutant.
++- **class.** A copy of the observed instance rebound to a dynamically created subclass that reads the
++  same (name, module, qualname) and shares its layout (`return_class_subclass`), and, where the class
++  has a user base class, to that base (`return_class_base`). The subclass instance passes `isinstance`
++  and fails `type(x) is C`, which is the distinction the operator fences. A class that cannot be copied
++  and rebound (an enum member copies to itself) offers neither, and is named.
+ 
+ ### (vii) Ordered — Def. 11.8 (vii)
+ 
+ | operator | form | status | sub-modes | applicability |
+ |---|---|---|---|---|
+ | adj | A | built | `return_adjacent` | Fork 2 |
+-| clamp | A | unsupported | — | — |
++| clamp | A | built | `return_clamp` | premised |
+ | sortbreak | A | built | `return_sortbreak` | Fork 2 |
+ 
+ - **adj.** The adjacent date (±1 day), datetime or timedelta (±1 µs). It steps the other way at the
+   type's maximum. An aware datetime is compared on its naive fields, so the guard never compares
+   naive with aware. For an int or float, adjacency is ±1 and ±ε.
+-- **clamp.** `clip(v, l, u)` needs the range the invariant names. No premise for it is observed, and
+-  inventing one would make the fence the engine's guess.
++- **clamp.** The range IS observed: the minimum and maximum over the values a return site produced.
++  The value is clipped into that range NARROWED BY ONE STEP on each side (Def. 11.8(vii)), so a value
++  at an edge changes and an interior one does not. A step is 1 for an int, the adjacent float
++  (`math.nextafter`), the adjacent Decimal, one day for a date, one microsecond for a datetime or
++  timedelta; at the type's limit it stays. A range one step wide keeps its upper edge. Not generated,
++  and named per function: a single observed value (nothing to narrow), mixed kinds (an int and a
++  Decimal are not one range) or a non-finite value. A site returning a str, None or an aware datetime
++  is simply not a clamp site.
+ - **sortbreak.** Transposes the first two elements of a list or tuple, a local break, distinct from
+   perm's reversal on anything longer than two.
+ 
+@@ -259,20 +328,36 @@ Form B only. Prop. 11.7: Form B is load-bearing for the completeness claim, not
+ | operator | form | status | sub-modes | applicability |
+ |---|---|---|---|---|
+ | yield | B | built | `yield_truncate`, `yield_drop_first`, `yield_duplicate_last`, `yield_empty` | generators and async generators |
+-| raise | B | partial | `raise_swallow` | non-generators whose own body raises |
++| raise | B | built | `raise_swallow`, `raise_inject` | swallow: non-generators whose own body raises; inject: premised |
+ | state-noop | B | realized_by | `STATE:remove_assign`, `STMT` | — |
+-| state-extra | B | unsupported | — | — |
++| state-extra | B | built | `state_extra` | premised |
+ 
+ - **yield.** Materializes at most 10 000 items before perturbing, so an infinite generator cannot
+   hang the evaluator.
+-- **raise, partial.** swallow returns None for an `Exception` and lets a `BaseException` through,
+-  so the engine's interrupts are never eaten. A `pytest.raises` test kills it as `exception`, a value
+-  kill. Injecting a raise is NOT built: every test that reaches the call fails it, so its kill
+-  measures reach, not specification.
++- **raise.** swallow returns None for an `Exception` and lets a `BaseException` through, so the engine's
++  interrupts are never eaten. A `pytest.raises` test kills it as `exception`, a value kill. inject
++  (`raise_inject@<exception>`) raises, at the return point and after the body ran, each exception type
++  the function is OBSERVED to raise; if it was observed to raise none, each type its own body raises
++  (a bound name such as `raise exc` is no type). The exception is built from a message; one that
++  cannot be injected is never injected and is named: `local_class` (defined inside a function),
++  `base_exception` (a `BaseException` that is not an `Exception`: the engine's own interrupts derive
++  from it), `unresolvable` (its path does not lead back to the class), `not_constructible` (it needs
++  other constructor arguments). A function that raises nothing observed or written is named
++  `no_exception_type_observed_or_raised`. **An injected raise fails every test that reaches the call,
++  so its kill measures reach, not specification.** The mode is `reach_class`
++  (`REACH_CLASS_MODES`): `kill_class_of_dimension` reads it off the mutant's dimension, so the
++  detection/contract split of a kill record can set those kills apart.
+ - **state-noop.** Omitting a side effect is exactly the positive STATE `remove_assign` and STMT
+-  deletion.
+-- **state-extra.** An extra mutation must choose which object and attribute to change. The function
+-  determines no such target, and inventing one would make the fence the engine's guess.
++  deletion (decision D2, Rem. 11.9(b)), and a separate OUTPUT sub-mode would duplicate them. The
++  realization is recorded in the catalog and on `MutationPolicy.categories["OUTPUT"]["realized_by"]`.
++- **state-extra.** One extra write (a dict key, a list or deque element, a set member, an attribute)
++  to a mutable argument or the receiver, before the call returns: the unintended side effect.
++  Premise: the parameter was a mutable container or object in EVERY observed call and the baseline
++  observed it NOT mutated in any, by a structural fingerprint taken before and after each call. A
++  function that writes its argument writes it on purpose (`mutated`), an argument that is not always
++  mutable is `type_varies`, an observation that stopped counting calls is `calls_truncated`, and a
++  function with no mutable argument is `no_mutable_argument_observed`. One mutant per parameter,
++  the parameter in the mode.
+ 
+ ## Fork 2 applicable types
+ 
+@@ -310,6 +395,9 @@ observed return type is in its set.
+ | `return_sortbreak` | list, tuple |
+ | `return_adjacent` | date, datetime, timedelta |
+ 
++A mode is emitted at a return SITE where every value observed returning there is in its set. The
++premised modes are in "Premised operators" above, not here: their guard is a fact about values.
++
+ ## What is not closed
+ 
+ - **stale needs two calls with different results in ONE test.** Detective's witness pool may reach the
+@@ -325,7 +413,16 @@ observed return type is in its set.
+ - **A decorated generator in process.** The in-process yield factory wraps the live, decorated
+   original, while the isolated twin wraps the raw function inside its decorators. For an undecorated
+   generator the two coincide.
+-- **Typing is by bare type name.** A user class named `list` would be treated as the builtin.
++- **A legacy observation is typed by bare type name.** A user class named `list` would be treated as
++  the builtin. The observation `run_function_profiling(two_sign=True)` makes is typed by site and
++  premised by value, but Detective still harvests only type names: until its harvest is replaced by
++  `Wesker.codomain.observe_codomain` (a swap of one call, handed to Detective), a Detective two-sign
++  run generates the premised operators for no function and says so in the profile
++  (`mu_minus_withheld`: "the observation carries type names only, no values").
++- **A premised mode's description is generic.** `return_class_subclass` creates a subclass once per
++  class per process, so a class with `__init_subclass__` side effects runs them once.
++- **A dynamic-subclass instance prints like the class it copies** (same name and qualname), which is
++  the point of the operator; a test that compares reprs does not see it.
+ - **A set element's repr.** The set element choice calls `repr`, which raises for an element whose
+   `__repr__` raises or for a >4300-digit int.
+ - **The modes that predate #44 drop the return expression.** return_none, return_const and
+diff --git a/tests/_mu_support.py b/tests/_mu_support.py
+new file mode 100644
+index 0000000..b40b0e2
+--- /dev/null
++++ b/tests/_mu_support.py
+@@ -0,0 +1,88 @@
++"""Shared fixtures for the μ⁻ premise intent tests (#44; Detective #120–#123).
++
++A target is written to a file and imported, so its AST carries the same absolute line numbers the
++baseline run reports for its return statements: that is what makes the per-return-site observation
++line up with the mutator the way a real run does.
++"""
++
++from __future__ import annotations
++
++import ast
++import importlib.util
++import sys
++import textwrap
++
++from Wesker.codomain import observe_codomain
++from Wesker.engine import MutationCategory, evaluate_mutant, generate_mutants
++
++
++def load(tmp_path, name: str, src: str):
++    """Write ``src`` to ``tmp_path/name.py``, import it as ``name``; return ``(module, path)``."""
++    path = tmp_path / f"{name}.py"
++    path.write_text(textwrap.dedent(src))
++    spec = importlib.util.spec_from_file_location(name, str(path))
++    module = importlib.util.module_from_spec(spec)
++    sys.modules[name] = module
++    spec.loader.exec_module(module)
++    return module, str(path)
++
++
++def unload(name: str) -> None:
++    sys.modules.pop(name, None)
++
++
++def node_of(path: str, name: str):
++    """The function ``name`` parsed from the FILE, so its lines are the file's own."""
++    with open(path, encoding="utf-8") as handle:
++        tree = ast.parse(handle.read())
++    return next(
++        n
++        for n in ast.walk(tree)
++        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name
++    )
++
++
++def observe(module, path: str, name: str, tests) -> frozenset[str]:
++    """The observed codomain of ``module.<name>`` over ``tests``."""
++    return observe_codomain(getattr(module, name), tests, func_node=node_of(path, name))
++
++
++def output_mutants(path: str, name: str, observed: frozenset[str] | None):
++    """Every OUTPUT mutant generated for the function under ``observed``, as ``{sub-mode: [mutants]}``
++    (``return_field_drop@x``, ``raise_inject@builtins.ValueError``): the name of a mode, never its id.
++    A mode that applies at several return sites lists one mutant per site."""
++    muts = generate_mutants(
++        node_of(path, name),
++        {MutationCategory.OUTPUT},
++        max_per_category=0,
++        observed_return_types=observed,
++    )
++    out: dict[str, list] = {}
++    for m in muts:
++        out.setdefault(m.dimension.split(":")[1], []).append(m)
++    return out
++
++
++def mode_lines(
++    path: str, name: str, observed: frozenset[str] | None
++) -> set[tuple[str, int]]:
++    """``{(sub-mode, line)}`` of every OUTPUT mutant generated: which mode fires at which line."""
++    return {
++        (mode, m.mutated_line)
++        for mode, ms in output_mutants(path, name, observed).items()
++        for m in ms
++    }
++
++
++def one(path: str, name: str, observed: frozenset[str] | None, mode: str):
++    """The single mutant of ``mode`` (the function has one site for it)."""
++    found = output_mutants(path, name, observed)[mode]
++    assert len(found) == 1, (mode, len(found))
++    return found[0]
++
++
++def run(mutant, tests, module, path: str, name: str):
++    """The mutant evaluated against ``tests`` the way the engine evaluates it."""
++    return evaluate_mutant(
++        mutant, tests, getattr(module, name), qualname=name, source_path=path
++    )
+diff --git a/tests/test_mu_minus_catalog_doc_intent.py b/tests/test_mu_minus_catalog_doc_intent.py
+index 632c61b..5218d4c 100644
+--- a/tests/test_mu_minus_catalog_doc_intent.py
++++ b/tests/test_mu_minus_catalog_doc_intent.py
+@@ -17,7 +17,7 @@ import pathlib
+ import re
+ from collections import Counter
+ 
+-from Wesker.engine import _OUTPUT_TYPE_CONDITIONAL
++from Wesker.engine import _OUTPUT_TYPE_CONDITIONAL, _OUTPUT_VALUE_SUB_MODES
+ from Wesker.mu_minus import MU_MINUS_CATALOG
+ 
+ _ROOT = pathlib.Path(__file__).resolve().parent.parent
+@@ -65,6 +65,14 @@ def test_the_fork_2_types_table_is_the_engine_table():
+     }
+ 
+ 
++def test_the_premised_table_is_the_engine_table():
++    table = {}
++    for cells in _rows(_section("Premised operators")):
++        if len(cells) == 2 and cells[0].startswith("`"):
++            table[cells[0].strip("`")] = cells[1]
++    assert table == {mode: premise for mode, _desc, premise in _OUTPUT_VALUE_SUB_MODES}
++
++
+ def test_the_summary_counts_are_the_catalogs():
+     counts = Counter(op.status for op in MU_MINUS_CATALOG)
+     summary = {
+diff --git a/tests/test_mu_minus_catalog_intent.py b/tests/test_mu_minus_catalog_intent.py
+index 15cddfa..cb48091 100644
+--- a/tests/test_mu_minus_catalog_intent.py
++++ b/tests/test_mu_minus_catalog_intent.py
+@@ -21,6 +21,7 @@ from Wesker.engine import (
+     _OUTPUT_CALL_SUB_MODES,
+     _OUTPUT_SUB_MODES,
+     _OUTPUT_TYPE_CONDITIONAL,
++    _OUTPUT_VALUE_SUB_MODES,
+     _OUTPUT_YIELD_SUB_MODES,
+     _STATE_SUB_MODES,
+ )
+@@ -29,6 +30,7 @@ from Wesker.mu_minus import MU_MINUS_CATALOG
+ _OUTPUT_MODES = (
+     {mode for mode, _desc in _OUTPUT_SUB_MODES}
+     | {mode for mode, _desc, _types in _OUTPUT_TYPE_CONDITIONAL}
++    | {mode for mode, _desc, _premise in _OUTPUT_VALUE_SUB_MODES}
+     | {mode for mode, _desc in _OUTPUT_YIELD_SUB_MODES + _OUTPUT_CALL_SUB_MODES}
+ )
+ 
+@@ -50,22 +52,47 @@ def test_the_catalog_is_def_11_8_operator_for_operator():
+ 
+ 
+ def test_the_standing_of_each_operator_is_one_of_four_named_states():
++    # Since #44 every premise the catalog called missing is OBSERVED, so no operator is partial or
++    # unsupported. What a function's own values do not admit is per function (`mu_minus_withheld`).
+     statuses = Counter(op.status for op in MU_MINUS_CATALOG)
+-    assert statuses == {"built": 30, "partial": 2, "realized_by": 2, "unsupported": 4}
+-    assert {op.key for op in MU_MINUS_CATALOG if op.status == "unsupported"} == {
+-        "field",
+-        "class",
+-        "clamp",
+-        "state-extra",
+-    }
+-    assert {op.key for op in MU_MINUS_CATALOG if op.status == "partial"} == {
+-        "dict",
+-        "raise",
+-    }
++    assert statuses == {"built": 36, "realized_by": 2}
+     assert {op.key for op in MU_MINUS_CATALOG if op.status == "realized_by"} == {
+         "0",
+         "state-noop",
+     }
++    assert {
++        op.key
++        for op in MU_MINUS_CATALOG
++        if op.key
++        in ("dict", "ctype", "field", "class", "clamp", "raise", "state-extra")
++    } == {"dict", "ctype", "field", "class", "clamp", "raise", "state-extra"}
++    assert {
++        op.status
++        for op in MU_MINUS_CATALOG
++        if op.key
++        in ("dict", "ctype", "field", "class", "clamp", "raise", "state-extra")
++    } == {"built"}
++
++
++def test_an_operator_generated_under_an_observed_premise_records_the_premise():
++    # Def. 11.10: the premise IS the guarantee that the operator never raises and never mis-attributes,
++    # so a catalog entry for a premised operator that did not state it would hide the guarantee.
++    premised = {
++        "dict": "return_swap_items",
++        "ctype": "return_to_set",
++        "field": "return_field_drop",
++        "class": "return_class_subclass",
++        "clamp": "return_clamp",
++        "raise": "raise_inject",
++        "state-extra": "state_extra",
++    }
++    by_key = {op.key: op for op in MU_MINUS_CATALOG}
++    for key, mode in premised.items():
++        assert by_key[key].premise, key
++        assert f"OUTPUT:{mode}" in by_key[key].modes, key
++    assert by_key["ctype"].premise.count("return_") == 2, (
++        "both new conversions state theirs"
++    )
+ 
+ 
+ def test_every_named_mode_is_one_the_engine_generates():
+@@ -91,6 +118,15 @@ def test_a_measured_operator_names_its_modes_and_an_unmeasured_one_says_why():
+             assert op.note, op.key
+ 
+ 
++def test_every_premised_mode_the_engine_generates_has_a_premise_and_a_catalog_operator():
++    from Wesker.mu_minus import VALUE_MODE_BASES
++
++    assert [mode for mode, _d, _p in _OUTPUT_VALUE_SUB_MODES] == list(VALUE_MODE_BASES)
++    assert all(premise for _m, _d, premise in _OUTPUT_VALUE_SUB_MODES)
++    named = {q.partition(":")[2] for op in MU_MINUS_CATALOG for q in op.modes}
++    assert set(VALUE_MODE_BASES) <= named
++
++
+ def test_every_generated_output_mode_is_accounted_to_an_operator():
+     named = {
+         qualified.partition(":")[2]
+diff --git a/tests/test_mu_minus_observed_codomain_intent.py b/tests/test_mu_minus_observed_codomain_intent.py
+new file mode 100644
+index 0000000..2846964
+--- /dev/null
++++ b/tests/test_mu_minus_observed_codomain_intent.py
+@@ -0,0 +1,466 @@
++"""μ⁻ operators are generated where the OBSERVED codomain licenses them, per return site (Wesker #44).
++
++Intent tests authored from docs/theory/NEGATIVE_SPECIFICATION.md, Def. 11.8 (the 38 operators),
++Def. 11.10 (Fork 2: generate a perturbation only where the observed codomain guarantees it applies, so
++it never raises and never mis-attributes) and Prop. 11.14.
++
++THE DEFECTS (#44, AC1 and AC2, and the surface the unbuilt operators never reached).
++- ``run_function_profiling`` had no ``two_sign`` argument. Two-sign was a property of the CATEGORIES a
++  caller happened to pass, and the observed codomain was a bare set of type names that only Detective
++  could harvest.
++- Typing was by the FUNCTION's observed codomain, not the return site. ``tag(n)`` returns "pos" on one
++  branch and None on the other; a test that reaches only the first observes ``{str}``, and the
++  ``return None`` no test ran got four rewrites (truncate, swapcase, pad, reverse), each of which
++  raises on None.
++- ``negative_policy.unbuilt`` was hashed into the two-sign policy id but was not a field of
++  ``MutationPolicy``, so no consumer could read or name what a two-sign receipt did not measure.
++
++WHAT MUST HOLD.
++- ``two_sign=True`` puts OUTPUT in the run and OBSERVES the codomain when the caller supplied none.
++- A return statement the baseline never executed has no observed codomain: only the always-applicable
++  modes reach it. A statement that returned a str gets the str rewrites.
++- An observation that is incomplete (a test was cut) licenses nothing type-conditional or premised.
++- ``MutationPolicy.unbuilt`` is a field: None for the one-sign policy (no μ⁻ member), and for the
++  two-sign policy exactly the catalog's partial and unsupported operators.
++- What a function's own values did not admit is named per function, in the profile result.
++"""
++
++from __future__ import annotations
++
++import dataclasses
++import sys
++
++import pytest
++from _mu_support import load, mode_lines, node_of, observe, output_mutants, unload
++
++from Wesker.codomain import (
++    clamp_standing,
++    extra_write_standing,
++    parse_codomain,
++    raise_standing,
++    withheld_here,
++)
++from Wesker.engine import (
++    MutationCategory,
++    estimate_universe_size,
++    generate_mutants,
++    run_function_profiling,
++    site_mode_standing,
++)
++from Wesker.mu_minus import MU_MINUS_CATALOG
++from Wesker.policy import mutation_policy
++
++_TAG = """
++def tag(n):
++    if n > 0:
++        return "pos"
++    return None
++"""
++
++_STR_REWRITES = {"return_truncate", "return_swapcase", "return_pad", "return_reverse"}
++
++
++@pytest.fixture
++def tag(tmp_path):
++    module, path = load(tmp_path, "mu_obs_tag", _TAG)
++    yield module, path
++    unload("mu_obs_tag")
++
++
++def _only_the_str_branch(module):
++    def t():
++        assert module.tag(1) == "pos"
++
++    return [t]
++
++
++def test_a_return_site_is_typed_by_its_own_observed_values(tag):
++    # AC2: the str branch is observed, the None branch is not. Before, both statements got the four
++    # str rewrites, because the FUNCTION's observed set was {str}.
++    module, path = tag
++    observed = observe(module, path, "tag", _only_the_str_branch(module))
++    modes = mode_lines(path, "tag", observed)
++    str_sites = {line for mode, line in modes if mode in _STR_REWRITES}
++    assert str_sites == {4}, "only the executed `return 'pos'` is rewritten as a str"
++    # Fork 1 still reaches both statements: it is total on any value, so no observation gates it.
++    const_sites = {line for mode, line in modes if mode == "return_const"}
++    assert const_sites == {4, 5}
++
++
++def test_the_function_wide_type_set_is_what_made_the_unexecuted_return_a_target(tag):
++    # The defect, reproduced through the legacy observation (type names only, no site information),
++    # which still means what it always meant: every return site is typed by the function's set.
++    _module, path = tag
++    legacy = frozenset({"str"})
++    by_line: dict[int, set[str]] = {}
++    for mode, line in mode_lines(path, "tag", legacy):
++        if mode in _STR_REWRITES:
++            by_line.setdefault(line, set()).add(mode)
++    assert set(by_line) == {4, 5}, (
++        "the legacy observation typed the unexecuted return too"
++    )
++
++
++def test_both_branches_observed_each_site_answers_for_its_own_values(tag):
++    module, path = tag
++
++    def both():
++        assert module.tag(1) == "pos"
++        assert module.tag(-1) is None
++
++    observed = observe(module, path, "tag", [both])
++    sites = parse_codomain(observed).sites
++    assert sites[4].types == {"str"} and sites[5].types == {"NoneType"}
++    str_lines = {
++        line
++        for mode, line in mode_lines(path, "tag", observed)
++        if mode in _STR_REWRITES
++    }
++    assert str_lines == {4}, (
++        "the None site never gets a str rewrite: it would raise there"
++    )
++
++
++def test_site_mode_standing_names_every_state():
++    # The pure decision, every row (#44 AC2).
++    assert site_mode_standing(False, False, [], ["str"]) == "function_wide"
++    assert site_mode_standing(False, True, ["int"], ["str"]) == "function_wide"
++    assert site_mode_standing(True, False, [], ["str"]) == "unobserved"
++    assert site_mode_standing(True, True, ["str"], ["str", "bytes"]) == "applies"
++    assert site_mode_standing(True, True, ["str", "int"], ["str"]) == "type_outside"
++    assert site_mode_standing(True, True, [], ["str"]) == "type_outside"
++
++
++def test_an_incomplete_observation_licenses_nothing_but_the_always_applicable_modes(
++    tag,
++):
++    _module, path = tag
++    cut = frozenset({"@!truncated"})
++    assert not parse_codomain(cut).complete
++    modes = set(output_mutants(path, "tag", cut))
++    assert not modes & _STR_REWRITES
++    assert {"return_none", "return_const", "return_identity", "return_stale"} <= modes
++    # ...and is named, never silently empty.
++    assert any("incomplete" in line for line in withheld_here(parse_codomain(cut)))
++
++
++def test_a_legacy_observation_says_it_carries_no_values():
++    named = withheld_here(parse_codomain(frozenset({"int"})))
++    assert len(named) == 1 and "type names only" in named[0]
++    nothing = withheld_here(parse_codomain(frozenset()))
++    assert len(nothing) == 1 and "no return was observed" in nothing[0]
++
++
++def test_unknown_tokens_are_ignored_and_known_ones_round_trip():
++    tokens = frozenset(
++        {
++            "int",
++            "@7:int",
++            "@7!ok=return_clamp@i1,i2",
++            "@7!no=return_swap_items=TypeError",
++            "@!ok=state_extra@xs",
++            "@!no=raise_inject=none",
++            "@zz:oops",
++            "@!bogus",
++            "@7!bogus",
++        }
++    )
++    cod = parse_codomain(tokens)
++    assert cod.plain == {"int"} and cod.complete
++    assert cod.sites[7].types == {"int"}
++    assert cod.sites[7].ok == {"return_clamp@i1,i2"}
++    assert cod.sites[7].no == (("return_swap_items", "TypeError"),)
++    assert cod.ok == {"state_extra@xs"} and cod.no == (("raise_inject", "none"),)
++
++
++def test_count_equals_generation_under_a_site_observation(tag):
++    module, path = tag
++
++    def both():
++        assert module.tag(1) == "pos"
++        assert module.tag(-1) is None
++
++    for tests in ([both], _only_the_str_branch(module)):
++        observed = observe(module, path, "tag", tests)
++        node = node_of(path, "tag")
++        muts = generate_mutants(
++            node,
++            {MutationCategory.OUTPUT},
++            max_per_category=0,
++            observed_return_types=observed,
++        )
++        assert len(muts) == estimate_universe_size(
++            node, {MutationCategory.OUTPUT}, observed=observed
++        )
++
++
++def test_a_generator_has_no_return_value_to_observe(tmp_path):
++    module, path = load(tmp_path, "mu_obs_gen", "def g(n):\n    yield n\n")
++    try:
++
++        def t():
++            assert list(module.g(2)) == [2]
++
++        assert observe(module, path, "g", [t]) == frozenset()
++    finally:
++        unload("mu_obs_gen")
++
++
++def test_a_failing_baseline_test_is_not_a_cut_observation(tmp_path):
++    # What a test returned before it failed WAS returned; only a wall or a loop budget makes the
++    # observation incomplete.
++    module, path = load(tmp_path, "mu_obs_red", "def f(x):\n    return x + 1\n")
++    try:
++
++        def red():
++            assert module.f(1) == 99
++
++        observed = observe(module, path, "f", [red])
++        assert parse_codomain(observed).complete
++        assert parse_codomain(observed).sites[2].types == {"int"}
++    finally:
++        unload("mu_obs_red")
++
++
++# ── run_function_profiling(two_sign=True) ───────────────────────────────────────────────────────
++
++
++def _profile(module, path, name, tests, **kwargs):
++    return run_function_profiling(
++        node_of(path, name),
++        f"{path}::{name}",
++        kwargs.pop("categories", set()),
++        tests,
++        getattr(module, name),
++        scope_tests=False,
++        **kwargs,
++    )
++
++
++def test_two_sign_adds_the_output_category_and_observes_the_codomain(tag):
++    module, path = tag
++
++    def t():
++        assert module.tag(1) == "pos"
++
++    one = _profile(module, path, "tag", [t])
++    assert one.total_mutants == 0 and not one.observed_codomain
++
++    two = _profile(module, path, "tag", [t], two_sign=True)
++    assert two.total_mutants > 0
++    assert {cr.category for cr in two.per_category} == {MutationCategory.OUTPUT}
++    # The observation the mutants were generated under travels with the result.
++    assert "@4:str" in two.observed_codomain
++    d = two.to_dict()
++    assert d["observed_codomain"] == list(two.observed_codomain)
++    assert d["mu_minus_withheld"] == list(two.mu_minus_withheld)
++    # The policy's own unbuilt operators travel with the profile, beside what THIS function withheld.
++    assert d["mu_minus_unbuilt"] == mutation_policy(two_sign=True).unbuilt == {}
++    assert "observed_codomain" not in one.to_dict(), (
++        "no OUTPUT operator ran: nothing to report"
++    )
++
++
++def test_two_sign_keeps_an_observation_the_caller_supplied(tag):
++    module, path = tag
++
++    def t():
++        assert module.tag(1) == "pos"
++
++    supplied = frozenset({"str"})
++    result = _profile(
++        module, path, "tag", [t], two_sign=True, observed_return_types=supplied
++    )
++    assert result.observed_codomain == ("str",)
++    named = " ".join(result.mu_minus_withheld)
++    assert "type names only" in named
++
++
++def test_the_categories_of_a_two_sign_filter_still_work_without_the_argument(tag):
++    # Callers may still pass the categories; the argument adds nothing they did not already name.
++    module, path = tag
++
++    def t():
++        assert module.tag(1) == "pos"
++
++    a = _profile(
++        module,
++        path,
++        "tag",
++        [t],
++        categories={MutationCategory.OUTPUT},
++        observed_return_types=frozenset({"str"}),
++    )
++    b = _profile(
++        module,
++        path,
++        "tag",
++        [t],
++        two_sign=True,
++        observed_return_types=frozenset({"str"}),
++    )
++    assert a.total_mutants == b.total_mutants
++
++
++# ── the policy field ────────────────────────────────────────────────────────────────────────────
++
++
++def test_unbuilt_is_a_field_of_the_policy_not_only_of_its_hash():
++    assert "unbuilt" in {f.name for f in dataclasses.fields(mutation_policy())}
++    one, two = mutation_policy(), mutation_policy(two_sign=True)
++    assert one.unbuilt is None, "a policy with no μ⁻ member has nothing to be unbuilt"
++    assert two.unbuilt == {
++        op.key: f"{op.status}: {op.note}"
++        for op in MU_MINUS_CATALOG
++        if op.status in ("partial", "unsupported")
++    }
++    assert two.unbuilt == {}, "every operator of Def. 11.8 is built or realized"
++    assert '"unbuilt":{}' in two.to_json() and '"unbuilt":null' in one.to_json()
++
++
++def test_the_one_sign_policy_id_does_not_move_with_the_unbuilt_field():
++    # The default id hashes the manifest, which has no negative_policy key.
++    assert mutation_policy().policy_id.startswith("9.")
++    assert "unbuilt" not in str(mutation_policy().categories)
++
++
++# ── the pure decisions the observer rests on ────────────────────────────────────────────────────
++
++
++@pytest.mark.parametrize(
++    ("local", "exc", "resolvable", "constructible", "expected"),
++    [
++        (True, True, True, True, "local_class"),
++        (False, False, True, True, "base_exception"),
++        (False, True, False, True, "unresolvable"),
++        (False, True, True, False, "not_constructible"),
++        (False, True, True, True, "injectable"),
++    ],
++)
++def test_raise_standing_names_why_an_observed_raise_cannot_be_injected(
++    local, exc, resolvable, constructible, expected
++):
++    assert raise_standing(local, exc, resolvable, constructible) == expected
++
++
++@pytest.mark.parametrize(
++    ("calls", "supported", "mutated", "truncated", "expected"),
++    [
++        (3, 3, False, True, "calls_truncated"),
++        (3, 3, True, False, "mutated"),
++        (3, 2, False, False, "type_varies"),
++        (3, 3, False, False, "unmutated"),
++    ],
++)
++def test_extra_write_standing_names_why_an_argument_admits_no_extra_write(
++    calls, supported, mutated, truncated, expected
++):
++    assert extra_write_standing(calls, supported, mutated, truncated) == expected
++
++
++@pytest.mark.parametrize(
++    ("kinds", "finite", "narrowable", "expected"),
++    [
++        ([], True, True, "not_ordered"),
++        (["num", "-nonfinite"], True, True, "non_finite"),
++        (["num", "-str"], True, True, "not_ordered"),
++        (["num", "dec"], True, True, "mixed_kinds"),
++        (["num"], True, False, "single_value"),
++        (["num"], False, True, "single_value"),
++        (["num", "num"], True, True, "clamps"),
++    ],
++)
++def test_clamp_standing_names_why_a_site_admits_no_clamp(
++    kinds, finite, narrowable, expected
++):
++    assert clamp_standing(kinds, finite, narrowable) == expected
++
++
++def test_this_interpreter_reports_return_lines_the_mutator_can_match():
++    # The whole per-site design rests on the line the interpreter reports for a RETURN instruction
++    # being the first line of its `return` statement, on every supported version.
++    src = "def f(a):\n    if a:\n        return (\n            a,\n            a)\n    return \\\n        a\n"
++    ns: dict = {}
++    exec(compile(src, "m.py", "exec"), ns)  # noqa: S102
++    code = ns["f"].__code__
++    import dis
++
++    positions = list(code.co_positions())
++    lines = {
++        positions[i.offset // 2][0]
++        for i in dis.get_instructions(code)
++        if i.opname.startswith("RETURN")
++    }
++    assert lines == {3, 6}, sys.version_info
++
++
++_MIXED = """
++from dataclasses import dataclass
++
++
++@dataclass
++class Row:
++    n: int
++    s: str
++
++
++def table(xs, n):
++    if n < 0:
++        raise ValueError(n)
++    if n == 0:
++        return {x: n for x in xs}
++    if n == 1:
++        return Row(n, "a")
++    return n * 3
++"""
++
++
++def test_count_equals_generation_for_the_premised_and_parameterized_modes(tmp_path):
++    # The census counts exactly what generation emits, premised modes and parameterized Form B modes
++    # included (#9): a denominator that disagreed would misreport the universe of every two-sign run.
++    module, path = load(tmp_path, "mu_obs_mixed", _MIXED)
++    try:
++
++        def t():
++            xs = [1, 2]
++            assert module.table(xs, 0) == {1: 0, 2: 0}
++            assert module.table(xs, 1) == module.Row(1, "a")
++            assert module.table(xs, 2) == 6
++            assert module.table(xs, 3) == 9
++            try:
++                module.table(xs, -1)
++            except ValueError:
++                pass
++
++        observed = observe(module, path, "table", [t])
++        node = node_of(path, "table")
++        muts = generate_mutants(
++            node,
++            {MutationCategory.OUTPUT},
++            max_per_category=0,
++            observed_return_types=observed,
++        )
++        modes = {m.dimension.split(":")[1] for m in muts}
++        # Three sites, three different premises, one function.
++        assert {
++            "return_swap_items",
++            "return_field_drop@n",
++            "return_class_subclass",
++        } <= modes
++        assert "return_clamp@i7,i8" in modes
++        assert {"raise_inject@builtins.ValueError", "state_extra@xs"} <= modes
++        assert len(muts) == estimate_universe_size(
++            node, {MutationCategory.OUTPUT}, observed=observed
++        )
++        # ...and each premised mode fires only at the site whose values licensed it.
++        by_mode: dict[str, set[int]] = {}
++        for mode, line in mode_lines(path, "table", observed):
++            by_mode.setdefault(mode, set()).add(line)
++        assert by_mode["return_swap_items"] != by_mode["return_field_drop@n"]
++        assert (
++            len(by_mode["return_swap_items"])
++            == 1
++            == len(by_mode["return_class_subclass"])
++        )
++    finally:
++        unload("mu_obs_mixed")
+diff --git a/tests/test_mu_minus_premised_isolated_intent.py b/tests/test_mu_minus_premised_isolated_intent.py
+new file mode 100644
+index 0000000..1ee639a
+--- /dev/null
++++ b/tests/test_mu_minus_premised_isolated_intent.py
+@@ -0,0 +1,173 @@
++"""The premised μ⁻ mutants are measured by the isolated worker as they are in process (Wesker #44).
++
++THE RISK. The isolated worker receives nothing but source. The Form B yield modes once reached it as a
++marker string that defines nothing, so the worker installed the ORIGINAL function and every isolated
++verdict on them was a false survivor. The premised Form A rewrites call ``Wesker.mu_minus`` at run time
++and the parameterized Form B modes are a decorated definition; both must be source a worker builds and
++measures to the same verdict the in-process evaluator reaches, or converge's reproducibility check
++(which re-observes in an isolated worker) would certify a verdict nobody reproduced.
++
++WHAT MUST HOLD. For one function per family (field, clamp, raise-inject, state-extra), the mutant
++generated from the observed codomain is KILLED by a test that pins the output, by assertion where the
++perturbation is a value (field, clamp, extra write), and a reach kill (a crash) for the injected raise,
++in the isolated worker, and SURVIVES a test that pins nothing.
++"""
++
++from __future__ import annotations
++
++import ast
++import sys
++
++import pytest
++from _mu_support import load, observe, one, unload
++
++from Wesker.isolation import IsolatedMutantWorker, mutant_verdict
++
++_SRC = """
++from dataclasses import dataclass
++
++
++@dataclass
++class P:
++    x: int
++    y: int
++
++
++def mk(n):
++    return P(n, n + 1)
++
++
++def sc(n):
++    if n < 0:
++        raise ValueError(n)
++    return n * 2
++
++
++def tot(xs):
++    return len(xs)
++"""
++
++_TESTS = """
++from t import P, mk, sc, tot
++
++
++def test_mk():
++    assert mk(1) == P(1, 2)
++
++
++def test_mk_loose():
++    assert mk(1) is not None
++
++
++def test_sc_edges():
++    assert sc(2) == 4
++    assert sc(5) == 10
++
++
++def test_sc_loose():
++    assert sc(3) > 0
++
++
++def test_tot():
++    xs = [1]
++    assert tot(xs) == 1
++    assert xs == [1]
++
++
++def test_tot_loose():
++    assert tot([1]) == 1
++"""
++
++
++@pytest.fixture
++def project(tmp_path):
++    (tmp_path / "t.py").write_text(_SRC)
++    (tmp_path / "test_t.py").write_text(_TESTS)
++    module, path = load(tmp_path, "t", _SRC)
++    sys.path.insert(0, str(tmp_path))
++    yield tmp_path, module, path
++    sys.path.remove(str(tmp_path))
++    unload("t")
++
++
++def _isolated(tmp_path, name, mutant, node_id):
++    worker = IsolatedMutantWorker(str(tmp_path), [], "t.py", name)
++    try:
++        return worker.evaluate(
++            ast.unparse(mutant.mutated_node), 30.0, node_ids=[f"test_t.py::{node_id}"]
++        )
++    finally:
++        worker.close()
++
++
++def test_a_field_mutant_is_killed_by_the_pinning_test_in_the_isolated_worker(project):
++    tmp_path, module, path = project
++
++    def t():
++        assert module.mk(1) == module.P(1, 2)
++
++    observed = observe(module, path, "mk", [t])
++    m = one(path, "mk", observed, "return_field_drop@y")
++    killed = _isolated(tmp_path, "mk", m, "test_mk")
++    assert (
++        mutant_verdict(killed.outcome) == "killed" and killed.killed_by == "assertion"
++    )
++    assert (
++        mutant_verdict(_isolated(tmp_path, "mk", m, "test_mk_loose").outcome)
++        == "survived"
++    )
++
++
++def test_a_clamp_mutant_is_killed_at_the_edge_in_the_isolated_worker(project):
++    tmp_path, module, path = project
++
++    def t():
++        assert [module.sc(2), module.sc(5)] == [4, 10]
++
++    observed = observe(module, path, "sc", [t])
++    m = one(path, "sc", observed, "return_clamp@i5,i9")
++    killed = _isolated(tmp_path, "sc", m, "test_sc_edges")
++    assert (
++        mutant_verdict(killed.outcome) == "killed" and killed.killed_by == "assertion"
++    )
++    assert (
++        mutant_verdict(_isolated(tmp_path, "sc", m, "test_sc_loose").outcome)
++        == "survived"
++    )
++
++
++def test_an_injected_raise_is_a_reach_kill_in_the_isolated_worker(project):
++    tmp_path, module, path = project
++
++    def t():
++        assert module.sc(2) == 4
++        try:
++            module.sc(-1)
++        except ValueError:
++            pass
++
++    observed = observe(module, path, "sc", [t])
++    m = one(path, "sc", observed, "raise_inject@builtins.ValueError")
++    killed = _isolated(tmp_path, "sc", m, "test_sc_loose")
++    # A test that pins nothing about the output still dies: the kill is REACH, not specification.
++    assert mutant_verdict(killed.outcome) == "killed" and killed.killed_by == "crash"
++
++
++def test_an_extra_write_is_killed_by_the_test_that_looks_at_the_argument(project):
++    tmp_path, module, path = project
++
++    def t():
++        xs = [1]
++        assert module.tot(xs) == 1
++        assert xs == [1]
++
++    observed = observe(module, path, "tot", [t])
++    m = one(path, "tot", observed, "state_extra@xs")
++    killed = _isolated(tmp_path, "tot", m, "test_tot")
++    assert (
++        mutant_verdict(killed.outcome) == "killed" and killed.killed_by == "assertion"
++    )
++    assert (
++        mutant_verdict(_isolated(tmp_path, "tot", m, "test_tot_loose").outcome)
++        == "survived"
++    )
+diff --git a/tests/test_policy.py b/tests/test_policy.py
+index fa0faaf..29bcc32 100644
+--- a/tests/test_policy.py
++++ b/tests/test_policy.py
+@@ -20,6 +20,7 @@ from Wesker.engine import (
+     _OUTPUT_CALL_SUB_MODES,
+     _OUTPUT_SUB_MODES,
+     _OUTPUT_TYPE_CONDITIONAL,
++    _OUTPUT_VALUE_SUB_MODES,
+     _OUTPUT_YIELD_SUB_MODES,
+     _STATE_SUB_MODES,
+     MutationCategory,
+@@ -128,6 +129,10 @@ GOLDEN_FINGERPRINT = {
+ # moved both again: two-sign 9+neg.1a13fddd1d5f -> 9+neg.de8c78c57407. W#45's memory_cut clause moved
+ # both once more: two-sign 9+neg.de8c78c57407 -> 9+neg.fec711a421e9. W#29's in-process memory_cut
+ # clause moved both again: two-sign 9+neg.fec711a421e9 -> 9+neg.6035bc2f613d.
++# Wesker #44 (Detective #120-#123): the premised operators, the per-return-site typing rule, the
++# parameterized Form B modes and the premise of each enter the two-sign manifest, and `unbuilt` is
++# empty and a field of MutationPolicy; the one-sign id is unchanged (the manifest has no negative
++# member): two-sign 9+neg.6035bc2f613d -> 9+neg.7a3fc088c5ec.
+ GOLDEN_TWO_SIGN_OUTPUT = {
+     "fp_annotations": 4,
+     "fp_value": 3,
+@@ -247,10 +252,16 @@ def test_two_sign_manifest_declares_form_b_and_what_it_does_not_measure():
+     form_b = two.categories["OUTPUT"]["form_b"]
+     assert form_b["yield"] == dict(_OUTPUT_YIELD_SUB_MODES)
+     assert form_b["call"] == dict(_OUTPUT_CALL_SUB_MODES)
++    # #44: every operator is built or realized, so nothing is globally unbuilt; and the field a
++    # consumer reads is the manifest's own value.
+     unbuilt = {
+         op.key for op in MU_MINUS_CATALOG if op.status in ("partial", "unsupported")
+     }
+-    assert unbuilt == {"dict", "field", "class", "clamp", "raise", "state-extra"}
++    assert unbuilt == set()
++    assert two.unbuilt == {}
++    assert two.categories["OUTPUT"]["value_conditional"].keys() == {
++        mode for mode, _desc, _premise in _OUTPUT_VALUE_SUB_MODES
++    }
+ 
+ 
+ def test_manifest_duals_are_the_engine_table():
+-- 
+2.43.0
+

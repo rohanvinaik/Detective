@@ -1,0 +1,1186 @@
+From 124aea2dff99fce4fd8ed205176b781f41ba1797 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:26:02 +0000
+Subject: [PATCH 3/4] feat(#37): the EXCEPTION operator narrows a handler to an
+ observed subtype or a tuple's remaining members
+
+The defect, verbatim: `suite_edit.remove_definition_from_source` parses with `except Exception:`.
+Detective #103 widened it from `except SyntaxError:`, because on 3.14 the parser also raises
+UnicodeEncodeError on a lone surrogate. #103's regression test fed a lone surrogate; `audit` read it as
+redundant for kills AND lines, and `--remove` deleted it. By the measurement that was correct: another
+test covered the same lines and killed the same mutants. What the deleted test alone carried was the
+handler's BREADTH (that it catches something other than SyntaxError), and no operator asks that question.
+`handler_broaden` is the widening dual; narrowing is the refactor that lets an error escape that used to
+be caught.
+
+Why the obvious fix is wrong: a fixed invented subclass (`Exception` -> `ValueError`) is cheap and
+arbitrary, it measures the operator's choice and not the program's, and it cannot be the `except
+Exception` of #103 (a surrogate raises none of the usual picks). The ruling (D4) is OBSERVED narrowing:
+a single-type handler narrows only to a strict subclass the baseline actually delivered to it, and a
+tuple handler `except (A, B)` drops one member per mutant (static and exact, no observation needed).
+
+The observation is `Wesker.caught_exceptions.observe_caught_exceptions(func_node, code)`: a
+`sys.monitoring` EXCEPTION_HANDLED subscription through the broker (`monitoring.py` gains the global-only
+event beside PY_UNWIND; no new trace hook, the ownership guard stays green). The event fires once per
+`try` whose handler chain an exception enters, with the chain's entry offset, so `handler_entry_lines`
+maps the offset to the first clause's line and `catching_clause` decides which clause caught it from the
+declared names and the exception's MRO. Observed: {handler line: {module:qualname: MRO names}}, passed
+as `observed_caught` to `generate_mutants`, `estimate_universe_size` and `run_function_profiling`
+(the same channel as `observed_return_types`).
+
+What each state of the pure decisions means. `catching_clause`: `clause:<i>` is the first clause that is
+bare or names a class in the MRO, `none` is an exception that leaves the try (not observed as caught).
+`narrowing_standing`: `drop_member` (tuple), `observed` (a strict subtype arrived), `no_strict_subtype`
+(observed, and the handler only ever caught exactly its declared type: nothing to narrow to),
+`unobserved` (no observation was made: the handler is WITHHELD by name and never read as clean),
+`bare` / `opaque_type` (nothing to narrow). `narrowing_candidates` is the sorted strict subtypes. A type
+from another module is reached as `__import__('mod').Qual`, not through the mutant's globals, which need
+not hold the name. `except*` clauses are outside the question (their type is an ExceptionGroup).
+
+Policy 10 (set by #53) gains the sub-mode: the corpus gained fp_exception_narrow (EXCEPTION 7 on it, the
+tuple's three drop-ones; no existing row moved): one-sign 10.f7358643c7e0 -> 10.2598eed3d331, two-sign
+10+neg.cad6fd2aabb8 -> 10+neg.34638cf3c016.
+
+What was NOT closed: nothing in Wesker's own run calls the observation yet. Detective's baseline runs
+the tests (`Detective/capture.py`, beside `capture_return_types`) and must wrap that run in
+`observe_caught_exceptions` and hand the dict to `run_function_profiling(observed_caught=...)` and the
+universe estimate; until it does, single-type handlers are withheld(unobserved_handler) and only tuple
+drop-ones are generated (written up for the integrator). DOF budgeting (`dimension_budget`,
+`dof_universe`) does not yet count the observed narrowings, so the DOF denominator undercounts them by
+exactly that set. Narrowing to a type observed at a handler that is nested in a helper the test reaches
+only through another frame is by handler line and is not attributed across functions.
+
+Receipt: not pinned here (the integrator re-pins `catching_clause`, `narrowing_standing` and
+`narrowing_candidates` after Wave 4).
+Tests: tests/test_exception_narrowing_intent.py (24), plus the policy, swap, canonical-id, monitoring (4
+files), census, annotation, filter, engine and guard files: 365 passed under 3.14.6 and under 3.12.13,
+PYTHONUNBUFFERED unset. The end-to-end test shows the Detective #103 shape: the two narrowings of
+`except Exception` are killed by the test that raises the OTHER observed type, which is now necessary.
+With the narrowing disarmed 6 of the 24 fail (the other 18 test the observation and the pure decisions).
+ruff clean under pinned 0.16.7.
+---
+ CHANGELOG.md                             |  10 +
+ Wesker/caught_exceptions.py              | 208 ++++++++++++
+ Wesker/engine.py                         | 140 +++++++-
+ Wesker/monitoring.py                     |  45 ++-
+ Wesker/policy.py                         |  29 +-
+ tests/test_exception_narrowing_intent.py | 395 +++++++++++++++++++++++
+ tests/test_policy.py                     |   9 +-
+ 7 files changed, 817 insertions(+), 19 deletions(-)
+ create mode 100644 Wesker/caught_exceptions.py
+ create mode 100644 tests/test_exception_narrowing_intent.py
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 172beb6..774c6e5 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -10,6 +10,16 @@ changed three times, so the policy id moved three times.
+ 
+ ### Correctness
+ 
++- **The EXCEPTION operator narrows a handler, so a test that pins a handler's breadth is necessary.** Nothing asked
++  whether `except Exception:` still catches what it used to once it was narrowed: Detective #103 widened a parser
++  guard from `SyntaxError` for exactly that reason and its regression test was read as redundant and removed. The
++  new `handler_narrow` sub-mode rewrites `except T:` to a type the baseline OBSERVED the handler catch (a strict
++  subclass of T, never an invented one) and `except (A, B):` to each tuple with one member dropped. The observation
++  is `caught_exceptions.observe_caught_exceptions`, a `sys.monitoring` `EXCEPTION_HANDLED` subscription through the
++  broker (the one instrumentation owner; no new trace hook), mapped to the clause that caught it by
++  `catching_clause`. A single-type handler with no observation is withheld by name, not read as clean
++  (`narrowing_standing`). `generate_mutants`, `estimate_universe_size` and `run_function_profiling` take
++  `observed_caught`. Policy stays 10. (W#37)
+ - **SWAP never transposes two identical operands.** `g(False, False, x)` generated `SWAP_174b8740`, the original
+   program byte for byte: a mutant nothing can kill, printed with an empty diff and offered to the reader to `flag`.
+   A pair whose two operands have the same position-free canonical AST (`pair_standing`: `distinct` /
+diff --git a/Wesker/caught_exceptions.py b/Wesker/caught_exceptions.py
+new file mode 100644
+index 0000000..cbbaeee
+--- /dev/null
++++ b/Wesker/caught_exceptions.py
+@@ -0,0 +1,208 @@
++"""What a handler was OBSERVED to catch in the baseline, and the narrowings that observation licenses (#37).
++
++The EXCEPTION operator widens a handler (``handler_broaden``) and swallows one, and had no dual for the
++widening refactor's inverse: narrowing ``except Exception:`` to a type that lets an error escape which the
++original caught. Detective #103 widened a parser guard from ``SyntaxError`` to ``Exception`` for exactly
++that reason, and the test that pinned the breadth was read as redundant, because no operator asked.
++
++The target type of a narrowing is a design decision, and the ruling (D4) is OBSERVED narrowing: a handler
++narrows only to a type the baseline actually delivered to it (a strict subclass of the declared type), so
++the question is "does any test pin that this handler catches T?" for a T that really arrives. An invented
++fixed subclass is refused: it would measure the operator's choice, not the program's. A tuple handler
++``except (A, B)`` needs no observation, since dropping one member at a time is static and exact.
++
++The observation rides ``sys.monitoring``'s ``EXCEPTION_HANDLED`` event through the broker in
++:mod:`Wesker.monitoring`, the one owner of interpreter instrumentation; there is no new trace hook here.
++The event fires once per ``try`` whose handler chain an exception enters, not per clause, so the clause
++that caught it is decided from the declared names by :func:`catching_clause`.
++"""
++
++from __future__ import annotations
++
++import ast
++import contextlib
++import dis
++import sys
++from collections.abc import Iterator
++from types import CodeType
++
++from .monitoring import subscribe
++
++# {handler line: {type key: MRO simple names, the type's own first}}. The handler line is the
++# ``except`` clause's own line in the function's source; a type key is ``module:qualname``.
++CaughtObservation = dict[int, dict[str, list[str]]]
++
++CLAUSE_NONE = (
++    "none"  # no clause of this try matches: the exception propagates out of it
++)
++CLAUSE_PREFIX = "clause:"
++
++
++def catching_clause(clauses: list[list[str]], mro: list[str]) -> str:
++    """Which clause of one ``try`` catches an exception, by the names it declares (#37, pure — pinned).
++
++    ``clauses`` holds, per ``except`` clause in source order, the simple names it declares (``[]`` for a
++    bare ``except:``, which catches everything); ``mro`` is the exception's own class name followed by its
++    bases'. Python takes the FIRST clause that matches, so the answer is ``clause:<i>`` for the first
++    clause that is bare or names a class in ``mro``, and ``none`` when no clause does, in which case the
++    exception leaves the ``try`` and no handler observed it. A declared name no MRO entry spells (an alias
++    or a rebound name) cannot match here, and the miss is ``none``, never a guess at another clause.
++    """
++    for index, declared in enumerate(clauses):
++        if not declared or any(name in mro for name in declared):
++            return f"{CLAUSE_PREFIX}{index}"
++    return CLAUSE_NONE
++
++
++# The standing of one handler under the narrowing operator, as the census states it.
++NARROW_BARE = "bare"  # an untyped `except:` has no type to narrow
++NARROW_OPAQUE = "opaque_type"  # the declared type is not a name: nothing to compare an observation to
++NARROW_DROP = "drop_member"  # a tuple handler: one mutant per member dropped
++NARROW_OBSERVED = "observed"  # a single type with at least one observed strict subtype
++NARROW_UNOBSERVED = (
++    "unobserved"  # a single type and no observation was made: withheld, not clean
++)
++NARROW_NO_SUBTYPE = (
++    "no_strict_subtype"  # observed, and nothing strictly narrower ever arrived
++)
++
++
++def narrowing_standing(
++    declared: list[str],
++    observed_run: bool,
++    candidates: int,
++    is_tuple: bool,
++    is_bare: bool,
++) -> str:
++    """What the narrowing operator does at one handler (#37, pure — pinned).
++
++    The two states that read alike are the ones that must not: ``unobserved`` (the baseline recorded no
++    caught types at all, so the handler is withheld and the remedy is to observe) and ``no_strict_subtype``
++    (it observed, and the handler only ever caught exactly its declared type, so there is nothing to
++    narrow to). ``observed_run`` says whether an observation was supplied for this run.
++    """
++    if is_bare:
++        return NARROW_BARE
++    if is_tuple:
++        return NARROW_DROP if len(declared) >= 2 else NARROW_OPAQUE
++    if not declared:
++        return NARROW_OPAQUE
++    if not observed_run:
++        return NARROW_UNOBSERVED
++    return NARROW_OBSERVED if candidates else NARROW_NO_SUBTYPE
++
++
++def narrowing_candidates(
++    declared: list[str], observed: dict[str, list[str]]
++) -> list[str]:
++    """The observed type keys a single-type handler narrows to (#37, pure — pinned).
++
++    A candidate is an observed type whose MRO names the declared type and which is not that type: a
++    STRICT subclass, because narrowing to the declared type itself is the original program. Sorted by
++    key, so the order never depends on the order the tests happened to raise them in.
++    """
++    return sorted(
++        key
++        for key, mro in observed.items()
++        if mro and any(name in mro[1:] for name in declared) and mro[0] not in declared
++    )
++
++
++def _declared_names(handler_type: ast.expr | None) -> list[str]:
++    """Simple names a handler's ``type`` expression declares; an expression it cannot name gives []."""
++    if handler_type is None:
++        return []
++    if isinstance(handler_type, ast.Tuple):
++        names: list[str] = []
++        for elt in handler_type.elts:
++            names.extend(_declared_names(elt))
++        return names
++    if isinstance(handler_type, ast.Name):
++        return [handler_type.id]
++    if isinstance(handler_type, ast.Attribute):
++        return [handler_type.attr]
++    return []
++
++
++def _try_table(
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++) -> dict[int, tuple[list[list[str]], list[int]]]:
++    """{first clause line: (declared names per clause, each clause's line)} for every plain ``try``."""
++    table: dict[int, tuple[list[list[str]], list[int]]] = {}
++    for node in ast.walk(func_node):
++        if isinstance(node, ast.Try) and node.handlers:
++            table[node.handlers[0].lineno] = (
++                [_declared_names(h.type) for h in node.handlers],
++                [h.lineno for h in node.handlers],
++            )
++    return table
++
++
++def handler_entry_lines(code: CodeType) -> dict[int, int]:
++    """{handler entry offset: line of the first ``except`` clause it leads to} for one code object.
++
++    ``EXCEPTION_HANDLED`` reports the offset where a ``try``'s handler chain starts, and the frame's
++    own line at that moment is the RAISING line, so the offset is the only handle on which ``try``
++    it was. The instruction after the entry ``PUSH_EXC_INFO`` that carries a position is the first
++    clause's type expression (or the body of a bare ``except:``), whose line is that clause's line.
++    A ``finally`` leads to its own body's line, which no handler line equals.
++    """
++    instructions = list(dis.get_instructions(code))
++    index = {ins.offset: n for n, ins in enumerate(instructions)}
++    entries: dict[int, int] = {}
++    for entry in dis.Bytecode(code).exception_entries:
++        at = index.get(entry.target)
++        if at is None or instructions[at].opname != "PUSH_EXC_INFO":
++            continue
++        for ins in instructions[at + 1 :]:
++            line = ins.positions.lineno if ins.positions else None
++            if line is not None:
++                entries[entry.target] = line
++                break
++    return entries
++
++
++def type_key(exc_type: type) -> str:
++    """``module:qualname`` for an exception class: the spelling a mutant can resolve."""
++    return f"{exc_type.__module__}:{exc_type.__qualname__}"
++
++
++@contextlib.contextmanager
++def observe_caught_exceptions(
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef, code: CodeType
++) -> Iterator[CaughtObservation]:
++    """Record the exception types ``func_node``'s handlers catch while the body runs (#37).
++
++    ``code`` is the ORIGINAL function's code object. The yielded dict fills as exceptions arrive and is
++    complete when the block exits; a failure of the observer itself is raised at exit by the broker's
++    handle check, never swallowed, so a partial observation cannot pass as a clean one.
++    """
++    table = _try_table(func_node)
++    entry_lines = handler_entry_lines(code)
++    observed: CaughtObservation = {}
++
++    def _on_handled(
++        _code: CodeType,
++        offset: int,
++        exc: BaseException,
++        frame: object = None,
++        run_token: int | None = None,
++    ) -> None:
++        line = entry_lines.get(offset)
++        entry = table.get(line) if line is not None else None
++        if entry is None:
++            return  # a `finally`, a `with`, or a try the table does not hold
++        clauses, lines = entry
++        mro = [c.__name__ for c in type(exc).__mro__]
++        chosen = catching_clause(clauses, mro)
++        if chosen == CLAUSE_NONE:
++            return
++        handler_line = lines[int(chosen[len(CLAUSE_PREFIX) :])]
++        observed.setdefault(handler_line, {})[type_key(type(exc))] = mro
++
++    handle = subscribe([code], sys.monitoring.events.EXCEPTION_HANDLED, _on_handled)
++    try:
++        yield observed
++    finally:
++        handle.close()
++    handle.check()
+diff --git a/Wesker/engine.py b/Wesker/engine.py
+index 436f113..fc0bd3d 100644
+--- a/Wesker/engine.py
++++ b/Wesker/engine.py
+@@ -30,6 +30,10 @@ from enum import Enum
+ from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeGuard
+ 
+ from .canonical_ast import canonical_ast, canonical_digest
++from .caught_exceptions import (
++    CaughtObservation,
++    narrowing_candidates,
++)
+ from .interrupt import (
+     JoinedWorker,
+     MeasurementRefused,
+@@ -1866,7 +1870,7 @@ class _ExceptionMutator(_BaseMutator):
+     ``try`` now raises inside a helper called from somewhere else. A suite can be at
+     100% and not notice.
+ 
+-    Three independent questions, each its own greedy dimension:
++    Four independent questions, each its own greedy dimension:
+ 
+       * ``raise X(...)`` -> ``raise <other builtin>(...)`` — does any test pin the TYPE?
+         A suite asserting ``pytest.raises(ValueError)`` kills it; one asserting
+@@ -1878,15 +1882,92 @@ class _ExceptionMutator(_BaseMutator):
+       * ``except X:`` -> ``except BaseException:`` — does any test notice the handler
+         now catches strictly more? A refactor that widens a catch swallows errors that
+         used to propagate.
++      * ``except X:`` -> ``except T:`` for a type T the baseline OBSERVED the handler catch
++        (a strict subclass of X), or ``except (A, B):`` -> ``except B:`` for a tuple — does any
++        test notice the handler now catches strictly less? A refactor that narrows a catch lets
++        through an error that used to be handled (Detective #103 widened a guard for exactly that
++        reason, and the test pinning its breadth read as redundant because no operator asked).
++        An invented subclass is refused (D4): T is a type that really arrived.
+ 
+     A handler whose body is already ``pass`` is skipped for the swallow mode: replacing
+     ``pass`` with ``pass`` is an equivalent mutant by construction, and generating it
+     would inflate the universe with a guaranteed survivor.
+     """
+ 
+-    def __init__(self, target: int, mode: str = "raise_type", *a, **k) -> None:  # type: ignore[no-untyped-def]
++    def __init__(  # type: ignore[no-untyped-def]
++        self,
++        target: int,
++        mode: str = "raise_type",
++        *a,
++        caught: CaughtObservation | None = None,
++        **k,
++    ) -> None:
+         super().__init__(target, *a, **k)
+         self.mode = mode
++        # What the baseline saw each handler catch (#37); None = no observation was made.
++        self.caught = caught
++        self._star_depth = 0
++
++    def visit_TryStar(self, node: ast.TryStar) -> ast.AST:
++        # `except*` delivers an ExceptionGroup, so a type observed at a clause is not the type the
++        # clause names; its handlers are outside the narrowing question.
++        self._star_depth += 1
++        try:
++            return self.generic_visit(node)
++        finally:
++            self._star_depth -= 1
++
++    @staticmethod
++    def _type_expr(key: str) -> ast.expr:
++        """An expression that resolves an observed ``module:qualname`` in a mutant's namespace.
++
++        A builtin is its bare name. Any other class is reached through ``__import__`` rather than
++        the mutant's globals, which need not hold the name (a class raised by a callee in another
++        module), so the mutant would die of NameError: a crash that measures our plumbing.
++        """
++        module, qual = key.split(":", 1)
++        if module == "builtins":
++            return ast.Name(id=qual, ctx=ast.Load())
++        expr: ast.expr = ast.Call(
++            func=ast.Name(id="__import__", ctx=ast.Load()),
++            args=[ast.Constant(value=module)],
++            keywords=[],
++        )
++        for part in qual.split("."):
++            expr = ast.Attribute(value=expr, attr=part, ctx=ast.Load())
++        return expr
++
++    def _narrowings(self, node: ast.ExceptHandler) -> list[tuple[ast.expr, str]]:
++        """(replacement ``type`` expression, dimension label) per narrowing of one handler (#37).
++
++        A tuple handler drops one member per mutant (static, exact). A single named type narrows to
++        each OBSERVED strict subtype, if an observation was supplied; a type it cannot name, or one
++        with no observed subtype, has none. Which of these states applies is
++        :func:`narrowing_standing`, which the census reads too.
++        """
++        declared = node.type
++        if isinstance(declared, ast.Tuple):
++            if len(declared.elts) < 2:
++                return []
++            out: list[tuple[ast.expr, str]] = []
++            names = ",".join(_exc_type_name(e) for e in declared.elts)
++            for i, member in enumerate(declared.elts):
++                rest = [e for j, e in enumerate(declared.elts) if j != i]
++                repl: ast.expr = (
++                    rest[0] if len(rest) == 1 else ast.Tuple(elts=rest, ctx=ast.Load())
++                )
++                out.append(
++                    (repl, f"EXCEPTION:narrow:({names})-{_exc_type_name(member)}")
++                )
++            return out
++        if isinstance(declared, (ast.Name, ast.Attribute)) and self.caught is not None:
++            name = _exc_type_name(declared)
++            observed = self.caught.get(node.lineno, {})
++            return [
++                (self._type_expr(key), f"EXCEPTION:narrow:{name}->{key}")
++                for key in narrowing_candidates([name], observed)
++            ]
++        return []
+ 
+     def visit_Raise(self, node: ast.Raise) -> ast.AST:
+         if self.mode != "raise_type" or self.applied or node.exc is None:
+@@ -1925,6 +2006,19 @@ class _ExceptionMutator(_BaseMutator):
+                 return node
+             self._note(f"EXCEPTION:broaden:{name}")
+             self.current += 1
++        elif (
++            self.mode == "handler_narrow"
++            and node.type is not None
++            and not self._star_depth
++        ):
++            for repl, label in self._narrowings(node):
++                selected = self.current == self.target
++                self._note(label)
++                self.current += 1
++                if selected:
++                    node.type = repl
++                    self._mark_applied(node)
++                    return node
+         return self.generic_visit(node)
+ 
+ 
+@@ -2960,6 +3054,7 @@ def _count_targets(
+     func_node: ast.FunctionDef | ast.AsyncFunctionDef,
+     category: MutationCategory,
+     observed: frozenset[str] | None = None,
++    caught: CaughtObservation | None = None,
+ ) -> int:
+     """Count how many mutation targets exist for a category in a function.
+ 
+@@ -2999,7 +3094,7 @@ def _count_targets(
+         )
+     if category == MutationCategory.EXCEPTION:
+         return sum(
+-            _count_exception_targets(func_node, mode)
++            _count_exception_targets(func_node, mode, caught)
+             for mode, _desc in _EXCEPTION_SUB_MODES
+         )
+     if category == MutationCategory.DATAFLOW:
+@@ -3327,29 +3422,37 @@ def _count_state_targets(
+ 
+ 
+ def _record_exception_dimensions(
+-    func_node: ast.FunctionDef | ast.AsyncFunctionDef, mode: str
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    mode: str,
++    caught: CaughtObservation | None = None,
+ ) -> list[str]:
+     """Dimension keys for one EXCEPTION sub-mode, in transformer-visit order."""
+     tree = copy.deepcopy(func_node)
+-    mutator = _ExceptionMutator(-1, mode)
++    mutator = _ExceptionMutator(-1, mode, caught=caught)
+     mutator.keys = []
+     mutator.visit(tree)
+     return mutator.keys
+ 
+ 
+ def _count_exception_targets(
+-    func_node: ast.FunctionDef | ast.AsyncFunctionDef, mode: str
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    mode: str,
++    caught: CaughtObservation | None = None,
+ ) -> int:
+     """Targets for one EXCEPTION sub-mode. Counted by RUNNING the mutator in record
+     mode, so the counter and the transformer cannot drift — the skip rules (a bare
+     ``raise``, an already-``pass`` handler, an untyped ``except:``) live in one place."""
+-    return len(_record_exception_dimensions(func_node, mode))
++    return len(_record_exception_dimensions(func_node, mode, caught))
+ 
+ 
+ _EXCEPTION_SUB_MODES = (
+     ("raise_type", "replace raised exception type"),
+     ("handler_swallow", "swallow exception handler body"),
+     ("handler_broaden", "widen caught exception type"),
++    (
++        "handler_narrow",
++        "narrow caught exception type (an observed subtype, or one tuple member dropped)",
++    ),
+ )
+ 
+ # μ⁻ Form A — the always-applicable output perturbations (the independence pair + existence).
+@@ -3840,6 +3943,7 @@ def _generate_exception_mutants(
+     max_per_category: int | None,
+     greedy: bool = True,
+     pass_index: int = 0,
++    caught: CaughtObservation | None = None,
+ ) -> list[Mutant]:
+     """Generate EXCEPTION mutants across all three sub-modes.
+ 
+@@ -3854,9 +3958,9 @@ def _generate_exception_mutants(
+     cat = MutationCategory.EXCEPTION
+ 
+     for mode, desc in _EXCEPTION_SUB_MODES:
+-        keys = _record_exception_dimensions(func_node, mode) if greedy else []
++        keys = _record_exception_dimensions(func_node, mode, caught) if greedy else []
+         target_count = (
+-            len(keys) if greedy else _count_exception_targets(func_node, mode)
++            len(keys) if greedy else _count_exception_targets(func_node, mode, caught)
+         )
+         budget = (
+             _live_dimension_count(keys)
+@@ -3872,7 +3976,7 @@ def _generate_exception_mutants(
+ 
+         for i in selected:
+             mutated_tree = copy.deepcopy(func_node)
+-            transformer = _ExceptionMutator(i, mode)
++            transformer = _ExceptionMutator(i, mode, caught=caught)
+             mutated_node = transformer.visit(mutated_tree)
+             ast.fix_missing_locations(mutated_node)
+ 
+@@ -5546,6 +5650,7 @@ def generate_mutants(
+     greedy: bool = True,
+     pass_index: int = 0,
+     observed_return_types: frozenset[str] | None = None,
++    observed_caught: CaughtObservation | None = None,
+ ) -> list[Mutant]:
+     """Generate mutants for a function across specified categories.
+ 
+@@ -5572,6 +5677,10 @@ def generate_mutants(
+         pass_index: Convergence pass. Pass p takes window
+               [p·max_per_category, (p+1)·max_per_category) of the greedy order,
+               so the union across passes grows the (1−1/e)-optimal prefix.
++        observed_caught: the exception types each handler was OBSERVED to catch in the baseline
++              (:func:`observe_caught_exceptions`, #37). ``None`` means no observation was made, which
++              withholds the observed narrowings (the census says so); a tuple handler's
++              drop-one narrowings are static and need none.
+     """
+     mutants: list[Mutant] = []
+     ds_pos = _docstring_positions(func_node)
+@@ -5600,7 +5709,11 @@ def generate_mutants(
+         if cat == MutationCategory.EXCEPTION:
+             mutants.extend(
+                 _generate_exception_mutants(
+-                    func_node, max_per_category, greedy=greedy, pass_index=pass_index
++                    func_node,
++                    max_per_category,
++                    greedy=greedy,
++                    pass_index=pass_index,
++                    caught=observed_caught,
+                 )
+             )
+             continue
+@@ -9790,6 +9903,7 @@ def run_function_profiling(
+     widen_tests: list[Callable[..., None]] | None = None,
+     observed_return_types: frozenset[str] | None = None,
+     full_matrix: bool = False,
++    observed_caught: CaughtObservation | None = None,
+ ) -> ProfilingResult:
+     """Profiling mode — generate mutants (exhaustive by default), evaluate with budget.
+ 
+@@ -9837,6 +9951,7 @@ def run_function_profiling(
+             max_per_category=max_per_category,
+             pass_index=pass_index,
+             observed_return_types=observed_return_types,
++            observed_caught=observed_caught,
+         )
+     )
+     # Shard for parallel evaluation: generation is deterministic, so mutants[a:b] here is
+@@ -10776,6 +10891,7 @@ def estimate_universe_size(
+     func_node: ast.FunctionDef | ast.AsyncFunctionDef,
+     categories: set[MutationCategory],
+     observed: frozenset[str] | None = None,
++    caught: CaughtObservation | None = None,
+ ) -> int:
+     """Count total possible mutation targets without generating mutants.
+ 
+@@ -10786,7 +10902,7 @@ def estimate_universe_size(
+     reported universe matches the type-conditional perturbations generation will produce; None
+     (the static census default) counts only the always-applicable Fork-1 OUTPUT sub-modes.
+     """
+-    return sum(_count_targets(func_node, cat, observed) for cat in categories)
++    return sum(_count_targets(func_node, cat, observed, caught) for cat in categories)
+ 
+ 
+ def coverage_floor(
+diff --git a/Wesker/monitoring.py b/Wesker/monitoring.py
+index bcc1b18..bc40d84 100644
+--- a/Wesker/monitoring.py
++++ b/Wesker/monitoring.py
+@@ -555,6 +555,9 @@ def tool_id() -> int:
+             mon.register_callback(candidate, mon.events.PY_RETURN, _dispatch_py_return)
+             mon.register_callback(candidate, mon.events.LINE, _dispatch_line)
+             mon.register_callback(candidate, mon.events.PY_UNWIND, _dispatch_py_unwind)
++            mon.register_callback(
++                candidate, mon.events.EXCEPTION_HANDLED, _dispatch_exception_handled
++            )
+             mon.register_callback(
+                 candidate, mon.events.INSTRUCTION, _dispatch_instruction
+             )
+@@ -566,12 +569,19 @@ def tool_id() -> int:
+     )
+ 
+ 
++def _global_only_events() -> tuple[int, int]:
++    """The events ``sys.monitoring`` offers only process-wide, never per code object: a subscription
++    to one is delivered by the global dispatcher and filtered to its codes there."""
++    events = sys.monitoring.events
++    return (events.PY_UNWIND, events.EXCEPTION_HANDLED)
++
++
+ def _recompute_mask(tool: int, code: CodeType) -> None:
+     """Derive and set the local event bitmask for a code object from active subscriptions."""
+     subs = _subscriptions_by_code.get(code, [])
+     mask = 0
+     for s in subs:
+-        if s.event != sys.monitoring.events.PY_UNWIND:
++        if s.event not in _global_only_events():
+             mask |= s.event
+     sys.monitoring.set_local_events(tool, code, mask)
+ 
+@@ -582,8 +592,8 @@ def _recompute_global_events(tool: int) -> None:
+     if _subscriptions_with_selectors:
+         mask |= sys.monitoring.events.PY_START
+     for sub in _active_subscriptions.values():
+-        if sub.event == sys.monitoring.events.PY_UNWIND:
+-            mask |= sys.monitoring.events.PY_UNWIND
++        if sub.event in _global_only_events():
++            mask |= sub.event
+     sys.monitoring.set_events(tool, mask)
+ 
+ 
+@@ -857,6 +867,34 @@ def _dispatch_py_unwind(code: CodeType, offset: int, exc: BaseException) -> None
+         _notify(sub, code, offset, exc, frame=target_frame)
+ 
+ 
++def _dispatch_exception_handled(
++    code: CodeType, offset: int, exc: BaseException
++) -> None:
++    """An exception reached a handler in ``code`` (#37): the event the caught-type observation reads."""
++    subs = _subscriptions_by_code.get(code)
++    if not subs:
++        return
++    cur_thread = threading.get_ident()
++    matching_subs = []
++    for sub in subs:
++        if (
++            sub.event != sys.monitoring.events.EXCEPTION_HANDLED
++            or sub.observation.failure
++        ):
++            continue
++        if not _thread_matches(sub, cur_thread):
++            continue
++        if sub.run_token is not None and not is_run_token_active(sub.run_token):
++            continue
++        matching_subs.append(sub)
++    if not matching_subs:
++        return
++
++    target_frame = sys._getframe(1)
++    for sub in matching_subs:
++        _notify(sub, code, offset, exc, frame=target_frame)
++
++
+ def _dispatch_instruction(code: CodeType, offset: int) -> object:
+     subs = _subscriptions_by_code.get(code)
+     if not subs:
+@@ -1106,6 +1144,7 @@ def release_monitoring_tool() -> None:
+                 mon.events.PY_RETURN,
+                 mon.events.LINE,
+                 mon.events.PY_UNWIND,
++                mon.events.EXCEPTION_HANDLED,
+                 mon.events.INSTRUCTION,
+             ):
+                 with contextlib.suppress(ValueError):
+diff --git a/Wesker/policy.py b/Wesker/policy.py
+index ab6f814..9b69514 100644
+--- a/Wesker/policy.py
++++ b/Wesker/policy.py
+@@ -117,9 +117,13 @@ from .swap_plan import SWAP_PAIR_BUDGET
+ #    (Not a bump: #44 added the rest of Def. 11.8's μ⁻ operators to the TWO-SIGN manifest, which
+ #    moves only the `+neg` digest. The one-sign universe did not change, so its id and every
+ #    one-sign receipt stay valid; a shared counter bump would have invalidated them for nothing.)
+-# 10: SWAP no longer transposes two identical operands (#53): the rewrite was the original
+-#     program, an empty-diff survivor nothing could kill, and it spent the pair budget a real
+-#     question needed. The corpus gained fp_swap_identical.
++# 10: the EXCEPTION operator narrows a handler (#37): `except T:` to a type the baseline OBSERVED the
++#     handler catch (a strict subclass of T), and `except (A, B):` drops one member per mutant. The
++#     universe gains a sub-mode, and a single-type handler with no observation is WITHHELD by name
++#     (`unobserved_handler`), never read as clean. SWAP no longer transposes two identical operands
++#     (#53): the rewrite was the original program, an empty-diff survivor nothing could kill. The
++#     corpus gained fp_exception_narrow and fp_swap_identical. (The mutant-id derivation moved too, #48;
++#     that is an observation-text change and moves the digest, not the version.)
+ POLICY_VERSION = 10
+ 
+ # The behavioral fingerprint corpus: small functions that together reach every
+@@ -222,6 +226,18 @@ _FINGERPRINT_CORPUS: tuple[str, ...] = (
+         "    self.left = self.right = v\n"
+         "    self.declared: int\n"
+     ),
++    # EXCEPTION handler_narrow (policy 10): a tuple handler drops one member per mutant, which needs no
++    # observation; the single-type handler narrows only to an OBSERVED subtype, so statically it is
++    # withheld and the corpus counts only the tuple's three drop-ones.
++    (
++        "def fp_exception_narrow(x):\n"
++        "    try:\n"
++        "        return int(x)\n"
++        "    except (ValueError, TypeError, KeyError):\n"
++        "        return 0\n"
++        "    except OSError:\n"
++        "        return 1\n"
++    ),
+     # SWAP identical operands (policy 10): the (False, False) transposition is the original program and is
+     # not a target; the two distinct transpositions of the three-argument call are.
+     "def fp_swap_identical(x):\n    return g(False, False, x)\n",
+@@ -355,6 +371,13 @@ def _categories(two_sign: bool = False) -> dict[str, dict[str, Any]]:
+         MutationCategory.EXCEPTION.value: {
+             "question": "are the raised type, handler effect, and caught type pinned?",
+             "sub_modes": {mode: desc for mode, desc in _EXCEPTION_SUB_MODES},
++            "narrowing": (
++                "a single-type handler narrows to each type the baseline OBSERVED it catch that is a "
++                "strict subclass of the declared type (never an invented subclass); a tuple handler "
++                "drops one member per mutant; a single-type handler with no observation is withheld "
++                "(unobserved_handler), and one observed to catch only its declared type has nothing "
++                "to narrow to"
++            ),
+         },
+         MutationCategory.DATAFLOW.value: {
+             "question": "does this expression use the correct available value?",
+diff --git a/tests/test_exception_narrowing_intent.py b/tests/test_exception_narrowing_intent.py
+new file mode 100644
+index 0000000..8d0cfd8
+--- /dev/null
++++ b/tests/test_exception_narrowing_intent.py
+@@ -0,0 +1,395 @@
++"""The EXCEPTION operator narrows a handler, so a test that pins its breadth is necessary (Wesker #37).
++
++THE DEFECT, measured 2026-10-04 dogfooding Detective's ``audit --remove`` on Detective itself:
++``suite_edit.remove_definition_from_source`` parses with ``except Exception:``, which Detective #103 had
++widened from ``except SyntaxError:`` because the parser also raises UnicodeEncodeError on a lone surrogate.
++#103's regression test, which feeds a lone surrogate, was read as redundant for kills AND lines and
++``--remove`` deleted it: another test covered the same lines and killed the same mutants. What the deleted
++test alone carried was the handler's BREADTH, and no operator asked that question. ``handler_broaden`` is
++the widening dual; narrowing (``except Exception:`` to ``except SyntaxError:``) is the refactor that lets
++an error escape that used to be caught, and it is exactly the defect #103 fixed.
++
++THE RULING (D4): observed narrowing. A single-type handler narrows to a type the baseline OBSERVED it
++catch (a strict subclass of the declared type); a tuple handler ``except (A, B)`` drops one member per
++mutant; an invented fixed subclass is refused. These tests state that from intent: the observation is real
++(it comes from ``sys.monitoring``'s EXCEPTION_HANDLED through the broker, never a new trace hook), the
++mutants exist exactly where an observation or a tuple licenses them, a handler with no observation is
++WITHHELD by name and not read as clean, and the test that alone pins the breadth is the one that kills.
++"""
++
++from __future__ import annotations
++
++import ast
++import importlib
++import sys
++
++import pytest
++
++from Wesker.caught_exceptions import (
++    CLAUSE_NONE,
++    NARROW_BARE,
++    NARROW_DROP,
++    NARROW_NO_SUBTYPE,
++    NARROW_OBSERVED,
++    NARROW_OPAQUE,
++    NARROW_UNOBSERVED,
++    catching_clause,
++    narrowing_candidates,
++    narrowing_standing,
++    observe_caught_exceptions,
++)
++from Wesker.engine import MutationCategory, generate_mutants, run_function_profiling
++
++_GUARD = (
++    "def parse_guard(text):\n"
++    "    try:\n"
++    "        return int(text)\n"
++    "    except Exception:\n"
++    "        return None\n"
++)
++
++
++def _fn(src: str, name: str | None = None) -> ast.FunctionDef:
++    for node in ast.parse(src).body:
++        if isinstance(node, ast.FunctionDef) and (name is None or node.name == name):
++            return node
++    raise AssertionError(name)
++
++
++def _compile(src: str) -> dict:
++    ns: dict = {}
++    exec(compile(src, "<narrow>", "exec"), ns)  # noqa: S102
++    return ns
++
++
++def _narrow(src: str, caught=None, name: str | None = None) -> list[str]:
++    """The handler lines of every narrowing mutant, as source."""
++    node = _fn(src, name)
++    out = []
++    for m in generate_mutants(
++        node,
++        {MutationCategory.EXCEPTION},
++        max_per_category=0,
++        greedy=False,
++        observed_caught=caught,
++    ):
++        text = ast.unparse(m.mutated_node)
++        original = ast.unparse(node)
++        handlers = [
++            ln.strip() for ln in text.splitlines() if ln.strip().startswith("except")
++        ]
++        base = [
++            ln.strip()
++            for ln in original.splitlines()
++            if ln.strip().startswith("except")
++        ]
++        if handlers != base and "BaseException" not in " ".join(handlers):
++            out.extend(h for h in handlers if h not in base)
++    return out
++
++
++# ── the observation: what the baseline saw the handler catch ───────────────────────────────────────
++
++
++def test_the_observation_records_each_type_the_handler_caught():
++    ns = _compile(_GUARD)
++    node = _fn(_GUARD)
++    with observe_caught_exceptions(node, ns["parse_guard"].__code__) as caught:
++        ns["parse_guard"]("12")  # nothing raised: nothing observed
++        ns["parse_guard"]("x")  # ValueError
++        ns["parse_guard"](None)  # TypeError
++    handler_line = node.body[0].handlers[0].lineno
++    assert set(caught) == {handler_line}
++    assert set(caught[handler_line]) == {"builtins:ValueError", "builtins:TypeError"}
++    assert caught[handler_line]["builtins:ValueError"][:2] == [
++        "ValueError",
++        "Exception",
++    ]
++
++
++def test_an_exception_that_no_clause_catches_is_not_observed_as_caught():
++    src = "def f(x):\n    try:\n        return int(x)\n    except KeyError:\n        return 0\n"
++    ns = _compile(src)
++    with (
++        observe_caught_exceptions(_fn(src), ns["f"].__code__) as caught,
++        pytest.raises(ValueError),
++    ):
++        ns["f"]("x")
++    assert caught == {}
++
++
++def test_the_clause_that_caught_it_is_the_first_that_matches():
++    src = (
++        "def f(x):\n    try:\n        return int(x)\n    except ValueError:\n        return 1\n"
++        "    except (TypeError, KeyError):\n        return 2\n    except Exception:\n        return 3\n"
++    )
++    ns = _compile(src)
++    node = _fn(src)
++    with observe_caught_exceptions(node, ns["f"].__code__) as caught:
++        ns["f"]("x")
++        ns["f"](None)
++        ns["f"]([])
++    by_line = {h.lineno: i for i, h in enumerate(node.body[0].handlers)}
++    seen = {by_line[line]: set(types) for line, types in caught.items()}
++    assert seen == {
++        0: {"builtins:ValueError"},
++        1: {"builtins:TypeError"},
++    }
++
++
++def test_a_finally_or_a_nested_function_does_not_corrupt_the_table():
++    src = "def f(x):\n    try:\n        return int(x)\n    finally:\n        pass\n"
++    ns = _compile(src)
++    with (
++        observe_caught_exceptions(_fn(src), ns["f"].__code__) as caught,
++        pytest.raises(ValueError),
++    ):
++        ns["f"]("x")
++    assert caught == {}
++
++
++def test_a_subscription_is_closed_when_the_block_exits_or_fails():
++    from Wesker import monitoring
++
++    ns = _compile(_GUARD)
++    before = len(monitoring._active_subscriptions)
++    with (
++        pytest.raises(RuntimeError),
++        observe_caught_exceptions(_fn(_GUARD), ns["parse_guard"].__code__),
++    ):
++        raise RuntimeError("test body failed")
++    assert len(monitoring._active_subscriptions) == before
++
++
++# ── the mutants: an observed subtype, or a tuple's drop-one, and nothing invented ───────────────────
++
++
++def test_a_handler_narrows_to_each_observed_strict_subtype():
++    ns = _compile(_GUARD)
++    node = _fn(_GUARD)
++    with observe_caught_exceptions(node, ns["parse_guard"].__code__) as caught:
++        ns["parse_guard"]("x")
++        ns["parse_guard"](None)
++    assert sorted(_narrow(_GUARD, caught)) == [
++        "except TypeError:",
++        "except ValueError:",
++    ]
++
++
++def test_without_an_observation_a_single_type_handler_has_no_narrowing():
++    """No invented subclass: the operator does not choose a type for the program."""
++    assert _narrow(_GUARD, None) == []
++    assert _narrow(_GUARD, {}) == []
++
++
++def test_a_type_observed_only_as_the_declared_type_gives_no_narrowing():
++    src = "def f(x):\n    try:\n        return int(x)\n    except ValueError:\n        return 0\n"
++    ns = _compile(src)
++    with observe_caught_exceptions(_fn(src), ns["f"].__code__) as caught:
++        ns["f"]("x")
++    assert _narrow(src, caught) == []
++
++
++def test_a_tuple_handler_drops_one_member_at_a_time_with_no_observation():
++    src = (
++        "def f(x):\n    try:\n        return int(x)\n"
++        "    except (ValueError, TypeError, KeyError):\n        return 0\n"
++    )
++    assert sorted(_narrow(src, None)) == [
++        "except (TypeError, KeyError):",
++        "except (ValueError, KeyError):",
++        "except (ValueError, TypeError):",
++    ]
++
++
++def test_a_two_member_tuple_narrows_to_the_remaining_bare_type():
++    src = (
++        "def f(x):\n    try:\n        return int(x)\n"
++        "    except (ValueError, TypeError):\n        return 0\n"
++    )
++    assert sorted(_narrow(src, None)) == ["except TypeError:", "except ValueError:"]
++
++
++def test_a_bare_except_and_a_computed_type_have_nothing_to_narrow():
++    bare = "def f(x):\n    try:\n        return int(x)\n    except:\n        return 0\n"
++    computed = "def f(x, errs):\n    try:\n        return int(x)\n    except errs[0]:\n        return 0\n"
++    assert (
++        _narrow(bare, {5: {"builtins:ValueError": ["ValueError", "Exception"]}}) == []
++    )
++    assert _narrow(computed, None) == []
++
++
++def test_an_except_star_clause_is_outside_the_question():
++    src = "def f(x):\n    try:\n        return int(x)\n    except* (ValueError, TypeError):\n        return 0\n"
++    assert _narrow(src, None) == []
++
++
++def test_a_type_from_another_module_is_reached_through_import_not_the_mutants_globals():
++    src = _GUARD
++    node = _fn(src)
++    line = node.body[0].handlers[0].lineno
++    caught = {
++        line: {
++            "json.decoder:JSONDecodeError": [
++                "JSONDecodeError",
++                "ValueError",
++                "Exception",
++                "BaseException",
++                "object",
++            ]
++        }
++    }
++    (mutant,) = [
++        m
++        for m in generate_mutants(
++            node,
++            {MutationCategory.EXCEPTION},
++            max_per_category=0,
++            greedy=False,
++            observed_caught=caught,
++        )
++        if "JSONDecodeError" in ast.unparse(m.mutated_node)
++    ]
++    assert "__import__('json.decoder').JSONDecodeError" in ast.unparse(
++        mutant.mutated_node
++    )
++    ns = _compile(ast.unparse(mutant.mutated_node))
++    # the mutant builds and runs with no name from the observation in its globals
++    assert ns["parse_guard"]("12") == 12
++
++
++def test_the_target_count_the_dimension_record_and_the_generator_agree():
++    from Wesker.engine import _count_targets, estimate_universe_size
++
++    node = _fn(_GUARD)
++    line = node.body[0].handlers[0].lineno
++    caught = {line: {"builtins:ValueError": ["ValueError", "Exception"]}}
++    n_generated = len(
++        generate_mutants(
++            node,
++            {MutationCategory.EXCEPTION},
++            max_per_category=0,
++            greedy=False,
++            observed_caught=caught,
++        )
++    )
++    assert _count_targets(node, MutationCategory.EXCEPTION, None, caught) == n_generated
++    assert (
++        estimate_universe_size(node, {MutationCategory.EXCEPTION}, None, caught)
++        == n_generated
++    )
++    assert n_generated == _count_targets(node, MutationCategory.EXCEPTION) + 1
++
++
++# ── the pure decisions ──────────────────────────────────────────────────────────────────────────────
++
++
++def test_catching_clause_is_the_first_match_and_none_when_nothing_matches():
++    clauses = [["ValueError"], ["TypeError", "KeyError"], []]
++    assert catching_clause(clauses, ["ValueError", "Exception"]) == "clause:0"
++    assert (
++        catching_clause(clauses, ["KeyError", "LookupError", "Exception"]) == "clause:1"
++    )
++    assert (
++        catching_clause(clauses, ["OSError", "Exception"]) == "clause:2"
++    )  # bare catches all
++    assert catching_clause(clauses[:2], ["OSError", "Exception"]) == CLAUSE_NONE
++    assert catching_clause([], ["ValueError"]) == CLAUSE_NONE
++    assert catching_clause([["Exception"]], []) == CLAUSE_NONE
++
++
++def test_narrowing_candidates_are_strict_subtypes_sorted():
++    obs = {
++        "builtins:ValueError": ["ValueError", "Exception", "BaseException", "object"],
++        "builtins:Exception": ["Exception", "BaseException", "object"],
++        "builtins:KeyError": ["KeyError", "LookupError", "Exception", "BaseException"],
++        "builtins:SystemExit": ["SystemExit", "BaseException", "object"],
++        "x:Empty": [],
++    }
++    assert narrowing_candidates(["Exception"], obs) == [
++        "builtins:KeyError",
++        "builtins:ValueError",
++    ]
++    assert narrowing_candidates(["LookupError"], obs) == ["builtins:KeyError"]
++    assert narrowing_candidates(["ValueError"], obs) == []
++    assert narrowing_candidates([], obs) == []
++    assert narrowing_candidates(["Exception"], {}) == []
++
++
++@pytest.mark.parametrize(
++    ("declared", "run", "n", "tup", "bare", "want"),
++    [
++        ([], True, 0, False, True, NARROW_BARE),
++        (["A", "B"], False, 0, True, False, NARROW_DROP),
++        (["A"], False, 0, True, False, NARROW_OPAQUE),
++        ([], False, 0, False, False, NARROW_OPAQUE),
++        (["A"], False, 0, False, False, NARROW_UNOBSERVED),
++        (["A"], True, 0, False, False, NARROW_NO_SUBTYPE),
++        (["A"], True, 2, False, False, NARROW_OBSERVED),
++    ],
++)
++def test_narrowing_standing_never_shares_a_code_between_unobserved_and_nothing_to_narrow(
++    declared, run, n, tup, bare, want
++):
++    assert narrowing_standing(declared, run, n, tup, bare) == want
++    assert NARROW_UNOBSERVED != NARROW_NO_SUBTYPE
++
++
++# ── end to end: the test that alone pins the breadth is now necessary ───────────────────────────────
++
++
++def test_the_test_that_pins_a_handlers_breadth_kills_the_narrowing_and_is_necessary(
++    tmp_path, monkeypatch
++):
++    (tmp_path / "ngmod.py").write_text(_GUARD)
++    monkeypatch.syspath_prepend(str(tmp_path))
++    for name in ("ngmod", "ngtests"):
++        sys.modules.pop(name, None)
++    (tmp_path / "ngtests.py").write_text(
++        "from ngmod import parse_guard\n\n\n"
++        "def test_a_number():\n    assert parse_guard('12') == 12\n\n\n"
++        "def test_syntax_like():\n    assert parse_guard('x') is None\n\n\n"
++        "def test_the_other_error():\n    assert parse_guard(None) is None\n"
++    )
++    mod = importlib.import_module("ngmod")
++    tests_mod = importlib.import_module("ngtests")
++    tests = []
++    for attr in sorted(a for a in vars(tests_mod) if a.startswith("test_")):
++        fn = getattr(tests_mod, attr)
++        fn.__qualname__ = f"ngtests.py::{attr}"
++        tests.append(fn)
++    node = _fn(_GUARD)
++    with observe_caught_exceptions(node, mod.parse_guard.__code__) as caught:
++        for t in tests:
++            t()
++    try:
++        res = run_function_profiling(
++            node,
++            "ngmod.py::parse_guard",
++            {MutationCategory.EXCEPTION},
++            tests,
++            mod.parse_guard,
++            scope_tests=False,
++            max_per_category=0,
++            observed_caught=caught,
++        )
++    finally:
++        for name in ("ngmod", "ngtests"):
++            sys.modules.pop(name, None)
++    killed = {r["dimension"]: r for r in res.killed_records}
++    survived = {r["dimension"] for r in res.survivor_records}
++    narrow = {d: r for d, r in killed.items() if d.startswith("EXCEPTION:narrow:")}
++    assert set(narrow) == {
++        "EXCEPTION:narrow:Exception->builtins:TypeError",
++        "EXCEPTION:narrow:Exception->builtins:ValueError",
++    }
++    assert not {d for d in survived if d.startswith("EXCEPTION:narrow:")}
++    # Each is killed by the test that raises the OTHER type, which the narrowed handler no longer
++    # catches: `except TypeError` lets the ValueError test's error escape, and the reverse. That test is
++    # what pins the handler's breadth, and it is necessary now.
++    assert narrow["EXCEPTION:narrow:Exception->builtins:TypeError"]["test"].endswith(
++        "test_syntax_like"
++    )
++    assert narrow["EXCEPTION:narrow:Exception->builtins:ValueError"]["test"].endswith(
++        "test_the_other_error"
++    )
+diff --git a/tests/test_policy.py b/tests/test_policy.py
+index 55b58b6..8e4868b 100644
+--- a/tests/test_policy.py
++++ b/tests/test_policy.py
+@@ -73,7 +73,9 @@ from Wesker.policy import (
+ # Wesker #48: the mutant-id derivation moved to the canonical serializer, an observation-text change (the universe did
+ # not move; categories and counts verified unchanged: GOLDEN_FINGERPRINT holds). 9.a5aeead0de4f -> 9.bd305bdfd9f8.
+ # Wesker #53 (policy 10): SWAP no longer transposes two identical operands; the corpus gained fp_swap_identical (SWAP 4 -> 3 on it). 9.bd305bdfd9f8 -> 10.f7358643c7e0.
+-GOLDEN_POLICY_ID = "10.f7358643c7e0"
++# Wesker #37 (policy 10): EXCEPTION gained handler_narrow (an observed subtype, or a tuple handler's drop-one); the corpus gained
++# fp_exception_narrow and no existing row moved. 10.f7358643c7e0 -> 10.2598eed3d331.
++GOLDEN_POLICY_ID = "10.2598eed3d331"
+ 
+ # The same fact, readable: the engine's target counts over the fingerprint
+ # corpus. A failure here names the category and function that moved.
+@@ -115,6 +117,9 @@ GOLDEN_FINGERPRINT = {
+     # g(False, False, x): the identical (0, 1) pair is not a target, the two distinct pairs and the
+     # unwrap are, so SWAP is 3 where it was 4.
+     "fp_swap_identical": {"SWAP": 3, "STATE": 1, "VALUE": 2},
++    # Policy 10. The tuple handler's three drop-ones are static (EXCEPTION 7 = swallow 2 + broaden 2 +
++    # narrow 3); the single-type `except OSError` is withheld without an observation, so it adds none.
++    "fp_exception_narrow": {"EXCEPTION": 7, "STATE": 3, "SWAP": 1, "VALUE": 4},
+ }
+ 
+ 
+@@ -136,6 +141,7 @@ GOLDEN_FINGERPRINT = {
+ # clause moved both again: two-sign 9+neg.fec711a421e9 -> 9+neg.6035bc2f613d.
+ # Policy change above (48) moved both ids: two-sign 9+neg.6035bc2f613d -> 9+neg.f2bb2b1e5f8b.
+ # Policy change above (53) moved both ids: two-sign 9+neg.f2bb2b1e5f8b -> 10+neg.cad6fd2aabb8.
++# Policy change above (37) moved both ids: two-sign 10+neg.cad6fd2aabb8 -> 10+neg.34638cf3c016.
+ GOLDEN_TWO_SIGN_OUTPUT = {
+     "fp_annotations": 4,
+     "fp_value": 3,
+@@ -153,6 +159,7 @@ GOLDEN_TWO_SIGN_OUTPUT = {
+     # `return None` -> const, identity; `return x` -> none, const (identity is a no-op); + stale.
+     "fp_return_none": 5,
+     "fp_swap_identical": 4,
++    "fp_exception_narrow": 9,
+ }
+ 
+ 
+-- 
+2.43.0
+

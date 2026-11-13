@@ -1,0 +1,364 @@
+From a6252be8fd8b10bdbba241c7ebbc36b2bcfcb044 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:13:59 +0000
+Subject: [PATCH 07/11] feat(#95): typing.Protocols for the duck-typed results
+ the fault-flag readers receive
+
+The plan item #95 names and nobody built: "with typing.Protocols for the duck-typed results so ty checks
+every read". The renderers take their results unannotated (`def _final_banner_status(result)`), so a
+type checker could not see a direct fault-flag read and a rename was caught only at runtime.
+
+Added, beside the types they describe: `converge.ConvergeFaults`, `audit.SuiteAuditFaults` and
+`equivalence.SurvivorReportFaults`, each a Protocol of read-only properties naming exactly the fault
+flags readers take off that type. The cli readers converted in this series now annotate their `result` /
+`a` / `rep` parameter with them (TYPE_CHECKING imports, so nothing is loaded at runtime): _completeness_verdict,
+_plain_terms, _final_banner_status, _floor_caused, _converge_blocked, _contradicted_flag_lines,
+_verdict_flag_pairs, _missing_line_report, _audit_measurement_block, _audit_code, _redundant_kept,
+_audit_closing_action. A new test asserts every name a Protocol lists is a field of the real type, so a
+Protocol cannot drift into a fiction.
+
+Not closed: no type-checker gate was added to CI (out of scope by instruction), and the larger
+orchestrators (_format_converge, _converge_decision, _converge_action, _format_audit) are not yet
+annotated; their reads are direct and guarded at runtime and by the absorption guard.
+
+The four guard files and tests/test_fault_flags_direct_intent.py pass under 3.14 and 3.12 except the
+`bound` entry noted in the previous commit; ruff clean under pinned 0.16.7.
+---
+ Detective/audit.py                      | 36 ++++++++++++++++++-
+ Detective/cli.py                        | 31 ++++++++++-------
+ Detective/converge.py                   | 46 ++++++++++++++++++++++++-
+ Detective/equivalence.py                | 27 ++++++++++++++-
+ tests/test_fault_flags_direct_intent.py | 24 +++++++++++++
+ 5 files changed, 148 insertions(+), 16 deletions(-)
+
+diff --git a/Detective/audit.py b/Detective/audit.py
+index 0470b8e..9ae6c13 100644
+--- a/Detective/audit.py
++++ b/Detective/audit.py
+@@ -30,7 +30,7 @@ import ast
+ import os
+ from collections.abc import Callable, Sequence
+ from dataclasses import dataclass, field
+-from typing import Any
++from typing import Any, Protocol
+ 
+ from Wesker.ci import walk_functions
+ from Wesker.monitoring import MonitoringUnavailable
+@@ -609,6 +609,40 @@ def function_untyped_tests(
+     )
+ 
+ 
++class SuiteAuditFaults(Protocol):
++    """The fault flags a renderer reads off a `SuiteAudit` (#95), all DIRECT: a type checker sees each."""
++
++    @property
++    def load_failed(self) -> bool: ...
++
++    @property
++    def failing_tests(self) -> tuple[str, ...]: ...
++
++    @property
++    def cut_reasons(self) -> tuple[str, ...]: ...
++
++    @property
++    def authored_fence(self) -> int: ...
++
++    @property
++    def step_budget_divergent(self) -> int: ...
++
++    @property
++    def redundant_dispositions(self) -> tuple[tuple[str, str], ...]: ...
++
++    @property
++    def unresolved_mutants(self) -> tuple[tuple[str, str], ...]: ...
++
++    @property
++    def missing_line_standings(self) -> tuple[tuple[int, str], ...]: ...
++
++    @property
++    def not_consulted_dynamic(self) -> tuple[str, ...]: ...
++
++    @property
++    def environment_gated(self) -> tuple[str, ...]: ...
++
++
+ # What a census of the tests not consulted because they dispatch dynamically (#107, #77) holds if the profile
+ # carries NO census: not "no test", which would read as clean, but this named state, which a page renders as
+ # "could not determine" and which keeps a line no test runs from being called plainly uncovered.
+diff --git a/Detective/cli.py b/Detective/cli.py
+index 499f363..105e1b1 100644
+--- a/Detective/cli.py
++++ b/Detective/cli.py
+@@ -33,7 +33,7 @@ import textwrap
+ import time
+ from collections.abc import Callable
+ from dataclasses import asdict, dataclass
+-from typing import Any, TextIO
++from typing import TYPE_CHECKING, Any, TextIO
+ 
+ # Imported, never restated: the engine owns this number, and a second copy would drift silently.
+ from Wesker.engine import DEFAULT_TRACE_BUDGET_S as _WESKER_DEFAULT_TRACE_BUDGET_S
+@@ -59,6 +59,11 @@ from .equivalence import crash_only_status
+ # stdlib beyond __future__), so `--help` and a bad target pay nothing for it.
+ from .ledger import latest_ask_row, observe, plan_signature, same_ask
+ 
++if TYPE_CHECKING:
++    from .audit import SuiteAuditFaults
++    from .converge import ConvergeFaults
++    from .equivalence import SurvivorReportFaults
++
+ 
+ def _trace_budget(args) -> float | None:
+     """The CLI's `--trace-budget SECONDS` → the engine's `trace_budget_s`. 0 (or negative) means
+@@ -1144,7 +1149,7 @@ def _contradicted_flag_sentence(v) -> str:
+     )
+ 
+ 
+-def _contradicted_flag_lines(rep) -> list[str]:
++def _contradicted_flag_lines(rep: SurvivorReportFaults | None) -> list[str]:
+     """One line per mutant whose ``equivalent`` flag is contradicted (D#110), for the report and the
+     survivor block — from the verdicts, the one place the fact is carried."""
+     verdicts = list(rep.contradicted_flags) if rep is not None else []
+@@ -2047,7 +2052,7 @@ def _show_written(path: str | None) -> list[str]:
+     return lines
+ 
+ 
+-def _completeness_verdict(result, *, flag_offered: bool = True) -> str:
++def _completeness_verdict(result: ConvergeFaults, *, flag_offered: bool = True) -> str:
+     """The honest headline. 'COMPLETE' is claimed ONLY when nothing killable remains AND
+     no survivor is merely *candidate*-equivalent (an unproven 'no distinguishing input
+     found' — automated search never proves equivalence; only a manual `flag` or a killing
+@@ -2134,7 +2139,7 @@ def _rel_path(path: str) -> str:
+     return rel if not rel.startswith("..") else path
+ 
+ 
+-def _plain_terms(result) -> str:
++def _plain_terms(result: ConvergeFaults) -> str:
+     """The verdict in plain language — mirrors diagnose's strongest section, so converge's
+     headline doesn't lean on jargon (every-killable-killed, DOF) to be read.
+ 
+@@ -2201,7 +2206,7 @@ def _measurement_scope(result) -> str:
+     return scope
+ 
+ 
+-def _final_banner_status(result) -> str:
++def _final_banner_status(result: ConvergeFaults) -> str:
+     """A stable, greppable, ALWAYS-LAST line — so `tail`/scroll-to-bottom always lands
+     on the result, never in a generated-test body. Survives truncation by construction."""
+     # A verdict computed against a file that changed under the run is NOT a
+@@ -4006,7 +4011,7 @@ def measurement_block_route(
+     return ""
+ 
+ 
+-def _converge_blocked(result, rep) -> bool:
++def _converge_blocked(result: ConvergeFaults, rep: SurvivorReportFaults | None) -> bool:
+     """Whether a killable or unclassified survivor is still open on a converge result.
+ 
+     `functionally_complete` is the authoritative engine decision. A missing survivor report does not
+@@ -4045,7 +4050,7 @@ def write_refused_residual(
+     return "open" if "open" in standings else "detected"
+ 
+ 
+-def _floor_caused(result) -> bool:
++def _floor_caused(result: ConvergeFaults) -> bool:
+     """Whether a converge result's cut is nothing but its failing floor's own doing (`floor_cause_standing`).
+ 
+     Read from the SAME reasons and floor `ConvergeResult.standing` reads, so the page cannot rank an
+@@ -6486,7 +6491,7 @@ def _crash_only_undetected(rep) -> int:
+ _DETECTED_BY_CAP = 5
+ 
+ 
+-def _verdict_flag_pairs(rep) -> tuple[tuple[str, str], ...]:
++def _verdict_flag_pairs(rep: SurvivorReportFaults | None) -> tuple[tuple[str, str], ...]:
+     """``(mutant id, clause)`` for each mutant whose ``equivalent`` flag is contradicted (D#110), read off
+     the report's verdicts — the shape the terse rows and the audit record carry."""
+     from .equivalence import verdict_distinction
+@@ -7089,7 +7094,7 @@ _MISSING_LINE_REPORT = (
+ )
+ 
+ 
+-def _missing_line_report(result) -> list[str]:
++def _missing_line_report(result: ConvergeFaults) -> list[str]:
+     """The converge report's line gap, one line per standing (#139). The `--input` template is offered
+     for every line a test written from an input could cover, which is every line except one only a
+     failing test runs: converge writes nothing over that floor."""
+@@ -7747,7 +7752,7 @@ def audit_step(code: str, two_sign: bool) -> tuple[str, str]:
+     return "unknown", ""
+ 
+ 
+-def _audit_measurement_block(a) -> str:
++def _audit_measurement_block(a: SuiteAuditFaults) -> str:
+     """Whether the measurement could RUN over the target at all, as `measurement_block_route`'s code.
+ 
+     A measurement that could not run (the module would not import, or no input reached the
+@@ -7772,7 +7777,7 @@ def _audit_measurement_block(a) -> str:
+     return measurement_block_route(load_failed, expressible, needs_sample)
+ 
+ 
+-def _audit_code(a, removing: bool = False) -> str:
++def _audit_code(a: SuiteAuditFaults, removing: bool = False) -> str:
+     """`audit_next_action`'s code for one audit report — the one reading the page and the record share."""
+     from .audit import gating_unclassified
+ 
+@@ -7821,7 +7826,7 @@ def _unconsulted_gap(a) -> str:
+     )
+ 
+ 
+-def _redundant_kept(a) -> tuple[tuple[str, str], ...]:
++def _redundant_kept(a: SuiteAuditFaults) -> tuple[tuple[str, str], ...]:
+     """The redundant tests `--remove` would NOT delete, each with `removal_disposition`'s code (#142).
+ 
+     Read from the dispositions the audit recorded against the suite as it stands
+@@ -8328,7 +8333,7 @@ def _observe_reach_action(missing_lines: list[int], unobserved_reach, reaudit: s
+     ]
+ 
+ 
+-def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
++def _audit_closing_action(a: SuiteAuditFaults, kind: str, two_sign: bool = False) -> list[str]:
+     """The endings that follow a clean measurement — removal, the equivalents, and done.
+ 
+     Split from `_audit_action`'s earlier arms because these are the CLOSING half of the priority
+diff --git a/Detective/converge.py b/Detective/converge.py
+index d95451f..4f97c11 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -26,7 +26,7 @@ import sys
+ import time
+ from collections.abc import Callable, Sequence
+ from dataclasses import dataclass, replace
+-from typing import Any
++from typing import Any, Protocol
+ 
+ from Wesker.ci import relevant_test_files, walk_functions
+ from Wesker.engine import ProfilingResult, estimate_universe_size, greedy_coverage_guarantee
+@@ -773,6 +773,50 @@ class ConvergeResult:
+         )
+ 
+ 
++class ConvergeFaults(Protocol):
++    """The fault flags a renderer reads off a converge result (#95): every one is DIRECT, so a type checker
++    sees each read and a rename fails at it. `ConvergeResult` satisfies it; a double carries every field."""
++
++    @property
++    def stale_target(self) -> bool: ...
++
++    @property
++    def budget_exhausted(self) -> bool: ...
++
++    @property
++    def floor_failing_tests(self) -> tuple[str, ...]: ...
++
++    @property
++    def cut_reasons(self) -> tuple[str, ...]: ...
++
++    @property
++    def validity_cut_reasons(self) -> tuple[str, ...]: ...
++
++    @property
++    def collection_conflicts(self) -> tuple[str, ...]: ...
++
++    @property
++    def routing_error(self) -> str: ...
++
++    @property
++    def environment_gated(self) -> tuple[str, ...]: ...
++
++    @property
++    def environment_coupled(self) -> tuple[str, ...]: ...
++
++    @property
++    def unresolved_mutants(self) -> tuple[tuple[str, str], ...]: ...
++
++    @property
++    def missing_line_standings(self) -> tuple[tuple[int, str], ...]: ...
++
++    @property
++    def not_consulted_dynamic(self) -> tuple[str, ...]: ...
++
++    @property
++    def not_consulted(self) -> int: ...
++
++
+ def passes_to_complete(trajectory: tuple[int, ...]) -> int:
+     """Additional converge passes to drive value-survivors to zero, extrapolated from the
+     OBSERVED per-pass decay — a spec-completeness ETA in *passes*, not seconds.
+diff --git a/Detective/equivalence.py b/Detective/equivalence.py
+index 0987095..a150101 100644
+--- a/Detective/equivalence.py
++++ b/Detective/equivalence.py
+@@ -35,7 +35,7 @@ import sys
+ import time
+ from collections.abc import Callable
+ from dataclasses import dataclass, field
+-from typing import Any, NamedTuple
++from typing import Any, NamedTuple, Protocol
+ 
+ from Wesker.interrupt import JoinedWorker
+ from Wesker.interrupt import bounded_join as _bounded_join
+@@ -2833,6 +2833,31 @@ class SurvivorReport:
+         return tuple(v for v in self.verdicts if v.blocked)
+ 
+ 
++class SurvivorReportFaults(Protocol):
++    """The fault flags a reader takes off a `SurvivorReport` (#95), all DIRECT: a type checker sees each."""
++
++    @property
++    def load_failed(self) -> bool: ...
++
++    @property
++    def routing_error(self) -> str: ...
++
++    @property
++    def authored_fence(self) -> tuple[str, ...]: ...
++
++    @property
++    def step_budget_divergent(self) -> tuple[MutantVerdict, ...]: ...
++
++    @property
++    def contradicted_flags(self) -> tuple[MutantVerdict, ...]: ...
++
++    @property
++    def write_refused_records(self) -> tuple[tuple[str, str, str, str, str], ...]: ...
++
++    @property
++    def not_consulted(self) -> int: ...
++
++
+ def distinguishing_fact(killable: bool, has_crash_witness: bool, suite_detected: bool) -> str:
+     """Which recorded execution tells a mutant from the original, or ``none`` (D#110, pure — pinned).
+ 
+diff --git a/tests/test_fault_flags_direct_intent.py b/tests/test_fault_flags_direct_intent.py
+index e346262..6bae81f 100644
+--- a/tests/test_fault_flags_direct_intent.py
++++ b/tests/test_fault_flags_direct_intent.py
+@@ -398,3 +398,27 @@ def test_a_cached_profile_without_a_census_comes_back_without_one() -> None:
+     assert _from_json(_to_json(bare)).not_consulted_dynamic == ("t.py::test_a",)
+     bare.not_consulted_dynamic = ()  # type: ignore[attr-defined]
+     assert _from_json(_to_json(bare)).not_consulted_dynamic == ()
++
++
++# ------------------------------------------------ the Protocols a type checker reads the fault flags through
++
++
++def test_each_protocol_names_only_fields_its_type_declares() -> None:
++    """The Protocols exist so a type checker sees every direct read (#95). A name a Protocol lists that the
++    real type does not carry would make every `rep.x` read check against a fiction."""
++    import typing
++
++    from Detective.audit import SuiteAudit, SuiteAuditFaults
++    from Detective.converge import ConvergeFaults, ConvergeResult
++    from Detective.equivalence import SurvivorReport, SurvivorReportFaults
++
++    for proto, real in (
++        (ConvergeFaults, ConvergeResult),
++        (SuiteAuditFaults, SuiteAudit),
++        (SurvivorReportFaults, SurvivorReport),
++    ):
++        names = {n for n in vars(proto) if not n.startswith("_")}
++        assert names, f"{proto.__name__} lists nothing"
++        missing = sorted(n for n in names if not hasattr(real, n) and n not in real.__dataclass_fields__)
++        assert not missing, f"{proto.__name__} names fields {real.__name__} does not carry: {missing}"
++        assert typing.get_type_hints  # the Protocols are importable, which the annotations rely on
+-- 
+2.43.0
+

@@ -1,0 +1,804 @@
+From 89bbae68495e856661ba9b5c93a8359570ea3ba9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:12:39 +0000
+Subject: [PATCH 06/11] fix(#95): the open-line census is read directly or
+ named absent, and FAULT_OPEN is empty
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The defect, verbatim from the issue: "an object that never carried the flag reads clean." Fourteen sites
+read `missing_line_standings`, `not_consulted` and `not_consulted_dynamic` with a default of `()` / `0`:
+"every open line has a standing; no test was left unconsulted; no test dispatches by a name the static
+route cannot follow". The last is the dangerous one: it decides whether a line no test runs is called
+`unexecuted` (write a test from an input) or `unconsulted` (a test may already run it).
+
+Why the obvious fix is wrong: the first two are declared by ConvergeResult / SuiteAudit / SurvivorReport
+and are read DIRECTLY. `not_consulted_dynamic` on a PROFILE is different: Detective stashes it after
+routing, so a profile `profile` never routed, and a verdict-cache row written before the census existed,
+genuinely lack it. There the old `()` was a clean answer to a question nobody answered. Now
+`audit.dynamic_census` (pure) maps an absent census to the single named entry `absent:not_consulted_dynamic`,
+`profile_dynamic_census` reads the stash three-valued, `missing_line_standing` therefore says `unconsulted`
+for a line nothing runs, and the page row reads "could not determine which tests ... this measurement
+carries no census of them". The verdict cache stores no key for an absent census and restores none, where
+the round trip used to turn absence into an empty census.
+
+States of `dynamic_census`: None -> ["absent:not_consulted_dynamic"] (no census was taken); a list,
+empty or not, is a census that was taken and is returned as it is.
+
+FAULT_OPEN is now {} and `test_the_fault_registry_is_empty_and_says_so` says so; the standing guard still
+fails any new clean-default read of a fault flag. Doubles of the result types gain the fields across tests/.
+
+Not closed: the typing.Protocols for the duck-typed results (a later commit in this lane). Pin of
+`audit.py::dynamic_census`: the run did not reach COMPLETE; final line "Incomplete: 1 killable (no value
+pin) · 5/6 killed · minimal cover 1 test(s)" (observed `([],)`: real [] vs mutant ['absent:...']); not
+ground further, the integrator re-pins. test_absorbed_rename_intent's `test_no_registry_entry_names_
+something_the_pair_now_declares` fails on the current Wesker integration tree (it now declares `bound`),
+independent of this lane.
+
+Disarmed, 3 of 3 new census tests fail. 832 neighbour tests pass under 3.14 and 3.12 apart from that one
+guard; ruff clean under pinned 0.16.7.
+---
+ Detective/audit.py                            | 32 ++++++++++-
+ Detective/cli.py                              | 27 ++++++---
+ Detective/converge.py                         |  9 +--
+ Detective/verdict_cache.py                    | 12 +++-
+ tests/test_absorbed_rename_intent.py          | 37 ++++--------
+ tests/test_audit_basis_intent.py              |  5 ++
+ .../test_audit_minimize_and_census_intent.py  |  7 +++
+ tests/test_boundary_probe_residual_intent.py  |  1 +
+ tests/test_cli_journey_contract_intent.py     |  5 ++
+ .../test_converge_stale_unverified_intent.py  |  1 +
+ tests/test_converge_style_handoff_intent.py   |  6 ++
+ tests/test_decision_record_intent.py          | 11 ++++
+ tests/test_equivalents_route_intent.py        |  6 ++
+ tests/test_execution_bound_validity_intent.py |  1 +
+ tests/test_false_claim_retirement_intent.py   |  1 +
+ tests/test_fault_flags_direct_intent.py       | 57 +++++++++++++++++++
+ tests/test_kill_relation_intent.py            |  7 +++
+ tests/test_measurement_validity_intent.py     |  2 +
+ tests/test_repair_measurement_route_intent.py |  1 +
+ tests/test_reproducibility_gate_intent.py     |  1 +
+ tests/test_shared_block_route_intent.py       |  6 ++
+ ...test_step_budget_loop_divergence_intent.py |  1 +
+ tests/test_write_test_whole_values_intent.py  |  1 +
+ 23 files changed, 194 insertions(+), 43 deletions(-)
+
+diff --git a/Detective/audit.py b/Detective/audit.py
+index 389e8d5..0470b8e 100644
+--- a/Detective/audit.py
++++ b/Detective/audit.py
+@@ -36,6 +36,7 @@ from Wesker.ci import walk_functions
+ from Wesker.monitoring import MonitoringUnavailable
+ 
+ from .engine import FunctionBasis, classify_survivors, function_basis, profile
++from .faults import ABSENT, reading
+ from .line_flags import classify_missing_lines, load_line_flags
+ from .minimize import (
+     _obligations_by_test,
+@@ -608,6 +609,33 @@ def function_untyped_tests(
+     )
+ 
+ 
++# What a census of the tests not consulted because they dispatch dynamically (#107, #77) holds if the profile
++# carries NO census: not "no test", which would read as clean, but this named state, which a page renders as
++# "could not determine" and which keeps a line no test runs from being called plainly uncovered.
++CENSUS_ABSENT = "absent:not_consulted_dynamic"
++
++
++def dynamic_census(ids: list[str] | None) -> list[str]:
++    """The not-consulted-dynamic census a profile supplies, or its named absence (#95, pure — pinned).
++
++    ``None`` is a profile that carries no census (`profile` never routed it, or a cached row written before
++    the census existed): the answer is ``[CENSUS_ABSENT]``, one entry that is truthy so
++    `missing_line_standing` reads a line nothing runs as ``unconsulted`` and not ``unexecuted``, and that a
++    page names. A list, empty or not, is a census that was taken and is returned as it is. The split exists
++    because `missing_line_standing` and the page both took ``()`` for "absent", which is a clean answer.
++    """
++    if ids is None:
++        return [CENSUS_ABSENT]
++    return list(ids)
++
++
++def profile_dynamic_census(result: Any) -> list[str]:
++    """`dynamic_census` over a profile: Detective stashes the census on the result, so it is read
++    three-valued and an absent stash is handed to the decision as ``None``."""
++    stashed = reading(result, "not_consulted_dynamic")
++    return dynamic_census(None if stashed is ABSENT else list(stashed))
++
++
+ def missing_line_standing(
+     line: int,
+     line_coverage: dict[str, list[int]],
+@@ -1257,13 +1285,13 @@ def audit_suite(
+                     result.line_coverage,
+                     list(_failing),
+                     list(_errored),
+-                    list(getattr(result, "not_consulted_dynamic", ()) or ()),
++                    profile_dynamic_census(result),
+                     list(baseline_unobserved_reach(result)),
+                 ),
+             )
+             for ln in missing
+         ),
+-        not_consulted_dynamic=tuple(getattr(result, "not_consulted_dynamic", ()) or ()),
++        not_consulted_dynamic=tuple(profile_dynamic_census(result)),
+         unobserved_reach=tuple(sorted(baseline_unobserved_reach(result).items())),
+         manually_unreachable=len(manually_unreachable),
+         contradicted_line_flags=contradicted_flags,
+diff --git a/Detective/cli.py b/Detective/cli.py
+index 0a0ee15..499f363 100644
+--- a/Detective/cli.py
++++ b/Detective/cli.py
+@@ -3036,7 +3036,7 @@ def _format_converge(
+         lines.append(f"  ⚠ {refusal}")
+     # The applicability bound's boundary (`engine.widen_admission`), stated in the archive as well:
+     # collected tests with no static path to this function were neither widened nor harvested.
+-    if skipped := getattr(result, "not_consulted", 0):
++    if skipped := result.not_consulted:
+         lines.append(
+             f"  · not consulted: {skipped} collected test(s) have no static path to this function — "
+             "not traced (a missed dynamic reacher costs a redundant generated test, never a certificate)"
+@@ -3253,14 +3253,14 @@ def _format_converge_terse(
+         # disagreed about how much they were disclosing (S1). The helper's own docstring is the
+         # rule: "a list that stops at N with no marker reads as the WHOLE list." One row per standing
+         # (#139): a line only a failing test runs is unproven, never "uncovered".
+-        lines += _missing_line_rows(gap, getattr(result, "missing_line_standings", ()))
+-        lines += _not_consulted_dynamic_rows(getattr(result, "not_consulted_dynamic", ()))
++        lines += _missing_line_rows(gap, result.missing_line_standings)
++        lines += _not_consulted_dynamic_rows(result.not_consulted_dynamic)
+         lines += _unobserved_reach_page_rows(result, bool(rep is not None and rep.killable))
+         # Name each uncovered line's OWN reach requirement (the branch it sits behind), so it is not
+         # conflated with a mutant's kill input — the boundary mutant on `if x < 0` wants `x == 0`, but
+         # the body is reached only when `x < 0`. Capped so the block stays inside its line budget. Only
+         # for a line no test executes: one a test already runs has no reach requirement left to name.
+-        unexecuted = set(_unexecuted_lines(gap, getattr(result, "missing_line_standings", ())))
++        unexecuted = set(_unexecuted_lines(gap, result.missing_line_standings))
+         guards = tuple((ln, guard) for ln, guard in result.missing_line_guards if ln in unexecuted)
+         for ln, guard in guards[:3]:
+             lines.append(_row("", f"line {ln} runs only when: {guard}"))
+@@ -3374,7 +3374,7 @@ def _format_converge_terse(
+     # function were neither widened nor harvested. The boundary of the floor measurement, STATED — not
+     # a knob (there is no opt-in) and not a gap: a missed dynamic reacher under-counts the floor (one
+     # redundant generated test), never the ceiling.
+-    if skipped := getattr(result, "not_consulted", 0):
++    if skipped := result.not_consulted:
+         lines.append(
+             _row(
+                 "· not consulted",
+@@ -7093,7 +7093,7 @@ def _missing_line_report(result) -> list[str]:
+     """The converge report's line gap, one line per standing (#139). The `--input` template is offered
+     for every line a test written from an input could cover, which is every line except one only a
+     failing test runs: converge writes nothing over that floor."""
+-    by_line = _line_standings(list(result.missing_lines), getattr(result, "missing_line_standings", ()))
++    by_line = _line_standings(list(result.missing_lines), result.missing_line_standings)
+     known = {code for code, _, _ in _MISSING_LINE_REPORT}
+     unknown = tuple((code, f"unproven ({code})", "") for code in sorted(set(by_line.values()) - known))
+     lines: list[str] = []
+@@ -7134,9 +7134,20 @@ def _unobserved_reach_page_rows(report, has_killable: bool) -> list[str]:
+ def _not_consulted_dynamic_rows(test_ids) -> list[str]:
+     """The tests the static route could not decide, named with the reason (#107, #77): they dispatch by a
+     name it cannot follow, so they were NOT consulted — which is not "no test reaches this"."""
++    from .audit import CENSUS_ABSENT
++
+     ids = list(test_ids or ())
+     if not ids:
+         return []
++    if ids == [CENSUS_ABSENT]:
++        # The profile carried no census (#95): which tests dispatch dynamically is UNKNOWN, not none.
++        return [
++            _row(
++                "· not consulted",
++                "could not determine which tests reach code by a name the static route cannot follow — "
++                "this measurement carries no census of them",
++            )
++        ]
+     return [
+         _row(
+             "· not consulted",
+@@ -7411,8 +7422,8 @@ def _format_audit(
+         lines.append(_row("✗ real gaps", real_gaps_text(len(a.killable_gaps), a.killable_crash_detected)))
+     if a.missing_lines:
+         # One row per standing (#139), in the renderer converge's page shares.
+-        lines += _missing_line_rows(list(a.missing_lines), getattr(a, "missing_line_standings", ()))
+-    lines += _not_consulted_dynamic_rows(getattr(a, "not_consulted_dynamic", ()))
++        lines += _missing_line_rows(list(a.missing_lines), a.missing_line_standings)
++    lines += _not_consulted_dynamic_rows(a.not_consulted_dynamic)
+     lines += _unobserved_reach_page_rows(a, bool(a.killable_gaps))
+     if a.authored_fence:
+         # A FENCE is a GAP, not an equivalent (Q8): an authored must-not the suite does not enforce.
+diff --git a/Detective/converge.py b/Detective/converge.py
+index eb57c1d..d95451f 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -1810,6 +1810,7 @@ def _missing_line_standings(result: Any, missing: list[int]) -> tuple[tuple[int,
+         function_errored_tests,
+         function_failing_tests,
+         missing_line_standing,
++        profile_dynamic_census,
+     )
+ 
+     kill_matrix = dict(getattr(result, "kill_matrix", {}) or {})
+@@ -1825,7 +1826,7 @@ def _missing_line_standings(result: Any, missing: list[int]) -> tuple[tuple[int,
+                 line_coverage,
+                 list(failing),
+                 list(errored),
+-                list(getattr(result, "not_consulted_dynamic", ()) or ()),
++                profile_dynamic_census(result),
+                 list(_unobserved_reach(result)),
+             ),
+         )
+@@ -3126,7 +3127,7 @@ def _converge_impl(
+     # ... and on the FULL per-test kill relation, never the first-killer credit (#145): the cover and the
+     # redundant set are functions of which tests kill which mutants, and Wesker's own matrix names only
+     # the first killer in run order. Not established (a named standing) is no redundant set and no cover.
+-    from .audit import kill_relation_of
++    from .audit import kill_relation_of, profile_dynamic_census
+ 
+     _relation = kill_relation_of(final_result, _validity.admits_certificate)
+     if _relation.standing == "full_matrix":
+@@ -3255,7 +3256,7 @@ def _converge_impl(
+         line_complete=not missing,
+         missing_lines=tuple(missing),
+         missing_line_standings=missing_standings,
+-        not_consulted_dynamic=tuple(getattr(final_result, "not_consulted_dynamic", ()) or ()),
++        not_consulted_dynamic=tuple(profile_dynamic_census(final_result)),
+         unobserved_reach=tuple(sorted(_unobserved_reach(final_result).items())),
+         line_basis=line_basis,
+         line_owner_ids=line_owner_ids,
+@@ -3293,7 +3294,7 @@ def _converge_impl(
+         # so the larger is the whole boundary.
+         not_consulted=max(
+             getattr(final_result, "test_routing", {}).get("not_consulted", 0),
+-            getattr(survivor_report, "not_consulted", 0) if survivor_report is not None else 0,
++            survivor_report.not_consulted if survivor_report is not None else 0,
+         ),
+         function_basis=_basis,
+         unresolved_mutants=unresolved_mutant_records(final_result.unscored_records),
+diff --git a/Detective/verdict_cache.py b/Detective/verdict_cache.py
+index da759d2..a4924f1 100644
+--- a/Detective/verdict_cache.py
++++ b/Detective/verdict_cache.py
+@@ -32,6 +32,8 @@ from typing import Any
+ from Wesker.engine import CategoryResult, MutationCategory, ProfilingResult
+ from Wesker.trace_evidence import TraceEvidence
+ 
++from .faults import ABSENT, reading
++
+ _CACHE_REL = (".detective", "verdict_cache.json")
+ 
+ 
+@@ -357,7 +359,11 @@ def _to_json(result: ProfilingResult) -> dict:
+     codomain = getattr(result, "observed_return_types", None)
+     if codomain is not None:
+         d[_CODOMAIN_KEY] = sorted(codomain)
+-    d[_DYNAMIC_KEY] = list(getattr(result, "not_consulted_dynamic", ()) or ())
++    # Three-valued (#95): a result that carries no census (never routed by `profile`) stores NO key, so a
++    # warm read restores no census either, and the page says "could not determine" rather than "none".
++    census = reading(result, "not_consulted_dynamic")
++    if census is not ABSENT:
++        d[_DYNAMIC_KEY] = list(census)
+     return d
+ 
+ 
+@@ -402,6 +408,7 @@ def _from_json(d: dict) -> ProfilingResult:
+     # restored below as the attribute it was (#92). A row written before the codomain was carried has
+     # no key and restores none: absence, which `engine.codomain_source` re-observes, never empty.
+     codomain = d.pop(_CODOMAIN_KEY, None)
++    has_census = _DYNAMIC_KEY in d
+     dynamic = tuple(d.pop(_DYNAMIC_KEY, ()) or ())
+     cat_fields = {f.name for f in fields(CategoryResult)} - {"category"}
+     d["per_category"] = [
+@@ -431,7 +438,8 @@ def _from_json(d: dict) -> ProfilingResult:
+     if "proof_basis" in d:
+         d["proof_basis"] = tuple(tuple(pair) for pair in d["proof_basis"])
+     result = ProfilingResult(**d)
+-    result.not_consulted_dynamic = dynamic  # ty: ignore[unresolved-attribute]
++    if has_census:
++        result.not_consulted_dynamic = dynamic  # ty: ignore[unresolved-attribute]
+     if codomain is not None:
+         result.observed_return_types = frozenset(codomain)  # ty: ignore[unresolved-attribute]
+     return result
+diff --git a/tests/test_absorbed_rename_intent.py b/tests/test_absorbed_rename_intent.py
+index 2eeea55..b181982 100644
+--- a/tests/test_absorbed_rename_intent.py
++++ b/tests/test_absorbed_rename_intent.py
+@@ -209,33 +209,10 @@ def test_a_dunder_is_the_data_models(tmp_path) -> None:
+ #
+ # A declared name survives a rename on ONE of the classes declaring it, and the default then answers
+ # "no problem" forever (Detective#95). A fault flag is read DIRECTLY or three-valued (`faults.reading`,
+-# default `ABSENT`). The sites below are the defaulted reads NOT yet converted, counted EXACTLY per flag:
+-# a new one fails, and converting one is a deliberate edit that lowers its number. Measured 2026-11-12.
+-FAULT_OPEN: dict[str, int] = {
+-    "authored_fence": 0,
+-    "budget_exhausted": 0,
+-    "cut_reasons": 0,
+-    "collection_conflicts": 0,
+-    "contradicted_flags": 0,
+-    "environment_coupled": 0,
+-    "environment_gated": 0,
+-    "failing_tests": 0,
+-    "floor_failing_tests": 0,
+-    "load_failed": 0,
+-    "load_failure": 0,
+-    "missing_line_standings": 4,
+-    "not_consulted": 3,
+-    "not_consulted_dynamic": 7,
+-    "redundant_dispositions": 0,
+-    "routing_error": 0,
+-    "shape_hazards": 0,
+-    "stale_target": 0,
+-    "step_budget_divergent": 0,
+-    "trace_truncated": 0,
+-    "unresolved_mutants": 0,
+-    "unscored_records": 0,
+-    "write_refused_records": 0,
+-}
++# default `ABSENT`). The registry of sites not yet converted is EMPTY: every defaulted read of a fault flag
++# was converted, and a new one fails the guard below. An entry here is a debt that names its count; add one
++# only to land a conversion in steps, and remove it in the same lane.
++FAULT_OPEN: dict[str, int] = {}
+ 
+ 
+ def _fault_code(read, registered: bool) -> str:
+@@ -297,3 +274,9 @@ def test_absent_is_a_state_not_a_value() -> None:
+     assert ABSENT != ()
+     with pytest.raises(TypeError):
+         bool(ABSENT)  # folding absence into false raises instead of reading clean
++
++
++def test_the_fault_registry_is_empty_and_says_so() -> None:
++    """#95 is closed: every fault flag is read directly or three-valued. The registry is a ledger of debts,
++    and there are none; a lane that needs one must say which conversion it is landing in steps."""
++    assert FAULT_OPEN == {}
+diff --git a/tests/test_audit_basis_intent.py b/tests/test_audit_basis_intent.py
+index 97f99c5..aa503c6 100644
+--- a/tests/test_audit_basis_intent.py
++++ b/tests/test_audit_basis_intent.py
+@@ -30,6 +30,11 @@ def _report(equivalent):
+         authored_fence=(),  # Q8: the real SurvivorReport carries this; the double must too
+         equivalent=tuple(equivalent),
+         unclassified=(),
++        step_budget_divergent=(),
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        not_consulted=0,
+         load_failed=False,  # #95: read directly; the real SurvivorReport declares it
+     )
+ 
+diff --git a/tests/test_audit_minimize_and_census_intent.py b/tests/test_audit_minimize_and_census_intent.py
+index 1773b68..a224688 100644
+--- a/tests/test_audit_minimize_and_census_intent.py
++++ b/tests/test_audit_minimize_and_census_intent.py
+@@ -41,6 +41,7 @@ def _fake_profile_result():
+         value_survived=0,
+         total_equivalent=0,
+         value_survivor_records=[],
++        unscored_records=[],
+         killed_records=[],
+         per_category=[],
+         universe_size=0,
+@@ -58,6 +59,12 @@ def _trivial_report():
+         authored_fence=(),  # Q8: the real SurvivorReport carries this; the double must too
+         equivalent=(),
+         unclassified=(),
++        step_budget_divergent=(),
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        not_consulted=0,
++        load_failed=False,
+     )
+ 
+ 
+diff --git a/tests/test_boundary_probe_residual_intent.py b/tests/test_boundary_probe_residual_intent.py
+index 6317bd3..11f20ea 100644
+--- a/tests/test_boundary_probe_residual_intent.py
++++ b/tests/test_boundary_probe_residual_intent.py
+@@ -336,6 +336,7 @@ def _settled(param_names=("x",)):
+         function="m.py::f",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+diff --git a/tests/test_cli_journey_contract_intent.py b/tests/test_cli_journey_contract_intent.py
+index 3885928..75b8262 100644
+--- a/tests/test_cli_journey_contract_intent.py
++++ b/tests/test_cli_journey_contract_intent.py
+@@ -167,6 +167,7 @@ def test_missing_survivor_report_cannot_turn_an_incomplete_result_into_done():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -195,6 +196,7 @@ def test_an_ungateable_measurement_outranks_every_input_suggestion():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -225,6 +227,7 @@ def test_an_input_that_already_failed_to_close_is_never_offered_again():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -289,6 +292,7 @@ def test_two_sign_converge_preserves_policy_through_rerun_and_style_handoff():
+         written_path=None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+@@ -317,6 +321,7 @@ def test_final_names_the_measured_policy():
+         written_path=None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         environment_gated=(),
+         unresolved_mutants=(),
+         cut_reasons=(),
+diff --git a/tests/test_converge_stale_unverified_intent.py b/tests/test_converge_stale_unverified_intent.py
+index 0cd8f5b..53784ba 100644
+--- a/tests/test_converge_stale_unverified_intent.py
++++ b/tests/test_converge_stale_unverified_intent.py
+@@ -27,6 +27,7 @@ def _result(**overrides):
+         function="p.py::quote",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+diff --git a/tests/test_converge_style_handoff_intent.py b/tests/test_converge_style_handoff_intent.py
+index 886939e..6e9916a 100644
+--- a/tests/test_converge_style_handoff_intent.py
++++ b/tests/test_converge_style_handoff_intent.py
+@@ -22,6 +22,7 @@ def _complete_result():
+         function="dsl.py::add",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -48,6 +49,11 @@ def _rep(equivalent):
+         equivalent=equivalent,
+         killable=[],
+         unclassified=[],
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        authored_fence=(),
++        not_consulted=0,
+         inputs_expressible=True,
+         load_failed=False,
+         step_budget_divergent=(),
+diff --git a/tests/test_decision_record_intent.py b/tests/test_decision_record_intent.py
+index a87bf48..dfc799f 100644
+--- a/tests/test_decision_record_intent.py
++++ b/tests/test_decision_record_intent.py
+@@ -218,6 +218,7 @@ def _gap_result(**overrides):
+         function=_FN,
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -272,6 +273,7 @@ def test_supply_the_printed_rerun_is_the_records_then():
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -339,6 +341,7 @@ def test_stop_names_its_remedy_and_the_printed_rerun_is_the_records_then():
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -403,6 +406,7 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
+         function="dsl.py::add",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -426,6 +430,11 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
+         equivalent=[types.SimpleNamespace(mutant_id="ARITHMETIC_x")],
+         killable=[],
+         unclassified=[],
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        authored_fence=(),
++        not_consulted=0,
+         inputs_expressible=True,
+         load_failed=False,
+         step_budget_divergent=(),
+@@ -905,6 +914,7 @@ def _lines_result(line: int = 34, guard: str = "value > 3") -> types.SimpleNames
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+@@ -1135,6 +1145,7 @@ def test_a_run_that_asked_nothing_records_no_plan(monkeypatch, tmp_path, capsys)
+         None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         environment_gated=(),
+         unresolved_mutants=(),
+         cut_reasons=(),
+diff --git a/tests/test_equivalents_route_intent.py b/tests/test_equivalents_route_intent.py
+index cef3ad3..fcddcd4 100644
+--- a/tests/test_equivalents_route_intent.py
++++ b/tests/test_equivalents_route_intent.py
+@@ -164,6 +164,11 @@ def _converge(equivalent):
+         equivalent=equivalent,
+         killable=[],
+         unclassified=[],
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        authored_fence=(),
++        not_consulted=0,
+         boundary_probe="run",
+         takes_arguments=True,
+         step_budget_divergent=(),
+@@ -175,6 +180,7 @@ def _converge(equivalent):
+         function="m.py::one",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+diff --git a/tests/test_execution_bound_validity_intent.py b/tests/test_execution_bound_validity_intent.py
+index e024d48..16888f2 100644
+--- a/tests/test_execution_bound_validity_intent.py
++++ b/tests/test_execution_bound_validity_intent.py
+@@ -43,6 +43,7 @@ def test_unresolved_execution_keeps_its_reason_through_the_real_engine_adapter(
+         function="calc.py::target",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         environment_gated=(),
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+diff --git a/tests/test_false_claim_retirement_intent.py b/tests/test_false_claim_retirement_intent.py
+index 1d35709..fdf5315 100644
+--- a/tests/test_false_claim_retirement_intent.py
++++ b/tests/test_false_claim_retirement_intent.py
+@@ -56,6 +56,7 @@ def _gap_result():
+         function="m.py::f",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+diff --git a/tests/test_fault_flags_direct_intent.py b/tests/test_fault_flags_direct_intent.py
+index 25d0853..e346262 100644
+--- a/tests/test_fault_flags_direct_intent.py
++++ b/tests/test_fault_flags_direct_intent.py
+@@ -25,6 +25,7 @@ def _converge_like(**over):
+         "function": "m.py::f",
+         "functionally_complete": False,
+         "floor_failing_tests": (),
++        "not_consulted": 0,
+         "environment_gated": (),
+         "unresolved_mutants": (),
+         "validity_cut_reasons": (),
+@@ -77,6 +78,11 @@ def test_a_result_that_cannot_say_which_lines_stand_open_is_not_read_as_having_n
+         equivalent=[],
+         killable=[],
+         unclassified=[],
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        authored_fence=(),
++        not_consulted=0,
+         inputs_expressible=True,
+         load_failed=False,
+         note="",
+@@ -96,6 +102,11 @@ def test_a_result_that_cannot_say_whether_its_budget_ran_out_is_not_read_as_uncu
+         equivalent=[],
+         killable=[],
+         unclassified=[],
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        authored_fence=(),
++        not_consulted=0,
+         inputs_expressible=True,
+         load_failed=False,
+         note="",
+@@ -341,3 +352,49 @@ def test_a_proof_that_cannot_say_what_gates_its_lines_is_not_read_as_ungated() -
+     proof = types.SimpleNamespace(missing_lines=(3,))
+     with pytest.raises(AttributeError, match="environment_gated"):
+         _residual_action(None, proof, None, "m.py::f")
++
++
++# ---------------------------------- not_consulted_dynamic, not_consulted, missing_line_standings (census)
++
++
++def test_a_profile_that_carries_no_dynamic_census_is_named_absent_and_never_empty() -> None:
++    from Detective.audit import CENSUS_ABSENT, dynamic_census, missing_line_standing, profile_dynamic_census
++
++    assert dynamic_census(None) == [CENSUS_ABSENT]
++    assert dynamic_census([]) == [], "a census that was taken and found nothing is empty, and is not absent"
++    assert dynamic_census(["t.py::test_a"]) == ["t.py::test_a"]
++    assert profile_dynamic_census(types.SimpleNamespace()) == [CENSUS_ABSENT]
++    assert profile_dynamic_census(types.SimpleNamespace(not_consulted_dynamic=())) == []
++    # the absent census must not let a line nothing runs read as plainly uncovered
++    assert (
++        missing_line_standing(5, {}, [], [], profile_dynamic_census(types.SimpleNamespace())) == "unconsulted"
++    )
++    assert missing_line_standing(
++        5, {}, [], [], profile_dynamic_census(types.SimpleNamespace(not_consulted_dynamic=()))
++    ) == ("unexecuted")
++
++
++def test_the_page_says_could_not_determine_for_an_absent_census_and_names_a_taken_one() -> None:
++    from Detective.audit import CENSUS_ABSENT
++    from Detective.cli import _not_consulted_dynamic_rows
++
++    absent = "\n".join(_not_consulted_dynamic_rows([CENSUS_ABSENT]))
++    assert "could not determine" in absent and "no census" in absent
++    assert _not_consulted_dynamic_rows(()) == []
++    assert "t.py::test_a" in "\n".join(_not_consulted_dynamic_rows(["t.py::test_a"]))
++
++
++def test_a_cached_profile_without_a_census_comes_back_without_one() -> None:
++    """Absence survives the verdict cache: a result that carried no census stores none and restores none;
++    the old round trip turned it into an empty census (a clean answer)."""
++    from Wesker.engine import ProfilingResult
++
++    from Detective.verdict_cache import _from_json, _to_json
++
++    bare = ProfilingResult()
++    restored = _from_json(_to_json(bare))
++    assert not hasattr(restored, "not_consulted_dynamic")
++    bare.not_consulted_dynamic = ("t.py::test_a",)  # type: ignore[attr-defined]
++    assert _from_json(_to_json(bare)).not_consulted_dynamic == ("t.py::test_a",)
++    bare.not_consulted_dynamic = ()  # type: ignore[attr-defined]
++    assert _from_json(_to_json(bare)).not_consulted_dynamic == ()
+diff --git a/tests/test_kill_relation_intent.py b/tests/test_kill_relation_intent.py
+index b27bcb2..4e06ed1 100644
+--- a/tests/test_kill_relation_intent.py
++++ b/tests/test_kill_relation_intent.py
+@@ -241,6 +241,7 @@ def _result(kill_matrix, line_coverage, **extra):
+         "value_survived": 0,
+         "total_equivalent": 0,
+         "value_survivor_records": [],
++        "unscored_records": [],
+         "killed_records": [],
+         "per_category": [],
+         "universe_size": len(kill_matrix),
+@@ -268,6 +269,12 @@ def _trivial_report():
+         authored_fence=(),
+         equivalent=(),
+         unclassified=(),
++        step_budget_divergent=(),
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        not_consulted=0,
++        load_failed=False,
+     )
+ 
+ 
+diff --git a/tests/test_measurement_validity_intent.py b/tests/test_measurement_validity_intent.py
+index a320121..9f16c1a 100644
+--- a/tests/test_measurement_validity_intent.py
++++ b/tests/test_measurement_validity_intent.py
+@@ -440,6 +440,7 @@ def test_banner_warranted_floor_vs_diagnostic_counts():
+             self.cut_reasons = cut_reasons
+             self.validity_cut_reasons = cut_reasons
+             self.floor_failing_tests = ()
++            self.not_consulted = 0
+             self.environment_gated = ()
+             self.unresolved_mutants = ()
+             self.collection_conflicts = ()
+@@ -478,6 +479,7 @@ def test_isolate_action_identifies_affected_tests():
+                 )
+             )
+             self.floor_failing_tests = ()
++            self.not_consulted = 0
+             self.environment_gated = ()
+             self.unresolved_mutants = ()
+             self.collection_conflicts = ()
+diff --git a/tests/test_repair_measurement_route_intent.py b/tests/test_repair_measurement_route_intent.py
+index abb5393..88825f6 100644
+--- a/tests/test_repair_measurement_route_intent.py
++++ b/tests/test_repair_measurement_route_intent.py
+@@ -63,6 +63,7 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
+         function="jax_backend/src/utils.py::str2bool",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         environment_gated=(),
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+diff --git a/tests/test_reproducibility_gate_intent.py b/tests/test_reproducibility_gate_intent.py
+index 99e49bb..c759489 100644
+--- a/tests/test_reproducibility_gate_intent.py
++++ b/tests/test_reproducibility_gate_intent.py
+@@ -88,6 +88,7 @@ def _reprofile_result():
+         function="m.py::f",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         environment_gated=(),
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+diff --git a/tests/test_shared_block_route_intent.py b/tests/test_shared_block_route_intent.py
+index 2a7fb15..365140a 100644
+--- a/tests/test_shared_block_route_intent.py
++++ b/tests/test_shared_block_route_intent.py
+@@ -112,6 +112,7 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
+         function="jax_backend/src/utils.py::str2bool",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         environment_gated=(),
+         unresolved_mutants=(),
+         validity_cut_reasons=(),
+@@ -141,6 +142,11 @@ def _loadfail_rep(note=_NOTE):
+         equivalent=[],
+         killable=[],
+         unclassified=[1, 2],
++        write_refused_records=(),
++        routing_error="",
++        contradicted_flags=(),
++        authored_fence=(),
++        not_consulted=0,
+         inputs_expressible=None,
+         load_failed=True,
+         step_budget_divergent=(),
+diff --git a/tests/test_step_budget_loop_divergence_intent.py b/tests/test_step_budget_loop_divergence_intent.py
+index 3453451..d0fe60f 100644
+--- a/tests/test_step_budget_loop_divergence_intent.py
++++ b/tests/test_step_budget_loop_divergence_intent.py
+@@ -223,6 +223,7 @@ def test_converge_divergence_action_and_decision() -> None:
+         refused_floor = ()
+         not_consulted_dynamic = ()
+         floor_failing_tests = ()
++        not_consulted = 0
+         environment_gated = ()
+         unresolved_mutants = ()
+         cut_reasons = ()
+diff --git a/tests/test_write_test_whole_values_intent.py b/tests/test_write_test_whole_values_intent.py
+index 773dc4a..b23046f 100644
+--- a/tests/test_write_test_whole_values_intent.py
++++ b/tests/test_write_test_whole_values_intent.py
+@@ -44,6 +44,7 @@ def _result():
+         stale_target=False,
+         budget_exhausted=False,
+         floor_failing_tests=(),
++        not_consulted=0,
+         unresolved_mutants=(),
+         cut_reasons=(),
+         validity_cut_reasons=(),
+-- 
+2.43.0
+

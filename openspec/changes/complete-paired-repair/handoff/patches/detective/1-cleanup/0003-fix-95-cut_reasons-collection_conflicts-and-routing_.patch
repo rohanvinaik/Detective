@@ -1,0 +1,655 @@
+From 98f1ef8f9449577006856b3f593f04dc04b2b620 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 04:59:59 +0000
+Subject: [PATCH 03/11] fix(#95): cut_reasons, collection_conflicts and
+ routing_error are read from the types that declare them
+
+The defect, verbatim from the issue: "If a producer renames or stops setting one, the read silently
+becomes 'clean'." Thirteen sites read these three with a default of `()` / `""`: "nothing refused this
+measurement". A renamed `cut_reasons` on a ConvergeResult or SuiteAudit would have let an ungateable
+measurement print a verdict; a renamed `routing_error` would have stripped the evidence the
+`routing_failed` remedy acts on.
+
+Why the obvious fix is wrong: the readers hold a ConvergeResult (`result`), a SuiteAudit (`a`) or a
+SurvivorReport (`report`, `survivor_report`), each of which declares the field, so those read DIRECTLY.
+`validity_cut_reasons` is a ConvergeResult property that is always a tuple, so the two sites that chose
+between it and `cut_reasons` read it alone. The one genuinely three-valued source is a PROFILE's stashed
+`routing_error`: `profile` sets it after routing and a cache hit returns before that, so ABSENT there
+means "routing did not run this session", and a run whose routing failed is cut and never stored.
+`_routing_evidence` now takes the profiles and the report apart, reads the profiles with `reading()`,
+and handles ABSENT by name (contributes nothing) with the reason written beside it.
+
+Converted: converge._converge_impl, converge._routing_evidence, audit.audit_suite, and cli
+_final_banner_status, _format_converge, _floor_caused, _converge_decision, _converge_action,
+_audit_measurement_block. Test doubles of ConvergeResult and SuiteAudit gain the fields.
+
+Not closed: `failing_tests` on the engine's profile, and the remaining flag families.
+
+FAULT_OPEN: cut_reasons 6 -> 0, routing_error 4 -> 0, collection_conflicts 3 -> 0; failing_tests 5 -> 4
+(its audit site shared this function). Disarmed, 4 of 4 new intent tests fail. The 32-file neighbour
+set (673 tests) and the four guards pass under 3.14 and 3.12; ruff clean under pinned 0.16.7.
+---
+ Detective/audit.py                            |  2 +-
+ Detective/cli.py                              | 24 ++++------
+ Detective/converge.py                         | 26 ++++++++---
+ tests/test_absorbed_rename_intent.py          |  8 ++--
+ tests/test_boundary_probe_residual_intent.py  |  4 ++
+ tests/test_cli_journey_contract_intent.py     | 15 +++++++
+ .../test_converge_stale_unverified_intent.py  |  4 ++
+ tests/test_converge_style_handoff_intent.py   |  4 ++
+ tests/test_decision_record_intent.py          | 23 ++++++++++
+ tests/test_equivalents_route_intent.py        |  4 ++
+ tests/test_execution_bound_validity_intent.py |  3 ++
+ tests/test_false_claim_retirement_intent.py   |  4 ++
+ tests/test_fault_flags_direct_intent.py       | 45 +++++++++++++++++++
+ tests/test_measurement_validity_intent.py     |  7 +++
+ tests/test_not_entered_cause_intent.py        |  3 +-
+ tests/test_original_also_fails_intent.py      |  5 ++-
+ tests/test_repair_measurement_route_intent.py |  2 +
+ tests/test_reproducibility_gate_intent.py     |  2 +
+ tests/test_shared_block_route_intent.py       |  2 +
+ ...test_step_budget_loop_divergence_intent.py |  5 +++
+ tests/test_write_test_whole_values_intent.py  |  5 +++
+ 21 files changed, 170 insertions(+), 27 deletions(-)
+
+diff --git a/Detective/audit.py b/Detective/audit.py
+index d13eea0..a8a57f5 100644
+--- a/Detective/audit.py
++++ b/Detective/audit.py
+@@ -1070,7 +1070,7 @@ def audit_suite(
+         # test double must carry it, as it must carry every field this block reads. The reads below it
+         # stay defaulted (#60) and are counted in the absorption guard's open registry.
+         _load_failed = bool(report.load_failed)
+-        _harvest_routing_failed = bool(getattr(report, "routing_error", ""))
++        _harvest_routing_failed = bool(report.routing_error)
+         _report_expressible = getattr(report, "inputs_expressible", None)
+         _report_note = getattr(report, "note", "") or ""
+         # Whether a killable gap may name the input to kill it with — see `_gap_desc`.
+diff --git a/Detective/cli.py b/Detective/cli.py
+index b69acca..b580446 100644
+--- a/Detective/cli.py
++++ b/Detective/cli.py
+@@ -2246,7 +2246,7 @@ def _final_banner_status(result) -> str:
+         # sends the reader to fix it, re-run, and meet the second with no way to know it was
+         # always there. `cut_reason_sentence` is the single owner of the wording, so --json,
+         # MCP and receipts render the identical vocabulary.
+-        _reasons = tuple(getattr(result, "cut_reasons", ()) or ())
++        _reasons = tuple(result.cut_reasons)
+         if _reasons:
+             from .validity import CUT_REASONS
+ 
+@@ -2267,7 +2267,7 @@ def _final_banner_status(result) -> str:
+                 f"FINAL {result.function}: ⚠ UNGATEABLE — {_why}; "
+                 "diagnostic counts; no certified bound or verdict established"
+             )
+-        _conflicts = tuple(getattr(result, "collection_conflicts", ()) or ())
++        _conflicts = tuple(result.collection_conflicts)
+         if _conflicts:
+             return (
+                 f"FINAL {result.function}: ⚠ UNGATEABLE — the live collection resolved "
+@@ -2904,7 +2904,7 @@ def _format_converge(
+         # before VALUE:int~off1 existed).
+         _tail = universe_tail(
+             bool(result.fast),
+-            list(getattr(result, "validity_cut_reasons", None) or getattr(result, "cut_reasons", ()) or ()),
++            list(result.validity_cut_reasons),
+         )
+         if _tail == "truncated":
+             tail = "truncated — the run stopped before every operator-universe mutant was tested"
+@@ -4053,7 +4053,7 @@ def _floor_caused(result) -> bool:
+     Read from the SAME reasons and floor `ConvergeResult.standing` reads, so the page cannot rank an
+     `original_also_fails` over the floor it is caused by while the standing ranks it beneath.
+     """
+-    reasons = tuple(getattr(result, "validity_cut_reasons", None) or getattr(result, "cut_reasons", ()) or ())
++    reasons = tuple(result.validity_cut_reasons)
+     floor = bool(result.floor_failing_tests)
+     return floor_cause_standing(list(reasons), floor) == "floor_caused"
+ 
+@@ -4775,8 +4775,8 @@ def _converge_decision(
+         # The TYPED cut reasons (validity.CUT_REASONS), through the same call the page's repair block
+         # names its remedy by — so the record and the page name one route.
+         route = repair_measurement_route(
+-            tuple(getattr(result, "cut_reasons", ()) or ()),
+-            bool(getattr(result, "collection_conflicts", ())),
++            tuple(result.cut_reasons),
++            bool(result.collection_conflicts),
+             budget_exhausted,
+             getattr(getattr(result, "validity", None), "execution_mode", "") == "isolated",
+         )
+@@ -5008,7 +5008,7 @@ def _converge_action(
+         # byte-identically forever (Finding F). The typed reasons carry a ready remedy sentence.
+         from .validity import cut_reason_sentence
+ 
+-        reasons = tuple(getattr(result, "cut_reasons", ()) or ())
++        reasons = tuple(result.cut_reasons)
+         route = d.route
+         if route == "execution_budget":
+             return [
+@@ -5120,7 +5120,7 @@ def _converge_action(
+             # The ERROR is the remedy's input (#91): the sentence names the class, the error names WHICH —
+             # an ImportError is an install to repair, anything else a defect to report with it. Read off
+             # the result, which carries the evidence from every measurement its validity rests on.
+-            error = str(getattr(result, "routing_error", "") or "").strip()
++            error = str(result.routing_error).strip()
+             return [
+                 f"STOP:  {cut_reason_sentence('routing_failed')}",
+                 "",
+@@ -7747,13 +7747,7 @@ def _audit_measurement_block(a) -> str:
+     load_failed = a.load_failed
+     # The reasons the failing floor itself caused do not outrank the floor (`reasons_beyond_floor`): a mutant
+     # whose only failing test fails on the unmutated code is the floor's doing. Everything else still does.
+-    cut_kind = measurement_cut_kind(
+-        list(
+-            reasons_beyond_floor(
+-                list(getattr(a, "cut_reasons", ()) or ()), bool(getattr(a, "failing_tests", ()))
+-            )
+-        )
+-    )
++    cut_kind = measurement_cut_kind(list(reasons_beyond_floor(list(a.cut_reasons), bool(a.failing_tests))))
+     # A cut whose every reason is "no consulted test calls this function" is a REACH gap, not a
+     # measurement to repair (#77): with a gap to write, the ladder below names converge, which writes
+     # the test that calls it. With nothing left to write (every line flagged unreachable) the ladder
+diff --git a/Detective/converge.py b/Detective/converge.py
+index 73f8b45..56c3e18 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -70,6 +70,7 @@ from .equivalence import (
+     structural_input_difficulty,
+     structural_shape,
+ )
++from .faults import ABSENT, reading
+ from .line_flags import classify_missing_lines
+ from .minimize import minimal_cover_2axis, missing_lines, redundant_2axis, strip_foreign_evidence
+ from .process_state import declared_roots, restores_process_state
+@@ -388,7 +389,7 @@ def _survivor_ids(result: object) -> tuple[str, ...]:
+     return tuple(sorted(r.get("mutant_id", "") for r in records))
+ 
+ 
+-def _routing_evidence(*sources: object) -> str:
++def _routing_evidence(profiles: tuple[object | None, ...], report: SurvivorReport | None) -> str:
+     """The errors behind a ``routing_failed`` cut (#91), from every measurement a result rests on, in
+     the order given and each once — ``""`` when none carries one.
+ 
+@@ -397,8 +398,23 @@ def _routing_evidence(*sources: object) -> str:
+     profile, and the capture harvest puts its own on the `SurvivorReport` — and the cut reason names
+     only the CLASS. "report it with the error" is unactionable without the error. A ``None`` source (a
+     verification that never ran, a classification that did not) contributes nothing.
++
++    The `SurvivorReport` declares the field and is read DIRECTLY (#95). A profile carries it as a stash
++    `profile` sets after routing ran, and a cache hit returns before that point, so ABSENT on a profile is
++    a state the code knows the meaning of: no routing happened this session, and a run whose routing
++    failed is cut and never stored (see `engine.profile`), so there is no error to report. It is handled
++    here by name, not folded through a default.
+     """
+-    found = (str(getattr(source, "routing_error", "") or "") for source in sources)
++    found: list[str] = []
++    for measured in profiles:
++        if measured is None:
++            continue
++        stashed = reading(measured, "routing_error")
++        if stashed is ABSENT:
++            continue
++        found.append(str(stashed or ""))
++    if report is not None:
++        found.append(str(report.routing_error or ""))
+     return "; ".join(dict.fromkeys(error for error in found if error))
+ 
+ 
+@@ -2998,7 +3014,7 @@ def _converge_impl(
+     _validity = normalize_validity(
+         final_result,
+         load_failed=survivor_report.load_failed if survivor_report is not None else False,
+-        routing_failed=bool(getattr(survivor_report, "routing_error", "")),
++        routing_failed=bool(survivor_report.routing_error) if survivor_report is not None else False,
+     )
+     _verify_result: ProfilingResult | None = None
+     # A certificate-facing check observes the SAME function/test basis in isolated
+@@ -3310,10 +3326,10 @@ def _converge_impl(
+         measurement_gateable=_validity.gateable,
+         coverage_depth=str(getattr(final_result, "coverage_depth", "") or ""),
+         engine_ownership=getattr(final_result, "engine_ownership", "unresolved"),
+-        collection_conflicts=tuple(getattr(final_result, "collection_conflicts", ()) or ()),
++        collection_conflicts=tuple(final_result.collection_conflicts),
+         cut_reasons=_validity.cut_reasons,
+         # The evidence for `routing_failed`, from every measurement `_validity` rests on (#91).
+-        routing_error=_routing_evidence(final_result, _verify_result, survivor_report),
++        routing_error=_routing_evidence((final_result, _verify_result), survivor_report),
+         environment_coupled=tuple(environment_coupled),
+         environment_gated=environment_reads(node),
+         budget_exhausted=budget_cut,
+diff --git a/tests/test_absorbed_rename_intent.py b/tests/test_absorbed_rename_intent.py
+index e6c6ddd..df3fd4d 100644
+--- a/tests/test_absorbed_rename_intent.py
++++ b/tests/test_absorbed_rename_intent.py
+@@ -214,12 +214,12 @@ def test_a_dunder_is_the_data_models(tmp_path) -> None:
+ FAULT_OPEN: dict[str, int] = {
+     "authored_fence": 3,
+     "budget_exhausted": 0,
+-    "cut_reasons": 6,
+-    "collection_conflicts": 3,
++    "cut_reasons": 0,
++    "collection_conflicts": 0,
+     "contradicted_flags": 2,
+     "environment_coupled": 0,
+     "environment_gated": 4,
+-    "failing_tests": 5,
++    "failing_tests": 4,
+     "floor_failing_tests": 0,
+     "load_failed": 0,
+     "load_failure": 3,
+@@ -227,7 +227,7 @@ FAULT_OPEN: dict[str, int] = {
+     "not_consulted": 3,
+     "not_consulted_dynamic": 7,
+     "redundant_dispositions": 1,
+-    "routing_error": 4,
++    "routing_error": 0,
+     "shape_hazards": 2,
+     "stale_target": 0,
+     "step_budget_divergent": 0,
+diff --git a/tests/test_boundary_probe_residual_intent.py b/tests/test_boundary_probe_residual_intent.py
+index 3addd93..e8d2881 100644
+--- a/tests/test_boundary_probe_residual_intent.py
++++ b/tests/test_boundary_probe_residual_intent.py
+@@ -336,6 +336,10 @@ def _settled(param_names=("x",)):
+         function="m.py::f",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         verification=None,
+         line_complete=True,
+         missing_lines=(),
+diff --git a/tests/test_cli_journey_contract_intent.py b/tests/test_cli_journey_contract_intent.py
+index 60d372f..a03b208 100644
+--- a/tests/test_cli_journey_contract_intent.py
++++ b/tests/test_cli_journey_contract_intent.py
+@@ -167,6 +167,9 @@ def test_missing_survivor_report_cannot_turn_an_incomplete_result_into_done():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        routing_error="",
+         final_survivors=2,
+         missing_lines=(),
+         missing_line_standings=(),
+@@ -191,6 +194,9 @@ def test_an_ungateable_measurement_outranks_every_input_suggestion():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        routing_error="",
+         final_survivors=1,
+         missing_lines=(),
+         missing_line_standings=(),
+@@ -216,6 +222,9 @@ def test_an_input_that_already_failed_to_close_is_never_offered_again():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        routing_error="",
+         final_survivors=1,
+         missing_lines=(),
+         missing_line_standings=(),
+@@ -276,6 +285,9 @@ def test_two_sign_converge_preserves_policy_through_rerun_and_style_handoff():
+         written_path=None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+     )
+     rep = SurvivorReport(verdicts=(), unclassified=())
+     for case in (result, replace(result, stale_target=True)):
+@@ -300,6 +312,9 @@ def test_final_names_the_measured_policy():
+         written_path=None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         policy_id="8.example-two-sign",
+     )
+     assert "policy 8.example-two-sign" in _final_banner(result)
+diff --git a/tests/test_converge_stale_unverified_intent.py b/tests/test_converge_stale_unverified_intent.py
+index 6aee865..787c038 100644
+--- a/tests/test_converge_stale_unverified_intent.py
++++ b/tests/test_converge_stale_unverified_intent.py
+@@ -27,6 +27,10 @@ def _result(**overrides):
+         function="p.py::quote",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         missing_lines=(),
+         missing_line_standings=(),
+         refused_floor=(),
+diff --git a/tests/test_converge_style_handoff_intent.py b/tests/test_converge_style_handoff_intent.py
+index 2e0e9ea..3b80e67 100644
+--- a/tests/test_converge_style_handoff_intent.py
++++ b/tests/test_converge_style_handoff_intent.py
+@@ -22,6 +22,10 @@ def _complete_result():
+         function="dsl.py::add",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         verification=None,
+         line_complete=True,
+         missing_lines=(),
+diff --git a/tests/test_decision_record_intent.py b/tests/test_decision_record_intent.py
+index 9801370..e042583 100644
+--- a/tests/test_decision_record_intent.py
++++ b/tests/test_decision_record_intent.py
+@@ -218,6 +218,10 @@ def _gap_result(**overrides):
+         function=_FN,
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         final_survivors=1,
+         missing_lines=(),
+         missing_line_standings=(),
+@@ -267,6 +271,10 @@ def test_supply_the_printed_rerun_is_the_records_then():
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         line_complete=False,
+         missing_lines=(34,),
+         missing_line_standings=(),
+@@ -329,6 +337,10 @@ def test_stop_names_its_remedy_and_the_printed_rerun_is_the_records_then():
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         missing_lines=(),
+         missing_line_standings=(),
+         refused_floor=(),
+@@ -388,6 +400,10 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
+         function="dsl.py::add",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         verification=None,
+         line_complete=True,
+         missing_lines=(),
+@@ -885,6 +901,10 @@ def _lines_result(line: int = 34, guard: str = "value > 3") -> types.SimpleNames
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         line_complete=False,
+         missing_lines=(line,),
+         missing_line_standings=(),
+@@ -1110,6 +1130,9 @@ def test_a_run_that_asked_nothing_records_no_plan(monkeypatch, tmp_path, capsys)
+         None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         line_complete=True,
+         signature="add(a, b)",
+         param_names=("a", "b"),
+diff --git a/tests/test_equivalents_route_intent.py b/tests/test_equivalents_route_intent.py
+index d068c41..7b91700 100644
+--- a/tests/test_equivalents_route_intent.py
++++ b/tests/test_equivalents_route_intent.py
+@@ -175,6 +175,10 @@ def _converge(equivalent):
+         function="m.py::one",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         final_survivors=0,
+         missing_lines=(),
+         missing_line_standings=(),
+diff --git a/tests/test_execution_bound_validity_intent.py b/tests/test_execution_bound_validity_intent.py
+index b2153d3..ea74745 100644
+--- a/tests/test_execution_bound_validity_intent.py
++++ b/tests/test_execution_bound_validity_intent.py
+@@ -43,6 +43,9 @@ def test_unresolved_execution_keeps_its_reason_through_the_real_engine_adapter(
+         function="calc.py::target",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         missing_lines=(),
+         missing_line_standings=(),
+         refused_floor=(),
+diff --git a/tests/test_false_claim_retirement_intent.py b/tests/test_false_claim_retirement_intent.py
+index 83ba9be..e1a3c40 100644
+--- a/tests/test_false_claim_retirement_intent.py
++++ b/tests/test_false_claim_retirement_intent.py
+@@ -56,6 +56,10 @@ def _gap_result():
+         function="m.py::f",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+         verification=None,
+         line_complete=False,
+         final_survivors=2,
+diff --git a/tests/test_fault_flags_direct_intent.py b/tests/test_fault_flags_direct_intent.py
+index b2c24ed..bf8f9bd 100644
+--- a/tests/test_fault_flags_direct_intent.py
++++ b/tests/test_fault_flags_direct_intent.py
+@@ -25,6 +25,9 @@ def _converge_like(**over):
+         "function": "m.py::f",
+         "functionally_complete": False,
+         "floor_failing_tests": (),
++        "validity_cut_reasons": (),
++        "collection_conflicts": (),
++        "routing_error": "",
+         "missing_lines": (),
+         "line_complete": True,
+         "admits_certificate": True,
+@@ -210,3 +213,45 @@ def test_a_result_that_cannot_say_whether_the_floor_fails_is_not_read_as_holding
+ def test_a_failing_floor_still_overrides_the_banner() -> None:
+     banner = _final_banner_status(_converge_like(floor_failing_tests=("t.py::test_a",)))
+     assert "FAILING NOW" in banner
++
++
++# ---------------------------------------- cut_reasons, collection_conflicts, routing_error
++
++
++@pytest.mark.parametrize("flag", ["cut_reasons", "collection_conflicts"])
++def test_a_result_that_cannot_say_why_it_was_cut_is_not_read_as_uncut(flag) -> None:
++    """Both are declared by ConvergeResult. The old default of `()` read an object without the field as one
++    with no reason to refuse it, so an ungateable measurement could print a verdict."""
++    res = _converge_like(admits_certificate=False, measurement_gateable=False)
++    delattr(res, flag)
++    with pytest.raises(AttributeError, match=flag):
++        _final_banner_status(res)
++
++
++def test_an_audit_without_cut_reasons_is_not_read_as_having_none() -> None:
++    from Detective.cli import _audit_measurement_block
++
++    a = types.SimpleNamespace(load_failed=False)
++    with pytest.raises(AttributeError, match="cut_reasons"):
++        _audit_measurement_block(a)
++
++
++def test_a_routing_failure_is_carried_from_the_survivor_report_and_a_cached_profile_contributes_none() -> (
++    None
++):
++    from Detective.converge import _routing_evidence
++
++    class Report:
++        routing_error = "ImportError: no module named x"
++
++    class Profile:
++        routing_error = ""
++
++    # ABSENT on a profile (a cache hit: routing never ran this session) contributes nothing, by name
++    assert _routing_evidence((types.SimpleNamespace(), None), Report()) == "ImportError: no module named x"
++    assert _routing_evidence((Profile(),), None) == ""
++    assert _routing_evidence((types.SimpleNamespace(routing_error="boom"),), Report()) == (
++        "boom; ImportError: no module named x"
++    )
++    with pytest.raises(AttributeError, match="routing_error"):
++        _routing_evidence((), types.SimpleNamespace())
+diff --git a/tests/test_measurement_validity_intent.py b/tests/test_measurement_validity_intent.py
+index 214a047..584cd18 100644
+--- a/tests/test_measurement_validity_intent.py
++++ b/tests/test_measurement_validity_intent.py
+@@ -429,6 +429,9 @@ def test_banner_warranted_floor_vs_diagnostic_counts():
+         def __init__(self, cut_reasons):
+             self.function = "mod.py::fn"
+             self.cut_reasons = cut_reasons
++            self.validity_cut_reasons = cut_reasons
++            self.floor_failing_tests = ()
++            self.collection_conflicts = ()
+             self.admits_certificate = False
+             self.measurement_gateable = False
+             self.stale_target = False
+@@ -456,6 +459,10 @@ def test_isolate_action_identifies_affected_tests():
+         def __init__(self):
+             self.function = "mod.py::fn"
+             self.cut_reasons = ("refuse_signal", "refuse_thread")
++            self.validity_cut_reasons = self.cut_reasons
++            self.floor_failing_tests = ()
++            self.collection_conflicts = ()
++            self.routing_error = ""
+             self.admits_certificate = False
+             self.measurement_gateable = False
+             self.stale_target = False
+diff --git a/tests/test_not_entered_cause_intent.py b/tests/test_not_entered_cause_intent.py
+index 1b59dc2..414d852 100644
+--- a/tests/test_not_entered_cause_intent.py
++++ b/tests/test_not_entered_cause_intent.py
+@@ -297,13 +297,14 @@ def test_a_reach_gap_is_not_a_measurement_block_and_a_captured_copy_is():
+     gap = types.SimpleNamespace(
+         cut_reasons=("mutant_not_entered_not_reached",),
+         load_failed=False,
++        failing_tests=(),
+         note="",
+         killable_gaps=(),
+         missing_lines=(2, 3, 4),
+     )
+     assert _audit_measurement_block(gap) != "repair_measurement"
+     captured = types.SimpleNamespace(
+-        cut_reasons=("mutant_not_entered_captured_at_import",), load_failed=False
++        cut_reasons=("mutant_not_entered_captured_at_import",), load_failed=False, failing_tests=()
+     )
+     assert _audit_measurement_block(captured) == "repair_measurement"
+ 
+diff --git a/tests/test_original_also_fails_intent.py b/tests/test_original_also_fails_intent.py
+index 5e4a0f3..805a0c1 100644
+--- a/tests/test_original_also_fails_intent.py
++++ b/tests/test_original_also_fails_intent.py
+@@ -300,7 +300,10 @@ def test_the_converge_helper_reads_the_same_reasons_the_standing_reads():
+         cut_reasons=(),
+     )
+     assert _floor_caused(other) is False
+-    assert _floor_caused(types.SimpleNamespace(floor_failing_tests=(), cut_reasons=())) is False
++    assert (
++        _floor_caused(types.SimpleNamespace(floor_failing_tests=(), cut_reasons=(), validity_cut_reasons=()))
++        is False
++    )
+ 
+ 
+ def test_each_cause_has_its_own_route_and_a_measurement_that_could_not_run_still_leads():
+diff --git a/tests/test_repair_measurement_route_intent.py b/tests/test_repair_measurement_route_intent.py
+index 78da38c..6f1a72c 100644
+--- a/tests/test_repair_measurement_route_intent.py
++++ b/tests/test_repair_measurement_route_intent.py
+@@ -63,6 +63,8 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
+         function="jax_backend/src/utils.py::str2bool",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        routing_error="",
+         verification=None,
+         line_complete=False,
+         missing_lines=(143,),
+diff --git a/tests/test_reproducibility_gate_intent.py b/tests/test_reproducibility_gate_intent.py
+index b71426b..f388356 100644
+--- a/tests/test_reproducibility_gate_intent.py
++++ b/tests/test_reproducibility_gate_intent.py
+@@ -88,6 +88,8 @@ def _reprofile_result():
+         function="m.py::f",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        routing_error="",
+         verification=None,
+         line_complete=True,
+         missing_lines=(),
+diff --git a/tests/test_shared_block_route_intent.py b/tests/test_shared_block_route_intent.py
+index 486d06f..35bf0d0 100644
+--- a/tests/test_shared_block_route_intent.py
++++ b/tests/test_shared_block_route_intent.py
+@@ -112,6 +112,8 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
+         function="jax_backend/src/utils.py::str2bool",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        validity_cut_reasons=(),
++        routing_error="",
+         verification=None,
+         line_complete=False,
+         missing_lines=(143,),
+diff --git a/tests/test_step_budget_loop_divergence_intent.py b/tests/test_step_budget_loop_divergence_intent.py
+index 08e219c..8563635 100644
+--- a/tests/test_step_budget_loop_divergence_intent.py
++++ b/tests/test_step_budget_loop_divergence_intent.py
+@@ -220,6 +220,11 @@ def test_converge_divergence_action_and_decision() -> None:
+         missing_line_standings = ()
+         refused_floor = ()
+         not_consulted_dynamic = ()
++        floor_failing_tests = ()
++        cut_reasons = ()
++        validity_cut_reasons = ()
++        collection_conflicts = ()
++        routing_error = ""
+ 
+     res = DummyConvergeResult()
+     decision = _converge_decision(res, rep, render_tests=False)
+diff --git a/tests/test_write_test_whole_values_intent.py b/tests/test_write_test_whole_values_intent.py
+index fa5e8ea..2e9b6f8 100644
+--- a/tests/test_write_test_whole_values_intent.py
++++ b/tests/test_write_test_whole_values_intent.py
+@@ -43,6 +43,11 @@ def _result():
+         admits_certificate=True,
+         stale_target=False,
+         budget_exhausted=False,
++        floor_failing_tests=(),
++        cut_reasons=(),
++        validity_cut_reasons=(),
++        collection_conflicts=(),
++        routing_error="",
+     )
+ 
+ 
+-- 
+2.43.0
+

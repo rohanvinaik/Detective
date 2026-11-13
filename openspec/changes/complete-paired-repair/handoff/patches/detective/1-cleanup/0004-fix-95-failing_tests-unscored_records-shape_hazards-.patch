@@ -1,0 +1,397 @@
+From 8fdd954770f3718ad13bb9dec906f0c9e6fb0bfe Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 05:07:16 +0000
+Subject: [PATCH 04/11] fix(#95): failing_tests, unscored_records,
+ shape_hazards and load_failure are read directly or named absent
+
+The defect, verbatim from the issue: "an object that never carried the flag reads clean." Twelve sites
+read these four with a default meaning "no test fails / no mutant went unscored / no hazard / the module
+loaded".
+
+Why the obvious fix is wrong: they are two different kinds of reader.
+* Where the object is a Wesker `ProfilingResult` (which declares `failing_tests` and `unscored_records`)
+  or a `ScopeMap` (which declares `load_failure`) the read is DIRECT: converge._missing_line_standings,
+  converge._converge_impl, audit.audit_suite, cli._floor_cause_of, _unscored_flag_refusal, _format_scope,
+  _diagnose_action.
+* `validity.normalize_validity` is the adapter that takes any engine result, so it is three-valued:
+  `shape_hazards`, `unscored_records` and `failing_tests` join `_ADAPTED_FIELDS`, an engine that does not
+  report one is recorded `absent:<field>` in `capability_flags`, and the detail derived from it is empty
+  because nothing was reported.
+* One read was never a fault-flag read at all: `_converge_action` took `shape_hazards` off the
+  ConvergeResult, which has no such field (the hazards live on `result.validity`), so the "Affected"
+  rows naming the tests that forced isolation were unreachable outside a test double. It now reads the
+  validity, and a result built with no validity has no tests to name.
+
+Not closed: the not-consulted / missing-line / write-refused families and the rest of the registry.
+
+FAULT_OPEN failing_tests 4 -> 0, unscored_records 6 -> 0, shape_hazards 2 -> 0, load_failure 3 -> 0.
+Disarmed, 3 of the 4 new intent tests fail (the fourth restates behaviour test_measurement_validity covers).
+The 34-file neighbour set (693 tests) and the four guards pass under 3.14 and 3.12; ruff clean under
+pinned 0.16.7.
+---
+ Detective/audit.py                            |  2 +-
+ Detective/cli.py                              | 21 ++++-----
+ Detective/converge.py                         | 10 ++---
+ Detective/validity.py                         | 18 +++++---
+ tests/test_absorbed_rename_intent.py          |  8 ++--
+ tests/test_cli_journey_contract_intent.py     |  2 +
+ tests/test_fault_flags_direct_intent.py       | 45 +++++++++++++++++++
+ tests/test_measurement_validity_intent.py     | 19 ++++++--
+ tests/test_reproducibility_gate_intent.py     |  1 +
+ ...test_step_budget_loop_divergence_intent.py |  2 +
+ 10 files changed, 94 insertions(+), 34 deletions(-)
+
+diff --git a/Detective/audit.py b/Detective/audit.py
+index a8a57f5..831b6ad 100644
+--- a/Detective/audit.py
++++ b/Detective/audit.py
+@@ -1291,7 +1291,7 @@ def audit_suite(
+         refused_floor=refused_floor,
+         blocked_causes=blocked_causes,
+         step_budget_divergent=step_budget_divergent,
+-        unresolved_mutants=unresolved_mutant_records(getattr(result, "unscored_records", None) or ()),
++        unresolved_mutants=unresolved_mutant_records(result.unscored_records),
+         value_killed=result.value_killed,
+         total_mutants=total,
+         intent_tests=_origins["intent"],
+diff --git a/Detective/cli.py b/Detective/cli.py
+index b580446..33bbc78 100644
+--- a/Detective/cli.py
++++ b/Detective/cli.py
+@@ -278,9 +278,7 @@ def _format_scope(scope, universe: UniverseOptions | None = None) -> str:
+     lines = [_RULE, head, ""]
+     lines += _engine_owned_rows(scope.engine_ownership)
+ 
+-    _attribution = no_tests_attribution(
+-        int(getattr(scope, "tests_discovered", -1)), bool(getattr(scope, "load_failure", ""))
+-    )
++    _attribution = no_tests_attribution(int(getattr(scope, "tests_discovered", -1)), bool(scope.load_failure))
+     if _attribution == "absent_tests":
+         lines.append(_row("⚠ NO tests", "nothing pins this function yet — the counts above"))
+         lines.append(_row("", "reflect ABSENT tests, not weak ones."))
+@@ -936,7 +934,7 @@ def _diagnose_action(
+     # The SHARED route, not a second reading of the same facts (R3). Diagnose carries neither an
+     # expressibility verdict nor a sample signal — it never classifies survivors — so it supplies
+     # the one observation it does have and lets the shared decision rank it.
+-    _block = measurement_block_route(bool(getattr(scope, "load_failure", "")), None, False)
++    _block = measurement_block_route(bool(scope.load_failure), None, False)
+     kind = diagnose_next_action(_block, entangled, seams, int(spec.unspecified_dof or 0))
+     # The ledger's third outcome site (docs/INVOCATION_LEDGER.md §6) — no output, no branch, no
+     # exit code changes; it records WHICH instruction diagnose gave.
+@@ -946,7 +944,7 @@ def _diagnose_action(
+         # two dialects, or "you got fix_load twice" stops being one story for the reader and for the
+         # ledger. Only the trailing re-run command differs, because that is the one thing that is
+         # genuinely per-verb.
+-        reason = getattr(scope, "load_failure", "") or _MODULE_NOT_IMPORTED
++        reason = scope.load_failure or _MODULE_NOT_IMPORTED
+         return [
+             f"STOP:  the live original could not be loaded: {reason}",
+             "",
+@@ -5069,7 +5067,10 @@ def _converge_action(
+             ]
+         if route in ("reprofile", "isolate"):
+             hazard_rows: list[str] = []
+-            shape_hazards = getattr(result, "shape_hazards", ()) or ()
++            # The hazards live on the normalized validity (`MeasurementValidity.shape_hazards`); the result
++            # carries no copy. A result built without a live measurement has no validity, so there are no
++            # tests to name: the stop line above still names the cause (#95).
++            shape_hazards = result.validity.shape_hazards if result.validity is not None else ()
+             if shape_hazards:
+                 hazard_tests: dict[str, list[str]] = {}
+                 for rec in shape_hazards:
+@@ -12199,7 +12200,7 @@ def _floor_cause_of(record: dict, result) -> str:
+     return original_also_fails_cause(
+         test,
+         baseline_typed_outcomes(result).get(test, "unrecorded"),
+-        test in list(getattr(result, "failing_tests", None) or ()),
++        test in list(result.failing_tests),
+     )
+ 
+ 
+@@ -12215,11 +12216,7 @@ def _unscored_flag_refusal(args, result) -> int | None:
+     from .validity import unscored_record_reason
+ 
+     rec = next(
+-        (
+-            r
+-            for r in (getattr(result, "unscored_records", None) or ())
+-            if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))
+-        ),
++        (r for r in result.unscored_records if args.mutant_id in (r.get("mutant_id"), r.get("mutant"))),
+         None,
+     )
+     if rec is None:
+diff --git a/Detective/converge.py b/Detective/converge.py
+index 56c3e18..4666d25 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -1815,9 +1815,7 @@ def _missing_line_standings(result: Any, missing: list[int]) -> tuple[tuple[int,
+     kill_matrix = dict(getattr(result, "kill_matrix", {}) or {})
+     line_coverage = dict(getattr(result, "line_coverage", {}) or {})
+     typed = baseline_typed_outcomes(result)
+-    failing = function_failing_tests(
+-        list(getattr(result, "failing_tests", ()) or ()), kill_matrix, line_coverage, typed
+-    )
++    failing = function_failing_tests(list(result.failing_tests), kill_matrix, line_coverage, typed)
+     errored = function_errored_tests(kill_matrix, line_coverage, typed)
+     return tuple(
+         (
+@@ -2359,7 +2357,7 @@ def _converge_impl(
+             from .audit import baseline_typed_outcomes, function_failing_tests
+ 
+             floor_failing_tests = function_failing_tests(
+-                list(getattr(result, "failing_tests", ()) or ()),
++                list(result.failing_tests),
+                 dict(getattr(result, "kill_matrix", {}) or {}),
+                 dict(getattr(result, "line_coverage", {}) or {}),
+                 baseline_typed_outcomes(result),
+@@ -3204,7 +3202,7 @@ def _converge_impl(
+         fast or bool(budget_cut),
+         estimate_universe_size(node, _cats, getattr(final_result, "observed_return_types", None) or None),
+         final_result.total_mutants,
+-        len(getattr(final_result, "unscored_records", None) or ()),
++        len(final_result.unscored_records),
+     )
+     # The argument-order budget's disclosure, read off the FINAL profile's census (policy 7).
+     _swap_withheld, _swap_generated, _swap_seen = _swap_census_counts(final_result)
+@@ -3298,7 +3296,7 @@ def _converge_impl(
+             getattr(survivor_report, "not_consulted", 0) if survivor_report is not None else 0,
+         ),
+         function_basis=_basis,
+-        unresolved_mutants=unresolved_mutant_records(getattr(final_result, "unscored_records", None) or ()),
++        unresolved_mutants=unresolved_mutant_records(final_result.unscored_records),
+         original_also_fails=_validity.original_also_fails,
+         shared_arguments=_validity.shared_arguments,
+         memory_standing=_validity.memory_standing,
+diff --git a/Detective/validity.py b/Detective/validity.py
+index d8064df..7b68031 100644
+--- a/Detective/validity.py
++++ b/Detective/validity.py
+@@ -834,6 +834,9 @@ _ADAPTED_FIELDS: tuple[str, ...] = (
+     "execution_mode",
+     "shared_arguments",
+     "budget_exhausted",
++    "shape_hazards",
++    "unscored_records",
++    "failing_tests",
+ )
+ 
+ 
+@@ -922,7 +925,12 @@ def normalize_validity(
+ 
+     fast_mode_raw = getattr(result, "fast_mode", _ABSENT)
+     fast_mode = str(fast_mode_raw) if fast_mode_raw is not _ABSENT else ""
+-    shape_hazards = tuple(getattr(result, "shape_hazards", ()) or ())
++    # Three-valued (#95): an engine that does not report these is recorded `absent:<field>` in
++    # `capability_flags` (derived from `_ADAPTED_FIELDS`), and the derived detail below is empty because
++    # nothing was reported, not because nothing was found.
++    shape_hazards = tuple(raw["shape_hazards"] or ()) if raw["shape_hazards"] is not _ABSENT else ()
++    unscored_records = tuple(raw["unscored_records"] or ()) if raw["unscored_records"] is not _ABSENT else ()
++    named_failing = list(raw["failing_tests"] or ()) if raw["failing_tests"] is not _ABSENT else []
+ 
+     # The causes Wesker named for its not-entered mutants (#77): `not_entered_causes` is derived from
+     # `unscored_records`, so a cache hit recomputes it. Absent (an engine before Wesker#18) leaves the
+@@ -937,11 +945,7 @@ def normalize_validity(
+     # cause; the disposition is still counted from `per_category`, so it is never read as engine silence.
+     from .audit import baseline_typed_outcomes
+ 
+-    oaf_detail = original_also_fails_detail(
+-        getattr(result, "unscored_records", None) or (),
+-        baseline_typed_outcomes(result),
+-        list(getattr(result, "failing_tests", None) or ()),
+-    )
++    oaf_detail = original_also_fails_detail(unscored_records, baseline_typed_outcomes(result), named_failing)
+ 
+     reasons = measurement_cut_reasons(
+         reported_gateable=reports_gateable,
+@@ -983,7 +987,7 @@ def normalize_validity(
+         capability_flags=tuple([f"absent:{name}" for name in missing] + approximate),
+         policy_id=str(getattr(result, "policy_id", "") or ""),
+         shape_hazards=shape_hazards,
+-        not_entered=not_entered_detail(getattr(result, "unscored_records", None) or ()),
++        not_entered=not_entered_detail(unscored_records),
+         original_also_fails=oaf_detail,
+         memory_standing=_memory_standing_of(result),
+         shared_arguments=tuple(str(a) for a in raw["shared_arguments"])
+diff --git a/tests/test_absorbed_rename_intent.py b/tests/test_absorbed_rename_intent.py
+index df3fd4d..8cb9328 100644
+--- a/tests/test_absorbed_rename_intent.py
++++ b/tests/test_absorbed_rename_intent.py
+@@ -219,21 +219,21 @@ FAULT_OPEN: dict[str, int] = {
+     "contradicted_flags": 2,
+     "environment_coupled": 0,
+     "environment_gated": 4,
+-    "failing_tests": 4,
++    "failing_tests": 0,
+     "floor_failing_tests": 0,
+     "load_failed": 0,
+-    "load_failure": 3,
++    "load_failure": 0,
+     "missing_line_standings": 4,
+     "not_consulted": 3,
+     "not_consulted_dynamic": 7,
+     "redundant_dispositions": 1,
+     "routing_error": 0,
+-    "shape_hazards": 2,
++    "shape_hazards": 0,
+     "stale_target": 0,
+     "step_budget_divergent": 0,
+     "trace_truncated": 0,
+     "unresolved_mutants": 2,
+-    "unscored_records": 6,
++    "unscored_records": 0,
+     "write_refused_records": 2,
+ }
+ 
+diff --git a/tests/test_cli_journey_contract_intent.py b/tests/test_cli_journey_contract_intent.py
+index a03b208..9c3df1e 100644
+--- a/tests/test_cli_journey_contract_intent.py
++++ b/tests/test_cli_journey_contract_intent.py
+@@ -372,6 +372,8 @@ def test_flag_can_address_output_survivors_in_the_two_sign_universe(monkeypatch,
+             value_survivor_records=[
+                 {"mutant_id": "OUTPUT_missing", "diff_summary": "return None -> type(None)()"}
+             ],
++            unscored_records=[],
++            failing_tests=[],
+         )
+ 
+     # `flag` measures through `audit.audit_profile` (#127), the one measurement audit shares.
+diff --git a/tests/test_fault_flags_direct_intent.py b/tests/test_fault_flags_direct_intent.py
+index bf8f9bd..c71c2fc 100644
+--- a/tests/test_fault_flags_direct_intent.py
++++ b/tests/test_fault_flags_direct_intent.py
+@@ -255,3 +255,48 @@ def test_a_routing_failure_is_carried_from_the_survivor_report_and_a_cached_prof
+     )
+     with pytest.raises(AttributeError, match="routing_error"):
+         _routing_evidence((), types.SimpleNamespace())
++
++
++# ------------------- failing_tests, unscored_records, shape_hazards, load_failure (engine results)
++
++
++def test_an_engine_that_reports_neither_failing_tests_nor_unscored_records_is_named_absent() -> None:
++    """The adapter is the capability matrix: an engine without these fields is recorded `absent:<field>`, so
++    the empty detail derived from them is 'nothing reported', and a certificate can say so."""
++    flags = normalize_validity(_wesker_result()).capability_flags
++    for name in ("failing_tests", "unscored_records", "shape_hazards"):
++        assert f"absent:{name}" in flags
++    reported = normalize_validity(_wesker_result(failing_tests=[], unscored_records=[], shape_hazards=()))
++    for name in ("failing_tests", "unscored_records", "shape_hazards"):
++        assert f"absent:{name}" not in reported.capability_flags  # present-empty is not absent
++
++
++def test_a_reported_shape_hazard_reaches_the_validity_and_a_reported_unscored_record_its_detail() -> None:
++    v = normalize_validity(
++        _wesker_result(
++            failing_tests=[],
++            unscored_records=[
++                {"disposition": "not_entered", "mutant_id": "VALUE_1", "cause": "captured_at_import"}
++            ],
++            shape_hazards=({"hazard": "spawns_thread", "test_id": "t.py::test_a"},),
++        )
++    )
++    assert v.shape_hazards == ({"hazard": "spawns_thread", "test_id": "t.py::test_a"},)
++    assert v.not_entered, "a reported unscored record is detailed, not dropped"
++
++
++def test_a_flag_on_a_profile_without_unscored_records_fails_at_the_read() -> None:
++    from Detective.cli import _unscored_flag_refusal
++
++    args = types.SimpleNamespace(mutant_id="VALUE_1", json=False)
++    with pytest.raises(AttributeError, match="unscored_records"):
++        _unscored_flag_refusal(args, types.SimpleNamespace())
++
++
++def test_a_scope_that_cannot_say_whether_the_module_loaded_is_not_read_as_loaded() -> None:
++    from Detective.cli import _diagnose_action
++
++    scope = types.SimpleNamespace(function="m.py::f")
++    spec = types.SimpleNamespace(unspecified_dof=0)
++    with pytest.raises(AttributeError, match="load_failure"):
++        _diagnose_action(scope, spec, False, 0)
+diff --git a/tests/test_measurement_validity_intent.py b/tests/test_measurement_validity_intent.py
+index 584cd18..acbbfb4 100644
+--- a/tests/test_measurement_validity_intent.py
++++ b/tests/test_measurement_validity_intent.py
+@@ -18,6 +18,8 @@ recorded in `capability_flags`, and conservative toward preserving prior behavio
+ 
+ from __future__ import annotations
+ 
++from types import SimpleNamespace
++
+ from Detective.validity import (
+     CUT_REASONS,
+     MEASUREMENT_VALIDITY_SCHEMA,
+@@ -145,6 +147,9 @@ def test_a_current_engine_normalizes_to_a_clean_validity():
+             execution_mode="isolated",
+             collection_errors=(),
+             shared_arguments=(),
++            shape_hazards=(),
++            unscored_records=[],
++            failing_tests=[],
+         )
+     )
+     assert validity.admits_certificate is True
+@@ -188,6 +193,10 @@ def test_an_older_engine_names_every_field_it_could_not_supply():
+         "absent:execution_mode",
+         # an engine that reports no `shared_arguments` is a NAMED state, never "nothing was shared"
+         "absent:shared_arguments",
++        # the derived detail is empty because nothing was reported, and the page can say so
++        "absent:shape_hazards",
++        "absent:unscored_records",
++        "absent:failing_tests",
+         # execution_mode absent -> defaults to in_process -> the count is an in-process estimate
+         "approximate:mutant_universe",
+     }
+@@ -460,6 +469,12 @@ def test_isolate_action_identifies_affected_tests():
+             self.function = "mod.py::fn"
+             self.cut_reasons = ("refuse_signal", "refuse_thread")
+             self.validity_cut_reasons = self.cut_reasons
++            self.validity = SimpleNamespace(
++                shape_hazards=(
++                    {"hazard": "signal_main_thread", "test_id": "test_m.py::test_sig"},
++                    {"hazard": "starts_background_thread", "test_id": "test_m.py::test_bg"},
++                )
++            )
+             self.floor_failing_tests = ()
+             self.collection_conflicts = ()
+             self.routing_error = ""
+@@ -474,10 +489,6 @@ def test_isolate_action_identifies_affected_tests():
+             self.functionally_complete = False
+             self.line_complete = True
+             self.missing_lines = ()
+-            self.shape_hazards = (
+-                {"hazard": "signal_main_thread", "test_id": "test_m.py::test_sig"},
+-                {"hazard": "starts_background_thread", "test_id": "test_m.py::test_bg"},
+-            )
+ 
+     res = DummyResult()
+     action = _converge_action(res, None)
+diff --git a/tests/test_reproducibility_gate_intent.py b/tests/test_reproducibility_gate_intent.py
+index f388356..503b604 100644
+--- a/tests/test_reproducibility_gate_intent.py
++++ b/tests/test_reproducibility_gate_intent.py
+@@ -103,6 +103,7 @@ def _reprofile_result():
+         cut_reasons=("nonreproducible_in_process",),
+         collection_conflicts=(),
+         budget_exhausted=False,
++        validity=None,
+     )
+ 
+ 
+diff --git a/tests/test_step_budget_loop_divergence_intent.py b/tests/test_step_budget_loop_divergence_intent.py
+index 8563635..68c4826 100644
+--- a/tests/test_step_budget_loop_divergence_intent.py
++++ b/tests/test_step_budget_loop_divergence_intent.py
+@@ -178,6 +178,8 @@ def test_flag_refusal_on_divergent_mutant(monkeypatch: pytest.MonkeyPatch) -> No
+                 "disposition": "step-budget-divergent",
+             }
+         ]
++        unscored_records: list = []
++        failing_tests: list = []
+ 
+     # `flag` measures through `audit.audit_profile` (#127), the one measurement audit shares.
+     monkeypatch.setattr("Detective.audit.profile", lambda *a, **kw: DummyResult())
+-- 
+2.43.0
+

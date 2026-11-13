@@ -1,0 +1,352 @@
+From 33aa0c3d06e98151200ee34fd5244187257932ae Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:33:39 +0000
+Subject: [PATCH 4/5] feat(Detective #122): the ordered family's clamp is
+ pinned by intent tests
+
+The defect, verbatim. "`clamp` is not generated. The catalog marks it `unsupported`: clip(v, l, u) needs
+the range the invariant names, and no premise for it is observed."
+
+Why the obvious fix is wrong. Inventing a range makes the fence the engine's guess, and a clamp into the
+observed [min, max] itself changes nothing (every observed value is inside it): it is a built-in
+survivor. Def. 11.8(vii) names the narrowed range, so a value at an edge changes. The range IS observed:
+the baseline records the minimum and maximum over the values a return site produced (38bec04), and the
+clamp is generated into that range narrowed by one step on each side. A step is 1 for an int, the
+adjacent float (math.nextafter), the adjacent Decimal, one day for a date, one microsecond for a naive
+datetime or a timedelta; at a type's own limit it stays, so it cannot overflow. A range one step wide keeps
+its upper edge (observed {0, 1} clamps into [1, 1]).
+
+What each state means (`clamp_standing`, pinned): clamps / single_value (every observed value is the same:
+nothing to narrow) / mixed_kinds (an int and a Decimal, or a date and a datetime, are not one ordered
+range) / non_finite (a NaN or an infinity was returned) / not_ordered (a str, None, a list, an aware
+datetime: not a clamp site, and no premise failed, so nothing is named). The three failed premises are
+named per function in `mu_minus_withheld`. A bound travels in the mode as a token with no `:` (the
+dimension separator): `return_clamp@i5,i9`, floats as `float.hex()`, dates as ordinals, datetimes and
+timedeltas as microseconds, and round-trips for every kind including both extremes of each type.
+
+What was NOT closed. Fraction is not an ordered kind the clamp supports (it has no adjacent value; the
+site is not named, as it is typing not a failed premise), and neither is an aware datetime (its offset is
+part of the value). Detective's harvest still carries type names (see 38bec04), so a Detective
+`--two-sign` run does not yet generate the clamp.
+
+Sensitivity: with the clamp tokens removed 10 of the 38 intent tests fail.
+Pin: `clamp_standing` is pinned in 38bec04.
+
+Tests: tests/test_mu_minus_clamp_premise_intent.py 38 passed; with the catalog, doc, policy and
+instrumentation-ownership guards 109 passed under Python 3.14 and 109 under 3.12, PYTHONUNBUFFERED unset.
+ruff clean under pinned 0.16.7.
+---
+ docs/MU_MINUS_CATALOG.md                    |   1 +
+ tests/test_mu_minus_clamp_premise_intent.py | 288 ++++++++++++++++++++
+ 2 files changed, 289 insertions(+)
+ create mode 100644 tests/test_mu_minus_clamp_premise_intent.py
+
+diff --git a/docs/MU_MINUS_CATALOG.md b/docs/MU_MINUS_CATALOG.md
+index 3297f75..1ffa3f4 100644
+--- a/docs/MU_MINUS_CATALOG.md
++++ b/docs/MU_MINUS_CATALOG.md
+@@ -149,6 +149,7 @@ effect family below.
+ | the premised operators reach the isolated worker, and are measured as in process | the worker receives nothing but source; converge re-observes in one | `tests/test_mu_minus_premised_isolated_intent.py::test_a_field_mutant_is_killed_by_the_pinning_test_in_the_isolated_worker`, `tests/test_mu_minus_premised_isolated_intent.py::test_an_injected_raise_is_a_reach_kill_in_the_isolated_worker` |
+ | container (dict swap, ctype to and from a set): generated only on a hashable or orderable premise, never raises, killed by a pin | Fork 2 | `tests/test_mu_minus_container_premise_intent.py::test_the_swap_is_not_generated_where_a_value_is_unhashable_and_the_function_says_so`, `tests/test_mu_minus_container_premise_intent.py::test_never_raises_on_an_observed_value_and_changes_some`, `tests/test_mu_minus_container_premise_intent.py::test_the_swap_is_killed_by_a_test_that_pins_the_dict_and_survives_one_that_does_not` |
+ | structured (field, class): one field at a time from the observed instances; the exact class separated from isinstance | Fork 2 | `tests/test_mu_minus_structured_premise_intent.py::test_every_field_mutant_is_killed_by_a_test_that_pins_the_record`, `tests/test_mu_minus_structured_premise_intent.py::test_a_subclass_instance_separates_the_exact_class_from_isinstance`, `tests/test_mu_minus_structured_premise_intent.py::test_every_mode_a_record_offers_applies_without_raising_and_leaves_the_original_alone` |
++| ordered (clamp): the observed range narrowed one step, killed only at an edge | Def. 11.8(vii) | `tests/test_mu_minus_clamp_premise_intent.py::test_the_clamp_is_killed_at_an_edge_and_survives_the_interior`, `tests/test_mu_minus_clamp_premise_intent.py::test_a_site_that_admits_no_clamp_says_why` |
+ | the nine operators built before #44 keep their ids | `flag` keys on a survivor's id and diff | `tests/test_mu_minus_families_intent.py::test_the_nine_built_operators_keep_their_ids` |
+ 
+ Measured end to end through Detective's CLI (`converge --two-sign` on fresh fixtures, Wesker 204a760,
+diff --git a/tests/test_mu_minus_clamp_premise_intent.py b/tests/test_mu_minus_clamp_premise_intent.py
+new file mode 100644
+index 0000000..0e29dba
+--- /dev/null
++++ b/tests/test_mu_minus_clamp_premise_intent.py
+@@ -0,0 +1,288 @@
++"""μ⁻ ordered family: clamp (Detective #122, Wesker #44).
++
++Intent tests authored from docs/theory/NEGATIVE_SPECIFICATION.md, Def. 11.8 (vii) and Def. 11.10.
++
++THE DEFECT (Detective #122). ``clamp`` was "unsupported": ``clip(v, l, u)`` needs the range the
++invariant names, and no premise for it was observed. The baseline run observes the values a function
++returns, so the range IS observed: the minimum and maximum over the values a return site produced.
++
++WHAT MUST HOLD (Def. 11.8(vii), "a range invariant").
++- The clamp is generated at a return site whose observed values are mutually ordered numbers (or
++  dates, naive datetimes, timedeltas) of ONE kind with at least two distinct values, into the observed
++  [min, max] NARROWED BY ONE STEP on each side, so that a value at an edge changes. The step is 1 for
++  an int, the adjacent float, the adjacent Decimal, a day for a date, a microsecond for the rest.
++- It is not generated, and the function's profile says why, for a single observed value (nothing to
++  narrow), mixed kinds (an int and a Decimal are not one range) or a non-finite value. A site returning
++  a str or None is simply not a clamp site.
++- The perturbation never raises on an observed value, and a value the baseline never saw comes back
++  unchanged. It is killed by a test that pins the output at an edge, and survives one that does not.
++"""
++
++from __future__ import annotations
++
++import datetime as dt
++import decimal
++import math
++
++import pytest
++from _mu_support import load, mode_lines, observe, one, run, unload
++
++from Wesker.codomain import parse_codomain, withheld_here
++from Wesker.mu_minus import (
++    apply_value_mode,
++    bound_kind,
++    decode_bound,
++    encode_bound,
++    narrowed_bounds,
++    perturb_return,
++)
++
++_SRC = """
++import datetime as dt
++import decimal
++
++
++def twice(n):
++    return n * 2
++
++
++def ratio(n):
++    return n / 4
++
++
++def money(n):
++    return decimal.Decimal(n) / decimal.Decimal(4)
++
++
++def day(n):
++    return dt.date(2020, 1, 1) + dt.timedelta(days=n)
++
++
++def stamp(n):
++    return dt.datetime(2020, 1, 1) + dt.timedelta(seconds=n)
++
++
++def aware(n):
++    return dt.datetime(2020, 1, 1, tzinfo=dt.UTC) + dt.timedelta(seconds=n)
++
++
++def span(n):
++    return dt.timedelta(seconds=n)
++
++
++def constant(n):
++    return 7
++
++
++def mixed(n):
++    return n if n < 2 else decimal.Decimal(n)
++
++
++def maybe(n):
++    return n * 2 if n else None
++
++
++def label(n):
++    return "x" * n
++
++
++def wild(n):
++    return float(n) if n < 3 else math.inf
++
++
++import math
++"""
++
++
++@pytest.fixture(scope="module")
++def target(tmp_path_factory):
++    module, path = load(tmp_path_factory.mktemp("mu_clamp"), "mu_clamp_t", _SRC)
++    yield module, path
++    unload("mu_clamp_t")
++
++
++def _clamps(path, name, observed):
++    return {
++        mode
++        for mode, _line in mode_lines(path, name, observed)
++        if mode.startswith("return_clamp")
++    }
++
++
++def test_the_clamp_narrows_the_observed_range_by_one_step_on_each_side(target):
++    module, path = target
++
++    def t():
++        assert [module.twice(n) for n in (2, 3, 5)] == [4, 6, 10]
++
++    observed = observe(module, path, "twice", [t])
++    # observed [4, 10], narrowed to [5, 9]
++    assert _clamps(path, "twice", observed) == {"return_clamp@i5,i9"}
++
++
++def test_the_clamp_is_killed_at_an_edge_and_survives_the_interior(target):
++    module, path = target
++
++    def edges():
++        assert module.twice(2) == 4
++        assert module.twice(5) == 10
++
++    def interior():
++        assert module.twice(3) == 6
++        assert module.twice(4) == 8
++
++    def sign_only():
++        assert module.twice(2) > 0 and module.twice(5) > 0
++
++    observed = observe(module, path, "twice", [edges, interior])
++    m = one(path, "twice", observed, "return_clamp@i5,i9")
++    assert run(m, [edges], module, path, "twice").killed_by == "assertion"
++    # An interior value is not moved by a clamp narrowed by one step on each side.
++    assert not run(m, [interior], module, path, "twice").killed
++    # An edge test that does not assert the exact value has not pinned the range either.
++    assert not run(m, [sign_only], module, path, "twice").killed
++
++
++@pytest.mark.parametrize(
++    ("name", "args", "expected"),
++    [
++        ("ratio", (1, 2, 3), "f"),
++        ("money", (1, 2, 3), "D"),
++        ("day", (0, 3, 9), "d"),
++        ("stamp", (0, 5, 60), "n"),
++        ("span", (1, 4, 90), "t"),
++    ],
++)
++def test_every_ordered_kind_is_clamped(target, name, args, expected):
++    module, path = target
++    fn = getattr(module, name)
++
++    def t():
++        assert all(fn(a) is not None for a in args)
++
++    observed = observe(module, path, name, [t])
++    clamps = _clamps(path, name, observed)
++    assert len(clamps) == 1
++    (mode,) = clamps
++    low, _, high = mode.partition("@")[2].partition(",")
++    assert low[0] == high[0] == expected
++    values = [fn(a) for a in args]
++    # The bounds lie strictly inside the observed range: the edges move.
++    assert min(values) < decode_bound(low) <= decode_bound(high) < max(values)
++    m = one(path, name, observed, mode)
++    assert run(m, [t], module, path, name).killed is False  # the test pins nothing...
++
++    def pins():
++        # looked up on the module at call time: a mutant is installed there, the captured `fn` is not
++        assert [getattr(module, name)(a) for a in args] == values
++
++    assert (
++        run(m, [pins], module, path, name).killed_by == "assertion"
++    )  # ...a pin kills it
++
++
++@pytest.mark.parametrize(
++    ("name", "args", "why"),
++    [
++        ("constant", (1, 2), "single_value"),
++        ("mixed", (1, 2), "mixed_kinds"),
++        ("wild", (1, 5), "non_finite"),
++    ],
++)
++def test_a_site_that_admits_no_clamp_says_why(target, name, args, why):
++    module, path = target
++    fn = getattr(module, name)
++
++    def t():
++        assert all(fn(a) is not None for a in args)
++
++    observed = observe(module, path, name, [t])
++    assert not _clamps(path, name, observed)
++    named = withheld_here(parse_codomain(observed))
++    assert any("return_clamp" in line and why in line for line in named), named
++
++
++@pytest.mark.parametrize("name", ["aware", "label", "maybe"])
++def test_a_site_that_is_not_an_ordered_numeric_site_is_not_a_clamp_site(target, name):
++    module, path = target
++    fn = getattr(module, name)
++
++    def t():
++        assert all(fn(a) is not None for a in (0, 1, 2))
++
++    observed = observe(module, path, name, [t])
++    assert not _clamps(path, name, observed)
++    # ...and that is typing, not a failed premise: nothing is named as withheld for the clamp.
++    assert not any(
++        "return_clamp" in line for line in withheld_here(parse_codomain(observed))
++    )
++
++
++def test_a_range_one_step_wide_keeps_its_upper_edge():
++    # {0, 1}: lower+1 = 1, upper-1 = 0 is below it, so the upper edge stays: [1, 1].
++    assert narrowed_bounds(0, 1) == (1, 1)
++    assert narrowed_bounds(0, 2) == (1, 1)
++    assert narrowed_bounds(0, 10) == (1, 9)
++    assert narrowed_bounds(5, 5) is None
++    low, high = narrowed_bounds(1.0, 2.0)
++    assert 1.0 < low < high < 2.0 and low == math.nextafter(1.0, 2.0)
++    assert narrowed_bounds(dt.date(2020, 1, 1), dt.date(2020, 1, 9)) == (
++        dt.date(2020, 1, 2),
++        dt.date(2020, 1, 8),
++    )
++    assert narrowed_bounds(dt.timedelta(0), dt.timedelta(seconds=1)) == (
++        dt.timedelta(microseconds=1),
++        dt.timedelta(seconds=1) - dt.timedelta(microseconds=1),
++    )
++    # At the type's own limit a step cannot overflow.
++    assert narrowed_bounds(dt.date.min, dt.date.max) == (
++        dt.date.min + dt.timedelta(days=1),
++        dt.date.max - dt.timedelta(days=1),
++    )
++
++
++@pytest.mark.parametrize(
++    "value",
++    [
++        0,
++        -7,
++        10**30,
++        0.0,
++        -2.5,
++        1e308,
++        5e-324,
++        decimal.Decimal("1.5"),
++        decimal.Decimal("-0.001"),
++        dt.date.min,
++        dt.date.max,
++        dt.datetime.min,  # noqa: DTZ901
++        dt.datetime.max,  # noqa: DTZ901
++        dt.timedelta.min,
++        dt.timedelta.max,
++    ],
++)
++def test_a_bound_round_trips_and_carries_no_separator(value):
++    token = encode_bound(value)
++    assert ":" not in token and "@" not in token and "," not in token
++    assert decode_bound(token) == value and type(decode_bound(token)) is type(value)
++    assert bound_kind(value) != ""
++
++
++@pytest.mark.parametrize(
++    "value", [True, math.nan, math.inf, decimal.Decimal("NaN"), "s", None, [1]]
++)
++def test_a_value_with_no_ordered_kind_has_none(value):
++    assert bound_kind(value) == ""
++
++
++def test_the_clamp_never_raises_on_an_observed_value_and_moves_an_edge():
++    mode = "return_clamp@i5,i9"
++    assert [apply_value_mode(mode, v) for v in (4, 5, 7, 9, 10)] == [5, 5, 7, 9, 9]
++    assert perturb_return("return_clamp@f0x1p+0,f0x1p+1", 1.5) == 1.5
++    assert perturb_return("return_clamp@i5,i9", 10**400) == 9
++
++
++def test_a_value_the_baseline_never_saw_comes_back_unchanged():
++    # A str cannot be compared with the int bounds; the helper leaves it alone instead of raising.
++    assert perturb_return("return_clamp@i5,i9", "text") == "text"
++    assert perturb_return("return_clamp@i5,i9", None) is None
+-- 
+2.43.0
+

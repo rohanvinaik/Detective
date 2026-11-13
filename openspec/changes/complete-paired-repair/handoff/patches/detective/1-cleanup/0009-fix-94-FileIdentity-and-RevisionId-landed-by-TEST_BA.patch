@@ -1,0 +1,152 @@
+From 6229afdbbcb82857431588ac683f5967a2c84048 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:18:31 +0000
+Subject: [PATCH 09/11] fix(#94): FileIdentity and RevisionId, landed by
+ TEST_BASIS B1 and never instantiated, are retired
+
+The defect, verbatim from the issue: "a computed field no reader reads is invisible". `regime.FileIdentity`
+(dev, ino) and `regime.RevisionId` (content and context digest) were landed ahead of their consumers
+("Land the identity types ... No deletions") and no code ever built one.
+
+Why the obvious fix is wrong: wiring them where B1 points would add a second spelling of questions that
+are already answered. The live-session question ("is this the same open file") is asked in
+`engine._same_file` / `_import_identity`, which use `os.path.samefile` and cannot import `regime` (regime
+imports engine; a cycle). The across-run question has no consumer: the verdict cache keys on the content
+digests it already carries. So both are deleted; `TestId` and `ModuleId` stay. The comment in regime.py and
+the B1 row of docs/TEST_BASIS.md say so, since both described them as landed.
+
+Not closed: the other 6 OPEN fields.
+
+OPEN 10 -> 6. Disarmed (types restored), the new intent test fails (1 of 1). Guards and regime tests pass
+under 3.14 and 3.12 apart from the unrelated `bound` entry; ruff clean under pinned 0.16.7.
+---
+ Detective/regime.py                    | 39 +++++---------------------
+ docs/TEST_BASIS.md                     |  2 +-
+ tests/test_field_consumption_intent.py | 24 ++++++++--------
+ 3 files changed, 20 insertions(+), 45 deletions(-)
+
+diff --git a/Detective/regime.py b/Detective/regime.py
+index 5807df4..b049bc5 100644
+--- a/Detective/regime.py
++++ b/Detective/regime.py
+@@ -31,7 +31,7 @@ from __future__ import annotations
+ 
+ import os
+ import sys
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from typing import NewType
+ 
+ from .engine import ShadowedTarget, _resolve_origin, _suite_path, shadowed_target
+@@ -42,43 +42,18 @@ from .synthesis.oracle_light import importable_module, package_walk_name
+ # ── Identity (TEST_BASIS §6, B1) ──────────────────────────────────────────────
+ # Type ALIASES are not types: `TestId = str` lets a nodeid and a bare str interchange
+ # silently. These are the canonical NewTypes and frozen records the subsystem will key on;
+-# B1 only LANDS the vocabulary — nothing here consumes them yet (consumers adopt them in
+-# later slices). `regime.py` is their single home, so the two-namer / alias drift of §4.6
+-# becomes expressible in one place.
++# B1 LANDS the vocabulary; `regime.py` is its single home, so the two-namer / alias drift of §4.6
++# becomes expressible in one place. B1 also landed `FileIdentity` (live-session (dev, ino)) and
++# `RevisionId` (across-run content and context digests): neither was ever instantiated, the live-session
++# question is answered by `os.path.samefile` where it is asked (`engine._same_file`, which cannot import
++# `regime` without a cycle) and the across-run key is the content digest the verdict cache already
++# carries, so both were retired under #94 rather than kept as fields nothing reads.
+ 
+ TestId = NewType("TestId", str)  # pytest nodeid, post-parametrization. NEVER __name__.
+ ModuleId = NewType("ModuleId", str)  # target-module name (single producer after C1 folds in
+ #                                      oracle_light.importable_module → regime.module).
+ 
+ 
+-@dataclass(frozen=True)
+-class FileIdentity:
+-    """LIVE-session file identity: ``path`` is the label, ``(dev, ino)`` is the identity.
+-
+-    Equality/hash are on ``(dev, ino)`` only (``path`` is ``compare=False``): a realpath can
+-    collide across runs and a rename keeps the inode, so the path answers "what do I call
+-    this file", never "is this the same open file". Meaningless ACROSS runs — that question
+-    is ``RevisionId``'s. Conflating the two is ``109a5db``'s bug in a new spelling.
+-    """
+-
+-    path: str = field(compare=False)  # canonical realpath — for messages only
+-    dev: int  # ┐ equality/hash is on these two, never on path
+-    ino: int  # ┘
+-
+-
+-@dataclass(frozen=True)
+-class RevisionId:
+-    """ACROSS-run identity for a cached observation — a different question, a different key.
+-
+-    A content digest answers "same bytes?"; ``(dev, ino)`` answers "same open file?". They are
+-    not interchangeable, and a content digest is meaningless for the live-session question.
+-    """
+-
+-    path: str
+-    content_digest: str  # the file's own bytes
+-    context_digest: str  # ancestor conftests + fixture origins + the regime
+-
+-
+ @dataclass(frozen=True)
+ class TestRegime:
+     """How a repository imports its code and runs its tests — as facts, not advice."""
+diff --git a/docs/TEST_BASIS.md b/docs/TEST_BASIS.md
+index 6cf0331..8601e7e 100644
+--- a/docs/TEST_BASIS.md
++++ b/docs/TEST_BASIS.md
+@@ -841,7 +841,7 @@ A plan table that cannot say "done" is a plan table that misinforms.
+ 
+ | # | slice | seam | status |
+ |---|---|---|---|
+-| **B1** | Land the identity types — `TestId`/`ModuleId` `NewType`s, `FileIdentity`, `RevisionId` — in `regime.py`. **No deletions** (`module_name` waits for C1, §6) | `resolve_regime` | ✅ `FileIdentity` is `regime.py:52` |
++| **B1** | Land the identity types — `TestId`/`ModuleId` `NewType`s in `regime.py` (`FileIdentity` and `RevisionId` were landed too and retired under #94: never instantiated). **No deletions** (`module_name` waits for C1, §6) | `resolve_regime` | ✅ `TestId`/`ModuleId` are in `regime.py`; `FileIdentity`/`RevisionId` retired (#94) |
+ | **B2** | `_reachable_paths` returns a reason-carrying result — `scoped` / `roots(reason)` / `declined(reason)` — not `list \| None` | `_reachable_paths` | ✅ returns a `PathScope`; its docstring names `declined_error` as the state that used to be "a silent `None` indistinguishable from the two other reasons" |
+ | **B3** | Settle **[?] §2.2**; make the replayed-negative precondition explicit or demote it | `observed_function_reach` | ✅ §2.2 records the ruling AND the build — option (a), Wesker `05be94d`, `replayed_negative_admission` ✓ COMPLETE 9/9 |
+ 
+diff --git a/tests/test_field_consumption_intent.py b/tests/test_field_consumption_intent.py
+index 68e27e8..42cba77 100644
+--- a/tests/test_field_consumption_intent.py
++++ b/tests/test_field_consumption_intent.py
+@@ -90,17 +90,6 @@ OPEN: dict[str, str] = {
+         "because the pinned classify_target golden (tests/detective) reprs it; the fix is to make those "
+         "sites consume the binding."
+     ),
+-    "regime.FileIdentity.dev": (
+-        "FileIdentity is landed ahead of its consumer (docs/TEST_BASIS.md B1: 'Land the identity types ... "
+-        "No deletions') and is never instantiated anywhere, so its equality on (dev, ino) consumes nothing "
+-        "yet. Wire it at the live-session identity check, or drop the type from the plan."
+-    ),
+-    "regime.FileIdentity.ino": "Same type, same reason as FileIdentity.dev: declared by B1, never built.",
+-    "regime.RevisionId.content_digest": (
+-        "RevisionId is landed ahead of its consumer (docs/TEST_BASIS.md B1) and never instantiated; the "
+-        "across-run cache identity it models is still keyed elsewhere. Wire it or drop it from the plan."
+-    ),
+-    "regime.RevisionId.context_digest": "Same type, same reason as RevisionId.content_digest.",
+     "plan.PlanResolution.file": (
+         "Set at three construction sites beside `function`, read by no consumer (the renderer reads "
+         "`refusal`, `assembly`, `detail`, `regime`). Only a test reads it. Delete it with its producers, "
+@@ -247,7 +236,7 @@ def test_a_field_is_never_in_both_registries() -> None:
+ def test_the_open_gaps_are_exactly_what_we_know_about() -> None:
+     """`len(OPEN)` is the number this guard exists to make visible. A fix makes it go DOWN; a new finding
+     UP. Either is a deliberate edit here, never a silent drift."""
+-    assert len(OPEN) == 10
++    assert len(OPEN) == 6
+ 
+ 
+ # ---------------------------------------------------------------- the decision
+@@ -411,3 +400,14 @@ def test_execution_binding_no_longer_carries_a_name_nothing_reads() -> None:
+     from Detective.binding import ExecutionBinding
+ 
+     assert "import_name" not in {f.name for f in dataclasses.fields(ExecutionBinding)}
++
++
++def test_the_b1_identity_types_that_nothing_instantiated_are_gone() -> None:
++    """#94: `FileIdentity` and `RevisionId` were landed ahead of any consumer (TEST_BASIS B1) and never
++    instantiated, so their fields consumed nothing. They were retired, not left as fields no reader reads;
++    the live-session identity question is answered by `os.path.samefile` where it is asked."""
++    import Detective.regime as regime
++
++    assert not hasattr(regime, "FileIdentity")
++    assert not hasattr(regime, "RevisionId")
++    assert hasattr(regime, "TestId") and hasattr(regime, "ModuleId")
+-- 
+2.43.0
+

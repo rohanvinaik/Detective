@@ -1,0 +1,1611 @@
+From e051996ac435dd7719601cc1caab1e9c817e0abf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 04:54:32 +0000
+Subject: [PATCH 1/4] fix(#45): a memory cap the OS refuses (macOS) is held by
+ a resident-memory watchdog, and the page names the bound in force
+
+Defect, verbatim: "a --mem-limit-mb cap the OS refuses (macOS) is never reported, and Linux interception is
+unmeasured". Linux interception now works (memory_cut); where setrlimit(RLIMIT_AS) is refused there was no
+bound at all, the run reported memory_standing telemetry_only, and #39's own shape (take over an infinite
+generator, list(islice(seq, n)) mutated to unbounded) grew until something outside Wesker stopped it.
+
+The obvious fix (poll maxrss) is wrong: ru_maxrss is a lifetime peak and never falls, so a later mutant
+would read as over the cap for an earlier one's spike. The watchdog reads CURRENT resident memory and
+judges GROWTH since the window opened, like memory_budget_standing.
+
+Pure decisions (pinned):
+  memory_bound_standing(cap_requested, rlimit_applied, rss_readable)
+    rlimit    the OS accepted the cap. Primary: it fails the allocation itself, and resident memory cannot
+              exceed the address space that holds it, so a watchdog beside it could only fire second. Not armed.
+    watchdog  refused, but current resident memory is readable: a poller stops the mutant.
+    none      no cap asked, or nothing can enforce one.
+  watchdog_standing(rss, baseline, limit, last_fire)
+    unreadable / within / fire / held. After a stop a further one needs growth of an eighth of the cap
+    beyond the size at the last stop (a mutant that swallowed the stop and went on allocating); pages the
+    allocator kept after the mutant unwound are held, not a runaway, since a second injection would land in
+    the harness.
+  merge_memory_bound(current, observed)  the stronger bound of a function's workers.
+  memory_rollup_bound(bounds)  not_recorded / rlimit / watchdog / none / mixed; n/a says nothing.
+
+MemoryWatchdog raises MemoryError in the thread running the mutant (the worker's main thread; for the
+in-process path the JoinedWorker the measuring thread started after the window opened, never the measuring
+thread), so the node fails exactly as under RLIMIT_AS and memory_cut_standing / memory_cut_run_standing read
+it unchanged: the same unscored memory_cut, never a kill. On exit it joins its thread and clears any stop
+still pending, so none lands in the harness. memory_standing keeps its vocabulary (enforced now means a bound
+held); the new memory_bound field says which, in ProfilingResult, the rollup and shards, and
+describe_memory. An in-process run is no longer described as "NOT bounded" when RLIMIT_AS or the watchdog
+bounds it under the run's budget.
+
+Not closed: the watchdog acts at the next bytecode, so a single allocation that never returns to the
+interpreter is stopped only when it does (RLIMIT_AS, where the OS accepts it, is the bound for that); a
+mutant that swallows every stop in a loop is re-stopped only after further growth, so the wall clock is
+still its last bound. Real macOS is not verified (simulated on Linux by making setrlimit raise, as the OS
+does); the macOS resident-size route is the existing mach_task_basic_info call. Detective still passes no
+cap (separate item). Policy id unchanged (tests/test_policy.py green).
+
+Receipt: pins attempted after commit (see report).
+tests/test_memory_watchdog_intent.py 55 passed (3.14 and 3.12); neighbouring memory/guard files 277 passed
+on both; with the watchdog disarmed 5 of 55 fail, with the pending-stop clear removed 1 fails.
+ruff clean under pinned 0.16.7
+---
+ CHANGELOG.md                         |  14 +-
+ Wesker/_isolated_worker.py           |  40 +-
+ Wesker/ci.py                         | 103 +++-
+ Wesker/cli.py                        |  11 +-
+ Wesker/engine.py                     | 105 +++-
+ Wesker/isolation.py                  |  12 +-
+ Wesker/memory_guard.py               | 174 ++++++-
+ Wesker/shards.py                     |   9 +-
+ tests/test_memory_watchdog_intent.py | 708 +++++++++++++++++++++++++++
+ 9 files changed, 1137 insertions(+), 39 deletions(-)
+ create mode 100644 tests/test_memory_watchdog_intent.py
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 254e09b..469d013 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -21,12 +21,24 @@ changed three times, so the policy id moved three times.
+   prints a `::warning::` with the exception; the others stay a refusal. `no_live_session_reason` names the
+   cause of a missing session (the crash, the collection errors, an empty collection, a missing pytest);
+   `profile_codebase_live` takes a `diagnostic` dict to carry it. (W#29)
++- **A memory cap the OS refuses (macOS) is still a bound, and the page says which one holds.**
++  `--mem-limit-mb` was `setrlimit(RLIMIT_AS)`, which macOS refuses, so there nothing stopped a runaway
++  mutant (issue #39's `take` over an infinite generator reached 3.94 GB) and the run reported
++  `telemetry_only`. `memory_bound_standing` now decides which bound holds: `rlimit` where the OS accepted the
++  cap (primary: it fails the allocation itself, and resident memory cannot exceed the address space), else
++  `watchdog` where the platform can read current resident memory, else `none`. The watchdog polls the
++  process's resident memory every 20 ms and raises `MemoryError` in the thread running the mutant, the
++  exception the cap would have produced, so the outcome is the same unscored `memory_cut`; it covers the
++  isolated worker and the in-process run under the run's budget. It acts at the next bytecode, so one
++  allocation that never returns to the interpreter is stopped only when it does. Each function carries
++  `memory_bound`, the rollup `memory_bound` / `memory_bounds`, and the CLI page names the bound; an in-process
++  run is no longer described as unbounded when it is bounded. The policy id does not move. (W#45, W#39)
+ - **A mutant that allocates without bound in the badge run is one mutant with no verdict, not a dead
+   runner.** Shard 4/4 of the same run was killed by the kernel (exit 137) evaluating a mutant in process:
+   only the isolated worker had an address-space cap, so the badge run, which is not `--isolated`, had none.
+   An in-process mutant may now grow the measuring process by the run's memory budget
+   (`WESKER_MEM_BUDGET_MB`, else RAM/8 clamped to 256 MB-2 GB; a non-positive budget opts out; a platform
+-  that refuses `RLIMIT_AS` stays uncapped), and one that raises `MemoryError` under it, caught or not, is
++  that refuses `RLIMIT_AS` is bounded by the resident-memory watchdog, below), and one that raises `MemoryError` under it, caught or not, is
+   the existing unscored `memory_cut`. Measured on a fixture whose mutant allocates 5 GB under an outer
+   6000 MB limit: peak 4809 MB before, 42 MB and `memory_cut` after. Policy id moves (the observation
+   clause now covers the in-process cap; the universe and `POLICY_VERSION` do not): one-sign
+diff --git a/Wesker/_isolated_worker.py b/Wesker/_isolated_worker.py
+index 3a6d977..479e060 100644
+--- a/Wesker/_isolated_worker.py
++++ b/Wesker/_isolated_worker.py
+@@ -34,11 +34,13 @@ import json
+ import os
+ import subprocess
+ import sys
++import threading
+ from typing import Any, Self
+ 
+ import pytest
+ 
+ from Wesker.isolation import classify_kill_reason, decided_kill_reason
++from Wesker.memory_guard import MemoryWatchdog
+ from Wesker.mu_minus import begin_test
+ from Wesker.pytest_runner import FreshArguments, _install_cheap_failure_repr
+ from Wesker.write_authority import (
+@@ -641,9 +643,14 @@ class _MutantPlugin(_FreshArgumentsPlugin):
+                 *session_write_roots(getattr(item, "config", None), create=False),
+             )
+             watch = _MemoryErrorWatch()
++            # The portable bound (#45): where the OS refused RLIMIT_AS, stop the mutant when its
++            # resident memory outgrows the cap. A limit of 0 (the other bounds, or none) arms nothing.
++            this_thread = [threading.get_ident()]
++            dog = MemoryWatchdog(_MEM_WATCHDOG_LIMIT, lambda: this_thread)
+             try:
+                 with (
+                     watch,
++                    dog,
+                     arm,
+                     declared_roots(roots),
+                     contain_writes(_PROJECT_TREE or None) as blocked,
+@@ -655,7 +662,7 @@ class _MutantPlugin(_FreshArgumentsPlugin):
+                     setattr(owner, self._func_name, original)
+         excinfo = getattr(outcome, "excinfo", None)
+         failed_memory = excinfo is not None and isinstance(excinfo[1], MemoryError)
+-        if memory_cut_standing(failed_memory, watch.hit) != "no_cap":
++        if memory_cut_standing(failed_memory, watch.hit or dog.hit) != "no_cap":
+             # The cap stopped this node (#45), caught or not: whatever the node went on to fail with is
+             # the budget's. No kill reason; the flag makes the whole mutant `memory_cut`, and the
+             # server stops running its remaining nodes in an address space the runaway filled.
+@@ -1033,6 +1040,31 @@ def _voided_by_control(
+     return same - sensitive, sensitive
+ 
+ 
++# The bound this worker holds on a mutant's memory (#45): which of `rlimit` / `watchdog` / `none`
++# (`memory_guard.memory_bound_standing`), and the growth the watchdog allows when it is the bound (0 when
++# it is not armed). Set once, at session start, beside the address-space cap.
++_MEM_BOUND = "none"
++_MEM_WATCHDOG_LIMIT = 0
++
++
++def _arm_memory_bound(mem_limit_bytes: Any) -> str:
++    """Apply the worker's memory cap and record which bound holds it (#45), returning that bound.
++
++    ``RLIMIT_AS`` first, because it fails the allocation itself; where the OS refuses it, the
++    resident-memory watchdog is the bound if the platform can read current resident memory.
++    """
++    global _MEM_BOUND, _MEM_WATCHDOG_LIMIT
++    from Wesker.memory_guard import memory_bound_standing, rss_capability
++
++    _MEM_BOUND = memory_bound_standing(
++        bool(mem_limit_bytes),
++        _apply_mem_limit(mem_limit_bytes),
++        rss_capability() == "current",
++    )
++    _MEM_WATCHDOG_LIMIT = int(mem_limit_bytes) if _MEM_BOUND == "watchdog" else 0
++    return _MEM_BOUND
++
++
+ def _apply_mem_limit(mem_limit_bytes: Any) -> bool:
+     """Apply the worker's address-space cap (W#21), returning whether the OS accepted it.
+ 
+@@ -1143,8 +1175,8 @@ def _serve() -> int:
+     session = json.loads(sys.stdin.readline())
+     _setup(session)
+     # Apply the address-space cap ONCE per worker, at session start, before any mutant runs (W#21).
+-    # `enforced` rides on every response so the parent reports an honest enforced/telemetry capability.
+-    enforced = _apply_mem_limit(session.get("mem_limit_bytes"))
++    # `bound` rides on every response so the parent reports which bound holds (or that none does).
++    bound = _arm_memory_bound(session.get("mem_limit_bytes"))
+     target = _resolve_target(session["project_root"], session["target_file"])
+     qualname = session["func_qualname"]
+     session_nodes = session.get("node_ids", [])
+@@ -1165,7 +1197,7 @@ def _serve() -> int:
+             full_matrix=bool(spec.get("full_matrix")),
+             robust=bool(spec.get("robust")),
+         )
+-        payload["enforced"] = enforced
++        payload["bound"] = bound
+         real_stdout.write(json.dumps(payload) + "\n")
+         real_stdout.flush()
+     return 0
+diff --git a/Wesker/ci.py b/Wesker/ci.py
+index f7d73e9..8746f06 100644
+--- a/Wesker/ci.py
++++ b/Wesker/ci.py
+@@ -2068,6 +2068,26 @@ def memory_rollup_standing(isolated: bool, limit_mb: int, standings: list[str])
+     return "telemetry_only" if refused else "none_measured"
+ 
+ 
++def memory_rollup_bound(bounds: list[str]) -> str:
++    """Which bound held memory on this run, as one named code (#45, pure — pinned).
++
++    ``bounds`` is each function's own ``memory_bound`` (``rlimit``, ``watchdog``, ``none``, or ``n/a``
++    where it ran no measurement; an ``n/a`` says nothing and is not counted). The codes never share a
++    sign: "no function reported" and "functions reported that nothing bounded them" are different facts.
++
++      "not_recorded"  no function recorded a bound (a report from before this was written, or nothing ran)
++      "rlimit"        every recorded function was bounded by the OS's address-space cap
++      "watchdog"      every recorded function was bounded by the resident-memory watchdog (the OS
++                      refused the address-space cap)
++      "none"          every recorded function ran with nothing bounding its memory
++      "mixed"         the recorded functions were not all held the same way
++    """
++    seen = {b for b in bounds if b in ("rlimit", "watchdog", "none")}
++    if not seen:
++        return "not_recorded"
++    return seen.pop() if len(seen) == 1 else "mixed"
++
++
+ def describe_memory(mutation: dict) -> str:
+     """The memory line that stands beside the kill rate (W#45, pure).
+ 
+@@ -2080,6 +2100,12 @@ def describe_memory(mutation: dict) -> str:
+     mb = mutation.get("memory_limit_mb") or 0
+     counts = mutation.get("memory_standings") or {}
+     refused = counts.get("telemetry_only", 0)
++    bound = mutation.get("memory_bound")
++    in_process = _describe_in_process_bound(code, bound)
++    if in_process:
++        return in_process
++    if code in ("enforced", "partial") and bound in ("watchdog", "mixed"):
++        return _describe_watchdog_bound(code, bound, mb, refused)
+     if code == "unbounded":
+         return (
+             "Memory: NOT bounded. This run is not --isolated, so no per-mutant memory cap exists; a "
+@@ -2096,8 +2122,13 @@ def describe_memory(mutation: dict) -> str:
+         return "Memory: isolated workers ran with NO memory cap (no limit was given)."
+     if code == "enforced":
+         return (
+-            f"Memory: enforced at {mb} MB per isolated worker. A mutant over the cap is a named "
+-            "cut, never a kill."
++            f"Memory: enforced at {mb} MB per isolated worker"
++            + (
++                " by RLIMIT_AS (the allocation itself fails)"
++                if bound == "rlimit"
++                else ""
++            )
++            + ". A mutant over the cap is a named cut, never a kill."
+         )
+     if code == "telemetry_only":
+         return (
+@@ -2105,6 +2136,11 @@ def describe_memory(mutation: dict) -> str:
+             "RLIMIT_AS) — memory is observed, not bounded. A runaway mutant is not stopped by the "
+             "cap, will not be recorded as a memory cut, and can exhaust this machine. Run where the "
+             "OS accepts the limit (Linux) or inside a container with a memory limit."
++            + (
++                " The resident-memory watchdog could not read this platform's memory either."
++                if bound == "none"
++                else ""
++            )
+         )
+     if code == "partial":
+         return (
+@@ -2114,6 +2150,62 @@ def describe_memory(mutation: dict) -> str:
+     return f"Memory: a {mb} MB cap was requested; no function recorded whether it held."
+ 
+ 
++def _describe_in_process_bound(code: str, bound: object) -> str:
++    """The memory line for a run that was not isolated, when its in-process bound was recorded (#45).
++
++    Without ``--isolated`` there is no worker cap, but since W#29 a mutant is still run under the run's
++    own memory budget: by ``RLIMIT_AS`` where the OS accepts it, else by the resident-memory watchdog.
++    Saying "NOT bounded" of that run would be false. "" when the run was isolated or recorded no bound,
++    so the older lines stand.
++    """
++    if code not in ("unbounded", "limit_ignored") or bound not in (
++        "rlimit",
++        "watchdog",
++    ):
++        return ""
++    how = (
++        "RLIMIT_AS (the allocation itself fails)"
++        if bound == "rlimit"
++        else "the resident-memory watchdog (the OS refused RLIMIT_AS; a mutant whose memory outgrows "
++        "the budget is stopped at its next bytecode)"
++    )
++    ignored = (
++        " --mem-limit-mb takes effect only with --isolated and was not applied."
++        if code == "limit_ignored"
++        else ""
++    )
++    return (
++        f"Memory: bounded in-process by {how} under the run's memory budget "
++        "(WESKER_MEM_BUDGET_MB). A mutant over it is a named cut, never a kill."
++        + ignored
++        + " `--isolated --mem-limit-mb N` is the per-mutant worker bound."
++    )
++
++
++def _describe_watchdog_bound(code: str, bound: str, mb: int, refused: int) -> str:
++    """The memory line when the resident-memory watchdog held for some or all functions (#45)."""
++    watchdog = (
++        f"the OS refused RLIMIT_AS, so a watchdog polls each isolated worker's resident memory and "
++        f"stops a mutant whose memory grows past {mb} MB at its next bytecode"
++    )
++    if code == "partial":
++        return (
++            f"Memory: a {mb} MB cap was bounded for some functions ({watchdog}; a single allocation "
++            f"that never returns to the interpreter is stopped only when it does) and NOT applied for "
++            f"{refused}: those functions' memory was observed, not bounded."
++        )
++    mixed = (
++        " Some functions were held by RLIMIT_AS and some by the watchdog."
++        if bound == "mixed"
++        else ""
++    )
++    return (
++        f"Memory: bounded at {mb} MB per isolated worker; {watchdog}. A mutant over the cap is a "
++        "named cut, never a kill. A single allocation that never returns to the interpreter is "
++        "stopped only when it does." + mixed
++    )
++
++
+ # What each harness disposition means for the reader of a kill rate, and what a named `not_entered` cause
+ # asks of them. None is a test result: the mutant never reached a verdict about the suite.
+ _HARNESS_MEANINGS = (
+@@ -2560,6 +2652,7 @@ def profile_codebase(
+     harness_functions: list[dict] = []
+     unreached_functions: list[dict] = []
+     memory_standings: list[str] = []
++    memory_bounds: list[str] = []
+     total_universe = 0
+     total_dof = 0
+     total_dof_covered = 0
+@@ -2626,6 +2719,7 @@ def profile_codebase(
+             harness_functions.extend(_harness_entries(r))
+             unreached_functions.extend(unreached_entries(r))
+             memory_standings.append(str(r.get("memory_standing", "n/a")))
++            memory_bounds.append(str(r.get("memory_bound", "n/a")))
+             cause = truncation_cause(
+                 r.get("coverage_depth", ""),
+                 bool(r.get("budget_exhausted")),
+@@ -2789,6 +2883,11 @@ def profile_codebase(
+         "memory_standings": {
+             s: memory_standings.count(s) for s in sorted(set(memory_standings))
+         },
++        # WHICH bound held it (#45): the standing says whether one did.
++        "memory_bound": memory_rollup_bound(memory_bounds),
++        "memory_bounds": {
++            b: memory_bounds.count(b) for b in sorted(set(memory_bounds))
++        },
+         "passes": passes,
+         "elapsed_ms": round(elapsed),
+         # Progress lines this run could not write (W#52): its stream was closed or redirected under
+diff --git a/Wesker/cli.py b/Wesker/cli.py
+index 8b06d70..62f6415 100644
+--- a/Wesker/cli.py
++++ b/Wesker/cli.py
+@@ -90,17 +90,18 @@ def main(argv: list[str] | None = None) -> int:
+         action="store_true",
+         help="Run each mutant in a killable worker subprocess with a memory cap (#45). Without "
+         "it the mutant runs in this process, which may grow by the run's memory budget "
+-        "(WESKER_MEM_BUDGET_MB; 0 turns the bound off) where the OS accepts RLIMIT_AS; a mutant "
+-        "over it is a named cut. The wall clock alone cannot interrupt one huge allocation",
++        "(WESKER_MEM_BUDGET_MB; 0 turns the bound off) by RLIMIT_AS where the OS accepts it, else "
++        "by a watchdog on the process's resident memory; a mutant over it is a named cut. The "
++        "wall clock alone cannot interrupt one huge allocation",
+     )
+     parser.add_argument(
+         "--mem-limit-mb",
+         type=int,
+         default=None,
+         help="Memory cap in MB for isolated workers (default under --isolated: 512). Applies ONLY "
+-        "with --isolated, and only where the OS accepts RLIMIT_AS (Linux does; macOS may refuse): "
+-        "the summary says when the cap was not applied. A mutant over the cap is a named cut, "
+-        "never a kill",
++        "with --isolated. It is held by RLIMIT_AS where the OS accepts it (Linux does; macOS may "
++        "refuse), else by a watchdog on the worker's resident memory; the summary says which. A "
++        "mutant over the cap is a named cut, never a kill",
+     )
+     parser.add_argument("--exclude", nargs="*", default=[], help="Files to exclude")
+     parser.add_argument("--quiet", action="store_true", help="Minimal output")
+diff --git a/Wesker/engine.py b/Wesker/engine.py
+index b773056..26046cc 100644
+--- a/Wesker/engine.py
++++ b/Wesker/engine.py
+@@ -61,9 +61,14 @@ from .line_coverage import executable_lines as _executable_lines
+ from .line_coverage import trace_line_coverage as _trace_line_coverage
+ from .line_coverage import trace_suite as _trace_suite
+ from .memory_guard import (
++    MemoryWatchdog,
+     bounded_address_space,
+     inprocess_cap_mb,
++    memory_bound_standing,
+     memory_enforcement_standing,
++    merge_memory_bound,
++    probe_memory_bound,
++    rss_capability,
+ )
+ from .memory_guard import over_budget as _over_budget
+ from .memory_guard import reclaim as _reclaim
+@@ -640,6 +645,11 @@ class ProfilingResult:
+     #: — the HONEST capability, never claiming a guarantee an unaccepting platform did not keep — or
+     #: "n/a" on the in_process path. Default "n/a" leaves every existing construction unaffected.
+     memory_standing: str = "n/a"
++    #: WHICH bound holds a mutant's memory (#45): "rlimit" (the OS accepted the address-space cap, so the
++    #: allocation itself fails), "watchdog" (the OS refused it and a poller on resident memory stops the
++    #: mutant instead), "none" (nothing bounds it), or "n/a" where the function ran no measurement.
++    #: `memory_standing` says whether a bound HELD; this says which. Read by the rollup and the page.
++    memory_bound: str = "n/a"
+     #: The repeated-fresh-baseline determinism standing (#19): "deterministic" when two fresh isolated
+     #: baseline runs agreed on outcome AND covered lines, "nondeterministic" when they disagreed (→
+     #: not gateable), or "unchecked" (the default) when the opt-in `check_determinism` run did not
+@@ -945,6 +955,7 @@ class ProfilingResult:
+             "fast_mode": self.fast_mode,
+             "shape_hazards": list(self.shape_hazards),
+             "memory_standing": self.memory_standing,
++            "memory_bound": self.memory_bound,
+             "determinism": self.determinism,
+             "execution_standing": self.execution_standing,
+             "is_gateable": self.is_gateable,
+@@ -7479,6 +7490,14 @@ def _cap_bytes(megabytes: int | None) -> int | None:
+     return megabytes * 1024 * 1024 if megabytes else None
+ 
+ 
++def _function_memory_bound(isolated: bool, worker_bound: str) -> str:
++    """The bound a function's mutants ran under (#45): the workers' own report when isolated, else what
++    an in-process run under the run's memory budget gets on this platform."""
++    if isolated:
++        return worker_bound
++    return probe_memory_bound(_cap_bytes(inprocess_cap_mb()))
++
++
+ def memory_cut_run_standing(
+     failed_with_memory_error: bool, raised_memory_error: bool
+ ) -> str:
+@@ -7497,30 +7516,74 @@ def memory_cut_run_standing(
+     return "cap_swallowed" if raised_memory_error else "no_cap"
+ 
+ 
++def _mutant_thread_idents(
++    starter: threading.Thread, before: frozenset[int | None]
++) -> list[int]:
++    """Idents of the live test workers ``starter`` started after ``before`` was taken (#45).
++
++    The in-process path runs a mutant's test in a ``JoinedWorker`` its own thread starts and joins, so
++    these are the threads a memory stop must reach; the measuring thread itself is parked in the join
++    and must never be the target. A worker from an earlier test (abandoned, or still unwinding) is in
++    ``before`` and is left alone.
++    """
++    return [
++        t.ident
++        for t in threading.enumerate()
++        if isinstance(t, JoinedWorker)
++        and t.starter is starter
++        and t.ident is not None
++        and t.ident not in before
++    ]
++
++
+ class _MemoryWatch:
+-    """Record whether a ``MemoryError`` was raised while an in-process cap was in force (W#29).
++    """Record whether a ``MemoryError`` was raised while an in-process memory bound was in force (W#29, #45).
++
++    Two bounds, one record (:func:`~Wesker.memory_guard.memory_bound_standing` picks):
+ 
+-    The isolated worker's own watch (``sys.monitoring`` RAISE under a tool id of its own) when the cap
+-    landed, and nothing when it did not: without a cap a ``MemoryError`` is the machine's, not ours.
++      ``rlimit``    the cap landed, so the isolated worker's own watch (``sys.monitoring`` RAISE under a
++                    tool id of its own) sees the ``MemoryError`` the OS produced, wherever it is caught.
++      ``watchdog``  the OS refused the cap: a :class:`~Wesker.memory_guard.MemoryWatchdog` raises the same
++                    ``MemoryError`` in the test's worker when resident memory outgrows the cap. The
++                    monitoring watch runs beside it for the same reason as above, and ``hit`` is true if
++                    either saw one.
++      ``none``      nothing: without a bound a ``MemoryError`` is the machine's, not ours.
+     """
+ 
+-    def __init__(self, armed: bool) -> None:
++    def __init__(self, capped: bool, cap_bytes: int | None = None) -> None:
+         self.hit = False
++        self.bound = memory_bound_standing(
++            cap_bytes is not None, capped, rss_capability() == "current"
++        )
+         self._watch: Any = None
+-        if armed:
++        self._dog: MemoryWatchdog | None = None
++        if self.bound != "none":
+             from Wesker._isolated_worker import _MemoryErrorWatch
+ 
+             self._watch = _MemoryErrorWatch()
++        if self.bound == "watchdog" and cap_bytes:
++            starter = threading.current_thread()
++            before = frozenset(t.ident for t in threading.enumerate())
++            self._dog = MemoryWatchdog(
++                cap_bytes, lambda: _mutant_thread_idents(starter, before)
++            )
+ 
+     def __enter__(self) -> Self:
+         if self._watch is not None:
+             self._watch.__enter__()
++        if self._dog is not None:
++            self._dog.__enter__()
+         return self
+ 
+     def __exit__(self, *exc: object) -> None:
++        if self._dog is not None:
++            self._dog.__exit__(*exc)
+         if self._watch is not None:
+             self._watch.__exit__(*exc)
+-            self.hit = bool(self._watch.hit)
++        self.hit = bool(
++            (self._watch is not None and self._watch.hit)
++            or (self._dog is not None and self._dog.hit)
++        )
+ 
+ 
+ @_serialized
+@@ -7544,8 +7607,9 @@ def evaluate_mutant(
+     ``address_cap_mb`` bounds how far this process may GROW while a test runs the mutant (W#29): an
+     allocation past it raises ``MemoryError``, and a mutant that does so, caught or not, is the unscored
+     ``memory_cut`` outcome the isolated worker's cap produces — one mutant without a verdict. ``None``
+-    takes the run's memory budget (:func:`~Wesker.memory_guard.inprocess_cap_mb`); a platform that will
+-    not take the limit runs the mutant uncapped, as before.
++    takes the run's memory budget (:func:`~Wesker.memory_guard.inprocess_cap_mb`). A platform that will
++    not take the address-space limit is bounded by the resident-memory watchdog instead (#45), which
++    stops the same mutant the same way.
+ 
+     With a ``step_plan`` (W#27), each test's ORIGINAL loop count is measured once per pass before
+     the mutant is installed, and every mutant observation of a test the original passed under the
+@@ -7853,11 +7917,10 @@ def evaluate_mutant(
+                 begin_test()
+                 # The cap is entered BEFORE the write guard (which refuses a `setrlimit` made inside its
+                 # own window) and its watch only when the cap actually landed.
++                cap_bytes = _cap_bytes(inprocess_cap_mb(address_cap_mb))
+                 with (
+-                    bounded_address_space(
+-                        _cap_bytes(inprocess_cap_mb(address_cap_mb))
+-                    ) as capped,
+-                    _MemoryWatch(capped) as memory_watch,
++                    bounded_address_space(cap_bytes) as capped,
++                    _MemoryWatch(capped, cap_bytes) as memory_watch,
+                     contain_writes() as blocked,
+                 ):
+                     result = _run_test_with_timeout(
+@@ -7868,7 +7931,7 @@ def evaluate_mutant(
+                         **step_args,
+                     )
+                 if (
+-                    capped
++                    memory_watch.bound != "none"
+                     and result != "uncontained"
+                     # A test that fails with the MemoryError reads "crash"; the watch, which sees the
+                     # error raised wherever it is caught, is the evidence that it was the cap's.
+@@ -9947,7 +10010,7 @@ def run_function_profiling(
+     _iso_ctx: tuple[str, str, str, int, int | None] | None = None
+     _cause_box: list[Any] = [None]  # the holder scan, once per function (#18)
+     _mem_cut = False
+-    _mem_enforced = False
++    _mem_bound = "none"
+     if isolated:
+         import os
+ 
+@@ -10020,7 +10083,7 @@ def run_function_profiling(
+                 )
+                 if _iso_run is not None:
+                     _mem_cut = _mem_cut or _iso_run.memory_cut
+-                    _mem_enforced = _mem_enforced or _iso_run.mem_enforced
++                    _mem_bound = merge_memory_bound(_mem_bound, _iso_run.mem_bound)
+             try:
+                 if not isolated:
+                     result = evaluate_mutant(
+@@ -10587,7 +10650,7 @@ def run_function_profiling(
+     elif _mem_cut:
+         _memory_standing = "cut"
+     else:
+-        _memory_standing = memory_enforcement_standing(_mem_enforced)
++        _memory_standing = memory_enforcement_standing(_mem_bound != "none")
+ 
+     # The per-TestId outcome-qualified ledger (#17), from the SAME failed/truncated sets `_barred`
+     # is built from, so the typed view and the derived `admissible_line_coverage` cannot disagree.
+@@ -10675,6 +10738,7 @@ def run_function_profiling(
+         # W#21: "cut" when a mutant hit the worker's memory cap (non-gateable), else the honest
+         # enforced/telemetry capability, "n/a" in-process.
+         memory_standing=_memory_standing,
++        memory_bound=_function_memory_bound(isolated, _mem_bound),
+         # The repeated-fresh-baseline determinism standing (#19): "nondeterministic" here is why an
+         # otherwise-complete run is not gateable; "unchecked" when the opt-in did not run.
+         determinism=_determinism,
+@@ -11309,7 +11373,7 @@ def run_function_converged(
+     _iso_run: IsolatedRun | None = None
+     _iso_ctx = None
+     _mem_cut = False
+-    _mem_enforced = False
++    _mem_bound = "none"
+     if isolated:
+         import os
+ 
+@@ -11385,7 +11449,7 @@ def run_function_converged(
+                     )
+                     if _iso_run is not None:
+                         _mem_cut = _mem_cut or _iso_run.memory_cut
+-                        _mem_enforced = _mem_enforced or _iso_run.mem_enforced
++                        _mem_bound = merge_memory_bound(_mem_bound, _iso_run.mem_bound)
+                 else:
+                     result = evaluate_mutant(
+                         mutant,
+@@ -11613,7 +11677,7 @@ def run_function_converged(
+                     )
+                     if _iso_run is not None:
+                         _mem_cut = _mem_cut or _iso_run.memory_cut
+-                        _mem_enforced = _mem_enforced or _iso_run.mem_enforced
++                        _mem_bound = merge_memory_bound(_mem_bound, _iso_run.mem_bound)
+                 else:
+                     _res = evaluate_mutant(
+                         _mutant,
+@@ -11810,7 +11874,7 @@ def run_function_converged(
+     elif _mem_cut:
+         _memory_standing = "cut"
+     else:
+-        _memory_standing = memory_enforcement_standing(_mem_enforced)
++        _memory_standing = memory_enforcement_standing(_mem_bound != "none")
+ 
+     return ProfilingResult(
+         function_key=func_key,
+@@ -11827,6 +11891,7 @@ def run_function_converged(
+         coverage_depth=depth,
+         execution_mode="isolated" if isolated else "in_process",
+         memory_standing=_memory_standing,
++        memory_bound=_function_memory_bound(isolated, _mem_bound),
+         is_gateable=_measurement_gateable(
+             depth == "profiled" and not unscored_records,
+             all_contained,
+diff --git a/Wesker/isolation.py b/Wesker/isolation.py
+index 8b32b5c..8d48218 100644
+--- a/Wesker/isolation.py
++++ b/Wesker/isolation.py
+@@ -189,11 +189,13 @@ class IsolatedRun:
+     ran: int = 0
+     entered_probe: bool = False
+     #: W#21 — memory budget signals from the server path. `memory_cut` is True when this mutant hit
+-    #: the worker's address-space cap (a budget CUT, not a kill → non-gateable). `mem_enforced` says
+-    #: whether the OS actually accepted the cap, so the parent reports an honest enforced/telemetry
+-    #: capability rather than claiming a guarantee the platform did not keep.
++    #: the worker's memory bound (a budget CUT, not a kill → non-gateable). `mem_bound` says which
++    #: bound the worker holds (#45): "rlimit" where the OS accepted the address-space cap, "watchdog"
++    #: where it refused and the worker polls its own resident memory instead, "none" where nothing
++    #: bounds it, so the parent reports an honest capability rather than claiming a guarantee the
++    #: platform did not keep.
+     memory_cut: bool = False
+-    mem_enforced: bool = False
++    mem_bound: str = "none"
+     #: W#27 — a node's loop budget stopped the mutant: the named non-kill `diverged`. pytest's exit
+     #: code reads the stopped node as a failure, so the engine checks this before the verdict.
+     diverged: bool = False
+@@ -894,7 +896,7 @@ class IsolatedMutantWorker:
+             ran=int(data.get("ran", 0)),
+             entered_probe=bool(data.get("entered", False)),
+             memory_cut=bool(data.get("memory_cut", False)),
+-            mem_enforced=bool(data.get("enforced", False)),
++            mem_bound=str(data["bound"]) if "bound" in data else "none",
+             diverged=bool(data.get("diverged", False)),
+             write_blocked=data.get("write_blocked") or None,
+             blocked_writes=tuple(str(p) for p in data.get("blocked_writes") or ()),
+diff --git a/Wesker/memory_guard.py b/Wesker/memory_guard.py
+index 0eace40..2e96d95 100644
+--- a/Wesker/memory_guard.py
++++ b/Wesker/memory_guard.py
+@@ -22,10 +22,13 @@ only arithmetic and is identical on every OS.
+ from __future__ import annotations
+ 
+ import contextlib
++import ctypes
+ import gc
+ import os
+ import sys
+-from collections.abc import Iterator
++import threading
++from collections.abc import Callable, Iterator
++from typing import Self
+ 
+ try:
+     import resource  # Unix only — absent on Windows.
+@@ -235,6 +238,162 @@ def memory_enforcement_standing(applied: bool) -> str:
+     return "enforced" if applied else "telemetry_only"
+ 
+ 
++def memory_bound_standing(
++    cap_requested: bool, rlimit_applied: bool, rss_readable: bool
++) -> str:
++    """Which bound is in force on a mutant's memory (#45/#39, pure — pinned).
++
++    A cap the caller asked for is only a bound if SOMETHING keeps it. Two things can, and the
++    evidence decides their order rather than taste:
++
++      "rlimit"    the OS accepted ``RLIMIT_AS``. It is the primary bound because it fails the
++                  allocation ITSELF, so even one huge C allocation cannot pass it. It is also never
++                  weaker than the watchdog: resident memory cannot exceed the address space that
++                  holds it, so a watchdog armed beside it could only fire second. Not armed.
++      "watchdog"  the OS refused (or does not offer) the limit but this platform can read the
++                  process's CURRENT resident memory: a poller stops the mutant when it grows past the
++                  cap. Weaker than ``rlimit`` in exactly one way (it acts at the next bytecode, so a
++                  single allocation that never returns to the interpreter is not interrupted); better
++                  than nothing in every other way. This is macOS's answer.
++      "none"      no cap was asked for, or nothing can enforce one: memory is observed, not bounded.
++
++    Three states, never a bool: ``watchdog`` and ``none`` have different remedies (the first needs
++    none; the second needs a container limit), and "no cap asked" and "cap asked, unenforceable" are
++    kept apart by the caller's own rollup, which reads ``cap_requested`` first.
++    """
++    if not cap_requested:
++        return "none"
++    if rlimit_applied:
++        return "rlimit"
++    return "watchdog" if rss_readable else "none"
++
++
++_BOUND_RANK = {"none": 0, "watchdog": 1, "rlimit": 2}
++
++
++def merge_memory_bound(current: str, observed: str) -> str:
++    """The stronger of two bounds, for a function whose workers each reported one (#45, pure — pinned).
++
++    Workers of one function run on one machine under one request, so they agree in practice; when they
++    do not (a worker that could not start reports ``none``), the function was bounded by the stronger
++    one for at least the mutants that worker ran, and claiming the weaker would understate a bound that
++    held. An unknown word ranks below ``none`` and never displaces a known one.
++    """
++    if _BOUND_RANK.get(observed, -1) > _BOUND_RANK.get(current, -1):
++        return observed
++    return current
++
++
++# How often the watchdog reads resident memory. Fixed, not adaptive: the cost of a read is a few
++# microseconds, so 20 ms is about 0.05% of one core, and the growth a runaway mutant makes between two
++# reads is bounded by how fast it allocates (measured in tests/test_memory_watchdog_intent.py).
++WATCHDOG_PERIOD_S = 0.02
++
++
++def watchdog_standing(
++    rss_bytes: int, baseline_bytes: int, limit_bytes: int, last_fire_bytes: int
++) -> str:
++    """What one poll of the memory watchdog decides (#45/#39, pure — pinned).
++
++      "unreadable"  the platform returned no resident size (0): nothing to compare, and no cut may be
++                    made on the strength of a number that was not read
++      "within"      growth since the window opened is inside the cap
++      "fire"        growth crossed the cap and the mutant has not been stopped for THIS growth: inject
++                    the stop. After a stop, a further one is made only if memory has grown by at least
++                    an eighth of the cap again (at least 1 MiB) beyond the size at the last stop, i.e.
++                    the mutant swallowed the stop and went on allocating
++      "held"        over the cap but not growing since the last stop: pages the allocator has not
++                    returned after the mutant unwound (macOS keeps them), not a runaway. Injecting again
++                    here would land in the harness code that runs next
++
++    ``last_fire_bytes`` is 0 until the first stop. Judged on GROWTH since the window opened, never on
++    the absolute figure, for the reason ``memory_budget_standing`` gives.
++    """
++    if rss_bytes <= 0:
++        return "unreadable"
++    if rss_bytes - baseline_bytes <= limit_bytes:
++        return "within"
++    slack = max(limit_bytes // 8, _MB)
++    if last_fire_bytes > 0 and rss_bytes <= last_fire_bytes + slack:
++        return "held"
++    return "fire"
++
++
++def _inject(ident: int, exc_type: type[BaseException] | None) -> int:
++    """Raise ``exc_type`` in the thread ``ident`` at its next bytecode; None clears one still pending."""
++    # A bare None is a NULL pointer to ctypes, which is what clears; `py_object(None)` would be the
++    # Python object None and is not an exception to raise.
++    arg = None if exc_type is None else ctypes.py_object(exc_type)
++    return int(ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), arg))
++
++
++class MemoryWatchdog:
++    """The portable memory bound: stop a mutant whose resident memory outgrows a cap (#45/#39).
++
++    Armed for the length of one block. A daemon thread reads the process's CURRENT resident size every
++    ``WATCHDOG_PERIOD_S`` and, when :func:`watchdog_standing` says ``fire``, raises ``MemoryError`` in
++    the thread(s) running the mutant: the exception ``RLIMIT_AS`` would have produced, so everything
++    downstream (the node's failure, the ``memory_cut`` disposition) is the same code. ``hit`` says one
++    was raised; a caller reads it as it reads the monitoring watch, because code under test may catch
++    the ``MemoryError``.
++
++    ``targets`` is called when a stop is made and returns the idents to stop; it is a callable because
++    the in-process path starts its test thread after the window opens. A target that has since ended is
++    skipped.
++
++    On exit the thread is stopped and JOINED before anything else, and a stop still pending in a target
++    is cleared, so no injection can land after the window in the harness's own code.
++
++    THE HONEST LIMIT: ``MemoryError`` is delivered at a bytecode boundary. A mutant whose single
++    allocation never returns to the interpreter is stopped when it does return, not before; ``RLIMIT_AS``
++    refuses that allocation itself, which is why it stays the primary bound where the OS accepts it.
++    """
++
++    def __init__(
++        self, limit_bytes: int, targets: Callable[[], list[int]], period_s: float = -1.0
++    ) -> None:
++        self.hit = False
++        self._limit = limit_bytes
++        self._targets = targets
++        self._period = WATCHDOG_PERIOD_S if period_s < 0 else period_s
++        self._stop = threading.Event()
++        self._thread: threading.Thread | None = None
++        self._baseline = 0
++        self._fired_at: list[int] = []
++
++    def __enter__(self) -> Self:
++        if self._limit <= 0:
++            return self  # no cap asked: nothing to watch, and no thread to leave behind
++        self._baseline = current_rss_bytes()
++        self._thread = threading.Thread(
++            target=self._poll, name="wesker-memory-watchdog", daemon=True
++        )
++        self._thread.start()
++        return self
++
++    def _poll(self) -> None:
++        last_fire = 0
++        while not self._stop.wait(self._period):
++            rss = current_rss_bytes()
++            if watchdog_standing(rss, self._baseline, self._limit, last_fire) != "fire":
++                continue
++            last_fire = rss
++            for ident in self._targets():
++                if _inject(ident, MemoryError) == 1:
++                    self.hit = True
++                    self._fired_at.append(ident)
++
++    def __exit__(self, *_exc: object) -> None:
++        self._stop.set()
++        if self._thread is not None:
++            self._thread.join()
++            self._thread = None
++        live = {t.ident for t in threading.enumerate()}
++        for ident in self._fired_at:
++            if ident in live:
++                _inject(ident, None)
++
++
+ def run_baseline_bytes() -> int:
+     """The RSS a run starts from. Capture once, before the work, and pass it to `over_budget`.
+ 
+@@ -444,6 +603,19 @@ def bounded_address_space(extra_bytes: int | None) -> Iterator[bool]:
+         resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+ 
+ 
++def probe_memory_bound(cap_bytes: int | None) -> str:
++    """Which bound an in-process run under ``cap_bytes`` would have on THIS platform right now (#45).
++
++    Opens and closes the same window :func:`bounded_address_space` opens around a mutant, so the answer
++    is the one the mutant's run will get, not a guess from the platform name. ``cap_bytes`` is the same
++    value the run passes (None: no cap asked, which is ``none``).
++    """
++    with bounded_address_space(cap_bytes) as capped:
++        return memory_bound_standing(
++            cap_bytes is not None, capped, rss_capability() == "current"
++        )
++
++
+ def telemetry(budget_bytes: int | None = None) -> str:
+     """A one-line, commonsense memory report for a CLI footer: what this run used,
+     against the budget and the machine, with an offload hint when it runs hot. Cheap
+diff --git a/Wesker/shards.py b/Wesker/shards.py
+index baebf5d..5f6e6cd 100644
+--- a/Wesker/shards.py
++++ b/Wesker/shards.py
+@@ -383,7 +383,7 @@ def merge_reports(reports: list[dict]) -> dict:
+     `ci.profile_codebase` uses; the per-function lists are concatenated, so the Action's gates and
+     renderers consume the same per-function facts they consume on a single run.
+     """
+-    from Wesker.ci import _harness_totals, memory_rollup_standing
++    from Wesker.ci import _harness_totals, memory_rollup_bound, memory_rollup_standing
+ 
+     def cat(key: str) -> list:
+         return [x for r in reports for x in (r.get(key) or [])]
+@@ -396,6 +396,11 @@ def merge_reports(reports: list[dict]) -> dict:
+         for name, n in (r.get("memory_standings") or {}).items():
+             memory_counts[name] = memory_counts.get(name, 0) + int(n)
+     standings = [s for s in sorted(memory_counts) for _ in range(memory_counts[s])]
++    bound_counts: dict[str, int] = {}
++    for r in reports:
++        for name, n in (r.get("memory_bounds") or {}).items():
++            bound_counts[name] = bound_counts.get(name, 0) + int(n)
++    bounds = [b for b in sorted(bound_counts) for _ in range(bound_counts[b])]
+     categories: dict[str, dict] = {}
+     for r in reports:
+         for c in r.get("per_category") or []:
+@@ -446,6 +451,8 @@ def merge_reports(reports: list[dict]) -> dict:
+         "memory_limit_mb": limit,
+         "memory_standing": memory_rollup_standing(isolated, limit, standings),
+         "memory_standings": {s: memory_counts[s] for s in sorted(memory_counts)},
++        "memory_bound": memory_rollup_bound(bounds),
++        "memory_bounds": {b: bound_counts[b] for b in sorted(bound_counts)},
+         "passes": max((int(r.get("passes") or 1) for r in reports), default=1),
+         "elapsed_ms": _dict_sum(reports, "elapsed_ms"),
+         "progress_lines_dropped": _dict_sum(reports, "progress_lines_dropped"),
+diff --git a/tests/test_memory_watchdog_intent.py b/tests/test_memory_watchdog_intent.py
+new file mode 100644
+index 0000000..2e70520
+--- /dev/null
++++ b/tests/test_memory_watchdog_intent.py
+@@ -0,0 +1,708 @@
++"""Intent: a memory bound that holds where the OS refuses RLIMIT_AS, and says which bound it is (W#45, W#39).
++
++THE DEFECT. `--mem-limit-mb` is `setrlimit(RLIMIT_AS)`. macOS refuses to lower that limit, so there the
++cap was never applied: the run reported `memory_standing: telemetry_only` and nothing stopped a mutant
++that allocates without bound. Issue #39's own shape, `take` over an infinite generator
++(`list(islice(seq, n))` mutated to `list(seq)`), measured on the founder's machine at 3.94 GB before the
++kernel killed it. Linux interception was measured and works (`memory_cut`); the portable half was missing.
++
++THE FIX. Which bound holds is a pure decision (`memory_bound_standing`): `rlimit` where the OS accepted
++the cap (primary, since it fails the allocation itself, and resident memory cannot exceed the address
++space that holds it, so a watchdog beside it could only fire second), `watchdog` where it did not but
++the platform can read current resident memory, `none` otherwise. The watchdog polls the process's own
++resident memory every 20 ms and raises `MemoryError` in the thread running the mutant: the exception the
++OS cap would have produced, so the disposition is the same `memory_cut` (never a kill). The standing, the
++rollup and the CLI page carry which bound acted.
++
++The macOS refusal is simulated on Linux the way the OS does it: `resource.setrlimit` RAISES for
++`RLIMIT_AS` (a `sitecustomize` does it in every process of a subprocess run, so the isolated worker sees
++it too).
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import resource
++import subprocess
++import sys
++import textwrap
++import threading
++import time
++
++import pytest
++
++from Wesker.ci import describe_memory, memory_rollup_bound
++from Wesker.engine import MEMORY_CUT, _mutant_thread_idents
++from Wesker.interrupt import JoinedWorker
++from Wesker.memory_guard import (
++    WATCHDOG_PERIOD_S,
++    MemoryWatchdog,
++    current_rss_bytes,
++    memory_bound_standing,
++    merge_memory_bound,
++    watchdog_standing,
++)
++
++linux_only = pytest.mark.skipif(
++    sys.platform != "linux", reason="the macOS refusal is simulated on Linux"
++)
++
++_MB = 1024 * 1024
++
++# ── the pure decisions ───────────────────────────────────────────────────────────────────────
++
++
++@pytest.mark.parametrize(
++    ("requested", "rlimit", "readable", "bound"),
++    [
++        (False, False, False, "none"),
++        (False, True, True, "none"),  # no cap asked: nothing is bounded, whatever works
++        (False, False, True, "none"),
++        (True, True, True, "rlimit"),  # primary even when the watchdog could also run
++        (True, True, False, "rlimit"),
++        (True, False, True, "watchdog"),  # the macOS case
++        (True, False, False, "none"),  # asked, refused, and nothing can read memory
++    ],
++)
++def test_which_bound_holds(requested, rlimit, readable, bound):
++    assert memory_bound_standing(requested, rlimit, readable) == bound
++
++
++@pytest.mark.parametrize(
++    ("current", "observed", "merged"),
++    [
++        ("none", "none", "none"),
++        ("none", "watchdog", "watchdog"),
++        ("watchdog", "none", "watchdog"),
++        ("watchdog", "rlimit", "rlimit"),
++        ("rlimit", "watchdog", "rlimit"),
++        ("rlimit", "none", "rlimit"),
++        ("none", "garbage", "none"),  # an unknown word never displaces a known one
++        ("garbage", "none", "none"),
++    ],
++)
++def test_the_stronger_bound_wins_a_merge(current, observed, merged):
++    assert merge_memory_bound(current, observed) == merged
++
++
++@pytest.mark.parametrize(
++    ("rss", "baseline", "limit", "last", "code"),
++    [
++        (
++            0,
++            100 * _MB,
++            64 * _MB,
++            0,
++            "unreadable",
++        ),  # a number that was not read cuts nothing
++        (-1, 0, 64 * _MB, 0, "unreadable"),
++        (100 * _MB, 100 * _MB, 64 * _MB, 0, "within"),
++        (164 * _MB, 100 * _MB, 64 * _MB, 0, "within"),  # exactly the cap is inside it
++        (164 * _MB + 1, 100 * _MB, 64 * _MB, 0, "fire"),
++        (50 * _MB, 100 * _MB, 64 * _MB, 0, "within"),  # a shrink is not demand
++        # after a stop: pages the allocator kept are not a runaway ...
++        (300 * _MB, 100 * _MB, 64 * _MB, 300 * _MB, "held"),
++        (308 * _MB, 100 * _MB, 64 * _MB, 300 * _MB, "held"),  # exactly an eighth: held
++        # ... but a mutant that swallowed the stop and went on allocating is stopped again
++        (308 * _MB + 1, 100 * _MB, 64 * _MB, 300 * _MB, "fire"),
++        (200 * _MB, 100 * _MB, 64 * _MB, 300 * _MB, "held"),  # fell, still over the cap
++        (101 * _MB, 100 * _MB, 1024, 0, "fire"),  # tiny cap: the slack floor is 1 MiB
++        (101 * _MB, 100 * _MB, 1024, 100 * _MB, "held"),
++    ],
++)
++def test_one_poll_of_the_watchdog(rss, baseline, limit, last, code):
++    assert watchdog_standing(rss, baseline, limit, last) == code
++
++
++@pytest.mark.parametrize(
++    ("bounds", "code"),
++    [
++        ([], "not_recorded"),
++        (["n/a", "n/a"], "not_recorded"),  # absence says nothing
++        (["none"], "none"),
++        (["rlimit", "rlimit"], "rlimit"),
++        (["watchdog", "n/a", "watchdog"], "watchdog"),
++        (["rlimit", "watchdog"], "mixed"),
++        (["none", "watchdog"], "mixed"),
++        (["bogus"], "not_recorded"),
++    ],
++)
++def test_the_rollup_bound(bounds, code):
++    assert memory_rollup_bound(bounds) == code
++
++
++def test_the_page_says_which_bound_is_in_force():
++    base = {"memory_limit_mb": 64, "memory_standings": {"enforced": 1}}
++    rlimit = describe_memory(
++        {**base, "memory_standing": "enforced", "memory_bound": "rlimit"}
++    )
++    watchdog = describe_memory(
++        {**base, "memory_standing": "enforced", "memory_bound": "watchdog"}
++    )
++    mixed = describe_memory(
++        {**base, "memory_standing": "enforced", "memory_bound": "mixed"}
++    )
++    partial = describe_memory(
++        {
++            "memory_standing": "partial",
++            "memory_limit_mb": 64,
++            "memory_standings": {"enforced": 1, "telemetry_only": 2},
++            "memory_bound": "mixed",
++        }
++    )
++    refused = describe_memory(
++        {
++            "memory_standing": "telemetry_only",
++            "memory_limit_mb": 64,
++            "memory_standings": {"telemetry_only": 1},
++            "memory_bound": "none",
++        }
++    )
++    assert "RLIMIT_AS (the allocation itself fails)" in rlimit
++    assert "watchdog" in watchdog and "telemetry" not in watchdog.lower()
++    assert "NOT applied" not in watchdog, "a held bound is never described as unapplied"
++    assert "single allocation" in watchdog, "the watchdog's honest limit is stated"
++    assert "RLIMIT_AS and some by the watchdog" in mixed
++    assert "NOT applied for 2" in partial and "watchdog" in partial
++    assert "NOT applied on this platform" in refused
++    assert "could not read" in refused, "the page says the watchdog was unavailable too"
++    assert len({rlimit, watchdog, mixed, partial, refused}) == 5
++
++
++def test_an_in_process_run_is_described_by_the_bound_it_had_not_as_unbounded():
++    wd = describe_memory({"memory_standing": "unbounded", "memory_bound": "watchdog"})
++    rl = describe_memory({"memory_standing": "unbounded", "memory_bound": "rlimit"})
++    ignored = describe_memory(
++        {
++            "memory_standing": "limit_ignored",
++            "memory_limit_mb": 64,
++            "memory_bound": "watchdog",
++        }
++    )
++    for line in (wd, rl, ignored):
++        assert "NOT bounded" not in line
++        assert "WESKER_MEM_BUDGET_MB" in line and "named cut, never a kill" in line
++    assert "watchdog" in wd and "RLIMIT_AS" in rl and wd != rl
++    assert "--mem-limit-mb takes effect only with --isolated" in ignored
++    # a report from before the bound was recorded keeps its older, still-true line
++    assert "NOT bounded" in describe_memory({"memory_standing": "unbounded"})
++    # and an in-process run that nothing bounded still says so
++    assert "NOT bounded" in describe_memory(
++        {"memory_standing": "unbounded", "memory_bound": "none"}
++    )
++
++
++# ── the watchdog, measured on a thread ───────────────────────────────────────────────────────
++
++
++def _alloc_until_stopped(out: dict, step_mb: int, limit_steps: int = 400) -> None:
++    hog = []
++    try:
++        for _ in range(limit_steps):
++            hog.append(bytearray(step_mb * _MB))
++            time.sleep(0.001)
++        out["result"] = "finished"
++    except MemoryError:
++        out["result"] = "stopped"
++    out["held_mb"] = len(hog) * step_mb
++
++
++@linux_only
++def test_a_runaway_thread_is_stopped_with_memory_error_and_stays_near_the_cap():
++    out: dict = {}
++    t = threading.Thread(target=_alloc_until_stopped, args=(out, 4))
++    with MemoryWatchdog(64 * _MB, lambda: [t.ident]) as dog:
++        t.start()
++        t.join(30)
++    assert not t.is_alive()
++    assert dog.hit is True
++    assert out["result"] == "stopped"
++    # 4 MB steps every ~1 ms against a 20 ms poll: it overshoots the cap by what it allocates in a
++    # poll period, not by an unbounded amount (400 steps would be 1600 MB).
++    assert 64 <= out["held_mb"] < 600, out
++
++
++@linux_only
++def test_a_well_behaved_thread_is_never_stopped():
++    """No false cut: memory well inside the cap, held across many polls."""
++    out: dict = {}
++
++    def work() -> None:
++        hog = bytearray(16 * _MB)
++        time.sleep(10 * WATCHDOG_PERIOD_S)
++        out["result"] = "finished"
++        out["n"] = len(hog)
++
++    t = threading.Thread(target=work)
++    with MemoryWatchdog(256 * _MB, lambda: [t.ident]) as dog:
++        t.start()
++        t.join(30)
++    assert out["result"] == "finished"
++    assert dog.hit is False
++
++
++@linux_only
++def test_a_mutant_that_swallows_the_stop_and_goes_on_allocating_is_stopped_again():
++    """`except Exception: pass` around the allocation catches the first MemoryError; the watchdog stops
++    the growth that follows."""
++    caught: list[int] = []
++
++    def swallower() -> None:
++        hog = []
++        for i in range(400):
++            try:
++                hog.append(bytearray(4 * _MB))
++                time.sleep(0.001)
++            except MemoryError:
++                caught.append(i)
++                if len(caught) >= 2:
++                    return
++
++    t = threading.Thread(target=swallower)
++    with MemoryWatchdog(48 * _MB, lambda: [t.ident]):
++        t.start()
++        t.join(60)
++    assert not t.is_alive()
++    assert len(caught) >= 2, "the swallowed stop was the end of the bound"
++
++
++@linux_only
++def test_memory_the_allocator_kept_after_the_mutant_unwound_is_not_stopped_again():
++    """After a stop, a thread that holds its pages and merely keeps RUNNING is not re-stopped: the next
++    stop would land in whatever the harness runs next."""
++    hog: list[bytearray] = []
++    stopped: list[bool] = []
++    after: list[str] = []
++
++    def runner() -> None:
++        try:
++            for _ in range(400):
++                hog.append(bytearray(4 * _MB))
++                time.sleep(0.001)
++        except MemoryError:
++            stopped.append(True)
++        # keeps the pages (like an allocator that does not return them) and goes on with other work
++        time.sleep(20 * WATCHDOG_PERIOD_S)
++        after.append("ran on")
++
++    t = threading.Thread(target=runner)
++    with MemoryWatchdog(48 * _MB, lambda: [t.ident]):
++        t.start()
++        t.join(60)
++    assert stopped == [True]
++    assert after == ["ran on"], (
++        "a second injection killed the work that followed the stop"
++    )
++
++
++@linux_only
++def test_a_stop_still_pending_when_the_window_ends_is_cleared_not_delivered_later():
++    """The thread is blocked in C when the stop is made, so it cannot land until the wait returns. The
++    window's exit must clear it, or the harness's next line would raise MemoryError."""
++    go = threading.Event()
++    outcome: list[str] = []
++
++    def parked() -> None:
++        try:
++            go.wait(60)
++            outcome.append("woke normally")
++        except MemoryError:
++            outcome.append("poisoned")
++
++    t = threading.Thread(target=parked)
++    t.start()
++    dog = MemoryWatchdog(16 * _MB, lambda: [t.ident])
++    with dog:
++        hog = bytearray(
++            96 * _MB
++        )  # zero-filled: resident, and new since the window opened
++        deadline = time.monotonic() + 10
++        while not dog.hit and time.monotonic() < deadline:
++            time.sleep(0.01)
++    assert dog.hit, "the watchdog never fired: this proves nothing"
++    go.set()
++    t.join(30)
++    assert outcome == ["woke normally"]
++    del hog
++
++
++def test_a_zero_cap_arms_nothing():
++    before = threading.active_count()
++    with MemoryWatchdog(0, list) as dog:
++        assert threading.active_count() == before, (
++            "no thread for a cap nobody asked for"
++        )
++    assert dog.hit is False
++
++
++@linux_only
++def test_the_watchdog_leaves_no_thread_behind():
++    before = {t.ident for t in threading.enumerate()}
++    for _ in range(5):
++        with MemoryWatchdog(512 * _MB, list):
++            pass
++    assert {t.ident for t in threading.enumerate()} == before
++
++
++@linux_only
++def test_the_in_process_stop_reaches_the_test_worker_and_never_the_measuring_thread():
++    go = threading.Event()
++    me = threading.current_thread()
++    before = frozenset(t.ident for t in threading.enumerate())
++
++    old = JoinedWorker(target=go.wait, args=(30,), daemon=True)
++    old.start()
++    old_ident = old.ident
++    before_with_old = frozenset(t.ident for t in threading.enumerate())
++    new = JoinedWorker(target=go.wait, args=(30,), daemon=True)
++    new.start()
++    other = threading.Thread(target=go.wait, args=(30,), daemon=True)
++    other.start()
++    try:
++        picked = _mutant_thread_idents(me, before_with_old)
++        assert picked == [new.ident], (
++            "only the worker this thread started after the window opened"
++        )
++        assert me.ident not in picked and old_ident not in picked
++        assert old_ident in _mutant_thread_idents(me, before)
++    finally:
++        go.set()
++        for t in (old, new, other):
++            t.join(10)
++
++
++@linux_only
++def test_polling_costs_next_to_nothing():
++    """One read of resident memory, 50 times a second. Measured here; the figure is in the commit."""
++    reads = 400
++    t0 = time.perf_counter()
++    for _ in range(reads):
++        assert current_rss_bytes() > 0
++    per_read = (time.perf_counter() - t0) / reads
++    duty = per_read / WATCHDOG_PERIOD_S
++    assert duty < 0.01, f"{per_read * 1e6:.0f} us a read is {duty:.2%} of a core"
++
++    def spin(n: int) -> float:
++        t = time.perf_counter()
++        x = 0
++        for i in range(n):
++            x += i * i
++        return time.perf_counter() - t
++
++    spin(200_000)
++    bare = min(spin(2_000_000) for _ in range(3))
++    with MemoryWatchdog(1 << 40, list):
++        watched = min(spin(2_000_000) for _ in range(3))
++    assert watched < bare * 1.25, f"{bare:.3f}s bare, {watched:.3f}s watched"
++
++
++# ── the commands, measured with the OS refusing RLIMIT_AS ───────────────────────────────────
++
++_REFUSE = textwrap.dedent(
++    """\
++    import resource
++    _real = resource.setrlimit
++    def _refuse(which, limits):
++        if which == resource.RLIMIT_AS:
++            raise ValueError("current limit exceeds maximum limit")  # macOS
++        return _real(which, limits)
++    resource.setrlimit = _refuse
++    """
++)
++
++_SPAN = textwrap.dedent(
++    """\
++    def span(hi, lo):
++        out = []
++        for _ in range(hi - lo):
++            out.append(bytearray(1024 * 1024))
++        return len(out)
++    """
++)
++_SWALLOW = textwrap.dedent(
++    """\
++    def span(hi, lo):
++        try:
++            out = []
++            for _ in range(hi - lo):
++                out.append(bytearray(1024 * 1024))
++            return len(out)
++        except Exception:
++            return -1
++    """
++)
++_SPAN_TEST = textwrap.dedent(
++    """\
++    from span import span
++
++
++    def test_span():
++        assert span(300_000_010, 300_000_000) == 10
++        assert span(7, 7) == 0
++    """
++)
++
++# Issue #39's own shape: `take` over an infinite generator; one mutation drops the island bound.
++_ITERTOOLZ = textwrap.dedent(
++    """\
++    from itertools import islice
++
++
++    def iterate(f, x):
++        while True:
++            yield x
++            x = f(x)
++
++
++    def double(x):
++        return 2 * x
++
++
++    def take(n, seq):
++        return list(islice(seq, n))
++    """
++)
++_ITERTOOLZ_TEST = textwrap.dedent(
++    """\
++    from itertoolz import double, iterate, take
++
++
++    def test_take():
++        assert take(4, iterate(double, 1)) == [1, 2, 4, 8]
++        assert take(0, iterate(double, 1)) == []
++    """
++)
++
++_DRIVER = textwrap.dedent(
++    """\
++    import resource, sys
++    from Wesker import cli
++    rc = cli.main({argv})
++    sys.stderr.write("PEAK_MB %d\\n" % (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024))
++    sys.stderr.write("CHILD_PEAK_MB %d\\n" % (resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss // 1024))
++    sys.exit(rc)
++    """
++)
++
++
++def _outer_cap() -> None:
++    resource.setrlimit(resource.RLIMIT_AS, (4000 * _MB, 4000 * _MB))
++
++
++def _project(tmp_path, files: dict[str, str]) -> None:
++    (tmp_path / "tests").mkdir()
++    for name, text in files.items():
++        (tmp_path / name).write_text(text)
++    (tmp_path / "pytest.ini").write_text(
++        "[pytest]\ntestpaths = tests\npythonpath = .\n"
++    )
++
++
++def _run(tmp_path, argv: list[str], *, refuse: bool, budget_mb: str | None = None):
++    """The real command in a subprocess; the refusal, when asked for, is installed in EVERY process of
++    the run (a `sitecustomize`), so the isolated worker meets it too."""
++    shim = tmp_path / "_shim"
++    shim.mkdir(exist_ok=True)
++    (shim / "sitecustomize.py").write_text(_REFUSE if refuse else "")
++    env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
++    env.update(
++        HOME=str(tmp_path),
++        PYTHONPATH=os.pathsep.join([str(shim), *sys.path]),
++    )
++    if budget_mb is not None:
++        env["WESKER_MEM_BUDGET_MB"] = budget_mb
++    driver = _DRIVER.format(argv=repr(argv))
++    done = subprocess.run(
++        [sys.executable, "-c", driver],
++        cwd=tmp_path,
++        env=env,
++        capture_output=True,
++        text=True,
++        timeout=280,
++        check=False,
++        # an outer limit set before Python starts (the refusal cannot see it), so a failed bound
++        # cannot take the machine with it
++        preexec_fn=_outer_cap,
++    )
++    assert done.returncode == 0, done.stderr[-2000:]
++    peaks = {
++        key: int(done.stderr.rsplit(key, 1)[1].split()[0])
++        for key in ("PEAK_MB", "CHILD_PEAK_MB")
++    }
++    return json.loads(done.stdout)["mutation"], peaks, done.stdout
++
++
++def _named(mutation) -> dict:
++    return {u["function_key"]: u for u in mutation["unresolved_functions"]}
++
++
++@linux_only
++def test_the_refusal_simulation_is_the_real_refusal(tmp_path):
++    """The control for everything below: with the shim, the cap is refused, as on macOS."""
++    shim = tmp_path / "shim"
++    shim.mkdir()
++    (shim / "sitecustomize.py").write_text(_REFUSE)
++    code = (
++        "import resource\n"
++        "try:\n"
++        "    resource.setrlimit(resource.RLIMIT_AS, (1 << 30, resource.getrlimit(resource.RLIMIT_AS)[1]))\n"
++        "    print('applied')\n"
++        "except ValueError:\n"
++        "    print('refused')\n"
++    )
++    done = subprocess.run(
++        [sys.executable, "-c", code],
++        env={**os.environ, "PYTHONPATH": str(shim)},
++        capture_output=True,
++        text=True,
++        check=False,
++    )
++    assert done.stdout.strip() == "refused"
++
++
++@linux_only
++def test_in_process_a_refused_cap_is_held_by_the_watchdog(tmp_path):
++    """The default path (no --isolated) with RLIMIT_AS refused: the runaway mutant is the named
++    `memory_cut`, the process stays near one allocation over the budget, and the other mutants of the
++    function are evaluated."""
++    _project(tmp_path, {"span.py": _SPAN, "tests/test_span.py": _SPAN_TEST})
++    mutation, peaks, _ = _run(
++        tmp_path, ["span.py", "--json"], refuse=True, budget_mb="128"
++    )
++    cut = _named(mutation)["span.py::span"]
++    assert cut["cause"] == MEMORY_CUT and len(cut["mutants"]) == 1
++    assert peaks["PEAK_MB"] < 900, (
++        f"the measuring process grew to {peaks['PEAK_MB']} MB"
++    )
++    assert mutation["truncated_functions"] == []
++    assert mutation["total_mutants"] >= 2 and mutation["total_killed"] >= 1, (
++        "a well-behaved mutant of the same function was evaluated, not cut"
++    )
++    survivors = {s["mutant_id"] for s in mutation["survivors"]}
++    assert not set(cut["mutants"]) & survivors
++    assert mutation["memory_bound"] == "watchdog"
++    assert mutation["memory_bounds"] == {"watchdog": 1}
++
++
++@linux_only
++def test_in_process_a_memory_error_the_code_swallows_is_still_the_cap_not_a_kill(
++    tmp_path,
++):
++    _project(tmp_path, {"span.py": _SWALLOW, "tests/test_span.py": _SPAN_TEST})
++    mutation, peaks, _ = _run(
++        tmp_path, ["span.py", "--json"], refuse=True, budget_mb="128"
++    )
++    assert _named(mutation)["span.py::span"]["cause"] == MEMORY_CUT, (
++        "the handler's -1 failed the test on a value, and that failure is the cap's"
++    )
++    assert peaks["PEAK_MB"] < 900
++
++
++@linux_only
++def test_in_process_where_the_os_accepts_the_cap_it_stays_the_bound(tmp_path):
++    """Precedence from evidence: with RLIMIT_AS honoured, the address-space cap is the bound and the
++    watchdog is not armed."""
++    _project(tmp_path, {"span.py": _SPAN, "tests/test_span.py": _SPAN_TEST})
++    mutation, peaks, _ = _run(
++        tmp_path, ["span.py", "--json"], refuse=False, budget_mb="128"
++    )
++    assert _named(mutation)["span.py::span"]["cause"] == MEMORY_CUT
++    assert mutation["memory_bound"] == "rlimit"
++    assert peaks["PEAK_MB"] < 700
++
++
++@linux_only
++def test_in_process_with_the_budget_off_nothing_is_bounded_and_the_page_says_so(
++    tmp_path,
++):
++    _project(
++        tmp_path,
++        {
++            "m.py": "def ok(a):\n    return a + 1\n",
++            "tests/test_m.py": "from m import ok\n\n\ndef test_ok():\n    assert ok(1) == 2\n",
++        },
++    )
++    mutation, _, _ = _run(tmp_path, ["m.py", "--json"], refuse=True, budget_mb="0")
++    assert mutation["unresolved_functions"] == []
++    assert mutation["memory_bound"] == "none"
++    assert "NOT bounded" in describe_memory(mutation)
++
++
++@linux_only
++def test_isolated_issue_39s_take_over_an_infinite_generator_is_a_memory_cut(tmp_path):
++    """#39 under the macOS refusal: `--isolated --mem-limit-mb 128`. Before this change the worker was
++    capped by nothing (`telemetry_only`); the runaway grew until an OUTER limit stopped it (4 GB here).
++    Now the worker's watchdog stops it near the cap, the page says which bound held, and the parent
++    exits 0 with every other mutant evaluated."""
++    _project(
++        tmp_path,
++        {"itertoolz.py": _ITERTOOLZ, "tests/test_it.py": _ITERTOOLZ_TEST},
++    )
++    mutation, peaks, _stdout = _run(
++        tmp_path,
++        ["itertoolz.py", "--isolated", "--mem-limit-mb", "128", "--json"],
++        refuse=True,
++    )
++    named = _named(mutation)
++    assert named["itertoolz.py::take"]["cause"] == MEMORY_CUT
++    assert peaks["CHILD_PEAK_MB"] < 700, (
++        f"the worker grew to {peaks['CHILD_PEAK_MB']} MB under a 128 MB cap"
++    )
++    assert peaks["PEAK_MB"] < 700, "the parent stays small"
++    assert mutation["memory_bound"] == "watchdog"
++    assert mutation["memory_standing"] == "enforced", (
++        "telemetry_only is no longer the answer"
++    )
++    assert "telemetry_only" not in mutation["memory_standings"]
++    assert mutation["total_mutants"] >= 8 and mutation["total_killed"] >= 8
++    assert mutation["truncated_functions"] == []
++    assert "watchdog" in describe_memory(mutation)
++
++
++@linux_only
++def test_isolated_a_well_behaved_function_is_not_cut_by_the_watchdog(tmp_path):
++    _project(
++        tmp_path,
++        {
++            "m.py": "def ok(a):\n    return a + 1\n",
++            "tests/test_m.py": "from m import ok\n\n\ndef test_ok():\n    assert ok(1) == 2\n    assert ok(5) == 6\n",
++        },
++    )
++    mutation, _, _ = _run(
++        tmp_path, ["m.py", "--isolated", "--mem-limit-mb", "256", "--json"], refuse=True
++    )
++    assert mutation["unresolved_functions"] == [], "no false cut"
++    assert mutation["memory_bound"] == "watchdog"
++    assert mutation["memory_standings"] == {"enforced": 1}
++    assert mutation["total_killed"] >= 1
++
++
++@linux_only
++def test_isolated_where_the_os_accepts_the_cap_the_watchdog_is_not_the_bound(tmp_path):
++    _project(
++        tmp_path,
++        {"itertoolz.py": _ITERTOOLZ, "tests/test_it.py": _ITERTOOLZ_TEST},
++    )
++    mutation, _, _ = _run(
++        tmp_path,
++        ["itertoolz.py", "--isolated", "--mem-limit-mb", "128", "--json"],
++        refuse=False,
++    )
++    assert mutation["memory_bound"] == "rlimit"
++    assert mutation["memory_standing"] == "enforced"
++    assert _named(mutation)["itertoolz.py::take"]["cause"] == MEMORY_CUT
++
++
++def test_the_rlimit_failing_to_raise_is_the_only_thing_the_simulation_changes():
++    """The shim must not hide a real limit: a call for another resource passes straight through."""
++    ns: dict = {}
++    exec(_REFUSE, ns)  # noqa: S102 - the shim under test, a literal above
++    # runs against the real module attribute; restore it so nothing else sees the refusal
++    try:
++        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
++        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
++        with pytest.raises(ValueError):
++            resource.setrlimit(resource.RLIMIT_AS, (1 << 40, 1 << 40))
++    finally:
++        resource.setrlimit = ns["_real"]
+-- 
+2.43.0
+

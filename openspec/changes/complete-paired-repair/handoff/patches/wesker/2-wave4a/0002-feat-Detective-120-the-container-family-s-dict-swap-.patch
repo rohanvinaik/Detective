@@ -1,0 +1,328 @@
+From dd28956f5537bfe32d0d28fc90bf7b39162b8ef5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:32:59 +0000
+Subject: [PATCH 2/5] feat(Detective #120): the container family's dict swap
+ and ctype to and from a set are pinned by intent tests
+
+The defect, verbatim. "`dict` is partial. Drop-field (`return_drop`) and default-field
+(`return_field_default`) are generated. The key/value swap is not. The catalog's reason: the swap raises
+on an unhashable value, so it is not total on dict." and "`ctype` converts no sequence to or from a set.
+The catalog's reason: list->set is not total, because elements may be unhashable, and set->list has no
+deterministic order."
+
+Why the obvious fix is wrong. Generating the swap for every dict return makes it a crash kill wherever a
+value is unhashable, and a swap that quietly returns the dict unchanged there is a built-in survivor. Both
+reasons are facts about the VALUES a function returns, which the baseline run observes (38bec04): the swap
+is generated at a return site only where it was applied to every dict returned there without raising and
+changed one; list or tuple to set only where every element was hashable; set to a sorted list (frozenset to
+a sorted tuple) only where the elements were mutually orderable, which is also what makes the order
+deterministic (not iteration order, which PYTHONHASHSEED moves).
+
+What each state means. Per site, from the observation: `@L!ok=<mode>` (applies), `@L!no=<mode>=TypeError`
+(a value of the right type made the attempt raise: not generated, and the function's `mu_minus_withheld`
+names the mode, the line and the exception), `@L!no=<mode>=no_effect_observed` (the swap of an empty dict
+is the empty dict: a built-in survivor, so not generated, and named). A value outside the premise that a
+mutant meets later comes back unchanged from `perturb_return`, never as a crash.
+
+What was NOT closed. The generation is wired through `run_function_profiling(two_sign=True)` only;
+Detective's own harvest still carries type names (see 38bec04), so a Detective `--two-sign` run does not
+yet generate the premised operators. An OrderedDict or defaultdict is not offered the swap (exact `dict`
+only), and the swap's collapse of equal values is the perturbation, not a defect.
+
+Sensitivity: with the premise bypassed (a mode is "ok" whenever offered) 4 of the 24 intent tests fail.
+Pin: the pure decisions are pinned in 38bec04.
+
+Tests: tests/test_mu_minus_container_premise_intent.py 24 passed; with the catalog, doc, policy and
+instrumentation-ownership guards 95 passed under Python 3.14 and 95 under 3.12, PYTHONUNBUFFERED unset.
+ruff clean under pinned 0.16.7.
+---
+ docs/MU_MINUS_CATALOG.md                      |   1 +
+ .../test_mu_minus_container_premise_intent.py | 264 ++++++++++++++++++
+ 2 files changed, 265 insertions(+)
+ create mode 100644 tests/test_mu_minus_container_premise_intent.py
+
+diff --git a/docs/MU_MINUS_CATALOG.md b/docs/MU_MINUS_CATALOG.md
+index c1b310a..fe35ffc 100644
+--- a/docs/MU_MINUS_CATALOG.md
++++ b/docs/MU_MINUS_CATALOG.md
+@@ -147,6 +147,7 @@ effect family below.
+ | the call shape survives | sync, async, method, classmethod, staticmethod, property, async generator | `tests/test_mu_minus_form_b_intent.py::test_methods_and_descriptors_bind_once_under_the_innermost_decorator`, `tests/test_mu_minus_form_b_intent.py::test_async_functions_stay_awaitable`, `tests/test_mu_minus_form_b_intent.py::test_an_async_generator_stays_an_async_generator` |
+ | a return site answers for its own observed values | an unexecuted `return None` must not get str rewrites that raise on None (#44 AC2) | `tests/test_mu_minus_observed_codomain_intent.py::test_a_return_site_is_typed_by_its_own_observed_values`, `tests/test_mu_minus_observed_codomain_intent.py::test_site_mode_standing_names_every_state` |
+ | the premised operators reach the isolated worker, and are measured as in process | the worker receives nothing but source; converge re-observes in one | `tests/test_mu_minus_premised_isolated_intent.py::test_a_field_mutant_is_killed_by_the_pinning_test_in_the_isolated_worker`, `tests/test_mu_minus_premised_isolated_intent.py::test_an_injected_raise_is_a_reach_kill_in_the_isolated_worker` |
++| container (dict swap, ctype to and from a set): generated only on a hashable or orderable premise, never raises, killed by a pin | Fork 2 | `tests/test_mu_minus_container_premise_intent.py::test_the_swap_is_not_generated_where_a_value_is_unhashable_and_the_function_says_so`, `tests/test_mu_minus_container_premise_intent.py::test_never_raises_on_an_observed_value_and_changes_some`, `tests/test_mu_minus_container_premise_intent.py::test_the_swap_is_killed_by_a_test_that_pins_the_dict_and_survives_one_that_does_not` |
+ | the nine operators built before #44 keep their ids | `flag` keys on a survivor's id and diff | `tests/test_mu_minus_families_intent.py::test_the_nine_built_operators_keep_their_ids` |
+ 
+ Measured end to end through Detective's CLI (`converge --two-sign` on fresh fixtures, Wesker 204a760,
+diff --git a/tests/test_mu_minus_container_premise_intent.py b/tests/test_mu_minus_container_premise_intent.py
+new file mode 100644
+index 0000000..305c3d4
+--- /dev/null
++++ b/tests/test_mu_minus_container_premise_intent.py
+@@ -0,0 +1,264 @@
++"""μ⁻ container family: the dict key/value swap and ctype to and from a set (Detective #120, Wesker #44).
++
++Intent tests authored from docs/theory/NEGATIVE_SPECIFICATION.md, Def. 11.8 (v) and Def. 11.10.
++
++THE DEFECT (Detective #120). Two operators of the container family were not generated.
++- ``dict``: the key/value swap. It raises on an unhashable value, so it was "not total on dict".
++- ``ctype``: list, tuple and set conversion. list -> set raises on an unhashable element, and
++  set -> list has no deterministic order, so only list <-> tuple and set <-> frozenset were built.
++Both reasons are facts about the VALUES a function returns, which the baseline run observes. Fork 2
++(Def. 11.10) generates a perturbation only where the observed codomain guarantees it applies.
++
++WHAT MUST HOLD.
++- The swap is generated at a return site only where every dict returned there had hashable values; a
++  to-set conversion only where every list or tuple had hashable elements; a from-set conversion only
++  where every set had mutually orderable elements and so has one deterministic order (sorted).
++- Where the premise failed on an observed value the operator is NOT generated and the function's
++  profile says which and why (the exception type the attempt raised), never silently.
++- An operator never raises on a value it was generated for, and a value the baseline never saw comes
++  back unchanged rather than as a crash kill.
++- Each changes some value it claims, and is killed by a test that pins the output, by assertion.
++"""
++
++from __future__ import annotations
++
++import pytest
++from _mu_support import load, mode_lines, observe, one, run, unload
++
++from Wesker.codomain import parse_codomain, withheld_here
++from Wesker.mu_minus import apply_value_mode, candidate_modes, perturb_return
++
++_SRC = """
++def tally(words):
++    out = {}
++    for w in words:
++        out[w] = out.get(w, 0) + 1
++    return out
++
++
++def listing(n):
++    return [i for i in range(n)]
++
++
++def labels(n):
++    return {f"k{i}" for i in range(n)}
++
++
++def frozen_labels(n):
++    return frozenset(range(n))
++
++
++def nested(n):
++    return {"k": [n]}
++
++
++def rows(n):
++    return [[i] for i in range(n)]
++
++
++def mixed_set(n):
++    return {n, str(n)}
++
++
++def empty_dict(n):
++    return {}
++"""
++
++
++@pytest.fixture(scope="module")
++def target(tmp_path_factory):
++    module, path = load(tmp_path_factory.mktemp("mu_container"), "mu_container_t", _SRC)
++    yield module, path
++    unload("mu_container_t")
++
++
++def _modes(path, name, observed):
++    return {mode for mode, _line in mode_lines(path, name, observed)}
++
++
++def test_the_swap_is_generated_where_every_observed_value_is_hashable(target):
++    module, path = target
++
++    def t():
++        assert module.tally(["a", "b", "a"]) == {"a": 2, "b": 1}
++
++    observed = observe(module, path, "tally", [t])
++    assert "return_swap_items" in _modes(path, "tally", observed)
++    assert any(tok.endswith("!ok=return_swap_items") for tok in observed)
++
++
++def test_the_swap_is_not_generated_where_a_value_is_unhashable_and_the_function_says_so(
++    target,
++):
++    module, path = target
++
++    def t():
++        assert module.nested(1) == {"k": [1]}
++
++    observed = observe(module, path, "nested", [t])
++    assert "return_swap_items" not in _modes(path, "nested", observed)
++    named = withheld_here(parse_codomain(observed))
++    assert any("return_swap_items" in line and "TypeError" in line for line in named), (
++        named
++    )
++
++
++def test_a_dict_that_the_swap_cannot_change_is_named_not_generated(target):
++    # An empty dict swaps to itself: the mutant would be a built-in survivor at every input.
++    module, path = target
++
++    def t():
++        assert module.empty_dict(1) == {}
++
++    observed = observe(module, path, "empty_dict", [t])
++    assert "return_swap_items" not in _modes(path, "empty_dict", observed)
++    assert any(
++        "return_swap_items" in line and "no_effect_observed" in line
++        for line in withheld_here(parse_codomain(observed))
++    )
++
++
++def test_the_swap_is_killed_by_a_test_that_pins_the_dict_and_survives_one_that_does_not(
++    target,
++):
++    module, path = target
++
++    def pins():
++        assert module.tally(["a", "b", "a"]) == {"a": 2, "b": 1}
++
++    def only_counts():
++        assert len(module.tally(["a", "b", "a"])) == 2
++
++    observed = observe(module, path, "tally", [pins])
++    m = one(path, "tally", observed, "return_swap_items")
++    killed = run(m, [pins], module, path, "tally")
++    assert killed.killed and killed.killed_by == "assertion"
++    # {1: 'b', 2: 'a'} has two entries too: a test of the size alone has not pinned the binding.
++    assert not run(m, [only_counts], module, path, "tally").killed
++
++
++def test_a_sequence_converts_to_a_set_only_where_its_elements_are_hashable(target):
++    module, path = target
++
++    def t():
++        assert module.listing(3) == [0, 1, 2]
++
++    observed = observe(module, path, "listing", [t])
++    assert "return_to_set" in _modes(path, "listing", observed)
++    m = one(path, "listing", observed, "return_to_set")
++    assert run(m, [t], module, path, "listing").killed_by == "assertion"
++
++    def rows():
++        assert module.rows(2) == [[0], [1]]
++
++    nested = observe(module, path, "rows", [rows])
++    assert "return_to_set" not in _modes(path, "rows", nested)
++    assert any(
++        "return_to_set" in line and "TypeError" in line
++        for line in withheld_here(parse_codomain(nested))
++    )
++
++
++def test_a_set_converts_to_a_sequence_in_sorted_order_only_where_it_has_one(target):
++    module, path = target
++
++    def t():
++        assert module.labels(3) == {"k0", "k1", "k2"}
++        assert module.frozen_labels(2) == frozenset({0, 1})
++
++    observed = observe(module, path, "labels", [t])
++    assert "return_from_set" in _modes(path, "labels", observed)
++    m = one(path, "labels", observed, "return_from_set")
++    assert run(m, [t], module, path, "labels").killed_by == "assertion"
++    assert "return_from_set" in _modes(
++        path, "frozen_labels", observe(module, path, "frozen_labels", [t])
++    )
++
++    def mixed():
++        assert module.mixed_set(1) == {1, "1"}
++
++    unorderable = observe(module, path, "mixed_set", [mixed])
++    assert "return_from_set" not in _modes(path, "mixed_set", unorderable)
++    assert any(
++        "return_from_set" in line and "TypeError" in line
++        for line in withheld_here(parse_codomain(unorderable))
++    )
++
++
++# ── the operators themselves ────────────────────────────────────────────────────────────────────
++
++
++def test_the_swap_exchanges_keys_and_values():
++    assert apply_value_mode("return_swap_items", {"a": 1, "b": 2}) == {1: "a", 2: "b"}
++    # Equal values collapse: the perturbation still changes the dict, which is the fence.
++    assert apply_value_mode("return_swap_items", {"a": 1, "b": 1}) == {1: "b"}
++
++
++def test_a_set_converts_to_the_same_sorted_sequence_under_every_hash_seed(tmp_path):
++    import subprocess
++    import sys
++
++    probe = tmp_path / "probe.py"
++    probe.write_text(
++        "from Wesker.mu_minus import apply_value_mode\n"
++        "print(apply_value_mode('return_from_set', {'delta','alpha','gamma','beta'}),"
++        " apply_value_mode('return_from_set', frozenset({3, 1, 2})))\n"
++    )
++    seen = set()
++    for seed in ("0", "1", "7"):
++        out = subprocess.run(
++            [sys.executable, str(probe)],
++            env={"PYTHONHASHSEED": seed, "PYTHONPATH": ":".join(sys.path)},
++            capture_output=True,
++            text=True,
++            check=True,
++        ).stdout
++        seen.add(out)
++    assert seen == {"['alpha', 'beta', 'delta', 'gamma'] (1, 2, 3)\n"}
++
++
++@pytest.mark.parametrize(
++    ("mode", "value"),
++    [
++        ("return_swap_items", {}),
++        ("return_swap_items", {"a": 1}),
++        ("return_swap_items", {1: None, 2: (1, 2)}),
++        ("return_to_set", []),
++        ("return_to_set", [1, "a", None]),
++        ("return_to_set", (1, 1, 2)),
++        ("return_from_set", set()),
++        ("return_from_set", {3, 1, 2}),
++        ("return_from_set", frozenset({"x"})),
++    ],
++)
++def test_never_raises_on_an_observed_value_and_changes_some(mode, value):
++    assert mode in candidate_modes(value)
++    out = apply_value_mode(mode, value)
++    assert out is not value
++    assert perturb_return(mode, value) == out
++
++
++@pytest.mark.parametrize(
++    ("mode", "value"),
++    [
++        ("return_swap_items", {"k": [1]}),
++        ("return_to_set", [[1]]),
++        ("return_from_set", {1, "a"}),
++        ("return_to_set", "text"),
++        ("return_from_set", [3, 1]),
++        ("return_swap_items", [("k", 1)]),
++    ],
++)
++def test_a_value_outside_the_premise_comes_back_unchanged_never_as_a_crash(mode, value):
++    # A mutant meets values the baseline never saw. The runtime helper must not turn them into a
++    # raise: that would be scored as a crash kill the suite never earned.
++    with pytest.raises(Exception):  # noqa: B017 - any failure; the premise is what failed
++        apply_value_mode(mode, value)
++    assert perturb_return(mode, value) is value
++
++
++def test_a_subclass_of_a_builtin_container_is_not_offered_the_exact_type_operators():
++    from collections import OrderedDict, defaultdict
++
++    assert "return_swap_items" not in candidate_modes(OrderedDict(a=1))
++    assert "return_swap_items" not in candidate_modes(defaultdict(int))
+-- 
+2.43.0
+

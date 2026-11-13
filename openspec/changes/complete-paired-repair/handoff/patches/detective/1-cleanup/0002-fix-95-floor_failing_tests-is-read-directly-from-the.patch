@@ -1,0 +1,380 @@
+From 60131dda390d2b592298fa8a7361fb2c4b0740ab Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 04:47:42 +0000
+Subject: [PATCH 02/11] fix(#95): floor_failing_tests is read directly from the
+ ConvergeResult that declares it
+
+The defect, verbatim from the issue: "If a producer renames or stops setting one, the read silently
+becomes 'clean'." Nine sites in cli.py read `getattr(result, "floor_failing_tests", ())`; the default
+means "the floor holds", so a renamed field would have let converge print a verdict over a suite whose
+own tests fail on current code.
+
+Why the obvious fix is wrong: every reader receives a ConvergeResult, which declares the field and
+documents `()` as "the floor holds, never unmeasured" (a run that could not measure the floor is
+ungateable through its validity instead). An absent answer is therefore not a state of that object, so
+the read raises rather than inventing a third value.
+
+Converted: _completeness_verdict, _plain_terms, _final_banner_status, _format_converge (x2),
+_format_converge_terse, _floor_caused, _converge_routing, _converge_action. Test doubles of
+ConvergeResult gain the field.
+
+Not closed: `failing_tests` (the engine's list, three-valued) and the other flag families.
+
+FAULT_OPEN["floor_failing_tests"] 9 -> 0. Disarmed, the new intent test fails (1 of 1 new test that
+reads the banner; the rest pass because they state the unchanged behaviour).
+Affected neighbours and the four guards pass under 3.14 and 3.12; ruff clean under pinned 0.16.7.
+---
+ Detective/cli.py                               | 18 +++++++++---------
+ tests/test_absorbed_rename_intent.py           |  2 +-
+ tests/test_boundary_probe_residual_intent.py   |  1 +
+ tests/test_cli_journey_contract_intent.py      |  5 +++++
+ tests/test_converge_stale_unverified_intent.py |  1 +
+ tests/test_converge_style_handoff_intent.py    |  1 +
+ tests/test_decision_record_intent.py           |  6 ++++++
+ tests/test_equivalents_route_intent.py         |  1 +
+ tests/test_execution_bound_validity_intent.py  |  1 +
+ tests/test_false_claim_retirement_intent.py    |  1 +
+ tests/test_fault_flags_direct_intent.py        | 18 ++++++++++++++++++
+ tests/test_repair_measurement_route_intent.py  |  1 +
+ tests/test_reproducibility_gate_intent.py      |  1 +
+ tests/test_shared_block_route_intent.py        |  1 +
+ 14 files changed, 48 insertions(+), 10 deletions(-)
+
+diff --git a/Detective/cli.py b/Detective/cli.py
+index 31f9080..b69acca 100644
+--- a/Detective/cli.py
++++ b/Detective/cli.py
+@@ -2064,7 +2064,7 @@ def _completeness_verdict(result, *, flag_offered: bool = True) -> str:
+     # so converge writes no test and certifies nothing — ranked as `certificate_standing` ranks it. The
+     # ledger still records that standing (`floor_failing`), so the FINAL says "no test written", never
+     # "nothing written": a file this run did write would make that clause false.
+-    _floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
++    _floor = tuple(result.floor_failing_tests)
+     if _floor:
+         return (
+             f"⚠ FAILING NOW — {len(_floor)} test(s) that reach this function fail on current code; "
+@@ -2143,7 +2143,7 @@ def _plain_terms(result) -> str:
+     Names EVERY remaining disposition — killable, uncertain, candidate-equivalent, and a
+     line gap — so INCOMPLETE is never opaque. Candidate-equivalents lead with 'supply an
+     input' (they are usually killable with a richer input), not 'flag' (which is giving up)."""
+-    if getattr(result, "floor_failing_tests", ()):
++    if result.floor_failing_tests:
+         # #114: nothing below a failing floor is evidence until the test passes or is corrected.
+         return (
+             "a test written for this function fails on current code — decide whether the TEST or the "
+@@ -2283,7 +2283,7 @@ def _final_banner_status(result) -> str:
+     # A floor that does not hold (#114) disowns the verdict too, and names a different remedy: a test
+     # that is this function's business fails on current code, so converge wrote nothing over it.
+     # Ranked as `certificate_standing` ranks it — below an invalid measurement, above UNVERIFIED.
+-    _floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
++    _floor = tuple(result.floor_failing_tests)
+     if _floor:
+         _more = f" (+{len(_floor) - 1} more)" if len(_floor) > 1 else ""
+         # The run that found the failing floor was measured under a receiver/capability set too, and
+@@ -2862,7 +2862,7 @@ def _format_converge(
+         val_line,
+         f"  every-killable-killed={result.functionally_complete}  line-complete={result.line_complete}",
+     ]
+-    if floor := tuple(getattr(result, "floor_failing_tests", ()) or ()):
++    if floor := tuple(result.floor_failing_tests):
+         # #114: named in the archive as on the page, so `--full`, the report file and `--json` agree.
+         lines.append(f"  ⚠ FAILING NOW — fail on current code: {_first_n(floor, 8)}")
+     lines += _engine_owned_rows(result.engine_ownership)
+@@ -2964,7 +2964,7 @@ def _format_converge(
+                 f"  spec-completeness: {free} · ≈{pr} more pass{'es' if pr != 1 else ''} "
+                 "to complete (greedy bulk decay)"
+             )
+-        elif getattr(result, "floor_failing_tests", ()):
++        elif result.floor_failing_tests:
+             # #114/#139: nothing was synthesized over a failing floor, so the residual is not I_solve.
+             # No input finishes it before that test or the code is fixed.
+             lines.append(f"  spec-completeness: {free} · not synthesized — a failing test holds the floor")
+@@ -3195,7 +3195,7 @@ def _format_converge_terse(
+     _ending_code = (
+         decision.code if decision is not None else _converge_routing(result, rep, session_reason)[1]
+     )
+-    floor = tuple(getattr(result, "floor_failing_tests", ()) or ())
++    floor = tuple(result.floor_failing_tests)
+     if floor:
+         # First, always (#114), as audit's FAILING NOW is: the suite disagrees with the code RIGHT NOW,
+         # so converge wrote nothing, and every count below describes a suite that does not pass.
+@@ -4054,7 +4054,7 @@ def _floor_caused(result) -> bool:
+     `original_also_fails` over the floor it is caused by while the standing ranks it beneath.
+     """
+     reasons = tuple(getattr(result, "validity_cut_reasons", None) or getattr(result, "cut_reasons", ()) or ())
+-    floor = bool(getattr(result, "floor_failing_tests", ()))
++    floor = bool(result.floor_failing_tests)
+     return floor_cause_standing(list(reasons), floor) == "floor_caused"
+ 
+ 
+@@ -4084,7 +4084,7 @@ def _converge_routing(
+         _ver is not None and bool(getattr(_ver, "ok", False)),
+         bool(getattr(result, "admits_certificate", True)),
+         # The same field `ConvergeResult.standing` consumes (#114), so this reading cannot drift from it.
+-        floor_failing=bool(getattr(result, "floor_failing_tests", ())),
++        floor_failing=bool(result.floor_failing_tests),
+         floor_caused=_floor_caused(result),
+         # The reasons the measurement was refused, so an `ungateable` standing is NAMED when every one
+         # is a mutant that reached no verdict (Wesker#27); the same tuple `ConvergeResult.standing` reads.
+@@ -5205,7 +5205,7 @@ def _converge_action(
+     if kind == "fix_failing_test":
+         # The floor does not hold (#114): converge stopped before it synthesized anything, and the
+         # remedy is audit's — the same block, from the same renderer.
+-        return _failing_test_action(tuple(getattr(result, "floor_failing_tests", ()) or ()), d.then)
++        return _failing_test_action(tuple(result.floor_failing_tests), d.then)
+     if kind == "rerun_stale":
+         return [
+             "STOP:  the target changed while converge measured it — this is NOT a verdict.",
+diff --git a/tests/test_absorbed_rename_intent.py b/tests/test_absorbed_rename_intent.py
+index 41f3bfd..e6c6ddd 100644
+--- a/tests/test_absorbed_rename_intent.py
++++ b/tests/test_absorbed_rename_intent.py
+@@ -220,7 +220,7 @@ FAULT_OPEN: dict[str, int] = {
+     "environment_coupled": 0,
+     "environment_gated": 4,
+     "failing_tests": 5,
+-    "floor_failing_tests": 9,
++    "floor_failing_tests": 0,
+     "load_failed": 0,
+     "load_failure": 3,
+     "missing_line_standings": 4,
+diff --git a/tests/test_boundary_probe_residual_intent.py b/tests/test_boundary_probe_residual_intent.py
+index 289a312..3addd93 100644
+--- a/tests/test_boundary_probe_residual_intent.py
++++ b/tests/test_boundary_probe_residual_intent.py
+@@ -335,6 +335,7 @@ def _settled(param_names=("x",)):
+     return types.SimpleNamespace(
+         function="m.py::f",
+         functionally_complete=True,
++        floor_failing_tests=(),
+         verification=None,
+         line_complete=True,
+         missing_lines=(),
+diff --git a/tests/test_cli_journey_contract_intent.py b/tests/test_cli_journey_contract_intent.py
+index 0edf3f8..60d372f 100644
+--- a/tests/test_cli_journey_contract_intent.py
++++ b/tests/test_cli_journey_contract_intent.py
+@@ -166,6 +166,7 @@ def test_missing_survivor_report_cannot_turn_an_incomplete_result_into_done():
+         budget_exhausted=False,
+         function="p.py::quote",
+         functionally_complete=False,
++        floor_failing_tests=(),
+         final_survivors=2,
+         missing_lines=(),
+         missing_line_standings=(),
+@@ -189,6 +190,7 @@ def test_an_ungateable_measurement_outranks_every_input_suggestion():
+         budget_exhausted=False,
+         function="p.py::quote",
+         functionally_complete=False,
++        floor_failing_tests=(),
+         final_survivors=1,
+         missing_lines=(),
+         missing_line_standings=(),
+@@ -213,6 +215,7 @@ def test_an_input_that_already_failed_to_close_is_never_offered_again():
+         budget_exhausted=False,
+         function="p.py::quote",
+         functionally_complete=False,
++        floor_failing_tests=(),
+         final_survivors=1,
+         missing_lines=(),
+         missing_line_standings=(),
+@@ -272,6 +275,7 @@ def test_two_sign_converge_preserves_policy_through_rerun_and_style_handoff():
+         iterations=(),
+         written_path=None,
+         functionally_complete=True,
++        floor_failing_tests=(),
+     )
+     rep = SurvivorReport(verdicts=(), unclassified=())
+     for case in (result, replace(result, stale_target=True)):
+@@ -295,6 +299,7 @@ def test_final_names_the_measured_policy():
+         iterations=(),
+         written_path=None,
+         functionally_complete=True,
++        floor_failing_tests=(),
+         policy_id="8.example-two-sign",
+     )
+     assert "policy 8.example-two-sign" in _final_banner(result)
+diff --git a/tests/test_converge_stale_unverified_intent.py b/tests/test_converge_stale_unverified_intent.py
+index 110407d..6aee865 100644
+--- a/tests/test_converge_stale_unverified_intent.py
++++ b/tests/test_converge_stale_unverified_intent.py
+@@ -26,6 +26,7 @@ def _result(**overrides):
+     base = dict(
+         function="p.py::quote",
+         functionally_complete=True,
++        floor_failing_tests=(),
+         missing_lines=(),
+         missing_line_standings=(),
+         refused_floor=(),
+diff --git a/tests/test_converge_style_handoff_intent.py b/tests/test_converge_style_handoff_intent.py
+index 552a137..2e0e9ea 100644
+--- a/tests/test_converge_style_handoff_intent.py
++++ b/tests/test_converge_style_handoff_intent.py
+@@ -21,6 +21,7 @@ def _complete_result():
+     return types.SimpleNamespace(
+         function="dsl.py::add",
+         functionally_complete=True,
++        floor_failing_tests=(),
+         verification=None,
+         line_complete=True,
+         missing_lines=(),
+diff --git a/tests/test_decision_record_intent.py b/tests/test_decision_record_intent.py
+index f841bb1..9801370 100644
+--- a/tests/test_decision_record_intent.py
++++ b/tests/test_decision_record_intent.py
+@@ -217,6 +217,7 @@ def _gap_result(**overrides):
+     base = dict(
+         function=_FN,
+         functionally_complete=False,
++        floor_failing_tests=(),
+         final_survivors=1,
+         missing_lines=(),
+         missing_line_standings=(),
+@@ -265,6 +266,7 @@ def test_supply_the_printed_rerun_is_the_records_then():
+     result = types.SimpleNamespace(
+         function=_FN,
+         functionally_complete=True,
++        floor_failing_tests=(),
+         line_complete=False,
+         missing_lines=(34,),
+         missing_line_standings=(),
+@@ -326,6 +328,7 @@ def test_stop_names_its_remedy_and_the_printed_rerun_is_the_records_then():
+     result = types.SimpleNamespace(
+         function=_FN,
+         functionally_complete=True,
++        floor_failing_tests=(),
+         missing_lines=(),
+         missing_line_standings=(),
+         refused_floor=(),
+@@ -384,6 +387,7 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
+     result = types.SimpleNamespace(
+         function="dsl.py::add",
+         functionally_complete=True,
++        floor_failing_tests=(),
+         verification=None,
+         line_complete=True,
+         missing_lines=(),
+@@ -880,6 +884,7 @@ def _lines_result(line: int = 34, guard: str = "value > 3") -> types.SimpleNames
+     return types.SimpleNamespace(
+         function=_FN,
+         functionally_complete=True,
++        floor_failing_tests=(),
+         line_complete=False,
+         missing_lines=(line,),
+         missing_line_standings=(),
+@@ -1104,6 +1109,7 @@ def test_a_run_that_asked_nothing_records_no_plan(monkeypatch, tmp_path, capsys)
+         (),
+         None,
+         functionally_complete=True,
++        floor_failing_tests=(),
+         line_complete=True,
+         signature="add(a, b)",
+         param_names=("a", "b"),
+diff --git a/tests/test_equivalents_route_intent.py b/tests/test_equivalents_route_intent.py
+index e6ddbfb..d068c41 100644
+--- a/tests/test_equivalents_route_intent.py
++++ b/tests/test_equivalents_route_intent.py
+@@ -174,6 +174,7 @@ def _converge(equivalent):
+     result = types.SimpleNamespace(
+         function="m.py::one",
+         functionally_complete=True,
++        floor_failing_tests=(),
+         final_survivors=0,
+         missing_lines=(),
+         missing_line_standings=(),
+diff --git a/tests/test_execution_bound_validity_intent.py b/tests/test_execution_bound_validity_intent.py
+index eb005be..b2153d3 100644
+--- a/tests/test_execution_bound_validity_intent.py
++++ b/tests/test_execution_bound_validity_intent.py
+@@ -42,6 +42,7 @@ def test_unresolved_execution_keeps_its_reason_through_the_real_engine_adapter(
+     result = SimpleNamespace(
+         function="calc.py::target",
+         functionally_complete=False,
++        floor_failing_tests=(),
+         missing_lines=(),
+         missing_line_standings=(),
+         refused_floor=(),
+diff --git a/tests/test_false_claim_retirement_intent.py b/tests/test_false_claim_retirement_intent.py
+index f88745c..83ba9be 100644
+--- a/tests/test_false_claim_retirement_intent.py
++++ b/tests/test_false_claim_retirement_intent.py
+@@ -55,6 +55,7 @@ def _gap_result():
+     return types.SimpleNamespace(
+         function="m.py::f",
+         functionally_complete=False,
++        floor_failing_tests=(),
+         verification=None,
+         line_complete=False,
+         final_survivors=2,
+diff --git a/tests/test_fault_flags_direct_intent.py b/tests/test_fault_flags_direct_intent.py
+index 941f56e..b2c24ed 100644
+--- a/tests/test_fault_flags_direct_intent.py
++++ b/tests/test_fault_flags_direct_intent.py
+@@ -24,6 +24,7 @@ def _converge_like(**over):
+     base = {
+         "function": "m.py::f",
+         "functionally_complete": False,
++        "floor_failing_tests": (),
+         "missing_lines": (),
+         "line_complete": True,
+         "admits_certificate": True,
+@@ -192,3 +193,20 @@ def test_a_suite_audit_that_cannot_say_how_many_diverged_is_not_read_as_zero() -
+     a = types.SimpleNamespace()
+     with pytest.raises(AttributeError, match="step_budget_divergent"):
+         _audit_closing_action(a, "done_divergent")
++
++
++# ---------------------------------------------------------------- floor_failing_tests (ConvergeResult)
++
++
++def test_a_result_that_cannot_say_whether_the_floor_fails_is_not_read_as_holding() -> None:
++    """`floor_failing_tests` is declared by ConvergeResult. A result without it must fail at the read: the old
++    `getattr(..., ())` said 'the floor holds' and the page printed a verdict over a suite that fails."""
++    res = _converge_like()
++    del res.floor_failing_tests
++    with pytest.raises(AttributeError, match="floor_failing_tests"):
++        _final_banner_status(res)
++
++
++def test_a_failing_floor_still_overrides_the_banner() -> None:
++    banner = _final_banner_status(_converge_like(floor_failing_tests=("t.py::test_a",)))
++    assert "FAILING NOW" in banner
+diff --git a/tests/test_repair_measurement_route_intent.py b/tests/test_repair_measurement_route_intent.py
+index a6f8412..78da38c 100644
+--- a/tests/test_repair_measurement_route_intent.py
++++ b/tests/test_repair_measurement_route_intent.py
+@@ -62,6 +62,7 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
+     return types.SimpleNamespace(
+         function="jax_backend/src/utils.py::str2bool",
+         functionally_complete=False,
++        floor_failing_tests=(),
+         verification=None,
+         line_complete=False,
+         missing_lines=(143,),
+diff --git a/tests/test_reproducibility_gate_intent.py b/tests/test_reproducibility_gate_intent.py
+index 990399a..b71426b 100644
+--- a/tests/test_reproducibility_gate_intent.py
++++ b/tests/test_reproducibility_gate_intent.py
+@@ -87,6 +87,7 @@ def _reprofile_result():
+     return types.SimpleNamespace(
+         function="m.py::f",
+         functionally_complete=False,
++        floor_failing_tests=(),
+         verification=None,
+         line_complete=True,
+         missing_lines=(),
+diff --git a/tests/test_shared_block_route_intent.py b/tests/test_shared_block_route_intent.py
+index 4e91f79..486d06f 100644
+--- a/tests/test_shared_block_route_intent.py
++++ b/tests/test_shared_block_route_intent.py
+@@ -111,6 +111,7 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
+     return types.SimpleNamespace(
+         function="jax_backend/src/utils.py::str2bool",
+         functionally_complete=False,
++        floor_failing_tests=(),
+         verification=None,
+         line_complete=False,
+         missing_lines=(143,),
+-- 
+2.43.0
+

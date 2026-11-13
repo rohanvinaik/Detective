@@ -1,0 +1,761 @@
+From df59e5ca03a4d23e657f950e04487bb3d3b99208 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:24:42 +0000
+Subject: [PATCH 1/4] fix(#48): a mutant's id is the same under every
+ interpreter, and an id recorded under the old rule still resolves
+
+The defect, verbatim: `_content_mutant_id` hashes `ast.dump(mutated_node, include_attributes=True)`.
+Python 3.13 changed `ast.dump`'s default output (empty optional fields are omitted), so the same
+mutation of the same source has one id under 3.12 and another under 3.13+. A flag recorded under one
+family does not resolve under the other, and nothing says why.
+
+Why the obvious fix is wrong: `show_empty=True` on 3.13+ is not a rule, it is a flag that only exists
+there, and it still reads whatever defaults the running version fills into a hand-built node (3.13 fills
+omitted list fields with `[]`, 3.12 leaves them unset). The id has to stop reading the interpreter, so it
+hashes a canonical serialization of our own (`Wesker.canonical_ast.canonical_ast`): a node's own
+`_fields` then `_attributes` in declaration order, a field that is None, an empty list or unset is not
+written whichever version defaulted it, and a constant is spelled by type name and `repr`.
+
+What each state means: `resolve_recorded_mutant_id(recorded, current, legacy)` is the pure decision a
+consumer applies to a stored id. `current`: already an id of this function's present universe.
+`migrated`: exactly one current mutant had this id under the old rule, in either family, and the second
+element is its new id. `ambiguous`: the old rule issued the id for more than one current mutant, so
+neither is applied. `unmapped`: no current mutant of this function maps from it (the source or the
+policy moved), so the caller names it. `mutant_id_migration(func_node)` regenerates the function's
+mutants and joins each new id to the id the old rule issued under py312 and py313+ (the stdlib dump is
+re-implemented per family in `legacy_ast_dump`, byte-equal to the running interpreter's own on every
+function of engine.py under both 3.12 and 3.14). Both are exported from `Wesker`.
+
+Measured on Wesker's own package (841 functions, all categories, exhaustive): 31211 mutants. The ids are
+identical under 3.12.13 and 3.14.6 for all 31211 (order and content, every function). The ids the old
+rule issued under 3.12 resolve through the 3.14 emulation, and the ids it issued under 3.14 resolve
+through the 3.12 emulation: 31211 of 31211 each way map to the one current mutant, 0 ambiguous, 0
+unmapped. Every mutant id moves once; the policy id moves with the observation text
+(9.a5aeead0de4f -> 9.bd305bdfd9f8, two-sign 9+neg.6035bc2f613d -> 9+neg.f2bb2b1e5f8b); POLICY_VERSION
+stays 9 because the universe did not move.
+
+What was NOT closed: the flag store lives in Detective (`Detective/equivalents.py`, `.detective/`) and
+nothing there calls the migration yet, so flags recorded before this commit still resolve only once that
+consumer lands (it is written up for the integrator). A function's OUTPUT mutants depend on the run's
+observed return types, so migrating them needs the same `observed_return_types` generation was given
+(`mutant_id_migration` takes it). An id from a source or policy older than the one regenerated here is
+`unmapped` by design.
+
+Receipt: not pinned here (the new modules are serialization and a join, not a manufactured decision;
+`resolve_recorded_mutant_id` is pinned by the integrator after Wave 4).
+Tests: tests/test_canonical_ast_intent.py (14), test_mu_minus_families_intent.py, test_policy.py, the
+four guard files and test_engine.py: 264 passed under 3.14.6 and under 3.12.13, run with
+PYTHONUNBUFFERED unset. With the fix disarmed (the old hash restored) 3 of the id-bearing tests fail.
+ruff clean under pinned 0.16.7.
+---
+ CHANGELOG.md                           |  11 +
+ Wesker/__init__.py                     |   5 +
+ Wesker/canonical_ast.py                | 143 +++++++++++++
+ Wesker/engine.py                       |  11 +-
+ Wesker/mutant_ids.py                   |  90 +++++++++
+ Wesker/policy.py                       |   7 +
+ tests/test_canonical_ast_intent.py     | 265 +++++++++++++++++++++++++
+ tests/test_mu_minus_families_intent.py |  39 ++--
+ tests/test_policy.py                   |   5 +-
+ 9 files changed, 545 insertions(+), 31 deletions(-)
+ create mode 100644 Wesker/canonical_ast.py
+ create mode 100644 Wesker/mutant_ids.py
+ create mode 100644 tests/test_canonical_ast_intent.py
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 5e765ce..1db8d61 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -10,6 +10,17 @@ changed three times, so the policy id moved three times.
+ 
+ ### Correctness
+ 
++- **A mutant's id no longer depends on the interpreter, and an id recorded under the old rule still resolves.**
++  `_content_mutant_id` hashed `ast.dump(node, include_attributes=True)`, whose default output changed in 3.13 (an
++  empty list field is omitted), so one mutation had one id under 3.12 and another under 3.13+ and a recorded flag
++  stopped resolving after an interpreter upgrade with nothing saying why. The id now hashes a canonical
++  serialization of our own (`Wesker.canonical_ast`: explicit field order, absent fields not written, constants
++  spelled by type and `repr`), and the same bytes come out under 3.12 and 3.14 (pinned by literal digests run under
++  both). `mutant_id_migration(func_node)` regenerates a function's mutants and joins each one's new id to the id the
++  old rule issued for it under each family (the stdlib dump is re-implemented per family, byte-equal to the running
++  interpreter's own), and `resolve_recorded_mutant_id` is the pure decision a consumer applies to a stored id
++  (`current` / `migrated` / `ambiguous` / `unmapped`). Every mutant id moves once; the policy id moves with the
++  observation text. (W#48)
+ - **A pytest failure after the measurement finished no longer throws the finished report away, and a
+   missing live session names its cause.** Shard 2/4 of the same run measured `ci.py` for 45 minutes,
+   printed every file's result, and refused with `execution mode is 'legacy-direct-call', not
+diff --git a/Wesker/__init__.py b/Wesker/__init__.py
+index 083f798..fc35b2f 100644
+--- a/Wesker/__init__.py
++++ b/Wesker/__init__.py
+@@ -34,6 +34,7 @@ from .engine import (
+     run_function_sampling,
+ )
+ from .filter import CategoryPrior, filter_categories, prioritize_categories
++from .mutant_ids import mutant_id_migration, resolve_recorded_mutant_id
+ from .policy import MutationPolicy, mutation_policy
+ 
+ # RUF022: grouped by kind, and the group comments carry meaning (the policy-id note);
+@@ -45,6 +46,10 @@ __all__ = [  # noqa: RUF022
+     # mutation_policy().policy_id
+     "MutationPolicy",
+     "mutation_policy",
++    # Recorded mutant ids across the id-derivation change (#48): the old-id to new-id table for a
++    # function's mutants, and the pure decision a consumer applies to a stored id.
++    "mutant_id_migration",
++    "resolve_recorded_mutant_id",
+     # Result types
+     "BoundaryInput",
+     "CategoryPrior",
+diff --git a/Wesker/canonical_ast.py b/Wesker/canonical_ast.py
+new file mode 100644
+index 0000000..0601086
+--- /dev/null
++++ b/Wesker/canonical_ast.py
+@@ -0,0 +1,143 @@
++"""A mutant's identity, independent of the interpreter that parsed it (Wesker #48).
++
++A content id used to hash ``ast.dump(node, include_attributes=True)``. Python 3.13 changed
++``ast.dump``'s default output (an empty list field is omitted), so the same mutation of the same source
++had one id under 3.12 and another under 3.13+, and a flag recorded under one interpreter family stopped
++resolving under the other with nothing saying why. The floor is 3.12 and the standard is 3.14, so both
++families are supported at once and the id must not read the interpreter.
++
++The canonical serialization below is Wesker's own, not the stdlib's. It fixes the three things the
++stdlib leaves to the version:
++
++* the field order: a node's own ``_fields`` then ``_attributes``, which are the grammar's declaration
++  order in every version this code supports;
++* what an absent field looks like: a field that is ``None``, an empty list, or not set at all is NOT
++  written, whichever version defaulted it, so a node built by hand with or without an optional field
++  serializes identically to the parsed one (3.13 started filling omitted list fields with ``[]``);
++* how a constant is spelled: its type name and ``repr``, which is the language's, not the dump's.
++
++The legacy serializers at the end reproduce each family's old ``ast.dump`` so that an id recorded under
++the old rule can be mapped to its new id by regenerating the SAME mutants under both. They are an
++emulation of a format that no longer decides anything: the new id is the only one issued.
++"""
++
++from __future__ import annotations
++
++import ast
++import hashlib
++from typing import Any
++
++# The two interpreter families the old derivation split into.
++FAMILY_PY312 = "py312"  # ast.dump writes an empty list field: `decorator_list=[]`
++FAMILY_PY313 = "py313+"  # ast.dump omits it
++LEGACY_FAMILIES = (FAMILY_PY312, FAMILY_PY313)
++
++
++def canonical_ast(node: ast.AST, *, attributes: bool = True) -> str:
++    """The version-independent serialization of an AST (pure over the tree).
++
++    ``attributes`` includes the source positions (``lineno``, ``col_offset``, ``end_lineno``,
++    ``end_col_offset``), which a mutant's identity has always carried: the same rewrite at a different
++    position is a different mutant. Structural equality ignores them (``attributes=False``).
++    """
++    if not isinstance(node, ast.AST):
++        raise TypeError(f"expected an AST node, got {type(node).__name__}")
++    out: list[str] = []
++    _emit(node, attributes, out)
++    return "".join(out)
++
++
++def _emit(value: Any, attributes: bool, out: list[str]) -> None:
++    if isinstance(value, ast.AST):
++        out.append(type(value).__name__)
++        out.append("(")
++        first = True
++        names = list(value._fields)
++        if attributes:
++            names += list(value._attributes)
++        for name in names:
++            try:
++                field_value = getattr(value, name)
++            except AttributeError:
++                continue
++            if field_value is None or (
++                isinstance(field_value, list) and not field_value
++            ):
++                continue
++            if not first:
++                out.append(",")
++            first = False
++            out.append(name)
++            out.append("=")
++            _emit(field_value, attributes, out)
++        out.append(")")
++    elif isinstance(value, list):
++        out.append("[")
++        for i, item in enumerate(value):
++            if i:
++                out.append(",")
++            _emit(item, attributes, out)
++        out.append("]")
++    else:
++        # A leaf: identifier, operator-free constant, flag. The type name keeps `1`, `1.0`, `True`
++        # and `'1'` apart; `repr` is the language's own spelling and does not move between versions.
++        out.append(f"{type(value).__name__}:{value!r}")
++
++
++def canonical_digest(category: str, node: ast.AST) -> str:
++    """``<CATEGORY>_<8 hex>`` over the canonical serialization (pure over the tree)."""
++    digest = hashlib.sha1(
++        canonical_ast(node).encode("utf-8", "surrogatepass"), usedforsecurity=False
++    ).hexdigest()[:8]
++    return f"{category}_{digest}"
++
++
++# ── The legacy derivations, kept only to migrate what they issued ──────────────────────────────────
++
++
++def legacy_ast_dump(node: ast.AST, family: str) -> str:
++    """``ast.dump(node, include_attributes=True)`` as the given family wrote it, whatever runs this.
++
++    Both families share one algorithm; they differ in one rule: whether an empty list field is
++    written (3.12) or omitted (3.13+). Re-implemented rather than delegated so that one interpreter can
++    produce the other's text; against the stdlib's own dump on the running interpreter it is byte-equal
++    (pinned by ``tests/test_canonical_ast_intent.py``).
++    """
++    if family not in LEGACY_FAMILIES:
++        raise ValueError(f"unknown interpreter family {family!r}")
++    omit_empty = family == FAMILY_PY313
++
++    def fmt(value: Any) -> str:
++        if isinstance(value, ast.AST):
++            cls = type(value)
++            args: list[str] = []
++            for names, is_attr in ((value._fields, False), (value._attributes, True)):
++                for name in names:
++                    try:
++                        field_value = getattr(value, name)
++                    except AttributeError:
++                        continue
++                    if field_value is None and getattr(cls, name, ...) is None:
++                        continue
++                    if (
++                        omit_empty
++                        and not is_attr
++                        and isinstance(field_value, list)
++                        and not field_value
++                    ):
++                        continue
++                    args.append(f"{name}={fmt(field_value)}")
++            return f"{cls.__name__}({', '.join(args)})"
++        if isinstance(value, list):
++            return "[" + ", ".join(fmt(item) for item in value) + "]"
++        return repr(value)
++
++    return fmt(node)
++
++
++def legacy_digest(category: str, node: ast.AST, family: str) -> str:
++    """The id the OLD derivation issued for this mutation under the given family."""
++    digest = hashlib.sha1(
++        legacy_ast_dump(node, family).encode("utf-8"), usedforsecurity=False
++    ).hexdigest()[:8]
++    return f"{category}_{digest}"
+diff --git a/Wesker/engine.py b/Wesker/engine.py
+index 26046cc..212d5a9 100644
+--- a/Wesker/engine.py
++++ b/Wesker/engine.py
+@@ -29,6 +29,7 @@ from dataclasses import dataclass, field, replace
+ from enum import Enum
+ from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeGuard
+ 
++from .canonical_ast import canonical_digest
+ from .interrupt import (
+     JoinedWorker,
+     MeasurementRefused,
+@@ -3051,12 +3052,12 @@ def _content_mutant_id(category: MutationCategory, mutated_node: ast.AST) -> str
+     Positional ``CATEGORY_i`` ids drift because greedy/fast passes emit different index
+     subsets, and the index carries no meaning; the content id does not drift, which is what
+     makes a cross-invocation reference to "this mutant" (the audit→flag handoff) resolvable.
++
++    The hash is over :func:`canonical_ast`, not ``ast.dump``: the stdlib's dump changed between
++    3.12 and 3.13, so the same mutation had two ids by interpreter (#48). The canonical form is
++    ours, and the same bytes under every supported interpreter.
+     """
+-    content = ast.dump(mutated_node, include_attributes=True)
+-    digest = hashlib.sha1(content.encode("utf-8"), usedforsecurity=False).hexdigest()[
+-        :8
+-    ]
+-    return f"{category.value}_{digest}"
++    return canonical_digest(category.value, mutated_node)
+ 
+ 
+ def _mutant_module(mutated_node: ast.AST) -> ast.Module:
+diff --git a/Wesker/mutant_ids.py b/Wesker/mutant_ids.py
+new file mode 100644
+index 0000000..a3cb86a
+--- /dev/null
++++ b/Wesker/mutant_ids.py
+@@ -0,0 +1,90 @@
++"""Recorded mutant ids across the id-derivation change (Wesker #48).
++
++A mutant id is what ``flag`` records and what a cached verdict or certificate refers to. The id used to
++depend on the interpreter (see :mod:`Wesker.canonical_ast`); it no longer does, which moves every id once.
++A record written under the old rule must still resolve, so this module regenerates a function's mutants
++and joins each one's NEW id to the ids the old rule issued for the same mutation, under each of the two
++interpreter families. A consumer holding a recorded id asks :func:`resolve_recorded_mutant_id`.
++
++Nothing here guesses: an id that no regenerated mutant maps from is ``unmapped`` and an old id two
++different mutants map from is ``ambiguous``; the caller names both, and neither is dropped or applied.
++"""
++
++from __future__ import annotations
++
++import ast
++from typing import Any
++
++from .canonical_ast import LEGACY_FAMILIES, legacy_digest
++from .engine import MutationCategory, generate_mutants
++
++# The codes of resolve_recorded_mutant_id.
++ID_CURRENT = "current"  # the recorded id is an id the current derivation issues for this function
++ID_MIGRATED = "migrated"  # an old-rule id of exactly one current mutant
++ID_AMBIGUOUS = (
++    "ambiguous"  # an old-rule id of more than one current mutant: not applied
++)
++ID_UNMAPPED = "unmapped"  # no current mutant of this function has or had this id
++
++
++def mutant_id_migration(
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    categories: set[MutationCategory] | None = None,
++    observed_return_types: frozenset[str] | None = None,
++) -> dict[str, Any]:
++    """The old-id to new-id table for one function's whole mutant universe (impure only in generating).
++
++    ``current`` lists every id the present derivation issues. ``legacy`` maps, per interpreter family,
++    each id the old rule issued for the same mutation to the list of current ids it belongs to (one
++    entry means a clean mapping). ``observed_return_types`` must be the run's own when OUTPUT mutants
++    are in play, because those mutants depend on it exactly as generation does.
++    """
++    cats = set(MutationCategory) if categories is None else categories
++    mutants = generate_mutants(
++        func_node,
++        cats,
++        max_per_category=0,
++        greedy=False,
++        observed_return_types=observed_return_types,
++    )
++    current: list[str] = []
++    legacy: dict[str, dict[str, list[str]]] = {fam: {} for fam in LEGACY_FAMILIES}
++    for m in mutants:
++        if m.mutant_id not in current:
++            current.append(m.mutant_id)
++        for fam in LEGACY_FAMILIES:
++            old = legacy_digest(m.category.value, m.mutated_node, fam)
++            bucket = legacy[fam].setdefault(old, [])
++            if m.mutant_id not in bucket:
++                bucket.append(m.mutant_id)
++    return {"current": current, "legacy": legacy}
++
++
++def resolve_recorded_mutant_id(
++    recorded: str, current: list[str], legacy: dict[str, dict[str, list[str]]]
++) -> tuple[str, str]:
++    """(code, current id or "") for an id found in a stored record (#48, pure — pinned).
++
++    Split out of the consumer because the decision takes only strings and a table: the consumer owns
++    reading the store and rewriting it, and nothing else. The codes are the four states a stored id can be
++    in, and their remedies differ, so none shares a result:
++
++    * ``current``   — already an id of this function's present universe; nothing to migrate.
++    * ``migrated``  — one current mutant has this id under the old rule in exactly one family reading;
++      the second element is that mutant's current id.
++    * ``ambiguous`` — the old rule issued this id for more than one current mutant (an 8-hex collision,
++      or the two families disagreeing); no id is returned, because applying either would be a guess.
++    * ``unmapped``  — no current mutant of this function maps from it (the source or the policy moved).
++    """
++    if recorded in current:
++        return ID_CURRENT, recorded
++    candidates: list[str] = []
++    for table in legacy.values():
++        for new in table.get(recorded, []):
++            if new not in candidates:
++                candidates.append(new)
++    if len(candidates) == 1:
++        return ID_MIGRATED, candidates[0]
++    if candidates:
++        return ID_AMBIGUOUS, ""
++    return ID_UNMAPPED, ""
+diff --git a/Wesker/policy.py b/Wesker/policy.py
+index 620255b..ea2f4a3 100644
+--- a/Wesker/policy.py
++++ b/Wesker/policy.py
+@@ -515,6 +515,13 @@ def mutation_policy(two_sign: bool = False) -> MutationPolicy:
+                 "covering-test scoping and categorical exclusion are "
+                 "verdict-preserving reductions"
+             ),
++            (
++                "a mutant's id is a short hash of the canonical, interpreter-independent serialization "
++                "of its mutated function (explicit field order, absent fields not written, constants "
++                "spelled by type and repr), so one mutation has one id under every supported "
++                "interpreter; an id issued by the earlier ast.dump derivation resolves through the "
++                "recorded migration, never by guessing"
++            ),
+         ],
+         "purity_overlay": (
+             "filter_categories(is_pure=True) suppresses the remove_assign "
+diff --git a/tests/test_canonical_ast_intent.py b/tests/test_canonical_ast_intent.py
+new file mode 100644
+index 0000000..64f33b2
+--- /dev/null
++++ b/tests/test_canonical_ast_intent.py
+@@ -0,0 +1,265 @@
++"""A mutant's content id does not depend on the interpreter (Wesker #48).
++
++THE DEFECT, measured 2026-10-25 for ``def f(x): return x / 2``: the OUTPUT mutants carried one id set under
++Python 3.12 (``OUTPUT_a6d1d302`` ...) and another under 3.13+ (``OUTPUT_988a4470`` ...), because the id
++hashed ``ast.dump(node, include_attributes=True)``, whose default output changed in 3.13 (an empty list
++field is omitted). A flag recorded under one family stopped resolving under the other with nothing saying
++why, though the id's own docstring promised "the SAME id in every mode, pass, and process".
++
++THE RULE (D1): the id hashes a canonical serialization of our own (:mod:`Wesker.canonical_ast`): explicit
++field order, absent fields not written, constants spelled by type and ``repr``. These tests state that rule
++from intent, and the golden digests below are literals, so running this file under 3.12 and under 3.14 is
++the cross-version proof: both must read the same bytes. The migration for ids already recorded (old id to
++new id over the same mutation) is covered at the end.
++"""
++
++from __future__ import annotations
++
++import ast
++import hashlib
++import sys
++
++import pytest
++
++from Wesker.canonical_ast import (
++    FAMILY_PY312,
++    FAMILY_PY313,
++    LEGACY_FAMILIES,
++    canonical_ast,
++    canonical_digest,
++    legacy_ast_dump,
++    legacy_digest,
++)
++from Wesker.engine import MutationCategory, generate_mutants
++from Wesker.mutant_ids import (
++    ID_AMBIGUOUS,
++    ID_CURRENT,
++    ID_MIGRATED,
++    ID_UNMAPPED,
++    mutant_id_migration,
++    resolve_recorded_mutant_id,
++)
++
++# A corpus that reaches the node types the operators read and produce: every category's sites, defaults,
++# decorators, comprehensions, async, try/handlers, starred and keyword arguments, and each constant type.
++_CORPUS = (
++    "def a(x, y=1, *r, k=None, **kw):\n    return (x + y) * -x if x and not y else x ** 2\n",
++    (
++        "def b(xs):\n    t = 0\n    for x in xs:\n        if x is None:\n            break\n"
++        "        t += x // 2\n    return [t, {'a': 1.5}, {1, 2}, (3, b'z', 2j, ...)]\n"
++    ),
++    (
++        "def c(p):\n    try:\n        return int(p)\n    except (ValueError, TypeError):\n"
++        "        raise KeyError(p)\n    finally:\n        p = 0\n"
++    ),
++    "async def d(it):\n    out = [i async for i in it if i > 0]\n    return sorted(out, key=lambda v: -v)\n",
++    "@staticmethod\ndef e(self, a: int = 3, *, b: str = 'x') -> int:\n    self.v: int = a\n    return min(a, 2, 3) < a <= 4\n",
++    "def f(x):\n    with open(x) as fh:\n        return f'{fh.read()!r:>10}' + str(x)[1:2]\n",
++    "def g(a, b):\n    yield from a\n    return not (a in b) is (a is not b)\n",
++)
++
++# sha1 of the canonical text (attributes included) of the first definition of each source. LITERALS: the
++# same bytes under every supported interpreter is the claim, so this file is run under 3.12 and 3.14.
++_GOLDEN_CORPUS_DIGESTS = (
++    "bcc283ddd7c1af3df8a1ded227aace48c9c86331",
++    "25115daa09222978feb15d47a9bcea582fd49bb7",
++    "1e79de25b3c6559ef9a989ac860960ebea1ac973",
++    "d5c9ed75b6e5811fbb5c89427a3a9bc863211ccb",
++    "94f1a19ce728c829265ac48af3fbfe8c8f4025ce",
++    "7aa55f62fcd07531cbbfbac2a9bf8b2f57de6555",
++    "92bda6f677ffb491173fb4863a28882e4fad20af",
++)
++
++
++def _fn(src: str) -> ast.AST:
++    return ast.parse(src).body[0]
++
++
++def _digest(src: str) -> str:
++    return hashlib.sha1(
++        canonical_ast(_fn(src)).encode("utf-8"), usedforsecurity=False
++    ).hexdigest()
++
++
++def test_the_corpus_serializes_to_the_same_bytes_under_every_interpreter():
++    assert tuple(_digest(src) for src in _CORPUS) == _GOLDEN_CORPUS_DIGESTS
++
++
++def test_the_canonical_text_is_pinned_for_the_issue_example():
++    """A literal: the serialization of ``def f(x): return x / 2`` is these exact bytes under every
++    interpreter. If a future Python adds a default that leaks into the text, this is where it shows."""
++    text = canonical_ast(_fn("def f(x): return x / 2"))
++    assert text == (
++        "FunctionDef(name=str:'f',args=arguments(args=[arg(arg=str:'x',lineno=int:1,col_offset=int:6,"
++        "end_lineno=int:1,end_col_offset=int:7)]),body=[Return(value=BinOp(left=Name(id=str:'x',"
++        "ctx=Load(),lineno=int:1,col_offset=int:17,end_lineno=int:1,end_col_offset=int:18),op=Div(),"
++        "right=Constant(value=int:2,lineno=int:1,col_offset=int:21,end_lineno=int:1,end_col_offset=int:22),"
++        "lineno=int:1,col_offset=int:17,end_lineno=int:1,end_col_offset=int:22),lineno=int:1,"
++        "col_offset=int:10,end_lineno=int:1,end_col_offset=int:22)],lineno=int:1,col_offset=int:0,"
++        "end_lineno=int:1,end_col_offset=int:22)"
++    )
++
++
++def test_an_absent_field_is_not_written_whichever_version_defaulted_it():
++    """A node built by hand without its optional or list fields, and the parsed node with them set to
++    None / [], serialize identically. 3.13 fills the omitted fields in; 3.12 leaves them unset."""
++    parsed = ast.parse("def f(): pass").body[0]
++    bare = ast.FunctionDef(
++        name="f",
++        args=ast.arguments(
++            posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]
++        ),
++        body=[ast.Pass()],
++        decorator_list=[],
++    )
++    for node in (parsed, bare):
++        ast.fix_missing_locations(node)
++    assert canonical_ast(parsed, attributes=False) == canonical_ast(
++        bare, attributes=False
++    )
++
++
++def test_constants_are_told_apart_by_type():
++    texts = {
++        canonical_ast(ast.parse(src, mode="eval").body, attributes=False)
++        for src in (
++            "1",
++            "1.0",
++            "True",
++            "'1'",
++            "b'1'",
++            "1j",
++            "None",
++            "...",
++            "-0.0",
++            "0.0",
++        )
++    }
++    assert len(texts) == 10
++
++
++def test_a_position_changes_the_id_and_the_structure_does_not():
++    a = _fn("def f(x):\n    return x + 1\n")
++    b = _fn("def f(x):\n\n    return x + 1\n")
++    assert canonical_ast(a, attributes=False) == canonical_ast(b, attributes=False)
++    assert canonical_digest("X", a) != canonical_digest("X", b)
++
++
++def test_a_non_node_is_refused_by_name():
++    with pytest.raises(TypeError, match="expected an AST node"):
++        canonical_ast("def f(): pass")  # type: ignore[arg-type]
++
++
++def test_every_generated_mutant_id_is_the_canonical_digest_of_its_node():
++    """The engine issues the canonical id, not the stdlib dump's: for every category, over the corpus."""
++    for src in _CORPUS:
++        node = _fn(src)
++        assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
++        for m in generate_mutants(
++            node, set(MutationCategory), max_per_category=0, greedy=False
++        ):
++            assert m.mutant_id == canonical_digest(m.category.value, m.mutated_node)
++
++
++def test_the_issue_example_has_these_ids_under_every_interpreter():
++    """``def f(x): return x / 2`` (the issue's function): its mutants' ids are LITERALS here, the one
++    place a literal id is the point. Under the old derivation 3.12 and 3.14 issued different ids for the
++    same mutants; these are the ids under BOTH. OUTPUT is left out, whose operator set is another lane's
++    to change; the claim is the derivation's, and holds for every category the same way."""
++    node = _fn("def f(x): return x / 2")
++    categories = {c for c in MutationCategory if c is not MutationCategory.OUTPUT}
++    ids = {
++        m.mutant_id
++        for m in generate_mutants(node, categories, max_per_category=0, greedy=False)
++    }
++    assert ids == {
++        "ARITHMETIC_604d35b9",
++        "STATE_233b258c",
++        "VALUE_03271896",
++        "VALUE_56506e78",
++    }
++
++
++# ── the legacy derivations, kept to migrate what they issued ────────────────────────────────────────
++
++
++def _running_family() -> str:
++    return FAMILY_PY312 if sys.version_info < (3, 13) else FAMILY_PY313
++
++
++def test_the_legacy_dump_of_the_running_family_is_byte_equal_to_the_stdlibs():
++    for src in _CORPUS:
++        node = _fn(src)
++        assert legacy_ast_dump(node, _running_family()) == ast.dump(
++            node, include_attributes=True
++        )
++
++
++def test_the_two_families_differ_exactly_by_empty_list_fields():
++    node = _fn("def f(): pass")
++    old = legacy_ast_dump(node, FAMILY_PY312)
++    new = legacy_ast_dump(node, FAMILY_PY313)
++    assert "decorator_list=[]" in old and "decorator_list" not in new
++    assert old != new
++    assert legacy_digest("X", node, FAMILY_PY312) != legacy_digest(
++        "X", node, FAMILY_PY313
++    )
++
++
++def test_an_unknown_family_is_refused_by_name():
++    with pytest.raises(ValueError, match="unknown interpreter family"):
++        legacy_ast_dump(_fn("def f(): pass"), "py2")
++
++
++# ── the migration of recorded ids ───────────────────────────────────────────────────────────────────
++
++
++def test_a_recorded_old_id_of_either_family_resolves_to_the_same_mutant():
++    node = _fn("def f(x):\n    return x / 2\n")
++    assert isinstance(node, ast.FunctionDef)
++    table = mutant_id_migration(node, {MutationCategory.ARITHMETIC})
++    current = table["current"]
++    assert current
++    for family in LEGACY_FAMILIES:
++        assert table["legacy"][family]
++        for old, news in table["legacy"][family].items():
++            code, new = resolve_recorded_mutant_id(old, current, table["legacy"])
++            assert code in (ID_MIGRATED, ID_CURRENT)
++            assert new in current and new in news
++
++
++def test_the_running_interpreters_own_old_ids_are_what_ast_dump_issued():
++    node = _fn("def f(x):\n    return x / 2\n")
++    assert isinstance(node, ast.FunctionDef)
++    table = mutant_id_migration(node, {MutationCategory.ARITHMETIC})
++    for m in generate_mutants(
++        node, {MutationCategory.ARITHMETIC}, max_per_category=0, greedy=False
++    ):
++        digest = hashlib.sha1(
++            ast.dump(m.mutated_node, include_attributes=True).encode(),
++            usedforsecurity=False,
++        ).hexdigest()[:8]
++        old = f"{m.category.value}_{digest}"
++        assert table["legacy"][_running_family()][old] == [m.mutant_id]
++
++
++def test_resolution_states():
++    legacy = {
++        FAMILY_PY312: {"A_old": ["A_new"], "C_old": ["C_one", "C_two"]},
++        FAMILY_PY313: {"A_old2": ["A_new"], "C_old": ["C_one"]},
++    }
++    current = ["A_new", "C_one", "C_two"]
++    assert resolve_recorded_mutant_id("A_new", current, legacy) == (ID_CURRENT, "A_new")
++    assert resolve_recorded_mutant_id("A_old", current, legacy) == (
++        ID_MIGRATED,
++        "A_new",
++    )
++    assert resolve_recorded_mutant_id("A_old2", current, legacy) == (
++        ID_MIGRATED,
++        "A_new",
++    )
++    # two families agreeing on the same mutant is migrated; one old id naming two mutants is not applied
++    assert resolve_recorded_mutant_id("C_old", current, legacy) == (ID_AMBIGUOUS, "")
++    assert resolve_recorded_mutant_id("Z_old", current, legacy) == (ID_UNMAPPED, "")
++    assert resolve_recorded_mutant_id("", current, legacy) == (ID_UNMAPPED, "")
++    assert resolve_recorded_mutant_id("A_old", [], {}) == (ID_UNMAPPED, "")
+diff --git a/tests/test_mu_minus_families_intent.py b/tests/test_mu_minus_families_intent.py
+index 8a7593c..98cdbb8 100644
+--- a/tests/test_mu_minus_families_intent.py
++++ b/tests/test_mu_minus_families_intent.py
+@@ -304,34 +304,24 @@ def test_count_equals_generation_under_every_observed_type():
+         ), tname
+ 
+ 
+-# The ids Wesker 1addf57 generated for `return x / 2`, one table per interpreter family. A content id
+-# hashes `ast.dump(..., include_attributes=True)`, whose default output changed in Python 3.13 (empty
+-# optional fields are omitted), so the same mutation has one id under 3.12 and another under 3.13+.
+-# Both tables were measured at 1addf57 and again at 6ba533d (3.12.12 and 3.14.6) and agree, so the
+-# property below holds in each family; the cross-family difference predates the new operators.
++# The ids generated for `return x / 2`. Through Wesker 6ba533d a content id hashed
++# `ast.dump(..., include_attributes=True)`, whose default output changed in Python 3.13, so there were
++# two tables (one per interpreter family). Wesker #48 moved the derivation to the canonical serializer
++# (`Wesker.canonical_ast`): one table, the same under 3.12 and 3.14, and this file runs under both. The
++# property it pins is unchanged: appending operators never moves an existing mutant's id.
+ _IDS_AT_1ADDF57 = {
+-    "3.13+": {
+-        "return_none": "OUTPUT_988a4470",
+-        "return_const": "OUTPUT_6dc24194",
+-        "return_identity": "OUTPUT_637e0fc8",
+-        "return_negate": "OUTPUT_63dccc59",
+-        "return_abs": "OUTPUT_0b3b40ca",
+-        "return_nan": "OUTPUT_ccc01580",
+-    },
+-    "3.12": {
+-        "return_none": "OUTPUT_a6d1d302",
+-        "return_const": "OUTPUT_e6e0a7d3",
+-        "return_identity": "OUTPUT_bb386c45",
+-        "return_negate": "OUTPUT_d9b1d53a",
+-        "return_abs": "OUTPUT_af8eac1d",
+-        "return_nan": "OUTPUT_cf3813ee",
+-    },
++    "return_none": "OUTPUT_c6992dd9",
++    "return_const": "OUTPUT_583a9f68",
++    "return_identity": "OUTPUT_559c4ba4",
++    "return_negate": "OUTPUT_9f91fcce",
++    "return_abs": "OUTPUT_a8f55a96",
++    "return_nan": "OUTPUT_cd4e5b35",
+ }
+ 
+ 
+ def test_the_nine_built_operators_keep_their_ids():
+-    # Appended to the table, never interleaved: the ids below are the ones Wesker 1addf57 generated.
+-    # A survivor's id and diff are what `flag` records, so moving them would orphan every flag.
++    # Appended to the table, never interleaved: a survivor's id and diff are what `flag` records, so
++    # moving them would orphan every flag. One table for every interpreter since #48.
+     node = ast.parse("def f(x):\n    return x / 2\n").body[0]
+     muts = generate_mutants(
+         node,
+@@ -340,8 +330,7 @@ def test_the_nine_built_operators_keep_their_ids():
+         observed_return_types=frozenset({"float"}),
+     )
+     ids = {_sub_mode(m): m.mutant_id for m in muts}
+-    expected = _IDS_AT_1ADDF57["3.13+" if sys.version_info >= (3, 13) else "3.12"]
+-    assert {k: ids[k] for k in expected} == expected
++    assert {k: ids[k] for k in _IDS_AT_1ADDF57} == _IDS_AT_1ADDF57
+ 
+ 
+ def test_a_template_takes_the_return_values_source_position():
+diff --git a/tests/test_policy.py b/tests/test_policy.py
+index fa0faaf..62f758a 100644
+--- a/tests/test_policy.py
++++ b/tests/test_policy.py
+@@ -70,7 +70,9 @@ from Wesker.policy import (
+ # Wesker #29: the same policy-9 universe; the memory_cut clause now covers an in-process run, whose
+ # mutant is capped by the growth the run's memory budget allows (counts verified unchanged:
+ # GOLDEN_FINGERPRINT holds). 9.5d2c6bafc8ae -> 9.a5aeead0de4f.
+-GOLDEN_POLICY_ID = "9.a5aeead0de4f"
++# Wesker #48: the mutant-id derivation moved to the canonical serializer, an observation-text change (the universe did
++# not move; categories and counts verified unchanged: GOLDEN_FINGERPRINT holds). 9.a5aeead0de4f -> 9.bd305bdfd9f8.
++GOLDEN_POLICY_ID = "9.bd305bdfd9f8"
+ 
+ # The same fact, readable: the engine's target counts over the fingerprint
+ # corpus. A failure here names the category and function that moved.
+@@ -128,6 +130,7 @@ GOLDEN_FINGERPRINT = {
+ # moved both again: two-sign 9+neg.1a13fddd1d5f -> 9+neg.de8c78c57407. W#45's memory_cut clause moved
+ # both once more: two-sign 9+neg.de8c78c57407 -> 9+neg.fec711a421e9. W#29's in-process memory_cut
+ # clause moved both again: two-sign 9+neg.fec711a421e9 -> 9+neg.6035bc2f613d.
++# Policy change above (48) moved both ids: two-sign 9+neg.6035bc2f613d -> 9+neg.f2bb2b1e5f8b.
+ GOLDEN_TWO_SIGN_OUTPUT = {
+     "fp_annotations": 4,
+     "fp_value": 3,
+-- 
+2.43.0
+

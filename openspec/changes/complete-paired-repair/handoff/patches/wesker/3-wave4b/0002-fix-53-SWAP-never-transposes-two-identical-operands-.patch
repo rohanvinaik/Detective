@@ -1,0 +1,462 @@
+From d8de30a83e396b74a33b2dc4560fe9f0182218e6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:25:22 +0000
+Subject: [PATCH 2/4] fix(#53): SWAP never transposes two identical operands,
+ so no mutant equals its original
+
+The defect, verbatim: the SWAP operator ("transpose call arguments") transposes two arguments that are
+identical expressions. The mutant it produces is the original, byte for byte.
+`def f(x): return g(False, False, x)` gave `SWAP_174b8740 | transpose call arguments | identical to
+original: True` (Wesker 2fbd029). Such a mutant can only survive; it enlarged the universe and the
+denominator, a report printed it with an empty diff, and Detective's DONE block offered `flag` for it
+(it surfaced on `cli.py::candidate_equivalent_caveat`, which calls `residual_disposition(False, False, ...)`).
+
+Why the obvious fix is wrong: recognising the identical mutant after generation (Trivial Compiler
+Equivalence already can) leaves it in the universe and the denominator for the length of the run, and
+dropping it AFTER the per-call-site budget is spent still lets a repeated operand cost a real question its
+place (a call that repeats an operand would ask fewer distinct pairs than the budget allows). So the pair
+leaves the candidate list BEFORE the budget: `swap_plan_keyed(keys, budget)` takes the operands' canonical
+texts (position-free, so `h(x)` on two lines is the same operand), puts every pair in `distinct` or
+`identical`, and spends the budget on `distinct` only.
+
+What each state of the pure decision means: `pair_standing(left_key, right_key)` is `distinct` (the swap
+changes the program: a question) or `identical_operands` (the rewrite writes the same text back: not a
+mutant, counted by the census as not_applicable and never as asked). `1` and `True`, `1` and `1.0`, `0.0`
+and `-0.0` are distinct operands (different canonical text). asked + withheld + identical is always
+C(n, 2). `_swap_plan_of(call)` is the one plan generation, the target count and the census read, so they
+cannot disagree.
+
+Before: `g(False, False, x)` -> 4 SWAP mutants, one identical to the original. After: 3 (the (0,2) and (1,2)
+transpositions and the unwrap), none identical. Policy 9 becomes 10 (the universe lost these mutants; the
+corpus gained fp_swap_identical, SWAP 4 -> 3 on it, no existing row moved): one-sign 9.bd305bdfd9f8 ->
+10.f7358643c7e0, two-sign 9+neg.f2bb2b1e5f8b -> 10+neg.cad6fd2aabb8.
+
+What was NOT closed: only SWAP's transposition is covered. Other operators whose mutant could equal the
+original (a rewrite that writes the same text) are not audited here; the per-site census (#22) reports
+what each site did, but this commit adds no cross-operator "mutant equals original" guard beyond SWAP.
+Detective's own report of an empty-diff survivor is unchanged by this commit until it regenerates.
+
+The W#55 fixture in tests/test_fresh_arguments_intent.py used the `max(2, 2)` swap as its "mutant identical
+to the original"; it no longer exists, so those two tests now assert that NONE is generated (and, were one
+ever generated, that none is killed), instead of requiring one.
+
+Receipt: not pinned here (the integrator re-pins `pair_standing` / `swap_plan_keyed` after Wave 4).
+Tests: tests/test_swap_identical_operands_intent.py (10) plus test_swap_every_pair_intent.py,
+test_swap_plan_intent.py, test_operator_census.py, test_policy.py, test_filter.py, test_engine.py, the
+guard files and the #48 files: 413 passed under 3.14.6 and under 3.12.13 (and test_fresh_arguments_intent.py, 60 passed under 3.14.6), PYTHONUNBUFFERED unset. With the
+fix disarmed (pair_standing always distinct) 8 of the 10 new tests fail. ruff clean under pinned 0.16.7.
+---
+ CHANGELOG.md                                 |   6 +
+ Wesker/engine.py                             |  26 +++-
+ Wesker/policy.py                             |  14 +-
+ Wesker/swap_plan.py                          |  40 ++++++
+ tests/test_fresh_arguments_intent.py         |   8 +-
+ tests/test_policy.py                         |   8 +-
+ tests/test_swap_identical_operands_intent.py | 140 +++++++++++++++++++
+ 7 files changed, 230 insertions(+), 12 deletions(-)
+ create mode 100644 tests/test_swap_identical_operands_intent.py
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 1db8d61..172beb6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -10,6 +10,12 @@ changed three times, so the policy id moved three times.
+ 
+ ### Correctness
+ 
++- **SWAP never transposes two identical operands.** `g(False, False, x)` generated `SWAP_174b8740`, the original
++  program byte for byte: a mutant nothing can kill, printed with an empty diff and offered to the reader to `flag`.
++  A pair whose two operands have the same position-free canonical AST (`pair_standing`: `distinct` /
++  `identical_operands`) leaves the candidate list before the per-call-site budget is spent, so a repeated operand
++  no longer costs a real question its place; the census counts it `not_applicable(identical_operands)`. Policy 9
++  becomes 10 (the universe lost these mutants). (W#53)
+ - **A mutant's id no longer depends on the interpreter, and an id recorded under the old rule still resolves.**
+   `_content_mutant_id` hashed `ast.dump(node, include_attributes=True)`, whose default output changed in 3.13 (an
+   empty list field is omitted), so one mutation had one id under 3.12 and another under 3.13+ and a recorded flag
+diff --git a/Wesker/engine.py b/Wesker/engine.py
+index 212d5a9..436f113 100644
+--- a/Wesker/engine.py
++++ b/Wesker/engine.py
+@@ -29,7 +29,7 @@ from dataclasses import dataclass, field, replace
+ from enum import Enum
+ from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeGuard
+ 
+-from .canonical_ast import canonical_digest
++from .canonical_ast import canonical_ast, canonical_digest
+ from .interrupt import (
+     JoinedWorker,
+     MeasurementRefused,
+@@ -78,7 +78,7 @@ from .memory_guard import run_baseline_bytes as _mem_baseline
+ from .mu_minus import GENERATOR_MATERIALIZE_CAP, YIELD_MODES, begin_test, form_b
+ from .subsumption import distinct_obligations as _distinct_obligations
+ from .subsumption import redundancy_groups
+-from .swap_plan import SWAP_PAIR_BUDGET, swap_label, swap_plan
++from .swap_plan import SWAP_PAIR_BUDGET, swap_label, swap_plan_keyed
+ from .tce import WARRANT_BYTECODE, nodes_equivalent
+ from .trace_evidence import TraceEvidence, baseline_outcome, build_trace_ledger
+ from .write_authority import (
+@@ -1508,6 +1508,18 @@ def _stmt_call_ids(root: ast.AST) -> set[int]:
+     }
+ 
+ 
++def _swap_plan_of(
++    node: ast.Call,
++) -> tuple[list[tuple[int, int]], int, list[tuple[int, int]]]:
++    """The one plan for a call site: pairs asked, count withheld, pairs whose operands are identical.
++
++    Generation, the target count and the census all read this, so they cannot disagree about which
++    transpositions exist (#53): an operand is keyed by its position-free canonical text.
++    """
++    keys = [canonical_ast(arg, attributes=False) for arg in node.args]
++    return swap_plan_keyed(keys, SWAP_PAIR_BUDGET)
++
++
+ class _SwapMutator(_BaseMutator):
+     """Call-shape mutations: transpose adjacent arguments, or unwrap the call.
+ 
+@@ -1605,7 +1617,7 @@ class _SwapMutator(_BaseMutator):
+         EVERY pair is a question, not just the neighbours (policy 7). Through policy 6 this asked
+         only ``(i, i + 1)``, so ``g(c, b, a)`` — the first-and-third transposition — was never a
+         question, and a suite that happened to repeat a value across those positions read complete
+-        while that rewrite passed it. :func:`swap_plan` selects which pairs are ASKED under the hard
++        while that rewrite passed it. :func:`swap_plan_keyed` selects which pairs are ASKED under the hard
+         per-call-site budget; what it withholds is counted by the census, never dropped and never
+         read as verified.
+ 
+@@ -1614,7 +1626,7 @@ class _SwapMutator(_BaseMutator):
+         its position in the sequence, so per-site prefixes do not shift under the new questions.
+         """
+         name = _callee_name(node)
+-        asked, _withheld = swap_plan(len(node.args), SWAP_PAIR_BUDGET)
++        asked, _withheld, _identical = _swap_plan_of(node)
+         alts: list[tuple[Any, str]] = []
+         for i, j in asked:
+             if j == i + 1:
+@@ -1636,13 +1648,13 @@ class _SwapMutator(_BaseMutator):
+     def _withheld(node: ast.Call) -> int:
+         """Argument-order questions the budget did not ask at this call site (policy 7).
+ 
+-        The SAME :func:`swap_plan` call that decides what ``_alternatives`` emits decides what this
++        The SAME :func:`swap_plan_keyed` call that decides what ``_alternatives`` emits decides what this
+         reports, so generation and the census cannot disagree about what was left unasked. Capping
+         ``_alternatives`` alone would have hidden the remainder: the reader would see a smaller
+         universe with nothing saying a question had been withheld, which is precisely the "absence
+         of evidence read as evidence of absence" this project refuses.
+         """
+-        return swap_plan(len(node.args), SWAP_PAIR_BUDGET)[1]
++        return _swap_plan_of(node)[1]
+ 
+     def visit_Call(self, node: ast.Call) -> ast.AST:
+         if self.applied:
+@@ -3020,7 +3032,7 @@ def count_swap_withheld(
+     """Argument-order questions the per-call-site budget did not ask, across a whole function.
+ 
+     The WITHHELD counterpart to :func:`_count_targets`'s SWAP branch, over the SAME walk and the
+-    same :func:`swap_plan`, so what generation skipped and what the census reports are one number
++    same :func:`swap_plan_keyed`, so what generation skipped and what the census reports are one number
+     derived once. "Never asked" is a different fact from "asked, and no distinguishing input was
+     found": both may request an input from the reader, neither is a failure, and neither may be
+     read as verified. Reporting zero here while the budget silently bound would make a narrowed
+diff --git a/Wesker/policy.py b/Wesker/policy.py
+index ea2f4a3..ab6f814 100644
+--- a/Wesker/policy.py
++++ b/Wesker/policy.py
+@@ -117,7 +117,10 @@ from .swap_plan import SWAP_PAIR_BUDGET
+ #    (Not a bump: #44 added the rest of Def. 11.8's μ⁻ operators to the TWO-SIGN manifest, which
+ #    moves only the `+neg` digest. The one-sign universe did not change, so its id and every
+ #    one-sign receipt stay valid; a shared counter bump would have invalidated them for nothing.)
+-POLICY_VERSION = 9
++# 10: SWAP no longer transposes two identical operands (#53): the rewrite was the original
++#     program, an empty-diff survivor nothing could kill, and it spent the pair budget a real
++#     question needed. The corpus gained fp_swap_identical.
++POLICY_VERSION = 10
+ 
+ # The behavioral fingerprint corpus: small functions that together reach every
+ # category, every sub-mode, dead dimensions, the docstring skip, int
+@@ -219,6 +222,9 @@ _FINGERPRINT_CORPUS: tuple[str, ...] = (
+         "    self.left = self.right = v\n"
+         "    self.declared: int\n"
+     ),
++    # SWAP identical operands (policy 10): the (False, False) transposition is the original program and is
++    # not a target; the two distinct transpositions of the three-argument call are.
++    "def fp_swap_identical(x):\n    return g(False, False, x)\n",
+     # STATE return_none (2026-10-25): an existing `return None` is not a target, the value
+     # return is. Without this entry the corpus could not see the no-op target the operator
+     # used to emit, and a cache keyed on the policy id would replay its empty-diff survivor.
+@@ -304,6 +310,12 @@ def _categories(two_sign: bool = False) -> dict[str, dict[str, Any]]:
+                 "curated callee dual, resolved by import provenance, not spelling",
+             ],
+             "duals": dict(_SwapMutator._DUALS),
++            "skips": [
++                (
++                    "a transposition of two operands with the same canonical AST is the original "
++                    "program, not a mutant; it leaves the candidate pairs before the budget is spent"
++                )
++            ],
+             # The budget is part of the declared surface, not an implementation detail: it is
+             # what makes a SWAP verdict a claim about the pairs ASKED rather than about all of
+             # them. Every pair of a call with up to five positional arguments fits.
+diff --git a/Wesker/swap_plan.py b/Wesker/swap_plan.py
+index cb36b4f..7021c72 100644
+--- a/Wesker/swap_plan.py
++++ b/Wesker/swap_plan.py
+@@ -47,6 +47,46 @@ def swap_plan(n_positional: int, budget: int) -> tuple[list[tuple[int, int]], in
+     return asked, len(pairs) - len(asked)
+ 
+ 
++# The standing of one candidate transposition, by its two operands' canonical text.
++PAIR_DISTINCT = "distinct"  # the swap changes the program: a question
++PAIR_IDENTICAL = (
++    "identical_operands"  # the swap writes the same text back: not a mutant (#53)
++)
++
++
++def pair_standing(left_key: str, right_key: str) -> str:
++    """Whether transposing two operands can change anything (#53, pure — pinned).
++
++    The operands are compared by their canonical AST text (position-free), so ``g(False, False, x)``,
++    ``g(a, a)`` and ``g(f(1), f(1))`` are identical pairs; ``g(1, True)`` and ``g(1, 1.0)`` are not (the
++    constants differ in type). Split out of the mutator because it takes strings only: the mutator
++    owns serializing an operand, this owns what equality means. An identical pair has no mutant, since
++    the rewrite is the original byte for byte and nothing can kill it; it is counted by the census as
++    not applicable, never as a question asked.
++    """
++    return PAIR_IDENTICAL if left_key == right_key else PAIR_DISTINCT
++
++
++def swap_plan_keyed(
++    keys: list[str], budget: int
++) -> tuple[list[tuple[int, int]], int, list[tuple[int, int]]]:
++    """(pairs ASKED, count WITHHELD, pairs with IDENTICAL operands) for operand keys (pure — pinned).
++
++    Identical pairs leave the candidate list BEFORE the budget is spent, so a call that repeats an
++    operand does not lose a real question to a non-question. asked + withheld + len(identical) is
++    always C(n, 2).
++    """
++    distinct: list[tuple[int, int]] = []
++    identical: list[tuple[int, int]] = []
++    for i, j in swap_pairs(len(keys)):
++        if pair_standing(keys[i], keys[j]) == PAIR_IDENTICAL:
++            identical.append((i, j))
++        else:
++            distinct.append((i, j))
++    asked = distinct[: max(0, budget)]
++    return asked, len(distinct) - len(asked), identical
++
++
+ def swap_label(callee: str, i: int, j: int) -> str:
+     """The dimension label for transposing positional arguments ``i`` and ``j`` (pure — pinned).
+ 
+diff --git a/tests/test_fresh_arguments_intent.py b/tests/test_fresh_arguments_intent.py
+index 96378f8..fb19322 100644
+--- a/tests/test_fresh_arguments_intent.py
++++ b/tests/test_fresh_arguments_intent.py
+@@ -322,9 +322,11 @@ def revision_profile(request, tmp_path_factory):
+     return _profile(tmp, _REVISION, _REVISION_TESTS, "revision", request.param)
+ 
+ 
+-def test_the_mutant_identical_to_the_original_is_never_killed(revision_profile):
++def test_no_mutant_identical_to_the_original_is_generated_or_killed(revision_profile):
+     identical = [r for r in revision_profile["rows"].values() if r["change"] == ""]
+-    assert identical, "the fixture must still generate the identical SWAP mutant (#53)"
++    # Since #53 SWAP never transposes two identical operands, so `max(2, 2)` yields no mutant equal to
++    # the original: the property is that none exists (and, were one ever generated, none is killed).
++    assert identical == [], "an identical SWAP mutant is generated again (#53)"
+     assert all(r["status"] != "killed" for r in identical), identical
+ 
+ 
+@@ -676,4 +678,4 @@ def test_an_ordinary_parameter_is_still_copied_and_the_55_results_are_unchanged(
+     assert table["tag = max(2, 2) → tag = 2"] == ["survivor"]
+     assert table["new = copy.deepcopy(written) → new = written"] == ["survivor"]
+     identical = [r for r in profile["rows"].values() if r["change"] == ""]
+-    assert identical and all(r["status"] != "killed" for r in identical)
++    assert identical == []  # #53: no mutant equals its original
+diff --git a/tests/test_policy.py b/tests/test_policy.py
+index 62f758a..55b58b6 100644
+--- a/tests/test_policy.py
++++ b/tests/test_policy.py
+@@ -72,7 +72,8 @@ from Wesker.policy import (
+ # GOLDEN_FINGERPRINT holds). 9.5d2c6bafc8ae -> 9.a5aeead0de4f.
+ # Wesker #48: the mutant-id derivation moved to the canonical serializer, an observation-text change (the universe did
+ # not move; categories and counts verified unchanged: GOLDEN_FINGERPRINT holds). 9.a5aeead0de4f -> 9.bd305bdfd9f8.
+-GOLDEN_POLICY_ID = "9.bd305bdfd9f8"
++# Wesker #53 (policy 10): SWAP no longer transposes two identical operands; the corpus gained fp_swap_identical (SWAP 4 -> 3 on it). 9.bd305bdfd9f8 -> 10.f7358643c7e0.
++GOLDEN_POLICY_ID = "10.f7358643c7e0"
+ 
+ # The same fact, readable: the engine's target counts over the fingerprint
+ # corpus. A failure here names the category and function that moved.
+@@ -111,6 +112,9 @@ GOLDEN_FINGERPRINT = {
+     "fp_str_arith": {"ARITHMETIC": 3, "STATE": 1, "SWAP": 1, "VALUE": 9},
+     "fp_state_spellings": {"ARITHMETIC": 1, "STATE": 5, "STMT": 4},
+     "fp_return_none": {"BOUNDARY": 3, "STATE": 1},
++    # g(False, False, x): the identical (0, 1) pair is not a target, the two distinct pairs and the
++    # unwrap are, so SWAP is 3 where it was 4.
++    "fp_swap_identical": {"SWAP": 3, "STATE": 1, "VALUE": 2},
+ }
+ 
+ 
+@@ -131,6 +135,7 @@ GOLDEN_FINGERPRINT = {
+ # both once more: two-sign 9+neg.de8c78c57407 -> 9+neg.fec711a421e9. W#29's in-process memory_cut
+ # clause moved both again: two-sign 9+neg.fec711a421e9 -> 9+neg.6035bc2f613d.
+ # Policy change above (48) moved both ids: two-sign 9+neg.6035bc2f613d -> 9+neg.f2bb2b1e5f8b.
++# Policy change above (53) moved both ids: two-sign 9+neg.f2bb2b1e5f8b -> 10+neg.cad6fd2aabb8.
+ GOLDEN_TWO_SIGN_OUTPUT = {
+     "fp_annotations": 4,
+     "fp_value": 3,
+@@ -147,6 +152,7 @@ GOLDEN_TWO_SIGN_OUTPUT = {
+     "fp_state_spellings": 1,
+     # `return None` -> const, identity; `return x` -> none, const (identity is a no-op); + stale.
+     "fp_return_none": 5,
++    "fp_swap_identical": 4,
+ }
+ 
+ 
+diff --git a/tests/test_swap_identical_operands_intent.py b/tests/test_swap_identical_operands_intent.py
+new file mode 100644
+index 0000000..0fd205d
+--- /dev/null
++++ b/tests/test_swap_identical_operands_intent.py
+@@ -0,0 +1,140 @@
++"""SWAP never transposes two identical operands (Wesker #53).
++
++THE DEFECT, measured on Wesker 2fbd029: for ``def f(x): return g(False, False, x)`` the SWAP operator
++generated ``SWAP_174b8740 | transpose call arguments | identical to original: True``. Transposing two
++operands that are the same expression writes the original back byte for byte, so the mutant can only
++survive: it enlarged the universe and the denominator, a report printed it with an empty diff, and
++Detective's DONE block asked a reader to ``flag`` a mutant that changed nothing (it surfaced on
++``cli.py::candidate_equivalent_caveat``, which calls ``residual_disposition(False, False, ...)``).
++
++The rule: a pair whose two operands have the same position-free canonical AST is not a candidate.
++These tests state it from intent: the identical pair yields no mutant, the distinct transpositions of
++the same call still appear, no SWAP mutant of any shape equals its original, and an identical pair does
++not spend the per-call-site budget a real question needed.
++"""
++
++from __future__ import annotations
++
++import ast
++
++from Wesker.engine import (
++    MutationCategory,
++    _count_targets,
++    _record_dimensions,
++    generate_mutants,
++)
++from Wesker.filter import category_census
++from Wesker.swap_plan import (
++    PAIR_DISTINCT,
++    PAIR_IDENTICAL,
++    SWAP_PAIR_BUDGET,
++    pair_standing,
++    swap_plan_keyed,
++)
++
++
++def _fn(src: str) -> ast.FunctionDef:
++    node = ast.parse(src).body[0]
++    assert isinstance(node, ast.FunctionDef)
++    return node
++
++
++def _swap_mutants(src: str):
++    return generate_mutants(
++        _fn(src), {MutationCategory.SWAP}, max_per_category=0, greedy=False
++    )
++
++
++def _transpositions(labels: list[str]) -> list[str]:
++    return [lab for lab in labels if not lab.endswith(("~unwrap", "~dual"))]
++
++
++def test_the_issue_example_has_no_identical_transposition():
++    src = "def f(x):\n    return g(False, False, x)\n"
++    original = ast.dump(_fn(src))
++    mutants = _swap_mutants(src)
++    assert all(ast.dump(m.mutated_node) != original for m in mutants)
++    # (0,1) is False<->False: gone. (0,2) and (1,2) are real; the call's value is used, so unwrap too.
++    labels = _record_dimensions(_fn(src), MutationCategory.SWAP, set())
++    assert sorted(_transpositions(labels)) == ["SWAP:g~p0,2", "SWAP:g~p1"]
++    assert len(mutants) == 3
++
++
++def test_the_distinct_transpositions_still_appear():
++    src = "def f(a, b):\n    return g(a, b, a)\n"
++    labels = _record_dimensions(_fn(src), MutationCategory.SWAP, set())
++    # a,b and b,a differ; a,a (0,2) is the identical one.
++    assert _transpositions(labels) == ["SWAP:g", "SWAP:g~p1"]
++
++
++def test_no_swap_mutant_of_any_call_equals_its_original():
++    sources = [
++        "def f(x):\n    return g(x, x)\n",
++        "def f(x):\n    return g(1, 1, 1)\n",
++        "def f(x):\n    return g(h(x), h(x), x)\n",
++        "def f(x):\n    return g(*x, *x)\n",
++        "def f(x):\n    g(None, None)\n    return min(x, x)\n",
++    ]
++    for src in sources:
++        original = ast.dump(_fn(src))
++        for m in _swap_mutants(src):
++            assert ast.dump(m.mutated_node) != original, (src, m.description)
++
++
++def test_equal_looking_but_different_constants_are_distinct():
++    """``1`` and ``True`` compare equal at runtime but are different expressions and different
++    types; swapping them is a real mutant, and so is ``1`` against ``1.0``."""
++    for src in (
++        "def f():\n    return g(1, True)\n",
++        "def f():\n    return g(1, 1.0)\n",
++        "def f():\n    return g(0.0, -0.0)\n",
++        "def f(a):\n    return g(a, a.b)\n",
++    ):
++        assert _transpositions(
++            _record_dimensions(_fn(src), MutationCategory.SWAP, set())
++        ), src
++
++
++def test_identical_means_equal_trees_regardless_of_source_position():
++    src = "def f(x):\n    return g(\n        h(x),\n    h(x),\n    )\n"
++    assert (
++        _transpositions(_record_dimensions(_fn(src), MutationCategory.SWAP, set()))
++        == []
++    )
++
++
++def test_an_identical_pair_does_not_spend_the_budget():
++    """Seven operands, the first six pairwise distinct plus a repeat of the first: the repeat's
++    pair is not a question and leaves the budget to real ones."""
++    keys = [f"k{i}" for i in range(6)] + ["k0"]
++    asked, withheld, identical = swap_plan_keyed(keys, SWAP_PAIR_BUDGET)
++    assert identical == [(0, 6)]
++    assert (0, 6) not in asked
++    assert len(asked) == SWAP_PAIR_BUDGET
++    assert len(asked) + withheld + len(identical) == 21  # C(7, 2)
++
++
++def test_the_count_and_the_generation_agree():
++    src = "def f(x):\n    return g(False, False, x)\n"
++    node = _fn(src)
++    assert _count_targets(node, MutationCategory.SWAP) == len(_swap_mutants(src))
++
++
++def test_the_census_does_not_count_the_identical_pair_as_generated_or_withheld():
++    row = category_census(_fn("def f(x):\n    return g(x, x)\n"))[MutationCategory.SWAP]
++    assert row["generated"] == 1  # unwrap only
++    assert row["withheld"] == 0
++
++
++def test_pair_standing_codes():
++    assert pair_standing("a", "a") == PAIR_IDENTICAL
++    assert pair_standing("a", "b") == PAIR_DISTINCT
++    assert pair_standing("", "") == PAIR_IDENTICAL
++    assert pair_standing("a", "") == PAIR_DISTINCT
++
++
++def test_plan_over_no_or_one_operand_has_nothing():
++    assert swap_plan_keyed([], 10) == ([], 0, [])
++    assert swap_plan_keyed(["a"], 10) == ([], 0, [])
++    assert swap_plan_keyed(["a", "a"], 0) == ([], 0, [(0, 1)])
++    assert swap_plan_keyed(["a", "b"], -4) == ([], 1, [])
+-- 
+2.43.0
+

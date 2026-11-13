@@ -1,0 +1,196 @@
+diff --git a/Detective/templates.py b/Detective/templates.py
+index ade5ddb..461f7f7 100644
+--- a/Detective/templates.py
++++ b/Detective/templates.py
+@@ -78,14 +78,8 @@ def recognize_memoizable_pure_recursion(
+     return None
+ 
+ 
+-def recognize_quadratic_membership_scan(
+-    func: ast.FunctionDef | ast.AsyncFunctionDef,
+-) -> TemplateMatch | None:
+-    """A membership test against a LIST-evidenced name inside a loop: the linear-scan-per-
+-    iteration shape. List evidence is required (a `[]`/list-literal/listcomp assignment or an
+-    `.append` call on the name IN THIS FUNCTION) — membership against a set/dict is already
+-    right and must not match; a name with no local list evidence abstains (its type is not
+-    knowable here, and a conservative recognizer does not guess)."""
++def _list_evidenced_names(func: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
++    """Names with LOCAL list evidence: a list-literal/listcomp assignment or an ``.append`` call."""
+     list_names: set[str] = set()
+     for node in ast.walk(func):
+         if isinstance(node, ast.Assign) and isinstance(node.value, (ast.List, ast.ListComp)):
+@@ -97,6 +91,14 @@ def recognize_quadratic_membership_scan(
+             and isinstance(node.func.value, ast.Name)
+         ):
+             list_names.add(node.func.value.id)
++    return list_names
++
++
++def membership_site(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, ast.Compare] | None:
++    """The first ``x in <list-evidenced name>`` comparison inside a loop: ``(name, Compare)``.
++    The ONE search the recogniser and the emitter share (#146), so the node a transform rewrites is
++    the node the recogniser fired on."""
++    list_names = _list_evidenced_names(func)
+     if not list_names:
+         return None
+     for loop in _loops(func):
+@@ -104,26 +106,38 @@ def recognize_quadratic_membership_scan(
+             if isinstance(node, ast.Compare) and any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops):
+                 for comparator in node.comparators:
+                     if isinstance(comparator, ast.Name) and comparator.id in list_names:
+-                        return TemplateMatch(
+-                            "quadratic_membership_scan",
+-                            node.lineno,
+-                            f"`in {comparator.id}` (list-evidenced) inside a loop",
+-                        )
++                        return comparator.id, node
+     return None
+ 
+ 
+-def recognize_loop_invariant_recompute(
++def recognize_quadratic_membership_scan(
+     func: ast.FunctionDef | ast.AsyncFunctionDef,
+ ) -> TemplateMatch | None:
+-    """A call inside a loop whose every argument is loop-invariant: the recompute-per-iteration
+-    shape. Conservative on four axes: the walk covers the loop BODY only (the header's own
+-    iterator call executes once — `range(n)` firing here was a measured false-positive of the
+-    first draft, caught by the adversarial corpus); the call must take ≥1 argument (a zero-arg
+-    call carries no visible invariance evidence); every argument Name must be disjoint from the
+-    loop targets AND from every name the body assigns (a value the loop writes is not
+-    invariant); and the callee must be a non-builtin plain Name (hoisting a builtin like
+-    `print` would move an effect). Residual, stated: a USER callee's purity is not verifiable
+-    cross-function at v1 granularity — recognition invites, the proof gate decides."""
++    """A membership test against a LIST-evidenced name inside a loop: the linear-scan-per-
++    iteration shape. List evidence is required (a `[]`/list-literal/listcomp assignment or an
++    `.append` call on the name IN THIS FUNCTION) — membership against a set/dict is already
++    right and must not match; a name with no local list evidence abstains (its type is not
++    knowable here, and a conservative recognizer does not guess)."""
++    site = membership_site(func)
++    if site is None:
++        return None
++    name, node = site
++    return TemplateMatch("quadratic_membership_scan", node.lineno, f"`in {name}` (list-evidenced) inside a loop")
++
++
++@dataclass(frozen=True)
++class InvariantSite:
++    """Where the loop-invariant recogniser fired: the loop, the call, and the names it was judged on."""
++
++    loop: ast.For
++    call: ast.Call
++    callee: str
++    arg_names: frozenset[str]
++
++
++def invariant_site(func: ast.FunctionDef | ast.AsyncFunctionDef) -> InvariantSite | None:
++    """The first call inside a loop body whose every argument is loop-invariant (#146: shared by the
++    recogniser and the emitter, so the call a transform hoists is the call the recogniser named)."""
+     import builtins
+ 
+     builtin_names = set(dir(builtins))
+@@ -145,20 +159,34 @@ def recognize_loop_invariant_recompute(
+                 continue
+             if arg_names & (targets | body_writes):
+                 continue
+-            return TemplateMatch(
+-                "loop_invariant_recompute",
+-                node.lineno,
+-                f"{callee}({', '.join(sorted(arg_names))}) — every argument loop-invariant",
+-            )
++            return InvariantSite(loop, node, callee, frozenset(arg_names))
+     return None
+ 
+ 
+-def recognize_accumulator_series(
++def recognize_loop_invariant_recompute(
+     func: ast.FunctionDef | ast.AsyncFunctionDef,
+ ) -> TemplateMatch | None:
+-    """``for i in range(…): acc += i`` — the arithmetic-series shape with a closed form.
+-    Deliberately narrow: the augmented add must be exactly the loop variable (any other body
+-    work means the loop is not merely a series and must not match)."""
++    """A call inside a loop whose every argument is loop-invariant: the recompute-per-iteration
++    shape. Conservative on four axes: the walk covers the loop BODY only (the header's own
++    iterator call executes once — `range(n)` firing here was a measured false-positive of the
++    first draft, caught by the adversarial corpus); the call must take ≥1 argument (a zero-arg
++    call carries no visible invariance evidence); every argument Name must be disjoint from the
++    loop targets AND from every name the body assigns (a value the loop writes is not
++    invariant); and the callee must be a non-builtin plain Name (hoisting a builtin like
++    `print` would move an effect). Residual, stated: a USER callee's purity is not verifiable
++    cross-function at v1 granularity — recognition invites, the proof gate decides."""
++    site = invariant_site(func)
++    if site is None:
++        return None
++    return TemplateMatch(
++        "loop_invariant_recompute",
++        site.call.lineno,
++        f"{site.callee}({', '.join(sorted(site.arg_names))}) — every argument loop-invariant",
++    )
++
++
++def series_site(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.For, ast.AugAssign] | None:
++    """The first ``for i in range(…): … acc += i …``: ``(loop, the AugAssign)`` (#146: shared)."""
+     for loop in _loops(func):
+         if not (
+             isinstance(loop.iter, ast.Call)
+@@ -174,18 +202,27 @@ def recognize_accumulator_series(
+                 and isinstance(stmt.value, ast.Name)
+                 and stmt.value.id == loop.target.id
+             ):
+-                return TemplateMatch(
+-                    "accumulator_series", stmt.lineno, f"acc += {loop.target.id} over range(…)"
+-                )
++                return loop, stmt
+     return None
+ 
+ 
+-def recognize_manual_index_iteration(
++def recognize_accumulator_series(
+     func: ast.FunctionDef | ast.AsyncFunctionDef,
+ ) -> TemplateMatch | None:
+-    """``for i in range(len(xs)): … xs[i] …`` — index bookkeeping standing in for direct
+-    iteration. Requires the subscript to actually appear (a range-len loop that never indexes
+-    is counting, not iterating, and must not match)."""
++    """``for i in range(…): acc += i`` — the arithmetic-series shape with a closed form.
++    Deliberately narrow: the augmented add must be exactly the loop variable (any other body
++    work means the loop is not merely a series and must not match)."""
++    site = series_site(func)
++    if site is None:
++        return None
++    loop, stmt = site
++    return TemplateMatch("accumulator_series", stmt.lineno, f"acc += {loop.target.id} over range(…)")  # type: ignore[union-attr]
++
++
++def index_site(
++    func: ast.FunctionDef | ast.AsyncFunctionDef,
++) -> tuple[ast.For, str, str, ast.Subscript] | None:
++    """The first ``for i in range(len(xs)): … xs[i] …``: ``(loop, seq, idx, the Subscript)`` (#146: shared)."""
+     for loop in _loops(func):
+         it = loop.iter
+         if not (
+@@ -210,12 +247,23 @@ def recognize_manual_index_iteration(
+                 and isinstance(node.slice, ast.Name)
+                 and node.slice.id == idx
+             ):
+-                return TemplateMatch(
+-                    "manual_index_iteration", node.lineno, f"{seq}[{idx}] under range(len({seq}))"
+-                )
++                return loop, seq, idx, node
+     return None
+ 
+ 
++def recognize_manual_index_iteration(
++    func: ast.FunctionDef | ast.AsyncFunctionDef,
++) -> TemplateMatch | None:
++    """``for i in range(len(xs)): … xs[i] …`` — index bookkeeping standing in for direct
++    iteration. Requires the subscript to actually appear (a range-len loop that never indexes
++    is counting, not iterating, and must not match)."""
++    site = index_site(func)
++    if site is None:
++        return None
++    _loop, seq, idx, node = site
++    return TemplateMatch("manual_index_iteration", node.lineno, f"{seq}[{idx}] under range(len({seq}))")
++
++
+ _RECOGNIZERS = (
+     recognize_memoizable_pure_recursion,
+     recognize_quadratic_membership_scan,

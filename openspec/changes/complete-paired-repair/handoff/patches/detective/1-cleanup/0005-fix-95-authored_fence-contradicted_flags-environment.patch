@@ -1,0 +1,581 @@
+From 46985b955bb1adf734d0e9ded5f98177b4d65952 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 05:15:03 +0000
+Subject: [PATCH 05/11] fix(#95): authored_fence, contradicted_flags,
+ environment_gated, redundant_dispositions, unresolved_mutants and
+ write_refused_records are read directly
+
+The defect, verbatim from the issue: "If a producer renames or stops setting one, the read silently
+becomes 'clean'." Fifteen sites read these six with a default of `()` / `0`: "no fence, no contradicted
+flag, no environment gate, no redundant test, no mutant without a verdict, no refused write".
+
+Why the obvious fix is wrong: each reader holds the type that declares the field (`SurvivorReport`:
+authored_fence, contradicted_flags, write_refused_records; `ConvergeResult`: environment_gated,
+unresolved_mutants; `SuiteAudit`: authored_fence, redundant_dispositions, unresolved_mutants,
+environment_gated), so an absent answer is a renamed field, not a state of the object. The two places a
+value can legitimately be missing are the `None` report (no classification ran, so no refused records)
+and the `None` proof, both handled by an explicit `is not None` branch that already existed.
+`_redundant_kept` used to answer "no kept test" for an object without the field; its test now asserts
+the read raises, and keeps the case it actually documents (a SuiteAudit that recorded none, `()`).
+
+Converted: audit.audit_suite, converge._named_write_refused, and in cli _run_audit, _converge_blocked,
+_format_audit, _contradicted_flag_lines, _verdict_flag_pairs, _format_converge_terse, _converge_routing,
+_converge_action, _residual_action, _redundant_kept. Test doubles gain the fields.
+
+Not closed: not_consulted, not_consulted_dynamic and missing_line_standings (the open-line census).
+
+FAULT_OPEN: authored_fence 3, contradicted_flags 2, environment_gated 4, redundant_dispositions 1,
+unresolved_mutants 2, write_refused_records 2 -> 0. Disarmed, 5 of 5 new/changed intent tests fail.
+The 33-file neighbour set (686 tests) and the four guards pass under 3.14 and 3.12; ruff clean under
+pinned 0.16.7.
+---
+ Detective/audit.py                            |  2 +-
+ Detective/cli.py                              | 25 ++++++-----
+ Detective/converge.py                         |  2 +-
+ tests/test_absorbed_rename_intent.py          | 12 +++---
+ tests/test_audit_remove_ending_intent.py      |  7 +++-
+ tests/test_boundary_probe_residual_intent.py  |  1 +
+ tests/test_cli_journey_contract_intent.py     |  7 ++++
+ .../test_converge_stale_unverified_intent.py  |  1 +
+ tests/test_converge_style_handoff_intent.py   |  1 +
+ tests/test_decision_record_intent.py          |  7 ++++
+ tests/test_equivalents_route_intent.py        |  1 +
+ tests/test_execution_bound_validity_intent.py |  2 +
+ tests/test_false_claim_retirement_intent.py   |  1 +
+ tests/test_fault_flags_direct_intent.py       | 41 +++++++++++++++++++
+ tests/test_measurement_validity_intent.py     |  4 ++
+ tests/test_repair_measurement_route_intent.py |  2 +
+ tests/test_reproducibility_gate_intent.py     |  2 +
+ tests/test_shared_block_route_intent.py       |  2 +
+ ...test_step_budget_loop_divergence_intent.py |  2 +
+ tests/test_write_test_whole_values_intent.py  |  1 +
+ 20 files changed, 101 insertions(+), 22 deletions(-)
+
+diff --git a/Detective/audit.py b/Detective/audit.py
+index 831b6ad..389e8d5 100644
+--- a/Detective/audit.py
++++ b/Detective/audit.py
+@@ -1100,7 +1100,7 @@ def audit_suite(
+         boundary_probe = str(getattr(report, "boundary_probe", "") or "")
+         unclassified = len(report.unclassified)
+         write_refused_named = write_refused_survivors(
+-            [list(r) for r in getattr(report, "write_refused_records", ())], result.kill_matrix
++            [list(r) for r in report.write_refused_records], result.kill_matrix
+         )
+         write_refused = sum(1 for s in write_refused_named if s[2] == "open")
+         # The refused survivors the suite detects by crash are a FLOOR when they are the whole unclassified
+diff --git a/Detective/cli.py b/Detective/cli.py
+index 33bbc78..0a0ee15 100644
+--- a/Detective/cli.py
++++ b/Detective/cli.py
+@@ -1147,7 +1147,7 @@ def _contradicted_flag_sentence(v) -> str:
+ def _contradicted_flag_lines(rep) -> list[str]:
+     """One line per mutant whose ``equivalent`` flag is contradicted (D#110), for the report and the
+     survivor block — from the verdicts, the one place the fact is carried."""
+-    verdicts = list(getattr(rep, "contradicted_flags", ()) or ()) if rep is not None else []
++    verdicts = list(rep.contradicted_flags) if rep is not None else []
+     if not verdicts:
+         return []
+     return [
+@@ -3229,7 +3229,7 @@ def _format_converge_terse(
+                 f"{len(rep.step_budget_divergent)} — loop iterations exceeded step budget",
+             )
+         )
+-    _no_verdict = tuple(getattr(result, "unresolved_mutants", ()) or ())
++    _no_verdict = tuple(result.unresolved_mutants)
+     # The mutants the memory cap stopped have a row of their own below (`⚠ memory cut`, a different
+     # remedy); naming them here too would count the same mutants twice.
+     if _other_no_verdict := tuple(pair for pair in _no_verdict if pair[1] != "memory_cut"):
+@@ -3348,7 +3348,7 @@ def _format_converge_terse(
+     # Static environment-read gating on a live line gap: a distinct residual class from the
+     # golden-refusal row above — those lines cannot be reached by ANY --input, so they are a
+     # fixture/manual hand-back, not an input to author.
+-    if (gated := getattr(result, "environment_gated", ())) and result.missing_lines:
++    if (gated := result.environment_gated) and result.missing_lines:
+         _held = decision.run_universe if decision is not None else UniverseOptions()
+         lines.append(
+             _row(
+@@ -4016,7 +4016,7 @@ def _converge_blocked(result, rep) -> bool:
+     if rep is not None and rep.step_budget_divergent:
+         # Only the divergent residual has its own hand-back. An ordinary incomplete
+         # result may still need a sample, an internal-condition input, or a fence repair.
+-        return bool(rep.killable or rep.unclassified or getattr(rep, "authored_fence", ()))
++        return bool(rep.killable or rep.unclassified or rep.authored_fence)
+     return not result.functionally_complete
+ 
+ 
+@@ -4133,7 +4133,7 @@ def _converge_routing(
+         has_diverged=_has_diverged,
+         write_refused=_write_refused,
+         env_gate=environment_gate_kind(
+-            list(getattr(result, "environment_gated", ()) or ()),
++            list(result.environment_gated),
+             universe is not None and universe.clock is not None,
+             universe is not None and bool(universe.env),
+         ),
+@@ -5295,7 +5295,7 @@ def _converge_action(
+         # behind a read of the clock/filesystem/env, which no `--input` value reaches, so the ask
+         # below is impossible for them. Saying so up front is the difference between a driver that
+         # supplies a fixture and one that loops forever on inputs that never land.
+-        if result.missing_lines and getattr(result, "environment_gated", ()):
++        if result.missing_lines and result.environment_gated:
+             action = _environment_gated_caveat(result.environment_gated) + action
+         return action + _unconsulted_beside_rows(result)
+     # A synthesized suite has never been read by anyone. "Every behaviour pinned" is true of
+@@ -5690,7 +5690,7 @@ def _residual_action(
+     # A line gated by state no argument sets (#101): decompose takes no --clock/--env, so neither an
+     # `--input` nor a re-run of decompose can close it; `converge` can declare the capability.
+     gate = (
+-        environment_gate_kind(list(getattr(proof, "environment_gated", ()) or ()), False, False)
++        environment_gate_kind(list(proof.environment_gated), False, False)
+         if proof is not None and getattr(proof, "missing_lines", ())
+         else "none"
+     )
+@@ -6492,8 +6492,7 @@ def _verdict_flag_pairs(rep) -> tuple[tuple[str, str], ...]:
+     from .equivalence import verdict_distinction
+ 
+     return tuple(
+-        (v.mutant_id, verdict_distinction(v)[1])
+-        for v in (getattr(rep, "contradicted_flags", ()) or () if rep is not None else ())
++        (v.mutant_id, verdict_distinction(v)[1]) for v in (rep.contradicted_flags if rep is not None else ())
+     )
+ 
+ 
+@@ -7415,7 +7414,7 @@ def _format_audit(
+         lines += _missing_line_rows(list(a.missing_lines), getattr(a, "missing_line_standings", ()))
+     lines += _not_consulted_dynamic_rows(getattr(a, "not_consulted_dynamic", ()))
+     lines += _unobserved_reach_page_rows(a, bool(a.killable_gaps))
+-    if getattr(a, "authored_fence", 0):
++    if a.authored_fence:
+         # A FENCE is a GAP, not an equivalent (Q8): an authored must-not the suite does not enforce.
+         # Shown with the ✗ gaps and above the flagged-equivalent line so the two are never conflated.
+         lines.append(
+@@ -7451,7 +7450,7 @@ def _format_audit(
+                 f"{a.step_budget_divergent} — loop iterations exceeded step budget",
+             )
+         )
+-    if _no_verdict := tuple(getattr(a, "unresolved_mutants", ()) or ()):
++    if _no_verdict := tuple(a.unresolved_mutants):
+         lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
+         lines += _original_also_fails_rows(tuple(a.original_also_fails))
+     lines += _shared_arguments_rows(a.shared_arguments)
+@@ -7819,7 +7818,7 @@ def _redundant_kept(a) -> tuple[tuple[str, str], ...]:
+     that recorded none (a redundant set with no dispositions) names none here, and the ladder then
+     directs `--remove` as it always did: an unrecorded disposition is not a kept test.
+     """
+-    recorded = tuple(getattr(a, "redundant_dispositions", ()) or ())
++    recorded = tuple(a.redundant_dispositions)
+     return tuple((test, code) for test, code in recorded if code != "remove")
+ 
+ 
+@@ -11282,7 +11281,7 @@ def _run_audit(args, file, function) -> int:
+             len(report.killable_gaps),
+             len(report.missing_lines),
+             len(report.failing_tests),
+-            getattr(report, "authored_fence", 0),  # Q8: an unenforced must-not is a spec gap
++            report.authored_fence,  # Q8: an unenforced must-not is a spec gap
+         )
+         # An errored test is absent evidence, never clean evidence (Wesker#17): it never ran to a verdict.
+         _errored = tuple(report.errored_tests)
+diff --git a/Detective/converge.py b/Detective/converge.py
+index 4666d25..eb57c1d 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -1776,7 +1776,7 @@ def _named_write_refused(report: Any, result: Any) -> tuple[tuple[str, str, str,
+     accessor unpacks the objects; the decision is audit's, so the two verbs name them alike."""
+     from .audit import write_refused_survivors
+ 
+-    records = getattr(report, "write_refused_records", ()) if report is not None else ()
++    records = report.write_refused_records if report is not None else ()
+     return write_refused_survivors([list(r) for r in records], dict(getattr(result, "kill_matrix", {}) or {}))
+ 
+ 
+diff --git a/tests/test_absorbed_rename_intent.py b/tests/test_absorbed_rename_intent.py
+index 8cb9328..2eeea55 100644
+--- a/tests/test_absorbed_rename_intent.py
++++ b/tests/test_absorbed_rename_intent.py
+@@ -212,13 +212,13 @@ def test_a_dunder_is_the_data_models(tmp_path) -> None:
+ # default `ABSENT`). The sites below are the defaulted reads NOT yet converted, counted EXACTLY per flag:
+ # a new one fails, and converting one is a deliberate edit that lowers its number. Measured 2026-11-12.
+ FAULT_OPEN: dict[str, int] = {
+-    "authored_fence": 3,
++    "authored_fence": 0,
+     "budget_exhausted": 0,
+     "cut_reasons": 0,
+     "collection_conflicts": 0,
+-    "contradicted_flags": 2,
++    "contradicted_flags": 0,
+     "environment_coupled": 0,
+-    "environment_gated": 4,
++    "environment_gated": 0,
+     "failing_tests": 0,
+     "floor_failing_tests": 0,
+     "load_failed": 0,
+@@ -226,15 +226,15 @@ FAULT_OPEN: dict[str, int] = {
+     "missing_line_standings": 4,
+     "not_consulted": 3,
+     "not_consulted_dynamic": 7,
+-    "redundant_dispositions": 1,
++    "redundant_dispositions": 0,
+     "routing_error": 0,
+     "shape_hazards": 0,
+     "stale_target": 0,
+     "step_budget_divergent": 0,
+     "trace_truncated": 0,
+-    "unresolved_mutants": 2,
++    "unresolved_mutants": 0,
+     "unscored_records": 0,
+-    "write_refused_records": 2,
++    "write_refused_records": 0,
+ }
+ 
+ 
+diff --git a/tests/test_audit_remove_ending_intent.py b/tests/test_audit_remove_ending_intent.py
+index 0c0182e..458f3b5 100644
+--- a/tests/test_audit_remove_ending_intent.py
++++ b/tests/test_audit_remove_ending_intent.py
+@@ -14,6 +14,8 @@ import sys
+ import textwrap
+ from types import SimpleNamespace
+ 
++import pytest
++
+ from Detective.cli import (
+     _audit_closing_action,
+     _audit_commands,
+@@ -78,7 +80,10 @@ def test_the_kept_tests_are_read_from_the_recorded_dispositions_never_from_the_i
+ def test_a_report_that_recorded_no_disposition_names_no_kept_test():
+     """An unrecorded disposition is not a kept test: the ladder then directs `--remove` as before."""
+     assert _redundant_kept(SimpleNamespace(redundant_dispositions=())) == ()
+-    assert _redundant_kept(SimpleNamespace()) == ()
++    # a SuiteAudit always declares the field (#95): an object without it is a renamed field, not a report
++    # that recorded nothing, so the read raises instead of answering 'no kept test'
++    with pytest.raises(AttributeError, match="redundant_dispositions"):
++        _redundant_kept(SimpleNamespace())
+     assert _next(2, 0) == "remove_redundant"
+ 
+ 
+diff --git a/tests/test_boundary_probe_residual_intent.py b/tests/test_boundary_probe_residual_intent.py
+index e8d2881..6317bd3 100644
+--- a/tests/test_boundary_probe_residual_intent.py
++++ b/tests/test_boundary_probe_residual_intent.py
+@@ -336,6 +336,7 @@ def _settled(param_names=("x",)):
+         function="m.py::f",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+diff --git a/tests/test_cli_journey_contract_intent.py b/tests/test_cli_journey_contract_intent.py
+index 9c3df1e..3885928 100644
+--- a/tests/test_cli_journey_contract_intent.py
++++ b/tests/test_cli_journey_contract_intent.py
+@@ -167,6 +167,7 @@ def test_missing_survivor_report_cannot_turn_an_incomplete_result_into_done():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         routing_error="",
+@@ -194,6 +195,7 @@ def test_an_ungateable_measurement_outranks_every_input_suggestion():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         routing_error="",
+@@ -204,6 +206,7 @@ def test_an_ungateable_measurement_outranks_every_input_suggestion():
+         not_consulted_dynamic=(),
+         admits_certificate=False,
+         collection_conflicts=(),
++        environment_gated=(),
+     )
+     rep = SurvivorReport(verdicts=(_literal_verdict(),), unclassified=())
+ 
+@@ -222,6 +225,7 @@ def test_an_input_that_already_failed_to_close_is_never_offered_again():
+         function="p.py::quote",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         routing_error="",
+@@ -285,6 +289,7 @@ def test_two_sign_converge_preserves_policy_through_rerun_and_style_handoff():
+         written_path=None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+         routing_error="",
+@@ -312,6 +317,8 @@ def test_final_names_the_measured_policy():
+         written_path=None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        environment_gated=(),
++        unresolved_mutants=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+         routing_error="",
+diff --git a/tests/test_converge_stale_unverified_intent.py b/tests/test_converge_stale_unverified_intent.py
+index 787c038..0cd8f5b 100644
+--- a/tests/test_converge_stale_unverified_intent.py
++++ b/tests/test_converge_stale_unverified_intent.py
+@@ -27,6 +27,7 @@ def _result(**overrides):
+         function="p.py::quote",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+diff --git a/tests/test_converge_style_handoff_intent.py b/tests/test_converge_style_handoff_intent.py
+index 3b80e67..886939e 100644
+--- a/tests/test_converge_style_handoff_intent.py
++++ b/tests/test_converge_style_handoff_intent.py
+@@ -22,6 +22,7 @@ def _complete_result():
+         function="dsl.py::add",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+diff --git a/tests/test_decision_record_intent.py b/tests/test_decision_record_intent.py
+index e042583..a87bf48 100644
+--- a/tests/test_decision_record_intent.py
++++ b/tests/test_decision_record_intent.py
+@@ -218,6 +218,7 @@ def _gap_result(**overrides):
+         function=_FN,
+         functionally_complete=False,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+@@ -271,6 +272,7 @@ def test_supply_the_printed_rerun_is_the_records_then():
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+@@ -337,6 +339,7 @@ def test_stop_names_its_remedy_and_the_printed_rerun_is_the_records_then():
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+@@ -400,6 +403,7 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
+         function="dsl.py::add",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+@@ -901,6 +905,7 @@ def _lines_result(line: int = 34, guard: str = "value > 3") -> types.SimpleNames
+         function=_FN,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+@@ -1130,6 +1135,8 @@ def test_a_run_that_asked_nothing_records_no_plan(monkeypatch, tmp_path, capsys)
+         None,
+         functionally_complete=True,
+         floor_failing_tests=(),
++        environment_gated=(),
++        unresolved_mutants=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+         routing_error="",
+diff --git a/tests/test_equivalents_route_intent.py b/tests/test_equivalents_route_intent.py
+index 7b91700..cef3ad3 100644
+--- a/tests/test_equivalents_route_intent.py
++++ b/tests/test_equivalents_route_intent.py
+@@ -175,6 +175,7 @@ def _converge(equivalent):
+         function="m.py::one",
+         functionally_complete=True,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+diff --git a/tests/test_execution_bound_validity_intent.py b/tests/test_execution_bound_validity_intent.py
+index ea74745..e024d48 100644
+--- a/tests/test_execution_bound_validity_intent.py
++++ b/tests/test_execution_bound_validity_intent.py
+@@ -43,6 +43,8 @@ def test_unresolved_execution_keeps_its_reason_through_the_real_engine_adapter(
+         function="calc.py::target",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        environment_gated=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         collection_conflicts=(),
+         routing_error="",
+diff --git a/tests/test_false_claim_retirement_intent.py b/tests/test_false_claim_retirement_intent.py
+index e1a3c40..1d35709 100644
+--- a/tests/test_false_claim_retirement_intent.py
++++ b/tests/test_false_claim_retirement_intent.py
+@@ -56,6 +56,7 @@ def _gap_result():
+         function="m.py::f",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         cut_reasons=(),
+         collection_conflicts=(),
+diff --git a/tests/test_fault_flags_direct_intent.py b/tests/test_fault_flags_direct_intent.py
+index c71c2fc..25d0853 100644
+--- a/tests/test_fault_flags_direct_intent.py
++++ b/tests/test_fault_flags_direct_intent.py
+@@ -25,6 +25,8 @@ def _converge_like(**over):
+         "function": "m.py::f",
+         "functionally_complete": False,
+         "floor_failing_tests": (),
++        "environment_gated": (),
++        "unresolved_mutants": (),
+         "validity_cut_reasons": (),
+         "collection_conflicts": (),
+         "routing_error": "",
+@@ -300,3 +302,42 @@ def test_a_scope_that_cannot_say_whether_the_module_loaded_is_not_read_as_loaded
+     spec = types.SimpleNamespace(unspecified_dof=0)
+     with pytest.raises(AttributeError, match="load_failure"):
+         _diagnose_action(scope, spec, False, 0)
++
++
++# ------------- authored_fence, contradicted_flags, environment_gated, write_refused_records (declared fields)
++
++
++def test_a_report_that_cannot_say_which_flags_were_contradicted_is_not_read_as_having_none() -> None:
++    """`SurvivorReport.contradicted_flags` is a declared property. The old default said 'no flag was
++    contradicted' and a stale `equivalent` flag then stood uncontradicted on the page."""
++    from Detective.cli import _contradicted_flag_lines, _verdict_flag_pairs
++
++    assert _contradicted_flag_lines(None) == [] and _verdict_flag_pairs(None) == ()
++    with pytest.raises(AttributeError, match="contradicted_flags"):
++        _contradicted_flag_lines(types.SimpleNamespace())
++    with pytest.raises(AttributeError, match="contradicted_flags"):
++        _verdict_flag_pairs(types.SimpleNamespace())
++
++
++def test_a_divergent_report_without_an_authored_fence_field_is_not_read_as_fenceless() -> None:
++    from Detective.cli import _converge_blocked
++
++    rep = types.SimpleNamespace(step_budget_divergent=("v",), killable=[], unclassified=[])
++    with pytest.raises(AttributeError, match="authored_fence"):
++        _converge_blocked(types.SimpleNamespace(functionally_complete=True), rep)
++
++
++def test_a_survivor_report_that_cannot_list_its_refused_writes_is_not_read_as_having_none() -> None:
++    from Detective.converge import _named_write_refused
++
++    assert _named_write_refused(None, types.SimpleNamespace()) == ()  # no classification, no unclassified
++    with pytest.raises(AttributeError, match="write_refused_records"):
++        _named_write_refused(types.SimpleNamespace(), types.SimpleNamespace())
++
++
++def test_a_proof_that_cannot_say_what_gates_its_lines_is_not_read_as_ungated() -> None:
++    from Detective.cli import _residual_action
++
++    proof = types.SimpleNamespace(missing_lines=(3,))
++    with pytest.raises(AttributeError, match="environment_gated"):
++        _residual_action(None, proof, None, "m.py::f")
+diff --git a/tests/test_measurement_validity_intent.py b/tests/test_measurement_validity_intent.py
+index acbbfb4..a320121 100644
+--- a/tests/test_measurement_validity_intent.py
++++ b/tests/test_measurement_validity_intent.py
+@@ -440,6 +440,8 @@ def test_banner_warranted_floor_vs_diagnostic_counts():
+             self.cut_reasons = cut_reasons
+             self.validity_cut_reasons = cut_reasons
+             self.floor_failing_tests = ()
++            self.environment_gated = ()
++            self.unresolved_mutants = ()
+             self.collection_conflicts = ()
+             self.admits_certificate = False
+             self.measurement_gateable = False
+@@ -476,6 +478,8 @@ def test_isolate_action_identifies_affected_tests():
+                 )
+             )
+             self.floor_failing_tests = ()
++            self.environment_gated = ()
++            self.unresolved_mutants = ()
+             self.collection_conflicts = ()
+             self.routing_error = ""
+             self.admits_certificate = False
+diff --git a/tests/test_repair_measurement_route_intent.py b/tests/test_repair_measurement_route_intent.py
+index 6f1a72c..abb5393 100644
+--- a/tests/test_repair_measurement_route_intent.py
++++ b/tests/test_repair_measurement_route_intent.py
+@@ -63,6 +63,8 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
+         function="jax_backend/src/utils.py::str2bool",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        environment_gated=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         routing_error="",
+         verification=None,
+diff --git a/tests/test_reproducibility_gate_intent.py b/tests/test_reproducibility_gate_intent.py
+index 503b604..99e49bb 100644
+--- a/tests/test_reproducibility_gate_intent.py
++++ b/tests/test_reproducibility_gate_intent.py
+@@ -88,6 +88,8 @@ def _reprofile_result():
+         function="m.py::f",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        environment_gated=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         routing_error="",
+         verification=None,
+diff --git a/tests/test_shared_block_route_intent.py b/tests/test_shared_block_route_intent.py
+index 35bf0d0..2a7fb15 100644
+--- a/tests/test_shared_block_route_intent.py
++++ b/tests/test_shared_block_route_intent.py
+@@ -112,6 +112,8 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
+         function="jax_backend/src/utils.py::str2bool",
+         functionally_complete=False,
+         floor_failing_tests=(),
++        environment_gated=(),
++        unresolved_mutants=(),
+         validity_cut_reasons=(),
+         routing_error="",
+         verification=None,
+diff --git a/tests/test_step_budget_loop_divergence_intent.py b/tests/test_step_budget_loop_divergence_intent.py
+index 68c4826..3453451 100644
+--- a/tests/test_step_budget_loop_divergence_intent.py
++++ b/tests/test_step_budget_loop_divergence_intent.py
+@@ -223,6 +223,8 @@ def test_converge_divergence_action_and_decision() -> None:
+         refused_floor = ()
+         not_consulted_dynamic = ()
+         floor_failing_tests = ()
++        environment_gated = ()
++        unresolved_mutants = ()
+         cut_reasons = ()
+         validity_cut_reasons = ()
+         collection_conflicts = ()
+diff --git a/tests/test_write_test_whole_values_intent.py b/tests/test_write_test_whole_values_intent.py
+index 2e9b6f8..773dc4a 100644
+--- a/tests/test_write_test_whole_values_intent.py
++++ b/tests/test_write_test_whole_values_intent.py
+@@ -44,6 +44,7 @@ def _result():
+         stale_target=False,
+         budget_exhausted=False,
+         floor_failing_tests=(),
++        unresolved_mutants=(),
+         cut_reasons=(),
+         validity_cut_reasons=(),
+         collection_conflicts=(),
+-- 
+2.43.0
+

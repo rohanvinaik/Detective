@@ -1,0 +1,592 @@
+From a41534b9f562888d15fc95a33499c14228fc3c0a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:33:55 +0000
+Subject: [PATCH 5/5] feat(Detective #123): the effect family's raise-inject,
+ state-extra and state-noop's realization are pinned by intent tests
+
+The defect, verbatim. "`raise`, the inject half, is not built. The catalog marks `raise` `partial`. Its
+reason: an injected raise fails every test that reaches the call, so its kill measures reach, not
+specification." "`state-noop` has no OUTPUT sub-mode ... No ruling is recorded on whether the positive
+realization meets it." "`state-extra` is not generated. The catalog marks it `unsupported`: the function
+determines no object or attribute to mutate."
+
+Why the obvious fix is wrong. Injecting an arbitrary exception is a guess, and one that cannot be built
+(a local class, a type that needs two constructor arguments, an interrupt) would be a different failure
+than the one the mode names. And an extra write to an argument the function writes on purpose is not an
+unintended side effect. Both are facts the baseline observes (38bec04): the exception types that LEFT the
+function (else those its own body raises, resolved against its globals and the builtins), and each
+parameter's structural state before and after every call.
+
+What each state means. raise_inject@<exception> raises at the return point, after the body ran; its kill
+is `reach_class` (REACH_CLASS_MODES, `kill_class_of_dimension`), which the census lane's detection/contract
+split reads off the mutant's dimension; it is recorded in the catalog as measuring reach, not
+specification. `raise_standing` (pinned) names why an observed raise is not injected: local_class,
+base_exception (the engine's interrupts derive from BaseException; nothing injects one), unresolvable,
+not_constructible; a function that raises nothing observed or written is named
+no_exception_type_observed_or_raised; a raise of a bound name is no type. state_extra@<parameter> writes one
+extra entry (a dict key, list or deque element, set member, attribute) to an argument or the receiver
+observed mutable in EVERY call and mutated in none; `extra_write_standing` (pinned) names why not:
+calls_truncated, mutated, type_varies, and a function with no mutable argument is named too. State-noop is
+the positive STATE:remove_assign and STMT deletion (decision D2, Rem. 11.9(b)): no new sub-mode, recorded
+in the catalog and on `MutationPolicy.categories["OUTPUT"]["realized_by"]`.
+
+What was NOT closed. The wrapper that cannot build its exception or bind its argument returns as the
+function does (a no-op, never a different failure). A generator takes neither mode (its output is its
+yields). The extra write persists in the test's own argument object; evaluation gives each test fresh
+arguments (W#55). Detective's harvest still carries type names (see 38bec04), so a Detective `--two-sign`
+run does not yet generate these.
+
+Sensitivity: with the parameterized Form B modes withheld 7 of the 46 intent tests fail.
+Pins: `raise_standing`, `extra_write_standing`, `kill_class_of_dimension` (see the pin receipts in the
+report; the receipts for these three are recorded after this commit).
+
+Tests: tests/test_mu_minus_effect_premise_intent.py 46 passed; with the catalog, doc, policy and
+instrumentation-ownership guards 117 passed under Python 3.14 and 117 under 3.12, PYTHONUNBUFFERED unset.
+ruff clean under pinned 0.16.7.
+---
+ docs/MU_MINUS_CATALOG.md                     |   1 +
+ tests/test_mu_minus_effect_premise_intent.py | 520 +++++++++++++++++++
+ 2 files changed, 521 insertions(+)
+ create mode 100644 tests/test_mu_minus_effect_premise_intent.py
+
+diff --git a/docs/MU_MINUS_CATALOG.md b/docs/MU_MINUS_CATALOG.md
+index 1ffa3f4..d8062b7 100644
+--- a/docs/MU_MINUS_CATALOG.md
++++ b/docs/MU_MINUS_CATALOG.md
+@@ -150,6 +150,7 @@ effect family below.
+ | container (dict swap, ctype to and from a set): generated only on a hashable or orderable premise, never raises, killed by a pin | Fork 2 | `tests/test_mu_minus_container_premise_intent.py::test_the_swap_is_not_generated_where_a_value_is_unhashable_and_the_function_says_so`, `tests/test_mu_minus_container_premise_intent.py::test_never_raises_on_an_observed_value_and_changes_some`, `tests/test_mu_minus_container_premise_intent.py::test_the_swap_is_killed_by_a_test_that_pins_the_dict_and_survives_one_that_does_not` |
+ | structured (field, class): one field at a time from the observed instances; the exact class separated from isinstance | Fork 2 | `tests/test_mu_minus_structured_premise_intent.py::test_every_field_mutant_is_killed_by_a_test_that_pins_the_record`, `tests/test_mu_minus_structured_premise_intent.py::test_a_subclass_instance_separates_the_exact_class_from_isinstance`, `tests/test_mu_minus_structured_premise_intent.py::test_every_mode_a_record_offers_applies_without_raising_and_leaves_the_original_alone` |
+ | ordered (clamp): the observed range narrowed one step, killed only at an edge | Def. 11.8(vii) | `tests/test_mu_minus_clamp_premise_intent.py::test_the_clamp_is_killed_at_an_edge_and_survives_the_interior`, `tests/test_mu_minus_clamp_premise_intent.py::test_a_site_that_admits_no_clamp_says_why` |
++| effect (raise-inject, state-extra): reach_class for an injected raise; an extra write only to an argument observed unmutated | Def. 11.8(viii) | `tests/test_mu_minus_effect_premise_intent.py::test_the_kill_of_an_inject_mutant_is_reach_class_and_every_other_is_not`, `tests/test_mu_minus_effect_premise_intent.py::test_an_argument_the_function_leaves_alone_takes_an_extra_write`, `tests/test_mu_minus_effect_premise_intent.py::test_an_exception_that_cannot_be_injected_is_never_injected_and_is_named` |
+ | the nine operators built before #44 keep their ids | `flag` keys on a survivor's id and diff | `tests/test_mu_minus_families_intent.py::test_the_nine_built_operators_keep_their_ids` |
+ 
+ Measured end to end through Detective's CLI (`converge --two-sign` on fresh fixtures, Wesker 204a760,
+diff --git a/tests/test_mu_minus_effect_premise_intent.py b/tests/test_mu_minus_effect_premise_intent.py
+new file mode 100644
+index 0000000..ba3bc47
+--- /dev/null
++++ b/tests/test_mu_minus_effect_premise_intent.py
+@@ -0,0 +1,520 @@
++"""μ⁻ effect family: raise-inject, state-extra, and state-noop's realization (Detective #123, Wesker #44).
++
++Intent tests authored from docs/theory/NEGATIVE_SPECIFICATION.md, Def. 11.8 (viii), Rem. 11.9(b) and
++Def. 11.10.
++
++THE DEFECT (Detective #123).
++- ``raise``: only the swallow half was built. The inject half "fails every test that reaches the call,
++  so its kill measures reach, not specification".
++- ``state-extra`` was "unsupported": the function "determines no object or attribute to mutate".
++- ``state-noop`` had no OUTPUT sub-mode, with no ruling on whether the positive realization meets it.
++The baseline run observes the exceptions a function raises, and which of its mutable arguments and
++receiver it leaves alone, so both premises ARE observed.
++
++WHAT MUST HOLD.
++- raise-inject injects the exception types the function is OBSERVED to raise (or, if none was, the
++  types its own body raises) at the return point. An exception that cannot be named from a path, built
++  from a message, or that is not an ``Exception`` is never injected, and the profile says which.
++- Its kill measures reach, not specification: the mutant's dimension is read as ``reach_class`` by
++  ``kill_class_of_dimension`` and every other OUTPUT mutant is ``output_perturbation``.
++- state-extra adds one extra write to a mutable argument or receiver that the baseline observed NOT
++  mutated, in every call, and to no other: a function that writes to its argument writes it on purpose.
++- state-noop is realized by the positive STATE:remove_assign and STMT operators, and the policy says so.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import inspect
++
++import pytest
++from _mu_support import (
++    load,
++    mode_lines,
++    node_of,
++    observe,
++    one,
++    output_mutants,
++    run,
++    unload,
++)
++
++from Wesker.codomain import observe_codomain, parse_codomain, withheld_here
++from Wesker.engine import MutationCategory, generate_mutants
++from Wesker.mu_minus import (
++    MU_MINUS_CATALOG,
++    REACH_CLASS_MODES,
++    extra_write,
++    extra_write_supported,
++    form_b,
++    injected_exception,
++    kill_class_of_dimension,
++    resolve_exception,
++)
++from Wesker.policy import mutation_policy
++
++_SRC = """
++import collections
++
++
++class AppError(Exception):
++    pass
++
++
++class NeedsTwo(Exception):
++    def __init__(self, a, b):
++        super().__init__(a, b)
++
++
++def score(n):
++    if n < 0:
++        raise ValueError("neg")
++    return n * 2
++
++
++def hidden(n):
++    if n < 0:
++        raise AppError("neg")
++    return n
++
++
++def unresolved(n):
++    if n < 0:
++        raise errors.Missing("neg")
++    return n
++
++
++def rethrow(exc):
++    if exc is not None:
++        raise exc
++    return 1
++
++
++def interrupt(n):
++    if n < 0:
++        raise KeyboardInterrupt
++    return n
++
++
++def local_raise(n):
++    class Local(Exception):
++        pass
++
++    if n < 0:
++        raise Local("neg")
++    return n
++
++
++def two_args(n):
++    if n < 0:
++        raise NeedsTwo(1, 2)
++    return n
++
++
++def calm(n):
++    return n + 1
++
++
++async def acall(n):
++    if n < 0:
++        raise ValueError("neg")
++    return n
++
++
++def total(xs, extra):
++    t = 0
++    for x in xs:
++        t += x
++    return t + extra
++
++
++def append_all(xs, ys):
++    for y in ys:
++        xs.append(y)
++    return len(xs)
++
++
++def varies(xs):
++    return len(xs)
++
++
++class Counter:
++    def __init__(self):
++        self.n = 0
++        self.log = []
++
++    def peek(self):
++        return self.n
++
++    def bump(self):
++        self.n += 1
++        return self.n
++
++
++def keys_of(d):
++    return sorted(d)
++
++
++def deq(d):
++    return len(d)
++"""
++
++
++@pytest.fixture(scope="module")
++def target(tmp_path_factory):
++    module, path = load(tmp_path_factory.mktemp("mu_effect"), "mu_effect_t", _SRC)
++    yield module, path
++    unload("mu_effect_t")
++
++
++def _modes(path, name, observed):
++    return {mode for mode, _line in mode_lines(path, name, observed)}
++
++
++# ── raise-inject ────────────────────────────────────────────────────────────────────────────────
++
++
++def test_inject_raises_the_exception_type_the_function_is_observed_to_raise(target):
++    module, path = target
++
++    def t():
++        assert module.score(2) == 4
++        try:
++            module.score(-1)
++        except ValueError:
++            pass
++
++    observed = observe(module, path, "score", [t])
++    assert "raise_inject@builtins.ValueError" in _modes(path, "score", observed)
++
++
++def test_inject_falls_back_to_the_types_the_body_raises_when_none_was_observed(target):
++    module, path = target
++
++    def t():  # never reaches the raise
++        assert module.hidden(3) == 3
++
++    observed = observe(module, path, "hidden", [t])
++    assert "raise_inject@AppError" in _modes(path, "hidden", observed)
++    m = one(path, "hidden", observed, "raise_inject@AppError")
++    killed = run(m, [t], module, path, "hidden")
++    assert killed.killed, (
++        "any test that reaches the call fails it: reach, not specification"
++    )
++    assert killed.killed_by == "crash"
++
++
++def test_inject_raises_at_the_return_point_after_the_body_has_run():
++    calls: list[int] = []
++
++    def f(n):
++        calls.append(n)
++        return n
++
++    wrapped = form_b("raise_inject@builtins.ValueError")(f)
++    with pytest.raises(ValueError, match="injected"):
++        wrapped(5)
++    assert calls == [5], "the function ran to its return before the injection"
++
++
++def test_inject_is_killed_by_a_test_that_expects_no_raise_and_not_by_a_test_that_expects_one(
++    target,
++):
++    module, path = target
++
++    def returns():
++        assert module.score(2) == 4
++
++    def observes():
++        try:
++            module.score(-1)
++        except ValueError:
++            pass
++
++    observed = observe(module, path, "score", [returns, observes])
++    m = one(path, "score", observed, "raise_inject@builtins.ValueError")
++    assert run(m, [returns], module, path, "score").killed
++    # A call that already raises ValueError raises ValueError either way: the injection is invisible.
++    assert not run(m, [observes], module, path, "score").killed
++
++
++@pytest.mark.parametrize(
++    ("name", "why"),
++    [
++        ("unresolved", "unresolvable"),
++        ("interrupt", "base_exception"),
++        ("local_raise", "local_class"),
++        ("two_args", "not_constructible"),
++        ("calm", "no_exception_type_observed_or_raised"),
++    ],
++)
++def test_an_exception_that_cannot_be_injected_is_never_injected_and_is_named(
++    target, name, why
++):
++    module, path = target
++    fn = getattr(module, name)
++
++    def t():
++        assert fn(1) is not None
++
++    def raises():
++        try:
++            fn(-1)
++        # BLE001, S110: the interrupt case raises a BaseException; the raise is what is observed
++        except BaseException:  # noqa: BLE001, S110
++            pass
++
++    tests = [t] if name in ("calm", "unresolved") else [t, raises]
++    observed = observe(module, path, name, tests)
++    assert not any(m.startswith("raise_inject") for m in _modes(path, name, observed))
++    named = withheld_here(parse_codomain(observed))
++    assert any("raise_inject" in line and why in line for line in named), (name, named)
++
++
++def test_a_raise_of_a_bound_name_is_not_a_type_the_body_raises(target):
++    module, path = target
++
++    def t():
++        assert module.rethrow(None) == 1
++
++    observed = observe(module, path, "rethrow", [t])
++    assert not any(
++        m.startswith("raise_inject") for m in _modes(path, "rethrow", observed)
++    )
++
++
++def test_an_async_function_stays_awaitable_and_raises_on_the_await(target):
++    async def f(n):
++        return n
++
++    wrapped = form_b("raise_inject@builtins.KeyError")(f)
++    assert inspect.iscoroutinefunction(wrapped)
++    with pytest.raises(KeyError):
++        asyncio.run(wrapped(1))
++
++
++def test_the_injection_degrades_to_the_return_where_the_type_cannot_be_built():
++    wrapped = form_b("raise_inject@no.such.Thing")(lambda n: n)
++    assert wrapped(3) == 3
++    assert injected_exception("builtins.int", None) is None, "not an exception"
++    assert resolve_exception("builtins.KeyboardInterrupt", None) is None
++
++
++def test_the_kill_of_an_inject_mutant_is_reach_class_and_every_other_is_not(target):
++    module, path = target
++
++    def t():
++        assert module.score(2) == 4
++        try:
++            module.score(-1)
++        except ValueError:
++            pass
++
++    observed = observe(module, path, "score", [t])
++    classes = {
++        mode: {kill_class_of_dimension(m.dimension) for m in muts}
++        for mode, muts in output_mutants(path, "score", observed).items()
++    }
++    assert classes["raise_inject@builtins.ValueError"] == {"reach_class"}
++    assert classes["raise_swallow"] == {"output_perturbation"}
++    assert classes["return_none"] == {"output_perturbation"}
++    assert REACH_CLASS_MODES == ("raise_inject",)
++
++
++@pytest.mark.parametrize(
++    ("dimension", "expected"),
++    [
++        ("OUTPUT:raise_inject@builtins.ValueError:12", "reach_class"),
++        ("OUTPUT:raise_inject@AppError:3", "reach_class"),
++        ("OUTPUT:raise_swallow:12", "output_perturbation"),
++        ("OUTPUT:state_extra@xs:12", "output_perturbation"),
++        ("OUTPUT:return_clamp@i1,i9:4", "output_perturbation"),
++        ("VALUE:int:4", "not_output"),
++        ("OUTPUT", "not_output"),
++        ("", "not_output"),
++    ],
++)
++def test_kill_class_of_dimension_names_every_state(dimension, expected):
++    assert kill_class_of_dimension(dimension) == expected
++
++
++# ── state-extra ─────────────────────────────────────────────────────────────────────────────────
++
++
++def test_an_argument_the_function_leaves_alone_takes_an_extra_write(target):
++    module, path = target
++
++    def pins():
++        xs = [1, 2]
++        assert module.total(xs, 1) == 4
++        assert xs == [1, 2]
++
++    def ignores_xs():
++        assert module.total([1, 2], 1) == 4
++
++    observed = observe(module, path, "total", [pins])
++    modes = _modes(path, "total", observed)
++    assert "state_extra@xs" in modes
++    assert "state_extra@extra" not in modes, "an int is not mutable"
++    m = one(path, "total", observed, "state_extra@xs")
++    assert run(m, [pins], module, path, "total").killed_by == "assertion"
++    # A suite that never looks at xs afterwards has not pinned the absence of side effects.
++    assert not run(m, [ignores_xs], module, path, "total").killed
++
++
++def test_an_argument_the_function_writes_is_not_given_an_extra_write(target):
++    module, path = target
++
++    def t():
++        xs = []
++        assert module.append_all(xs, [1, 2]) == 2
++
++    observed = observe(module, path, "append_all", [t])
++    modes = _modes(path, "append_all", observed)
++    assert "state_extra@ys" in modes and "state_extra@xs" not in modes
++    assert any(
++        "state_extra@xs" in line and "mutated" in line
++        for line in withheld_here(parse_codomain(observed))
++    )
++
++
++def test_an_argument_that_is_not_always_mutable_is_named_not_generated(target):
++    module, path = target
++
++    def t():
++        assert module.varies([1]) == 1
++        assert module.varies((1,)) == 1
++
++    observed = observe(module, path, "varies", [t])
++    assert "state_extra@xs" not in _modes(path, "varies", observed)
++    assert any(
++        "type_varies" in line for line in withheld_here(parse_codomain(observed))
++    )
++
++
++def test_a_function_with_no_mutable_argument_says_so(target):
++    module, path = target
++
++    def t():
++        assert module.calm(1) == 2
++
++    observed = observe(module, path, "calm", [t])
++    assert any(
++        "state_extra" in line and "no_mutable_argument_observed" in line
++        for line in withheld_here(parse_codomain(observed))
++    )
++
++
++def test_a_receiver_that_is_left_alone_takes_the_write_and_one_that_is_written_does_not(
++    target,
++):
++    module, path = target
++
++    def peeks():
++        c = module.Counter()
++        assert module.Counter.peek(c) == 0
++        assert c.n == 0
++
++    def bumps():
++        c = module.Counter()
++        assert module.Counter.bump(c) == 1
++
++    modes = {}
++    for name, test in (("peek", peeks), ("bump", bumps)):
++        node = node_of(path, name)
++        observed = observe_codomain(
++            getattr(module.Counter, name), [test], func_node=node
++        )
++        modes[name] = {
++            m.dimension.split(":")[1]
++            for m in generate_mutants(
++                node, {MutationCategory.OUTPUT}, 0, observed_return_types=observed
++            )
++        }
++    assert "state_extra@self" in modes["peek"]
++    assert "state_extra@self" not in modes["bump"]
++
++
++@pytest.mark.parametrize(
++    "arg",
++    [[], [1, 2], {}, {"a": 1}, set(), {1}, bytearray(b"ab")],
++)
++def test_the_extra_write_changes_a_mutable_argument_without_raising(arg):
++    assert extra_write_supported(arg)
++    before = repr(arg)
++    extra_write(arg)
++    assert repr(arg) != before
++
++
++def test_the_extra_write_reaches_an_object_and_a_deque():
++    import collections
++
++    class Box:
++        def __init__(self):
++            self.v = 1
++
++    box, dq = Box(), collections.deque([1])
++    extra_write(box)
++    extra_write(dq)
++    assert box.__dict__ == {"v": 1, "__wesker_extra__": None} and len(dq) == 2
++
++
++@pytest.mark.parametrize(
++    "arg", [3, "s", (1, 2), frozenset({1}), None, 1.5, b"x", len, int]
++)
++def test_an_immutable_value_or_a_callable_is_not_a_target_for_the_extra_write(arg):
++    assert not extra_write_supported(arg)
++
++
++def test_the_wrapper_leaves_an_argument_that_cannot_take_the_write_alone_and_never_raises():
++    seen: list = []
++
++    def f(xs):
++        seen.append(xs)
++        return len(xs)
++
++    wrapped = form_b("state_extra@xs")(f)
++    assert wrapped((1, 2)) == 2, "a tuple takes no write; the call returns as f does"
++    data = [1, 2]
++    assert wrapped(data) == 2 and data == [1, 2, None]
++    assert wrapped(xs=[9]) == 1
++    # A name the function does not have: nothing to write, nothing raised.
++    other = form_b("state_extra@nope")(f)
++    assert other([1]) == 1
++
++
++# ── state-noop ──────────────────────────────────────────────────────────────────────────────────
++
++
++def test_state_noop_is_realized_by_the_positive_operators_and_the_policy_says_so():
++    (op,) = [o for o in MU_MINUS_CATALOG if o.key == "state-noop"]
++    assert op.status == "realized_by" and op.modes == ("STATE:remove_assign", "STMT")
++    assert "D2" in op.note and "11.9" in op.note
++    negative = mutation_policy(two_sign=True)
++    # The two-sign policy generates both positive operators the realization names...
++    assert {"STATE", "STMT"} <= set(negative.categories)
++    # ...and declares the realization on the policy itself, so a receipt does not read the absence of
++    # an OUTPUT sub-mode as an unmeasured operator.
++    realized = negative.categories["OUTPUT"]["realized_by"]
++    assert realized["state-noop"]["modes"] == ["STATE:remove_assign", "STMT"]
++    assert set(realized) == {"0", "state-noop"}
++    # No OUTPUT sub-mode exists for it: that is the ruling, not an omission.
++    output_modes = set(negative.categories["OUTPUT"]["sub_modes"]) | set(
++        negative.categories["OUTPUT"]["form_b"]["call"]
++    )
++    assert not any("noop" in mode for mode in output_modes)
++
++
++def test_omitting_a_side_effect_is_a_positive_mutant_of_the_same_function(target):
++    import ast
++
++    src = "def f(self, v, xs):\n    self.x = v\n    xs.append(v)\n    return v\n"
++    node = ast.parse(src).body[0]
++    stmt = generate_mutants(node, {MutationCategory.STMT}, 0)
++    state = generate_mutants(node, {MutationCategory.STATE}, 0)
++    assert any(
++        "xs.append" in ast.unparse(m.original_node)
++        and ast.unparse(m.mutated_node) != ast.unparse(m.original_node)
++        for m in stmt
++    )
++    assert any(m.dimension.startswith("STATE:remove_assign") for m in state)
+-- 
+2.43.0
+

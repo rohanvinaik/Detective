@@ -1,0 +1,132 @@
+From 4b60fcbbcd42f67bf6fa67af213751da0b0df58f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:17:27 +0000
+Subject: [PATCH 08/11] fix(#94): RemovalReport.not_found and .parametrized are
+ computed from outcomes, the one record
+
+The defect, verbatim from the issue: "a computed field no reader reads is invisible". `not_found` and
+`parametrized` were stored copies of what `outcomes` (the complete per-id record the --remove page reads,
+#103) already says; production read neither, and a report built with one disagreeing with the other was
+possible.
+
+Why the obvious fix is wrong: deleting them outright would orphan two test files that state a real
+contract (an id kept for any reason but being a row; a bracketed row) and lose the vocabulary. They are
+now properties of `outcomes`, so there is one source and the two test files keep asserting the same
+behaviour unchanged.
+
+Not closed: the other 10 OPEN fields of tests/test_field_consumption_intent.py.
+
+OPEN 12 -> 10. Disarmed (the old stored fields), the new intent test fails (1 of 1). 191 tests in the
+removal neighbours and the guards pass under 3.14 and 3.12 apart from the unrelated `bound` entry of
+test_absorbed_rename_intent (the integration Wesker now declares it); ruff clean under pinned 0.16.7.
+---
+ Detective/suite_edit.py                | 25 ++++++++++++++++---------
+ tests/test_field_consumption_intent.py | 12 +-----------
+ tests/test_removal_identity_intent.py  | 20 ++++++++++++++++++++
+ 3 files changed, 37 insertions(+), 20 deletions(-)
+
+diff --git a/Detective/suite_edit.py b/Detective/suite_edit.py
+index ba510c1..a214a25 100644
+--- a/Detective/suite_edit.py
++++ b/Detective/suite_edit.py
+@@ -114,16 +114,25 @@ class RemovalReport:
+     """Outcome of applying deletions: what was removed and from where."""
+ 
+     removed: tuple[str, ...]  # ids whose OWN definition was deleted (exact, never by bare name)
+-    not_found: tuple[str, ...]  # ids kept for any reason but being a row; each has its cause in `outcomes`
+     files_changed: tuple[str, ...]  # files rewritten
+-    # Bracketed names (test_x[case]) — ROWS of a live parametrized test. Removal
+-    # works at function granularity: deleting the function to prune a row would
+-    # take the live rows with it, so these are never attempted, only reported.
+-    parametrized: tuple[str, ...] = ()
+     # (id, code) for EVERY requested id — `removal_disposition`'s codes plus the edit's own
+-    # "removed" / "stale_collection" / "shadowed" — so no id is reported without its cause (#103).
++    # "removed" / "stale_collection" / "shadowed" — so no id is reported without its cause (#103). The ONE
++    # record: `not_found` and `parametrized` are views of it, not second copies that could disagree (#94).
+     outcomes: tuple[tuple[str, str], ...] = ()
+ 
++    @property
++    def not_found(self) -> tuple[str, ...]:
++        """The ids kept for any reason but being a row of a live parametrized test; each has its cause in
++        `outcomes`. Sorted, as the ids of `outcomes` are."""
++        return tuple(i for i, c in self.outcomes if c not in ("removed", "parametrized_row"))
++
++    @property
++    def parametrized(self) -> tuple[str, ...]:
++        """Bracketed names (test_x[case]) — ROWS of a live parametrized test. Removal works at function
++        granularity: deleting the function to prune a row would take the live rows with it, so these are
++        never attempted, only reported."""
++        return tuple(i for i, c in self.outcomes if c == "parametrized_row")
++
+ 
+ def file_digest(path: str) -> str:
+     """The sha256 of a file's bytes — the basis a removal is proposed against and checked against (#104).
+@@ -494,6 +503,4 @@ def apply_removals(
+             atomic_write_text(path, source)
+             changed.append(path)
+     removed = tuple(sorted(i for i, c in outcomes.items() if c == "removed"))
+-    rows = tuple(sorted(i for i, c in outcomes.items() if c == "parametrized_row"))
+-    kept = tuple(sorted(i for i, c in outcomes.items() if c not in ("removed", "parametrized_row")))
+-    return RemovalReport(removed, kept, tuple(changed), rows, tuple(sorted(outcomes.items())))
++    return RemovalReport(removed, tuple(changed), tuple(sorted(outcomes.items())))
+diff --git a/tests/test_field_consumption_intent.py b/tests/test_field_consumption_intent.py
+index 33fdc77..68e27e8 100644
+--- a/tests/test_field_consumption_intent.py
++++ b/tests/test_field_consumption_intent.py
+@@ -106,16 +106,6 @@ OPEN: dict[str, str] = {
+         "`refusal`, `assembly`, `detail`, `regime`). Only a test reads it. Delete it with its producers, "
+         "or let the refusal page name the file."
+     ),
+-    "suite_edit.RemovalReport.not_found": (
+-        "A derived view of `outcomes` (the ids whose code is not removed / parametrized_row), kept after "
+-        "#103 made `outcomes` the complete per-id record the --remove page reads. Only "
+-        "tests/test_suite_edit_native.py and tests/test_removal_identity_intent.py assert it. Delete it "
+-        "and move those asserts onto `outcomes`."
+-    ),
+-    "suite_edit.RemovalReport.parametrized": (
+-        "A derived view of `outcomes` (the ids coded parametrized_row); the --remove page reads the code "
+-        "per id. Only tests read it. Delete it with `not_found`."
+-    ),
+     "oracle_light.ExecutableProperty.confidence": (
+         "A hand-set number (0.2 to 0.95) at about thirty construction sites. `property_identity` states it "
+         "is DELIBERATELY EXCLUDED from identity and nothing ranks, filters or prints by it; pins.json "
+@@ -257,7 +247,7 @@ def test_a_field_is_never_in_both_registries() -> None:
+ def test_the_open_gaps_are_exactly_what_we_know_about() -> None:
+     """`len(OPEN)` is the number this guard exists to make visible. A fix makes it go DOWN; a new finding
+     UP. Either is a deliberate edit here, never a silent drift."""
+-    assert len(OPEN) == 12
++    assert len(OPEN) == 10
+ 
+ 
+ # ---------------------------------------------------------------- the decision
+diff --git a/tests/test_removal_identity_intent.py b/tests/test_removal_identity_intent.py
+index defbb5e..ff56679 100644
+--- a/tests/test_removal_identity_intent.py
++++ b/tests/test_removal_identity_intent.py
+@@ -209,3 +209,23 @@ def test_a_row_suffix_alone_is_not_resolution():
+     ident = "tests/t.py::test_foo[case]"
+     assert ident.split("[", 1)[0] != "test_foo"
+     assert nodeid_function_name(ident) == "test_foo"
++
++
++def test_not_found_and_parametrized_are_views_of_the_one_record_of_outcomes() -> None:
++    """#94: `not_found` and `parametrized` were stored copies of what `outcomes` already says, so a report
++    built with one disagreeing with the other was possible. They are now computed from `outcomes`."""
++    from Detective.suite_edit import RemovalReport
++
++    report = RemovalReport(
++        removed=("a.py::test_x",),
++        files_changed=("a.py",),
++        outcomes=(
++            ("a.py::test_x", "removed"),
++            ("a.py::test_y", "not_located"),
++            ("a.py::test_z[1]", "parametrized_row"),
++            ("a.py::test_w", "ambiguous"),
++        ),
++    )
++    assert report.parametrized == ("a.py::test_z[1]",)
++    assert report.not_found == ("a.py::test_y", "a.py::test_w")
++    assert RemovalReport(removed=(), files_changed=()).not_found == ()
+-- 
+2.43.0
+

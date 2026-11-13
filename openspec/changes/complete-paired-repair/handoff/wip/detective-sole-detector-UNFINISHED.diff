@@ -1,0 +1,355 @@
+diff --git a/Detective/audit.py b/Detective/audit.py
+index 9ae6c13..88882cd 100644
+--- a/Detective/audit.py
++++ b/Detective/audit.py
+@@ -844,6 +844,79 @@ def write_refused_survivors(
+     return tuple(out)
+ 
+ 
++def detector_standing(detectors: list[str], removed: list[str]) -> str:
++    """Whether a survivor the certificate leans on stays detected once the proposed removals are made
++    (pure — pinned).
++
++    A refused crash-detected survivor (the named floor, #143) or a crash-only one is detected by the tests
++    of the full relation that crash on it. A removal proposal is made over kills and lines, and a test it
++    deletes may be the very test the page names as the detector, so the page and the plan must read the
++    same relation:
++
++      "none"          no test detects it at all (an open survivor): nothing to keep, nothing to name
++      "kept"          at least one detector is not proposed for removal: the survivor stays detected
++      "sole_removed"  every detector is proposed for removal: removing them leaves the survivor undetected,
++                      so the certificate that names it as a floor would lean on a test that no longer
++                      exists. The proposal must keep a detector.
++    """
++    if not detectors:
++        return "none"
++    return "kept" if any(test not in removed for test in detectors) else "sole_removed"
++
++
++def sole_detector_tests(detected: dict[str, list[str]], removed: list[str]) -> list[str]:
++    """The proposed removals to withdraw so every detected survivor keeps a detector (pure — pinned).
++
++    ``detected`` maps each survivor the certificate leans on to the tests that detect it. For each survivor
++    `detector_standing` calls ``sole_removed``, the lexicographically smallest of its detectors is kept
++    (withdrawn from ``removed``), so the choice does not follow execution order. Sorted, without repeats."""
++    keep: set[str] = set()
++    for tests in detected.values():
++        standing = detector_standing(tests, removed)
++        if standing == "sole_removed":
++            keep.add(sorted(tests)[0])
++        elif standing == "kept":
++            continue  # a detector stays: the removal does not touch what the certificate leans on
++        elif standing == "none":
++            continue  # nothing detects it: there is no detector to keep
++    return sorted(keep)
++
++
++def detection_view(relation: dict[str, list[str]], removed: list[str]) -> dict[str, list[str]]:
++    """The relation a survivor's detector is NAMED from, with the removal proposals set aside (pure —
++    pinned): each description maps to its detectors that stay, or to all of them where none would."""
++    view: dict[str, list[str]] = {}
++    for description, tests in relation.items():
++        staying = [test for test in tests if test not in removed]
++        view[description] = staying if staying else list(tests)
++    return view
++
++
++def _key_of(mutant_id: str, matrix: dict[str, list[str]]) -> str:
++    """The relation's key for a mutant id: keys read ``"<id>: <description>"``; "" when it has none."""
++    return next((key for key in matrix if key.startswith(f"{mutant_id}:")), "")
++
++
++def detected_relation_keys(
++    records: list[list[str]],
++    named: tuple[tuple[str, str, str, str, str], ...],
++    crash_only_ids: list[str],
++    matrix: dict[str, list[str]],
++) -> list[str]:
++    """The relation keys of the survivors the certificate leans on: the refused ones the suite detects
++    by crash (named by the record's own key) and the crash-only ones it detects."""
++    detected_ids = {survivor[0] for survivor in named if survivor[2] == "crash_detected"}
++    keys = [record[1] for record in records if record[0] in detected_ids and record[1] in matrix]
++    keys += [key for key in (_key_of(i, matrix) for i in crash_only_ids) if key]
++    return list(dict.fromkeys(keys))
++
++
++def _first_detector(mutant_id: str, view: dict[str, list[str]]) -> str:
++    """A test that detects ``mutant_id`` and stays (the smallest id), "" when the relation has none."""
++    tests = view.get(_key_of(mutant_id, view), [])
++    return sorted(tests)[0] if tests else ""
++
++
+ def refused_floor_standing(standings: list[str], unclassified: int) -> str:
+     """Whether a function's whole unclassified residual is refused survivors the suite detects by crash
+     (#143, pure — pinned).
+@@ -1107,6 +1180,8 @@ def audit_suite(
+     unclassified = 0
+     write_refused = 0
+     write_refused_named: tuple[tuple[str, str, str, str, str], ...] = ()
++    _refused_records: list[list[str]] = []
++    _crash_only_detected: list[str] = []
+     refused_floor: tuple[str, ...] = ()
+     blocked_causes: tuple[tuple[str, str], ...] = ()
+     classified = False
+@@ -1161,9 +1236,9 @@ def audit_suite(
+         takes_arguments = report.takes_arguments
+         boundary_probe = str(getattr(report, "boundary_probe", "") or "")
+         unclassified = len(report.unclassified)
+-        write_refused_named = write_refused_survivors(
+-            [list(r) for r in report.write_refused_records], result.kill_matrix
+-        )
++        _refused_records = [list(r) for r in report.write_refused_records]
++        _crash_only_detected = [v.mutant_id for v in report.equivalent if v.crash_only and v.suite_detected]
++        write_refused_named = write_refused_survivors(_refused_records, result.kill_matrix)
+         write_refused = sum(1 for s in write_refused_named if s[2] == "open")
+         # The refused survivors the suite detects by crash are a FLOOR when they are the whole unclassified
+         # residual (#143): `mutant_complete` below holds modulo them, and they are named, never dropped.
+@@ -1256,6 +1331,21 @@ def audit_suite(
+         )
+         redundant = redundant_2axis(own_matrix, own_lines)
+         minimal = minimal_cover_2axis(own_matrix, own_lines)
++        # DETECTION is part of the relation a removal is decided over: a test that is the only remaining
++        # detector of a survivor the certificate leans on (the refused floor, a crash-only survivor) is
++        # kept, and the detector the page names is read from the same relation, from a test that stays.
++        _leaned = {
++            key: own_matrix[key]
++            for key in detected_relation_keys(
++                _refused_records, write_refused_named, _crash_only_detected, own_matrix
++            )
++        }
++        redundant -= set(sole_detector_tests(_leaned, sorted(redundant)))
++        _view = detection_view(own_matrix, sorted(redundant))
++        write_refused_named = write_refused_survivors(_refused_records, _view)
++        crash_detected_by = tuple(
++            (mutant_id, _first_detector(mutant_id, _view)) for mutant_id, _ in crash_detected_by
++        )
+     _basis = function_basis(
+         result,
+         validity,
+diff --git a/Detective/converge.py b/Detective/converge.py
+index e02f40d..b24235e 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -1805,13 +1805,17 @@ def admissible_proof_coverage(result: Any) -> tuple[dict[str, list[int]], str]:
+     return proof_coverage, basis
+ 
+ 
+-def _named_write_refused(report: Any, result: Any) -> tuple[tuple[str, str, str, str, str], ...]:
++def _named_write_refused(
++    report: Any, result: Any, matrix: dict[str, list[str]] | None = None
++) -> tuple[tuple[str, str, str, str, str], ...]:
+     """`audit.write_refused_survivors` over a converge's survivor report and final profile (#105): the
+     accessor unpacks the objects; the decision is audit's, so the two verbs name them alike."""
+     from .audit import write_refused_survivors
+ 
+     records = report.write_refused_records if report is not None else ()
+-    return write_refused_survivors([list(r) for r in records], dict(getattr(result, "kill_matrix", {}) or {}))
++    # ``matrix`` is the detection view (removal proposals set aside); without one, the profile's own matrix.
++    named_from = matrix if matrix is not None else dict(getattr(result, "kill_matrix", {}) or {})
++    return write_refused_survivors([list(r) for r in records], named_from)
+ 
+ 
+ def _refused_floor(report: Any, result: Any) -> tuple[str, ...]:
+@@ -3161,14 +3165,41 @@ def _converge_impl(
+     # ... and on the FULL per-test kill relation, never the first-killer credit (#145): the cover and the
+     # redundant set are functions of which tests kill which mutants, and Wesker's own matrix names only
+     # the first killer in run order. Not established (a named standing) is no redundant set and no cover.
+-    from .audit import kill_relation_of, profile_dynamic_census
++    from .audit import (
++        detected_relation_keys,
++        detection_view,
++        kill_relation_of,
++        profile_dynamic_census,
++        sole_detector_tests,
++    )
+ 
+     _relation = kill_relation_of(final_result, _validity.admits_certificate)
+     if _relation.standing == "full_matrix":
+         redundant = redundant_2axis(_relation.matrix, proof_coverage)
+         minimal: set[str] | None = minimal_cover_2axis(_relation.matrix, proof_coverage)
++        # Detection is part of the relation a removal is decided over (the audit's rule, one derivation): a
++        # test that is the only remaining detector of a refused or crash-only survivor is kept, and the
++        # detector named for it is one that stays.
++        _named_first = _named_write_refused(survivor_report, final_result)
++        _crash_only_ids = (
++            [v.mutant_id for v in survivor_report.equivalent if v.crash_only and v.suite_detected]
++            if survivor_report is not None
++            else []
++        )
++        _leaned = {
++            key: _relation.matrix[key]
++            for key in detected_relation_keys(
++                [list(r) for r in (survivor_report.write_refused_records if survivor_report else ())],
++                _named_first,
++                _crash_only_ids,
++                _relation.matrix,
++            )
++        }
++        redundant -= set(sole_detector_tests(_leaned, sorted(redundant)))
++        _detection_view: dict[str, list[str]] | None = detection_view(_relation.matrix, sorted(redundant))
+     else:
+         redundant, minimal = set(), None
++        _detection_view = None
+     # #38: the certificate's verification axis. COMPLETE requires a GREEN run of the exact target
+     # proof basis under REAL pytest — the generated file PLUS the hand-written tests that supplied
+     # target kills or admissible lines, not merely Wesker's direct-call runner. Run it only
+@@ -3281,7 +3312,7 @@ def _converge_impl(
+         remaining=_remaining_summary(final_result.value_survivor_records),
+         wiring=wiring,
+         survivor_report=survivor_report,
+-        write_refused_survivors=_named_write_refused(survivor_report, final_result),
++        write_refused_survivors=_named_write_refused(survivor_report, final_result, _detection_view),
+         # Named only where completeness actually rests on it: a cut, unverified or floor-failing run claims
+         # nothing modulo anything, and its refused survivors are still named in `write_refused_survivors`.
+         refused_floor=refused_floor if functionally_complete else (),
+diff --git a/tests/test_detection_in_removal_intent.py b/tests/test_detection_in_removal_intent.py
+new file mode 100644
+index 0000000..fe72e90
+--- /dev/null
++++ b/tests/test_detection_in_removal_intent.py
+@@ -0,0 +1,145 @@
++"""A removal plan consumes DETECTION, and a page names a detector that stays (#143's fixture).
++
++THE DEFECT, found by the integrator on #143's c1 writer (`tests/test_write_refused_detected_intent.py`):
++`audit` listed `test_atomic_write_text_writes` as redundant "for BOTH kills and lines" and `--remove` would
++delete it, while the same page's refused floor ("modulo 5 refused crash-detected survivor(s)") and its
++`write_refused_survivors` named THAT test as the one that detects them. The certificate would then lean on a
++test that no longer exists. Two causes, one derivation each:
++
++* the detector a survivor is NAMED by was read from Wesker's first-killer matrix (execution order), while
++  the redundant set is decided over the FULL relation, so the two disagreed about which test detects it;
++* nothing held a removal back when the test it proposes to delete is the last detector of a survivor the
++  certificate leans on (the refused floor, a crash-only survivor).
++
++The rule now: `redundant -= sole_detector_tests(...)` keeps a detector for every survivor the certificate
++leans on, and the page names the smallest-id detector that STAYS (`detection_view`). A control where a second
++test also detects them leaves one of the two removable, and the named detector is the one that stays.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import subprocess
++import sys
++
++import pytest
++
++from Detective.audit import detection_view, detector_standing, sole_detector_tests
++
++# #143's c1 fixture (copied from test_write_refused_detected_intent.py: tests are not a package)
++_WRITER = (
++    "import os\n\n\n"
++    "def atomic_write_text(path, text):\n"
++    "    tmp = f'{path}.tmp-{os.getpid()}'\n"
++    "    with open(tmp, 'w') as fh:\n"
++    "        fh.write(text)\n"
++    "    os.replace(tmp, path)\n"
++)
++_WRITER_TEST = (
++    "import os\n\n"
++    "from m import atomic_write_text\n\n\n"
++    "def test_atomic_write_text_writes(tmp_path):\n"
++    "    target = tmp_path / 'a.txt'\n"
++    "    atomic_write_text(str(target), 'hello')\n"
++    "    assert target.read_text() == 'hello'\n"
++)
++_STAGING_TEST = (
++    "\n\ndef test_atomic_write_text_consumes_its_own_staging_file(tmp_path):\n"
++    "    target = tmp_path / 's.txt'\n"
++    "    staging = tmp_path / f's.txt.tmp-{os.getpid()}'\n"
++    "    staging.write_text('stale')\n"
++    "    atomic_write_text(str(target), 'fresh')\n"
++    "    assert target.read_text() == 'fresh'\n"
++    "    assert not staging.exists()\n"
++)
++
++# ------------------------------------------------------------------ the pure decision
++
++
++@pytest.mark.parametrize(
++    ("detectors", "removed", "standing"),
++    [
++        ([], [], "none"),
++        ([], ["t::a"], "none"),
++        (["t::a"], [], "kept"),
++        (["t::a", "t::b"], ["t::a"], "kept"),
++        (["t::a"], ["t::a"], "sole_removed"),
++        (["t::a", "t::b"], ["t::b", "t::a"], "sole_removed"),
++        (["t::a"], ["t::other"], "kept"),
++    ],
++)
++def test_a_survivor_stays_detected_only_while_a_detector_stays(detectors, removed, standing):
++    assert detector_standing(detectors, removed) == standing
++
++
++def test_the_removals_to_withdraw_keep_the_smallest_detector_of_each_survivor_left_bare():
++    detected = {"M1: a": ["t::b", "t::a"], "M2: b": ["t::c"], "M3: c": ["t::a", "t::z"]}
++    # M1 loses both detectors, M2 loses its only one, M3 keeps t::z
++    assert sole_detector_tests(detected, ["t::a", "t::b", "t::c"]) == ["t::a", "t::c"]
++    assert sole_detector_tests(detected, []) == []
++    assert sole_detector_tests({}, ["t::a"]) == []
++
++
++def test_the_detection_view_sets_removals_aside_unless_that_would_leave_none():
++    relation = {"M1: a": ["t::a", "t::b"], "M2: b": ["t::a"]}
++    assert detection_view(relation, ["t::a"]) == {"M1: a": ["t::b"], "M2: b": ["t::a"]}
++    assert detection_view(relation, []) == relation
++
++
++# ------------------------------------------------------------------ end to end, on #143's fixture
++
++
++def _detective(cwd, *argv):
++    env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
++    return subprocess.run(
++        [sys.executable, "-m", "Detective", *argv],
++        cwd=cwd,
++        capture_output=True,
++        text=True,
++        timeout=600,
++        check=False,
++        env=env,
++    )
++
++
++def _audit(tmp_path, tests_source):
++    project = tmp_path / "proj"
++    (project / "tests").mkdir(parents=True)
++    (project / "m.py").write_text(_WRITER)
++    (project / "tests" / "test_m.py").write_text(tests_source)
++    assert _detective(project, "regime", "--migrate", "--project-root", str(project)).returncode == 0
++    run = _detective(project, "audit", "m.py::atomic_write_text", "--json")
++    return json.loads(run.stdout)
++
++
++def test_the_page_names_a_detector_that_stays_when_a_second_test_also_detects_them(tmp_path):
++    """The control: both tests crash the five refused mutants. One of the two is removable, and the survivor
++    rows name the OTHER one: the test the plan deletes is never the one the certificate cites."""
++    audit = _audit(tmp_path, _WRITER_TEST + _STAGING_TEST)
++    removed = [t.rsplit("::", 1)[1] for t in audit["redundant_tests"]]
++    assert removed == ["test_atomic_write_text_writes"], removed
++    detected = [s for s in audit["write_refused_survivors"] if s[2] == "crash_detected"]
++    assert len(detected) == 5
++    named = {s[3].rsplit("::", 1)[1] for s in detected}
++    assert named == {"test_atomic_write_text_consumes_its_own_staging_file"}, named
++
++
++_SWALLOWED_STAGING_TEST = (
++    "\n\ndef test_atomic_write_text_swallows(tmp_path):\n"
++    "    target = tmp_path / 's.txt'\n"
++    "    try:\n"
++    "        atomic_write_text(str(target), 'fresh')\n"
++    "    except Exception:\n"
++    "        pass\n"
++)
++
++
++def test_a_test_that_is_the_only_detector_of_the_refused_floor_is_not_proposed_for_removal(tmp_path):
++    """The second test swallows every exception and asserts nothing, so it detects nothing: the first test
++    is the sole detector of the five and must stay, and it is the one the page names."""
++    audit = _audit(tmp_path, _WRITER_TEST + _SWALLOWED_STAGING_TEST)
++    removed = [t.rsplit("::", 1)[1] for t in audit["redundant_tests"]]
++    assert "test_atomic_write_text_writes" not in removed, removed
++    detected = [s for s in audit["write_refused_survivors"] if s[2] == "crash_detected"]
++    assert detected and {s[3].rsplit("::", 1)[1] for s in detected} == {"test_atomic_write_text_writes"}

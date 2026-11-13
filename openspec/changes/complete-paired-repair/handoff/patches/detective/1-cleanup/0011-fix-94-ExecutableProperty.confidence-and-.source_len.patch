@@ -1,0 +1,762 @@
+From 40dac444b4ad925b18a6ebd642622d9df4f0ccdc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:52:04 +0000
+Subject: [PATCH 11/11] fix(#94): ExecutableProperty.confidence and
+ .source_lenses are deleted; old pins files still load
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The defect, verbatim from the issue: "a computed field no reader reads is invisible". `confidence` was a
+hand-set number (0.2 to 0.95) at about thirty construction sites and `source_lenses` a provenance list; the
+property's own `property_identity` states both are DELIBERATELY EXCLUDED from identity, nothing ranked,
+filtered or printed by either, and pins.json persisted them.
+
+Why a consumer is the wrong answer: printing either would present a made-up number as evidence. They are
+deleted with their producers (oracle_light's constructions, converge's five, `_skip`'s parameter), and
+`needs_oracle` is the provenance that stays. Deleting a persisted field must not strand an existing store:
+`pins.load` takes only the keys in `_FIELDS`, so a pins.json an older Detective wrote (both keys present)
+loads unchanged and the next `save` drops them; a test writes such a file and proves both. Positional
+constructions in test_writer_native passed `confidence` as the sixth argument and would now have fed
+`needs_oracle`; they are fixed. The stale golden of `_witness_property`, which pinned a repr containing
+both fields, is removed (its converge was CUT by the machine load on the first and second attempt and wrote
+a fresh golden that is not committed): the integrator regenerates it at re-pin.
+
+Not closed: TargetBinding.receiver_params (1 OPEN). `_witness_property` has no committed golden until
+re-pinned; final converge line "CUT — aggregate deadline exhausted during minimization".
+
+OPEN 3 -> 1. 941 tests across the oracle_light, pins, writer, converge and guard files pass under 3.14 and
+3.12 apart from the unrelated `bound` entry; ruff clean under pinned 0.16.7.
+---
+ Detective/converge.py                         | 10 ----
+ Detective/pins.py                             |  2 -
+ Detective/synthesis/oracle_light.py           | 52 +++++--------------
+ tests/test__witness_property_synth.py         | 31 -----------
+ tests/test_converge_native.py                 |  2 -
+ tests/test_field_consumption_intent.py        | 11 +---
+ tests/test_oracle_light_native.py             | 43 +++++++--------
+ tests/test_oracle_light_roundtrip_native.py   |  8 ++-
+ tests/test_pins_native.py                     | 33 +++++++++++-
+ .../test_platform_observation_stamp_intent.py |  1 -
+ tests/test_property_identity.py               | 11 ++--
+ tests/test_writer_native.py                   | 20 ++++---
+ 12 files changed, 79 insertions(+), 145 deletions(-)
+ delete mode 100644 tests/test__witness_property_synth.py
+
+diff --git a/Detective/converge.py b/Detective/converge.py
+index 4f97c11..e02f40d 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -1172,8 +1172,6 @@ def _golden_property(
+         setup_code=_setup_with_imports(mod, fname, capture.inputs, root, import_stmt=import_stmt),
+         assertion_code=assertion_code,
+         preconditions=preconditions,
+-        confidence=0.9,
+-        source_lenses=["golden_capture"],
+         needs_oracle=False,
+         golden_case=golden_case,
+     )
+@@ -1230,8 +1228,6 @@ def _witness_property(
+         setup_code=_setup_with_imports(mod, fname, witness.args, root, import_stmt=import_stmt),
+         assertion_code="\n".join(lines),
+         preconditions=preconditions,
+-        confidence=0.95,
+-        source_lenses=["witness"],
+         needs_oracle=False,
+     )
+ 
+@@ -1266,8 +1262,6 @@ def _history_pair_property(
+         ),
+         assertion_code="\n".join(lines),
+         preconditions=["history-dependent witness: two calls with different results (equivalence search)"],
+-        confidence=0.95,
+-        source_lenses=["witness", "history"],
+         needs_oracle=False,
+     )
+ 
+@@ -1307,8 +1301,6 @@ def _state_witness_property(
+         setup_code=_setup_with_imports(mod, owner, witness.args, root, import_stmt=factory_import),
+         assertion_code="\n".join(lines),
+         preconditions=["receiver-state witness (equivalence search, fallback)"],
+-        confidence=0.95,
+-        source_lenses=["witness", "receiver-state"],
+         needs_oracle=False,
+     )
+ 
+@@ -1388,8 +1380,6 @@ def _raises_witness_property(
+         setup_code=setup,
+         assertion_code=assertion,
+         preconditions=[f"distinguishing witness (original raises {raises})"],
+-        confidence=0.95,
+-        source_lenses=["witness"],
+         needs_oracle=False,
+     )
+ 
+diff --git a/Detective/pins.py b/Detective/pins.py
+index c96e569..2bef9e7 100644
+--- a/Detective/pins.py
++++ b/Detective/pins.py
+@@ -50,8 +50,6 @@ _FIELDS = (
+     "setup_code",
+     "assertion_code",
+     "preconditions",
+-    "confidence",
+-    "source_lenses",
+     "needs_oracle",
+     "function_key",
+     "mutant_id",
+diff --git a/Detective/synthesis/oracle_light.py b/Detective/synthesis/oracle_light.py
+index 92af7d7..a7d3372 100644
+--- a/Detective/synthesis/oracle_light.py
++++ b/Detective/synthesis/oracle_light.py
+@@ -16,7 +16,7 @@ import ast
+ import hashlib
+ import os
+ import re
+-from dataclasses import dataclass, field
++from dataclasses import dataclass
+ from typing import Any
+ 
+ from .typed_synthesis import _resolve_dataclass, synthesize_value
+@@ -31,8 +31,6 @@ class ExecutableProperty:
+     setup_code: str  # no indent — the caller adds it
+     assertion_code: str  # no indent, multi-line OK
+     preconditions: list[str]
+-    confidence: float
+-    source_lenses: list[str] = field(default_factory=list)
+     needs_oracle: bool = False
+     function_key: str = ""
+     mutant_id: str = ""
+@@ -67,11 +65,11 @@ def property_id(
+     content hash survives regeneration, which is what lets a property be recognised as the same
+     obligation across passes at all.
+ 
+-    WHAT IS DELIBERATELY EXCLUDED: ``confidence``, ``source_lenses`` and ``needs_oracle``.
+-    Those are PROVENANCE — how well we believe it and where it came from — not what it
+-    asserts. Two properties differing only in confidence are one property discovered twice, and
+-    folding provenance into identity would accumulate both and pin the same behaviour with two
+-    tests that can never disagree.
++    WHAT IS DELIBERATELY EXCLUDED: ``needs_oracle``. That is PROVENANCE — whether an oracle must
++    still supply the expectation — not what the property asserts. (A hand-set ``confidence`` and a
++    ``source_lenses`` list used to ride beside it; nothing ranked, filtered or printed by them, and
++    #94 retired both.) Folding provenance into identity would accumulate one behaviour twice, and pin
++    it with two tests that can never disagree.
+ 
+     Fields are joined on ``\\x00``, which cannot occur in Python source or a repr, so no
+     combination of values can forge the boundary between two of them and collide with a
+@@ -235,7 +233,7 @@ def _swap_property(_survivor, func_key, func_node, call_site_inputs, root=None)
+     setup = _import_line(mod, fname, root)
+ 
+     if len(params) < 2:
+-        return _skip("SWAP", setup, f"# SWAP survived but {fname} has <2 params", 0.3)
++        return _skip("SWAP", setup, f"# SWAP survived but {fname} has <2 params")
+ 
+     typed_skip = _swap_type_skip(func_node, setup)
+     if typed_skip is not None:
+@@ -253,8 +251,6 @@ def _swap_property(_survivor, func_key, func_node, call_site_inputs, root=None)
+         setup_code=setup,
+         assertion_code=assertion,
+         preconditions=[f"{params[0]} != {params[1]}", "non-commutative"],
+-        confidence=0.75 if call_site_inputs else 0.6,
+-        source_lenses=["mutation"] + (["call_sites"] if call_site_inputs else []),
+         needs_oracle=False,
+     )
+ 
+@@ -271,7 +267,7 @@ def _swap_type_skip(func_node, setup: str) -> ExecutableProperty | None:
+         return None
+     name_a = ann_a.id if isinstance(ann_a, ast.Name) else ast.dump(ann_a)
+     name_b = ann_b.id if isinstance(ann_b, ast.Name) else ast.dump(ann_b)
+-    return _skip("SWAP", setup, f"# SWAP skipped: params have different types ({name_a} vs {name_b})", 0.1)
++    return _skip("SWAP", setup, f"# SWAP skipped: params have different types ({name_a} vs {name_b})")
+ 
+ 
+ def _boundary_property(survivor, func_key, func_node, call_site_inputs, root=None) -> ExecutableProperty:
+@@ -281,7 +277,7 @@ def _boundary_property(survivor, func_key, func_node, call_site_inputs, root=Non
+ 
+     info = _extract_boundary_info(survivor.get("diff_summary", ""))
+     if info is None:
+-        return _skip("BOUNDARY", setup, "# BOUNDARY survived but boundary value not extractable", 0.3)
++        return _skip("BOUNDARY", setup, "# BOUNDARY survived but boundary value not extractable")
+ 
+     bval, bvar, comp = info["boundary_value"], info.get("variable"), info.get("comparator", "")
+     step = 1 if isinstance(bval, int) else 0.1
+@@ -302,8 +298,6 @@ def _boundary_property(survivor, func_key, func_node, call_site_inputs, root=Non
+         setup_code=setup,
+         assertion_code=assertion,
+         preconditions=[f"boundary at {label}{bval} ({comp})"],
+-        confidence=0.85 if not has_unknowns else 0.5,
+-        source_lenses=["mutation", "diff_analysis"],
+         needs_oracle=has_unknowns,
+     )
+ 
+@@ -323,14 +317,14 @@ def _type_property(survivor, func_key, func_node, call_site_inputs, root=None) -
+     target, expected_type = _extract_isinstance_target(survivor.get("diff_summary", ""))
+ 
+     if not expected_type:
+-        return _skip("TYPE", setup, "# TYPE survived but the checked type is not extractable", 0.3)
++        return _skip("TYPE", setup, "# TYPE survived but the checked type is not extractable")
+     if not params:
+-        return _skip("TYPE", setup, f"# TYPE skipped: no parameter list for {fname}", 0.2)
++        return _skip("TYPE", setup, f"# TYPE skipped: no parameter list for {fname}")
+     if target not in params:
+         # The guard is on a LOCAL (a loop variable, a derived value). No argument can make
+         # it the wrong type, so no input pins this mutant — abstaining is the honest answer;
+         # any call we emit here would raise for an unrelated reason and prove nothing.
+-        return _skip("TYPE", setup, f"# TYPE skipped: isinstance guards local '{target}', not a param", 0.2)
++        return _skip("TYPE", setup, f"# TYPE skipped: isinstance guards local '{target}', not a param")
+ 
+     invalid = _INVALID_FOR_TYPE.get(expected_type, "None")
+     other_vals = _other_param_values(params, target, call_site_inputs)
+@@ -350,8 +344,6 @@ def _type_property(survivor, func_key, func_node, call_site_inputs, root=None) -
+         setup_code=setup,
+         assertion_code=assertion,
+         preconditions=[f"isinstance checks {expected_type} on {target}"],
+-        confidence=0.7 if not has_unknowns else 0.4,
+-        source_lenses=["mutation", "diff_analysis"],
+         needs_oracle=has_unknowns,
+     )
+ 
+@@ -375,8 +367,6 @@ def _state_property(survivor, func_key, func_node, call_site_inputs, root=None)
+             setup_code=setup,
+             assertion_code=assertion,
+             preconditions=["function returns a meaningful value"],
+-            confidence=0.7,
+-            source_lenses=["mutation"],
+             needs_oracle=False,
+         )
+ 
+@@ -397,8 +387,6 @@ def _state_property(survivor, func_key, func_node, call_site_inputs, root=None)
+                 setup_code=_import_line(mod, class_name, root),
+                 assertion_code=assertion,
+                 preconditions=[f"construct {class_name}"],
+-                confidence=0.65,
+-                source_lenses=["mutation", "diff_analysis", "state_fast_path"],
+                 needs_oracle=False,
+             )
+ 
+@@ -415,8 +403,6 @@ def _state_property(survivor, func_key, func_node, call_site_inputs, root=None)
+         setup_code=setup,
+         assertion_code=assertion,
+         preconditions=["construct object", f"verify {hint}"],
+-        confidence=0.4 if attr else 0.2,
+-        source_lenses=["mutation"] + (["diff_analysis"] if attr else []),
+         needs_oracle=True,
+     )
+ 
+@@ -433,8 +419,6 @@ def _value_property(_survivor, func_key, func_node, call_site_inputs, root=None)
+         setup_code=setup,
+         assertion_code=assertion,
+         preconditions=["exact expected value must be determined"],
+-        confidence=0.3,
+-        source_lenses=["mutation"] + (["call_sites"] if call_site_inputs else []),
+         needs_oracle=True,
+     )
+ 
+@@ -458,8 +442,6 @@ def _stmt_property(_survivor, func_key, func_node, call_site_inputs, root=None)
+         setup_code=setup,
+         assertion_code=assertion,
+         preconditions=["observe the deleted statement's side effect, or confirm dead code"],
+-        confidence=0.3,
+-        source_lenses=["mutation"],
+         needs_oracle=True,
+     )
+ 
+@@ -472,8 +454,6 @@ def _generic_property(survivor, _func_key, _func_node, _call_site_inputs, _root=
+         setup_code="",
+         assertion_code=f"# {cat} mutation survived — manual investigation needed",
+         preconditions=[],
+-        confidence=0.2,
+-        source_lenses=["mutation"],
+         needs_oracle=True,
+     )
+ 
+@@ -488,7 +468,7 @@ _GENERATORS = {
+ }
+ 
+ 
+-def _skip(category: str, setup: str, message: str, confidence: float) -> ExecutableProperty:
++def _skip(category: str, setup: str, message: str) -> ExecutableProperty:
+     """A no-op property emitted when the category can't produce a sound assertion."""
+     return ExecutableProperty(
+         category=category,
+@@ -496,8 +476,6 @@ def _skip(category: str, setup: str, message: str, confidence: float) -> Executa
+         setup_code=setup,
+         assertion_code=message,
+         preconditions=[],
+-        confidence=confidence,
+-        source_lenses=["mutation"],
+         needs_oracle=True,
+     )
+ 
+@@ -753,8 +731,6 @@ def generate_round_trip_test(
+         setup_code=setup,
+         assertion_code=assertion,
+         preconditions=[f"{class_name}.{serialize_method} ↔ {deserialize_func}"],
+-        confidence=0.9,
+-        source_lenses=["pair_detection", "typed_synthesis"],
+         needs_oracle=False,
+         function_key=f"{module_path}::{class_name}.{serialize_method}",
+     )
+@@ -774,8 +750,6 @@ def _round_trip_fallback(
+             "# assert reconstructed == original  # FILL"
+         ),
+         preconditions=["construct instance with non-default values"],
+-        confidence=0.3,
+-        source_lenses=["pair_detection"],
+         needs_oracle=True,
+     )
+ 
+diff --git a/tests/test__witness_property_synth.py b/tests/test__witness_property_synth.py
+deleted file mode 100644
+index c729a3c..0000000
+--- a/tests/test__witness_property_synth.py
++++ /dev/null
+@@ -1,31 +0,0 @@
+-"""Auto-generated by Detective — warrant-classed tests for Detective/converge.py::_witness_property."""
+-
+-import pytest
+-
+-from Detective.converge import _witness_property
+-from Detective.equivalence import Witness
+-
+-
+-@pytest.mark.detective
+-def test__witness_property_value_0():
+-    """VALUE survivor — distinguishing witness (original raises AttributeError: 'int' object has no attribute 'args') (confidence 0.95)."""
+-    try:
+-        _result = _witness_property("", -1, "")
+-    except AttributeError as _exc:
+-        assert str(_exc) == "'int' object has no attribute 'args'"
+-    except BaseException as _exc:
+-        pytest.fail(f"expected AttributeError, got {type(_exc).__name__}: {_exc!r}")
+-    else:
+-        pytest.fail(f"expected AttributeError, but the call returned {_result!r}")
+-
+-
+-@pytest.mark.detective
+-def test__witness_property_value_1():
+-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
+-    result = _witness_property(
+-        "m::sign", Witness(args=(0,), original="0", mutant="1", original_value=None), None
+-    )
+-    assert (
+-        repr(result)
+-        == "ExecutableProperty(category='VALUE', inputs={}, setup_code='from m import sign', assertion_code='result = sign(0)\\nassert result == 0', preconditions=['distinguishing witness (equivalence search)'], confidence=0.95, source_lenses=['witness'], needs_oracle=False, function_key='', mutant_id='', golden_case=None)"
+-    )
+diff --git a/tests/test_converge_native.py b/tests/test_converge_native.py
+index 5fc309a..0625f26 100644
+--- a/tests/test_converge_native.py
++++ b/tests/test_converge_native.py
+@@ -29,7 +29,6 @@ def test_witness_property_builds_golden_test_at_the_witness_input():
+     assert p.category == "VALUE" and p.needs_oracle is False
+     assert p.setup_code == "from m import sign"
+     assert p.assertion_code == "result = sign(0)\nassert result == 0"
+-    assert p.source_lenses == ["witness"] and p.confidence == 0.95
+     assert p.preconditions == ["distinguishing witness (equivalence search)"]
+     assert p.inputs == {}
+ 
+@@ -192,7 +191,6 @@ def test_golden_property_pins_exact_repr():
+     assert p.category == "VALUE" and p.needs_oracle is False
+     assert p.setup_code == "from m import add"
+     assert p.assertion_code == "result = add(1, 2)\nassert result == 3"
+-    assert p.source_lenses == ["golden_capture"] and p.confidence == 0.9
+     assert p.preconditions == ["golden capture (pure + deterministic)"]
+     assert p.inputs == {}
+ 
+diff --git a/tests/test_field_consumption_intent.py b/tests/test_field_consumption_intent.py
+index 7be1ff8..c05de69 100644
+--- a/tests/test_field_consumption_intent.py
++++ b/tests/test_field_consumption_intent.py
+@@ -80,15 +80,6 @@ OPEN: dict[str, str] = {
+         "because the pinned classify_target golden (tests/detective) reprs it; the fix is to make those "
+         "sites consume the binding."
+     ),
+-    "oracle_light.ExecutableProperty.confidence": (
+-        "A hand-set number (0.2 to 0.95) at about thirty construction sites. `property_identity` states it "
+-        "is DELIBERATELY EXCLUDED from identity and nothing ranks, filters or prints by it; pins.json "
+-        "persists it. Delete the field, its producers and the nine test files that construct it, with a "
+-        "pins.json schema bump."
+-    ),
+-    "oracle_light.ExecutableProperty.source_lenses": (
+-        "Same as `confidence`: excluded from identity, persisted in pins.json, read by nothing."
+-    ),
+ }
+ 
+ 
+@@ -223,7 +214,7 @@ def test_a_field_is_never_in_both_registries() -> None:
+ def test_the_open_gaps_are_exactly_what_we_know_about() -> None:
+     """`len(OPEN)` is the number this guard exists to make visible. A fix makes it go DOWN; a new finding
+     UP. Either is a deliberate edit here, never a silent drift."""
+-    assert len(OPEN) == 3
++    assert len(OPEN) == 1
+ 
+ 
+ # ---------------------------------------------------------------- the decision
+diff --git a/tests/test_oracle_light_native.py b/tests/test_oracle_light_native.py
+index ae9a148..18284cb 100644
+--- a/tests/test_oracle_light_native.py
++++ b/tests/test_oracle_light_native.py
+@@ -68,28 +68,24 @@ def test_swap_no_sites_full_output():
+     )
+     assert p.inputs == {"a": "1", "b": "2"}
+     assert p.preconditions == ["a != b", "non-commutative"]
+-    assert p.confidence == 0.6
+-    assert p.source_lenses == ["mutation"]
+     assert p.needs_oracle is False
+ 
+ 
+-def test_swap_with_sites_raises_confidence_and_uses_values():
++def test_swap_with_sites_uses_the_call_site_values():
+     p = _swap_property({}, "m::sub", _fn("def sub(a, b):\n return a - b"), [{"positional_args": ["7", "9"]}])
+     assert "sub(7, 9)" in p.assertion_code and "sub(9, 7)" in p.assertion_code
+-    assert p.confidence == 0.75
+-    assert p.source_lenses == ["mutation", "call_sites"]
+ 
+ 
+ def test_swap_fewer_than_two_params_skips():
+     p = _swap_property({}, "m::f", _fn("def f(a):\n return a"), None)
+     assert p.assertion_code == "# SWAP survived but f has <2 params"
+-    assert p.confidence == 0.3 and p.needs_oracle is True and p.preconditions == []
++    assert p.needs_oracle is True and p.preconditions == []
+ 
+ 
+ def test_swap_distinct_types_skips():
+     p = _swap_property({}, "m::f", _fn("def f(a: int, b: str):\n return a"), None)
+     assert p.assertion_code == "# SWAP skipped: params have different types (int vs str)"
+-    assert p.confidence == 0.1 and p.needs_oracle is True
++    assert p.needs_oracle is True
+ 
+ 
+ def test_swap_type_skip_none_when_same_type():
+@@ -112,14 +108,13 @@ def test_boundary_extractable_full_output():
+     )
+     assert p.inputs == {"x": 5}
+     assert p.preconditions == ["boundary at x=5 (>)"]
+-    assert p.confidence == 0.85 and p.needs_oracle is False
+-    assert p.source_lenses == ["mutation", "diff_analysis"]
++    assert p.needs_oracle is False
+ 
+ 
+ def test_boundary_not_extractable_skips():
+     p = _boundary_property({"diff_summary": ""}, "m::f", _fn("def f(x):\n return x"), None)
+     assert p.assertion_code == "# BOUNDARY survived but boundary value not extractable"
+-    assert p.confidence == 0.3 and p.needs_oracle is True
++    assert p.needs_oracle is True
+ 
+ 
+ # ── TYPE ──────────────────────────────────────────────────────────
+@@ -135,7 +130,7 @@ def test_type_with_isinstance_full_output():
+     )
+     assert p.inputs == {"invalid_type": "42"}
+     assert p.preconditions == ["isinstance checks str on x"]
+-    assert p.confidence == 0.7 and p.needs_oracle is False
++    assert p.needs_oracle is False
+ 
+ 
+ def test_type_fills_every_param_not_just_the_guarded_one():
+@@ -158,7 +153,7 @@ def test_type_abstains_when_a_slot_cannot_be_filled():
+         {"diff_summary": "- isinstance(a, str)\n+ True"}, "m::f", _fn("def f(a, b):\n return a"), None
+     )
+     assert "..." in p.assertion_code
+-    assert p.confidence == 0.4 and p.needs_oracle is True
++    assert p.needs_oracle is True
+ 
+ 
+ def test_type_abstains_when_isinstance_guards_a_local():
+@@ -174,7 +169,7 @@ def test_type_abstains_when_isinstance_guards_a_local():
+ def test_type_without_isinstance_abstains():
+     p = _type_property({"diff_summary": ""}, "m::f", _fn("def f(x):\n return x"), None)
+     assert p.assertion_code == "# TYPE survived but the checked type is not extractable"
+-    assert p.confidence == 0.3 and p.needs_oracle is True
++    assert p.needs_oracle is True
+ 
+ 
+ # ── STATE ─────────────────────────────────────────────────────────
+@@ -184,7 +179,7 @@ def test_state_return_none_full_output():
+         'result = f(...)\nassert result is not None, "STATE: return value should not be None"'
+     )
+     assert p.preconditions == ["function returns a meaningful value"]
+-    assert p.confidence == 0.7 and p.needs_oracle is False and p.source_lenses == ["mutation"]
++    assert p.needs_oracle is False
+ 
+ 
+ def test_state_remove_assign_literal_full_output():
+@@ -197,8 +192,7 @@ def test_state_remove_assign_literal_full_output():
+     assert p.setup_code == "from m import Counter"
+     assert p.assertion_code == "obj = Counter(...)\nobj.reset(...)\nassert obj.count == 5"
+     assert p.preconditions == ["construct Counter"]
+-    assert p.confidence == 0.65 and p.needs_oracle is False
+-    assert p.source_lenses == ["mutation", "diff_analysis", "state_fast_path"]
++    assert p.needs_oracle is False
+ 
+ 
+ def test_state_remove_assign_general_full_output():
+@@ -215,8 +209,7 @@ def test_state_remove_assign_general_full_output():
+         "# assert obj.x == EXPECTED  # FILL"
+     )
+     assert p.preconditions == ["construct object", "verify self.x"]
+-    assert p.confidence == 0.4 and p.needs_oracle is True
+-    assert p.source_lenses == ["mutation", "diff_analysis"]
++    assert p.needs_oracle is True
+ 
+ 
+ # ── VALUE / generic ───────────────────────────────────────────────
+@@ -224,21 +217,21 @@ def test_value_full_output():
+     p = _value_property({}, "m::f", _fn("def f(x):\n return x"), None)
+     assert p.assertion_code == "result = f(...)\nassert result == ...  # FILL: expected value"
+     assert p.preconditions == ["exact expected value must be determined"]
+-    assert p.confidence == 0.3 and p.needs_oracle is True and p.source_lenses == ["mutation"]
++    assert p.needs_oracle is True
+ 
+ 
+ def test_generic_full_output():
+     p = _generic_property({"category": "WEIRD"}, "m::f", None, None)
+     assert p.category == "WEIRD"
+     assert p.assertion_code == "# WEIRD mutation survived — manual investigation needed"
+-    assert p.setup_code == "" and p.confidence == 0.2 and p.needs_oracle is True
+-    assert p.preconditions == [] and p.source_lenses == ["mutation"]
++    assert p.setup_code == "" and p.needs_oracle is True
++    assert p.preconditions == []
+ 
+ 
+ def test_skip_helper():
+-    p = _skip("SWAP", "s", "# msg", 0.3)
++    p = _skip("SWAP", "s", "# msg")
+     assert p.category == "SWAP" and p.setup_code == "s" and p.assertion_code == "# msg"
+-    assert p.confidence == 0.3 and p.needs_oracle is True and p.inputs == {}
++    assert p.needs_oracle is True and p.inputs == {}
+ 
+ 
+ # ── helpers ───────────────────────────────────────────────────────
+@@ -425,12 +418,12 @@ def test_boundary_float_step_and_output():
+     assert "result_before = f(0.4)" in p.assertion_code
+ 
+ 
+-def test_boundary_has_unknowns_lowers_confidence():
++def test_boundary_with_unknowns_needs_an_oracle():
+     # second param has no call-site value -> "..." -> has_unknowns
+     p = _boundary_property(
+         {"diff_summary": "- x > 5\n+ x >= 5"}, "m::f", _fn("def f(x, y):\n return x > 5"), None
+     )
+-    assert "..." in p.assertion_code and p.confidence == 0.5 and p.needs_oracle is True
++    assert "..." in p.assertion_code and p.needs_oracle is True
+ 
+ 
+ def test_state_uses_call_site_args():
+diff --git a/tests/test_oracle_light_roundtrip_native.py b/tests/test_oracle_light_roundtrip_native.py
+index 77729bc..a5ff747 100644
+--- a/tests/test_oracle_light_roundtrip_native.py
++++ b/tests/test_oracle_light_roundtrip_native.py
+@@ -175,13 +175,13 @@ def test_generate_round_trip_resolvable_dataclass():
+     assert "serialized = original.to_dict()" in prop.assertion_code
+     assert "reconstructed = SynthesizedValue.from_dict(serialized)" in prop.assertion_code
+     assert 'assert reconstructed.code == original.code, "code mismatch"' in prop.assertion_code
+-    assert prop.needs_oracle is False and prop.confidence == 0.9
++    assert prop.needs_oracle is False
+ 
+ 
+ def test_generate_round_trip_fallback_when_unresolvable():
+     prop = generate_round_trip_test("NoSuchClass", "to_dict", "no_from_dict", "m.py")
+     assert "# FILL" in prop.assertion_code
+-    assert prop.needs_oracle is True and prop.confidence == 0.3
++    assert prop.needs_oracle is True
+     # arg order into _round_trip_fallback matters (class_name first):
+     assert prop.setup_code == "from m import NoSuchClass"
+ 
+@@ -225,8 +225,7 @@ def test_round_trip_fallback_exact():
+         "# assert reconstructed == original  # FILL"
+     )
+     assert prop.preconditions == ["construct instance with non-default values"]
+-    assert prop.confidence == 0.3 and prop.needs_oracle is True
+-    assert prop.source_lenses == ["pair_detection"]
++    assert prop.needs_oracle is True
+ 
+ 
+ def test_generate_round_trip_exact_classmethod():
+@@ -246,7 +245,6 @@ def test_generate_round_trip_exact_classmethod():
+     assert lines[-1] == 'assert reconstructed.type_name == original.type_name, "type_name mismatch"'
+     assert prop.setup_code == "from Detective.synthesis.typed_synthesis import SynthesizedValue"
+     assert prop.preconditions == ["SynthesizedValue.to_dict ↔ SynthesizedValue.from_dict"]
+-    assert prop.source_lenses == ["pair_detection", "typed_synthesis"]
+     assert prop.function_key == "Detective/synthesis/typed_synthesis.py::SynthesizedValue.to_dict"
+ 
+ 
+diff --git a/tests/test_pins_native.py b/tests/test_pins_native.py
+index 9ccc790..7c8fe0e 100644
+--- a/tests/test_pins_native.py
++++ b/tests/test_pins_native.py
+@@ -29,7 +29,7 @@ _DIGEST = "0123456789abcdef"
+ 
+ def _prop(assertion: str = "assert f(1) == 2", **over) -> ExecutableProperty:
+     # `replace`, not a dict splatted into the constructor: the dict form widens every value to
+-    # the union of its members, so a checker cannot tell `confidence=0.9` from `category=...`
++    # the union of its members, so a checker cannot tell `needs_oracle=True` from `category=...`
+     # and reports one error per field. Same fixture, typed.
+     base = ExecutableProperty(
+         category="VALUE",
+@@ -37,7 +37,6 @@ def _prop(assertion: str = "assert f(1) == 2", **over) -> ExecutableProperty:
+         setup_code="from m import f",
+         assertion_code=assertion,
+         preconditions=[],
+-        confidence=0.9,
+         function_key=_KEY,
+         mutant_id="V0",
+     )
+@@ -176,3 +175,33 @@ def test_the_digest_tracks_behaviour_not_formatting():
+ 
+     assert same == commented
+     assert same != changed
++
++
++def test_a_pins_file_written_before_confidence_and_source_lenses_were_retired_still_loads(tmp_path):
++    """#94: `ExecutableProperty.confidence` and `.source_lenses` were persisted in pins.json and read by
++    nothing, so they were deleted. A store an older Detective wrote still carries both keys per entry; it
++    must load (the pin is the TEST, and the two keys are provenance it never needed), not be skipped as
++    malformed, which would silently drop every remembered pin."""
++    path = pins._store_path(str(tmp_path))
++    os.makedirs(os.path.dirname(path), exist_ok=True)
++    entry = {
++        "category": "VALUE",
++        "setup_code": "from m import f",
++        "assertion_code": "assert f(1) == 2",
++        "preconditions": [],
++        "confidence": 0.9,
++        "source_lenses": ["golden_capture"],
++        "needs_oracle": False,
++        "function_key": _KEY,
++        "mutant_id": "V0",
++        "golden_case": None,
++    }
++    with open(path, "w", encoding="utf-8") as fh:
++        json.dump({pins._entry_key(_KEY, _DIGEST): [entry]}, fh)
++    loaded = pins.load(str(tmp_path), _KEY, _DIGEST)
++    assert [p.assertion_code for p in loaded] == ["assert f(1) == 2"]
++    assert not hasattr(loaded[0], "confidence") and not hasattr(loaded[0], "source_lenses")
++    pins.save(str(tmp_path), _KEY, _DIGEST, loaded)
++    with open(path, encoding="utf-8") as fh:
++        saved = json.load(fh)[pins._entry_key(_KEY, _DIGEST)][0]
++    assert "confidence" not in saved and "source_lenses" not in saved
+diff --git a/tests/test_platform_observation_stamp_intent.py b/tests/test_platform_observation_stamp_intent.py
+index 18c3a5c..d67fa88 100644
+--- a/tests/test_platform_observation_stamp_intent.py
++++ b/tests/test_platform_observation_stamp_intent.py
+@@ -44,7 +44,6 @@ def _golden(args_repr: str, expected_repr: str) -> ExecutableProperty:
+         setup_code="",
+         assertion_code=f"assert result == {expected_repr}",
+         preconditions=[],
+-        confidence=0.9,
+         golden_case=(args_repr, expected_repr),
+     )
+ 
+diff --git a/tests/test_property_identity.py b/tests/test_property_identity.py
+index 9494b3a..5ee4303 100644
+--- a/tests/test_property_identity.py
++++ b/tests/test_property_identity.py
+@@ -30,7 +30,6 @@ def _prop(**over) -> ExecutableProperty:
+         setup_code="obj = Counter()",
+         assertion_code="assert f(1) == 2",
+         preconditions=(),
+-        confidence=0.9,
+         function_key="m.py::f",
+         mutant_id="VALUE_abc",
+     )
+@@ -73,12 +72,10 @@ def test_identical_semantics_give_one_identity():
+ 
+ 
+ def test_provenance_is_not_identity():
+-    """Confidence and lenses are how well we believe it and where it came from. Folding them in
+-    would accumulate one behaviour twice, with two tests that can never disagree."""
+-    assert property_identity(_prop(confidence=0.9)) == property_identity(_prop(confidence=0.4))
+-    assert property_identity(_prop(source_lenses=("a",))) == property_identity(
+-        _prop(source_lenses=("b", "c"))
+-    )
++    """Whether an oracle must still supply the expectation is provenance, not what the property asserts.
++    Folding it in would accumulate one behaviour twice, with two tests that can never disagree. (A
++    `confidence` and a `source_lenses` list were provenance too, until #94 retired them.)"""
++    assert property_identity(_prop(needs_oracle=False)) == property_identity(_prop(needs_oracle=True))
+ 
+ 
+ def test_the_identity_is_not_an_ordinal():
+diff --git a/tests/test_writer_native.py b/tests/test_writer_native.py
+index 4186c36..5009d08 100644
+--- a/tests/test_writer_native.py
++++ b/tests/test_writer_native.py
+@@ -31,13 +31,12 @@ def _golden(args: str, expected: str) -> ExecutableProperty:
+         "from m import f",
+         f"assert f{args} == {expected}",
+         [],
+-        0.9,
+         golden_case=(args, expected),
+     )
+ 
+ 
+ def _boundary() -> ExecutableProperty:
+-    return ExecutableProperty("BOUNDARY", {}, "from m import f", "assert f(0) != f(-1)", [], 0.85)
++    return ExecutableProperty("BOUNDARY", {}, "from m import f", "assert f(0) != f(-1)", [])
+ 
+ 
+ def test_individual_test_names_excludes_folded_goldens():
+@@ -122,7 +121,7 @@ def test_no_duplicate_pytest_import():
+ 
+ def test_render_preserves_blank_lines():
+     # a blank line inside the assertion stays blank (not turned into content)
+-    p = ExecutableProperty("STATE", {}, "", "a = 1\n\nb = 2", [], 0.5)
++    p = ExecutableProperty("STATE", {}, "", "a = 1\n\nb = 2", [])
+     assert "    a = 1\n\n    b = 2" in _render_test("f", 0, p)
+ 
+ 
+@@ -141,28 +140,28 @@ def test_warrant_names_category_and_mutant_but_not_the_confidence():
+ 
+ 
+ def test_warrant_no_preconditions():
+-    p = ExecutableProperty("X", {}, "", "pass", [], 0.5)
++    p = ExecutableProperty("X", {}, "", "pass", [])
+     assert "no preconditions" in _warrant(p)
+ 
+ 
+ def test_warrant_full_string_with_multiple_preconditions():
+-    p = ExecutableProperty("SWAP", {}, "", "pass", ["a != b", "non-commutative"], 0.6, mutant_id="SWAP_2")
++    p = ExecutableProperty("SWAP", {}, "", "pass", ["a != b", "non-commutative"], mutant_id="SWAP_2")
+     assert _warrant(p) == "SWAP survivor [SWAP_2] — a != b; non-commutative."
+ 
+ 
+ def test_warrant_full_string_without_mutant_id():
+-    p = ExecutableProperty("X", {}, "", "pass", ["p"], 0.5)
++    p = ExecutableProperty("X", {}, "", "pass", ["p"])
+     assert _warrant(p) == "X survivor — p."
+ 
+ 
+ def test_collect_imports_dedupes_and_sorts():
+-    p1 = ExecutableProperty("X", {}, "from a import x", "pass", [], 0.5)
+-    p2 = ExecutableProperty("Y", {}, "from a import x\nimport b", "pass", [], 0.5)
++    p1 = ExecutableProperty("X", {}, "from a import x", "pass", [])
++    p2 = ExecutableProperty("Y", {}, "from a import x\nimport b", "pass", [])
+     assert _collect_imports([p1, p2]) == ["from a import x", "import b"]
+ 
+ 
+ def test_collect_imports_ignores_non_import_setup():
+-    p = ExecutableProperty("X", {}, "obj = Thing()", "pass", [], 0.5)
++    p = ExecutableProperty("X", {}, "obj = Thing()", "pass", [])
+     assert _collect_imports([p]) == []
+ 
+ 
+@@ -175,7 +174,7 @@ def test_one_line_all_comments_returns_first():
+ 
+ 
+ def test_render_test_indents_multiline_assertion():
+-    p = ExecutableProperty("STATE", {}, "", "result = f()\nassert result is not None", [], 0.7)
++    p = ExecutableProperty("STATE", {}, "", "result = f()\nassert result is not None", [])
+     block = _render_test("f", 3, p)
+     assert "def test_f_state_3():" in block
+     assert "\n    result = f()" in block
+@@ -323,7 +322,6 @@ def _prop(assertion: str, golden: tuple[str, str] | None = None) -> ExecutablePr
+         setup_code="",
+         assertion_code=assertion,
+         preconditions=[],
+-        confidence=0.9,
+         golden_case=golden,
+     )
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,496 @@
+From ed60e426c0196bcf41887f508d0723cb479146ea Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 04:58:10 +0000
+Subject: [PATCH 2/4] fix(#28): a cycle through a thread the code under test
+ started is refused by name, not waited into
+
+Defect, verbatim: "A thread that the code under test starts is not on the start/join edge. starter_chain()
+is empty for any thread that is not a JoinedWorker (interrupt.py:210-229), so D1 cannot see a cycle through
+such a thread." A test that starts a plain threading.Thread, runs the engine in it and joins it: the thread
+waits on the execution lock the measuring thread holds, the measuring thread waits on the test's worker, the
+worker waits on the thread. The nested-acquire refusal never fired; the measurement waited out its allowance
+and reported a false uncontained timeout.
+
+The obvious fix (patch threading.Thread.start for good, or settrace) is wrong: a global patch outlives the
+measurement, and the single-owner instrumentation guard forbids trace hooks. Instead JoinedWorker.run holds
+record_thread_starts() for the span of the measured test: Thread.start is wrapped to note the starting
+thread on the new one, the wrapper is assigned (never stacked), counted by a list so nesting works without a
+lock an injected Abandoned could strand, and removed when the last worker's run ends.
+
+starter_of(thread) is the one reader: a JoinedWorker's starter, else the recorded one, else None. None is
+"not seen", never "none" (the main thread, a thread started before any measurement). starter_chain follows
+it and still stops at the first dead starter; mark_refusal walks the same edge and records the refusal on
+the JoinedWorkers above the plain thread (the plain thread has no record of its own), stopping at the owner.
+The decision nested_acquire_disposition is unchanged: it was always a function of the chain.
+
+Not closed: D2 (in-process re-entrancy) is not built (decision B3 keeps the named refusal and --isolated).
+A worker that never ends (blocked outside the interpreter) keeps the wrapper installed until it does. A plain
+thread that its starter does not wait on, but that runs the engine under a held evaluation, is refused too:
+a measurement from a thread a measured test spawned is not a valid one either way.
+
+Pin: no new pure decision (starter_of reads objects). tests/test_thread_starter_edge_intent.py 9 passed
+(3.14 and 3.12); with starter_of disarmed 3 of 9 fail (the cycle test then waits its 5 s allowance and is
+scored uncontained). Neighbouring nested/interrupt/guard files 150 passed on both.
+ruff clean under pinned 0.16.7
+---
+ CHANGELOG.md                             |   7 +
+ Wesker/interrupt.py                      |  96 ++++++--
+ tests/test_thread_starter_edge_intent.py | 277 +++++++++++++++++++++++
+ 3 files changed, 361 insertions(+), 19 deletions(-)
+ create mode 100644 tests/test_thread_starter_edge_intent.py
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 469d013..3f7acbc 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -21,6 +21,13 @@ changed three times, so the policy id moved three times.
+   prints a `::warning::` with the exception; the others stay a refusal. `no_live_session_reason` names the
+   cause of a missing session (the crash, the collection errors, an empty collection, a missing pytest);
+   `profile_codebase_live` takes a `diagnostic` dict to carry it. (W#29)
++- **A cycle through a thread the code under test started is refused by name, not waited into.**
++  `starter_chain()` was empty for any thread that was not a `JoinedWorker`, so a test that starts a plain
++  thread, runs the engine in it and joins it formed a wait-for cycle the nested-acquire refusal could not
++  see (the measurement waited out its allowance and reported a false uncontained timeout). While a
++  measurement worker runs, `Thread.start` now records the starting thread on the new one
++  (`interrupt.record_thread_starts`, installed with the first worker and removed with the last, never
++  outside a measurement), and `starter_of` / `starter_chain` / `mark_refusal` follow it. (W#28)
+ - **A memory cap the OS refuses (macOS) is still a bound, and the page says which one holds.**
+   `--mem-limit-mb` was `setrlimit(RLIMIT_AS)`, which macOS refuses, so there nothing stopped a runaway
+   mutant (issue #39's `take` over an infinite generator reached 3.94 GB) and the run reported
+diff --git a/Wesker/interrupt.py b/Wesker/interrupt.py
+index 3ab79a7..47341ef 100644
+--- a/Wesker/interrupt.py
++++ b/Wesker/interrupt.py
+@@ -52,9 +52,12 @@ joining it — waits for the worker. A wait-for cycle; the injection cannot land
+ owning the lock when the holder finally releases. Unlike a socket, this wait is KNOWABLE before it
+ begins: every worker the pair bounds is a :class:`JoinedWorker`, which records the thread that
+ started it, so a worker can ask whether the lock's owner is upstream of it and refuse instead of
+-waiting (:class:`MeasurementRefused`). A thread the code UNDER TEST starts records nothing, so a
+-cycle routed through one stays outside what can be seen here — it is still detected and refused by
+-the lock's orphan channels, never prevented.
++waiting (:class:`MeasurementRefused`). A thread the code UNDER TEST starts is not a
++JoinedWorker, but the start is still observable: while a JoinedWorker runs (the measurement), every
++``threading.Thread.start`` records its starter on the new thread (:func:`record_thread_starts`), so a
++cycle routed through such a thread is seen and refused by name like any other. Nothing is patched
++outside a measurement: the wrapper is installed when the first worker begins running and removed when
++the last one ends.
+ """
+ 
+ from __future__ import annotations
+@@ -67,6 +70,7 @@ import subprocess
+ import sys
+ import threading
+ import weakref
++from collections.abc import Iterator
+ from typing import Any
+ 
+ 
+@@ -159,6 +163,53 @@ def _forget_unstarted(thread: threading.Thread) -> None:
+     vars(threading)["_limbo"].pop(thread, None)
+ 
+ 
++# Workers currently running a measurement: while any is, `threading.Thread.start` records its starter.
++_RECORDING: list[object] = []
++_ORIGINAL_START = threading.Thread.start
++_STARTER_ATTR = "_wesker_starter"
++
++
++def _recording_start(self: threading.Thread) -> None:
++    """``Thread.start``, after noting which thread started this one (#28)."""
++    vars(self).setdefault(_STARTER_ATTR, threading.current_thread())
++    _ORIGINAL_START(self)
++
++
++@contextlib.contextmanager
++def record_thread_starts() -> Iterator[None]:
++    """For the length of the block, every thread started anywhere in the process records its starter (#28).
++
++    The start/join edge of a :class:`JoinedWorker` is known because the pair builds those; a thread the
++    code under test starts is built by code the pair does not own. Wrapping ``Thread.start`` for the span
++    of a measurement is the one way to see that edge, and the wrapper only adds a dict entry before the
++    original runs. Re-entrant by counting (workers nest), idempotent (the wrapper is assigned, never
++    stacked), and removed when the last block ends, so nothing outside a measurement is patched. The
++    counter is a list (append / remove are single bytecodes) because a lock taken here could be stranded
++    by an injected :class:`Abandoned` (the STRANDED LOCK above).
++    """
++    token = object()
++    _RECORDING.append(token)
++    threading.Thread.start = _recording_start  # type: ignore[method-assign]
++    try:
++        yield
++    finally:
++        _RECORDING.remove(token)
++        if not _RECORDING:
++            threading.Thread.start = _ORIGINAL_START  # type: ignore[method-assign]
++
++
++def starter_of(thread: threading.Thread) -> threading.Thread | None:
++    """The thread that started ``thread``, when the pair saw it start; None otherwise (#28).
++
++    A :class:`JoinedWorker` carries it as ``starter``; any other thread started while a measurement ran
++    carries the one :func:`record_thread_starts` noted. None is "not seen", never "none": the main
++    thread and a thread started before any measurement began are in this class.
++    """
++    if isinstance(thread, JoinedWorker):
++        return thread.starter
++    return vars(thread).get(_STARTER_ATTR)
++
++
+ class JoinedWorker(threading.Thread):
+     """A worker its starter waits on under a bounded join — the start/join edge, recorded (#28).
+ 
+@@ -178,6 +229,11 @@ class JoinedWorker(threading.Thread):
+         self._boot_released: list[object] = []
+         self._boot_ref: weakref.ref | None = None
+ 
++    def run(self) -> None:
++        """Run the worker's target with thread starts recorded (#28)."""
++        with record_thread_starts():
++            super().run()
++
+     def start(self) -> None:
+         """``Thread.start()``, except that a bootstrap which ended before it signalled raises
+         :class:`WorkerLost` instead of leaving the start waiting forever (W#29).
+@@ -222,21 +278,24 @@ class JoinedWorker(threading.Thread):
+ 
+ 
+ def starter_chain() -> tuple[int, ...]:
+-    """Idents of the live threads waiting, through bounded joins, on the CURRENT thread — nearest first.
+-
+-    Empty for any thread that is not a :class:`JoinedWorker` (the main thread, a thread the code
+-    under test started), which is the common case and costs one ``isinstance``. The walk stops at the
+-    first starter that is no longer alive: a dead thread waits on nothing, and its ident may already
+-    belong to an unrelated thread, so naming it would forge an edge. Bounded by a seen-set as well,
+-    because a chain is only acyclic by construction and this must terminate even if constructed wrong.
++    """Idents of the live threads upstream of the CURRENT thread on the start edge — nearest first.
++
++    A :class:`JoinedWorker`'s starter waits on it in a bounded join; a thread the code under test started
++    (:func:`starter_of`) is upstream of it in the same sense the lock cares about: the thread that
++    started it is a measured test, which is what a nested measurement from it would deadlock against.
++    Empty for any thread whose starter was not seen (the main thread, a thread started before any
++    measurement), which is the common case and costs one dict lookup. The walk stops at the first
++    starter that is no longer alive: a dead thread waits on nothing, and its ident may already belong to
++    an unrelated thread, so naming it would forge an edge. Bounded by a seen-set as well, because a chain
++    is only acyclic by construction and this must terminate even if constructed wrong.
+     """
+     chain: list[int] = []
+     seen: set[int] = set()
+     current = threading.current_thread()
+-    while isinstance(current, JoinedWorker) and id(current) not in seen:
++    while id(current) not in seen:
+         seen.add(id(current))
+-        starter = current.starter
+-        if starter.ident is None or not starter.is_alive():
++        starter = starter_of(current)
++        if starter is None or starter.ident is None or not starter.is_alive():
+             break
+         chain.append(starter.ident)
+         current = starter
+@@ -252,16 +311,15 @@ def mark_refusal(code: str, owner_tid: int) -> None:
+     worker ABOVE it was never part of the cycle. The first code recorded on a worker is kept.
+     """
+     seen: set[int] = set()
+-    current = threading.current_thread()
++    current: threading.Thread | None = threading.current_thread()
+     while (
+-        isinstance(current, JoinedWorker)
+-        and current.ident != owner_tid
+-        and id(current) not in seen
++        current is not None and current.ident != owner_tid and id(current) not in seen
+     ):
+         seen.add(id(current))
+-        if not current.refusal:
++        # a thread the test started carries no record of its own; the worker above it does
++        if isinstance(current, JoinedWorker) and not current.refusal:
+             current.refusal = code
+-        current = current.starter
++        current = starter_of(current)
+ 
+ 
+ # How long to let an injected thread unwind before conceding it is blocked outside the interpreter.
+diff --git a/tests/test_thread_starter_edge_intent.py b/tests/test_thread_starter_edge_intent.py
+new file mode 100644
+index 0000000..9e94f16
+--- /dev/null
++++ b/tests/test_thread_starter_edge_intent.py
+@@ -0,0 +1,277 @@
++"""Intent: a cycle through a thread the code under test started is refused by name, not waited into (W#28).
++
++THE DEFECT (issue #28, open item). `interrupt.starter_chain()` was empty for any thread that was not a
++`JoinedWorker`, so the nested-acquire refusal could not see a wait-for cycle routed through a thread the
++code under test starts: a test that starts a plain `threading.Thread`, runs the engine in it, and joins
++it. The thread waits on the execution lock the measuring thread holds; the measuring thread waits on the
++test's worker; the worker waits on the thread. Without the edge the refusal never fires, and the
++measurement waits out its allowance and reports a false uncontained timeout.
++
++THE FIX. While a measurement worker runs, `Thread.start` records the starting thread on the new thread
++(`interrupt.record_thread_starts`); `starter_of` reads it and `starter_chain` / `mark_refusal` follow it.
++Nothing is patched outside a measurement.
++
++Each schedule is forced by construction (the test joins its thread; the outer evaluation holds the lock by
++definition), not by sleeps.
++"""
++
++from __future__ import annotations
++
++import ast
++import importlib.util
++import sys
++import threading
++import time
++
++import pytest
++
++from Wesker import interrupt
++from Wesker.engine import (
++    SCORED_DISPOSITIONS,
++    evaluate_mutant,
++    generate_mutants,
++    mutant_disposition,
++)
++from Wesker.filter import filter_categories
++from Wesker.interrupt import (
++    JoinedWorker,
++    mark_refusal,
++    record_thread_starts,
++    starter_chain,
++    starter_of,
++)
++
++_SRC = "def compute(n):\n    return n * 2\n"
++
++
++@pytest.fixture
++def target(tmp_path):
++    path = tmp_path / "starter_mod.py"
++    path.write_text(_SRC)
++    spec = importlib.util.spec_from_file_location("starter_mod", str(path))
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules["starter_mod"] = mod
++    spec.loader.exec_module(mod)
++    try:
++        yield mod, str(path)
++    finally:
++        sys.modules.pop("starter_mod", None)
++
++
++def _mutants():
++    node = ast.parse(_SRC).body[0]
++    return generate_mutants(
++        node, filter_categories(node, True), max_per_category=0, pass_index=0
++    )
++
++
++def _engine_in_a_thread_test(mod, path, seen: dict):
++    """A test that runs the engine in a plain thread it starts and joins."""
++    inner = _mutants()[1]
++
++    def plain():
++        assert mod.compute(2) == 4
++
++    def nested() -> None:
++        try:
++            evaluate_mutant(
++                inner, [plain], mod.compute, qualname="compute", source_path=path
++            )
++            seen["nested"] = "ran"
++        # BLE001: the thing under test is whatever the nested engine does, including refusing
++        except BaseException as exc:  # noqa: BLE001
++            seen["nested"] = type(exc).__name__
++
++    def test_runs_the_engine_in_a_thread():
++        t = threading.Thread(target=nested)
++        t.start()
++        t.join(30)
++        assert mod.compute(1) == 2
++
++    return test_runs_the_engine_in_a_thread
++
++
++# ── the cycle through a thread the test started ──────────────────────────────────────────────
++
++
++def test_a_cycle_through_a_thread_the_test_started_is_refused_by_name_not_waited_into(
++    target,
++):
++    """Before: the nested acquire waited on the holder while the holder waited on the worker, which
++    waited on the thread: the measurement ran out its allowance (here 5 s) and was scored a false
++    uncontained timeout. Now: refused at once, by name, neither killed nor survived."""
++    mod, path = target
++    seen: dict = {}
++    started = time.monotonic()
++    result = evaluate_mutant(
++        _mutants()[0],
++        [_engine_in_a_thread_test(mod, path, seen)],
++        mod.compute,
++        timeout_ms=5000,
++        qualname="compute",
++        source_path=path,
++    )
++    took = time.monotonic() - started
++    assert took < 4.0, (
++        f"the refusal waited {took:.1f}s: it fired by timeout, not by name"
++    )
++    assert seen["nested"] == "MeasurementRefused"
++    assert result.killed is False and result.killed_by is None
++    assert result.contained is True
++    assert result.refusal == "nested_measurement"
++    assert result.refused_test and result.refused_test.endswith(
++        "test_runs_the_engine_in_a_thread"
++    )
++    disposition = mutant_disposition(
++        result.constructed,
++        result.installed,
++        result.entered,
++        True,
++        result.killed,
++        result.refusal,
++    )
++    assert disposition == "nested_measurement"
++    assert disposition not in SCORED_DISPOSITIONS
++    assert not [t for t in threading.enumerate() if isinstance(t, JoinedWorker)]
++
++
++def test_nothing_is_patched_before_during_or_after_outside_a_measurement(target):
++    original = interrupt._ORIGINAL_START
++    assert threading.Thread.start is original
++    seen: dict = {}
++
++    def probe() -> None:
++        seen["inside"] = threading.Thread.start is not original
++
++    worker = JoinedWorker(target=probe)
++    worker.start()
++    worker.join(30)
++    assert seen["inside"] is True, "starts are recorded while a measurement worker runs"
++    assert threading.Thread.start is original, "and restored when the last one ends"
++    assert not interrupt._RECORDING
++
++
++def test_the_wrapper_survives_nesting_and_is_removed_by_the_last_exit():
++    original = interrupt._ORIGINAL_START
++    with record_thread_starts():
++        with record_thread_starts():
++            assert threading.Thread.start is not original
++        assert threading.Thread.start is not original, "the inner exit must not unpatch"
++    assert threading.Thread.start is original
++
++
++def test_the_wrapper_is_removed_when_the_block_raises():
++    with pytest.raises(RuntimeError), record_thread_starts():
++        raise RuntimeError("boom")
++    assert threading.Thread.start is interrupt._ORIGINAL_START
++    assert not interrupt._RECORDING
++
++
++# ── the edge ─────────────────────────────────────────────────────────────────────────────────
++
++
++def test_a_thread_started_by_a_measurement_worker_names_that_worker_its_starter():
++    seen: dict = {}
++
++    def leaf() -> None:
++        seen["chain"] = starter_chain()
++        seen["starter"] = starter_of(threading.current_thread())
++
++    def middle() -> None:
++        t = threading.Thread(target=leaf)
++        t.start()
++        t.join(30)
++        seen["worker"] = threading.current_thread()
++
++    worker = JoinedWorker(target=middle)
++    worker.start()
++    worker.join(30)
++    assert seen["starter"] is seen["worker"] is worker
++    assert seen["chain"] == (worker.ident, threading.get_ident())
++
++
++def test_a_thread_started_outside_any_measurement_has_no_starter_and_an_empty_chain():
++    seen: dict = {}
++
++    def leaf() -> None:
++        seen["chain"] = starter_chain()
++        seen["starter"] = starter_of(threading.current_thread())
++
++    t = threading.Thread(target=leaf)
++    t.start()
++    t.join(30)
++    assert seen["starter"] is None, "not seen is not 'none': nothing was recorded"
++    assert seen["chain"] == ()
++    assert starter_of(threading.main_thread()) is None
++
++
++def test_a_dead_starter_ends_the_chain_through_a_plain_thread_too():
++    go = threading.Event()
++    seen: dict = {}
++
++    def leaf() -> None:
++        go.wait(30)
++        seen["chain"] = starter_chain()
++
++    holder: dict = {}
++
++    def short_lived() -> None:
++        holder["t"] = threading.Thread(target=leaf)
++        holder["t"].start()
++
++    worker = JoinedWorker(target=short_lived)
++    worker.start()
++    worker.join(30)
++    go.set()
++    holder["t"].join(30)
++    assert seen["chain"] == (), (
++        "a finished starter waits on nothing; its ident may be someone else's"
++    )
++
++
++def test_the_refusal_is_recorded_on_the_worker_above_a_plain_thread():
++    """The plain thread has no record of its own; the worker that started it learns the refusal, and a
++    worker at or above the owner does not."""
++    seen: dict = {}
++    me: list[int] = []
++
++    def leaf() -> None:
++        mark_refusal("nested_measurement", me[0])
++
++    def middle() -> None:
++        t = threading.Thread(target=leaf)
++        t.start()
++        t.join(30)
++
++    def top_body() -> None:
++        me.append(threading.get_ident())
++        inner = JoinedWorker(target=middle)
++        inner.start()
++        inner.join(30)
++        seen["inner"] = inner.refusal
++
++    top = JoinedWorker(target=top_body)
++    top.start()
++    top.join(30)
++    assert seen["inner"] == "nested_measurement"
++    assert top.refusal == "", (
++        "the owner itself, and anything above it, was never part of the cycle"
++    )
++
++
++def test_joined_worker_chains_are_unchanged():
++    seen: dict = {}
++
++    def leaf() -> None:
++        seen["chain"] = starter_chain()
++
++    def middle() -> None:
++        inner = JoinedWorker(target=leaf)
++        inner.start()
++        inner.join(30)
++
++    mid = JoinedWorker(target=middle)
++    mid.start()
++    mid.join(30)
++    assert seen["chain"] == (mid.ident, threading.get_ident())
++    assert starter_chain() == ()
+-- 
+2.43.0
+

@@ -1,0 +1,739 @@
+From 08a18515bc913b58db9be1151a86b3c966705432 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:21:20 +0000
+Subject: [PATCH 10/11] fix(#94): PlanResolution.file and the unwired adequacy
+ benchmark are retired
+
+The defect, verbatim from the issue: "a computed field no reader reads is invisible". Three OPEN fields:
+`plan.PlanResolution.file`, `adequacy.AdequacyReport.abstain_reason`, `adequacy.FaultOutcome.family`.
+
+PlanResolution.file: set at three construction sites, read by no renderer. The refusal's `detail` and the
+assembly's `scope` already name the file, so the field is deleted (a negative test asserts it is gone and
+the existing resolver test now reads the file from `assembly.scope`).
+
+The adequacy benchmark: DELETED, not wired. `run_adequacy` has no production caller (ARCHITECTURE listed it
+as "the benchmark entry point"), so the two report fields were read by nothing. The verb it would belong to
+is `decompose`, but the benchmark works by writing an injected fault into the USER's target file, rerunning
+the proof suite and restoring the file in a `finally`; an interrupted run leaves a faulted source, so handing
+it to a person as a flag needs a redesign (an out-of-tree copy) that is a founder decision, not a field
+fix. The module, its tests, the two generated goldens of its pure decisions (`adequacy_bucket`,
+`bucket_is_finding`) and the ARCHITECTURE row are removed; the code is in git history at e730818 (#15).
+Consequence recorded in the guard: `DecompositionApply.transform_class_id` was read only by
+`run_adequacy`, so it is now a reflected-only field (it reaches `decompose --json`), and the pinned count
+of those goes 36 -> 37 with the reason beside it.
+
+Not closed: ExecutableProperty.{confidence, source_lenses} and TargetBinding.receiver_params (3 OPEN).
+
+OPEN 5 -> 3. Disarmed, 3 of the 4 new/changed guard tests fail. Neighbour tests and guards pass under 3.14
+and 3.12 apart from the unrelated `bound` entry; ruff clean under pinned 0.16.7.
+---
+ ARCHITECTURE.md                               |   1 -
+ Detective/adequacy.py                         | 259 ------------------
+ Detective/plan.py                             |   6 +-
+ ...equacy_adequacy_bucket_23fd7b6ab3_synth.py |  38 ---
+ ...uacy_bucket_is_finding_f12ef942a1_synth.py |  24 --
+ tests/test_adequacy_native.py                 | 203 --------------
+ tests/test_field_consumption_intent.py        |  33 ++-
+ tests/test_plan_decisions_intent.py           |  11 +-
+ 8 files changed, 28 insertions(+), 547 deletions(-)
+ delete mode 100644 Detective/adequacy.py
+ delete mode 100644 tests/detective/test_Detective_adequacy_adequacy_bucket_23fd7b6ab3_synth.py
+ delete mode 100644 tests/detective/test_Detective_adequacy_bucket_is_finding_f12ef942a1_synth.py
+ delete mode 100644 tests/test_adequacy_native.py
+
+diff --git a/ARCHITECTURE.md b/ARCHITECTURE.md
+index 4477898..a378755 100644
+--- a/ARCHITECTURE.md
++++ b/ARCHITECTURE.md
+@@ -380,7 +380,6 @@ All in `Detective/`; frozen dataclasses unless noted.
+ | `suite_edit.py` | apply confirmed test deletions | `apply_removals` |
+ | `pins.py` | generated properties remembered across runs, keyed by function digest | `function_digest`, `load`, `save` |
+ | `samples.py` | remember the Zone-2 inputs a person supplied | `load`, `remember`, `merge` |
+-| `adequacy.py` | adversarial adequacy benchmark for the decomposition transform | `run_adequacy`, `adequacy_bucket` |
+ | `consumption.py` | is a pinned pure decision actually CONSUMED by production code | `consumption_disposition`, `declared_decisions` |
+ | `distinction.py` | does each consumer of a decision DISTINGUISH all of its codes (§9 invariant 3) | `distinction_disposition`, `consumer_reads` |
+ | `absorption.py` | does every defaulted `getattr` read a name something DECLARES (§9 invariant 7) | `absorption_disposition`, `getattr_reads`, `declared_attributes` |
+diff --git a/Detective/adequacy.py b/Detective/adequacy.py
+deleted file mode 100644
+index adffab7..0000000
+--- a/Detective/adequacy.py
++++ /dev/null
+@@ -1,259 +0,0 @@
+-"""Adversarial adequacy benchmark for the supported decomposition transform Τ_Detective (#15).
+-
+-Issue #16 makes the extraction's interface contract EXPLICIT and marks the non-value dimensions
+-(``alias_mutation``, ``effect_order``) as ``witnessed`` — believed-preserved and exercised by a
+-green rerun, but not proven. This module FALSIFIES that belief. It drives an extraction to a green
+-PROVEN state, injects a fault into the transform's OUTPUT (a τ′ a buggy transformer could emit),
+-reruns the SAME mutation-complete proof suite, and asks whether the suite REJECTS the fault. The
+-adequacy claim under test:
+-
+-    τ ∈ Τ_Detective  ∧  τ(P) ≠ P   ⇒   the μ-complete proof suite rejects τ(P)
+-
+-A behavior-changing fault the suite fails to reject (``undetected``) is a dimension whose
+-``witnessed`` status is too strong — the finding that should downgrade it to ``unsupported`` in
+-#16's model, turning a silent auto-apply into an honest proposal. A result is keyed by
+-``(policy_id, transform_class_id)``: adequacy is a claim about ONE rewrite model under ONE
+-mutation policy, and a bump to either invalidates it — the same two ids a PROVEN claim carries.
+-
+-Milestone-1 fault families (issue #15's own first list): helper-signature omission, return
+-packing, call-site unpacking order, ordered-effect deletion. Eval-order, exception-region, and
+-async/generator are the declared next families. The harness does not assert equivalence of an
+-``undetected`` fault — it surfaces it for review, because a green suite there is EITHER a genuine
+-no-op OR an inadequacy, and a differential old-vs-new oracle (issue #37's territory) is what
+-separates them.
+-"""
+-
+-from __future__ import annotations
+-
+-import ast
+-from collections.abc import Callable
+-from dataclasses import dataclass
+-
+-# ── the classification decision (the one named code the driver consumes) ────
+-
+-
+-def adequacy_bucket(produced: bool, import_broke: bool, suite_passed: bool) -> str:
+-    """Classify one adversarial fault's outcome against the proof suite (#15, pure — pinned).
+-
+-    A named code, never a bool — the four cases mean different things and must not collapse:
+-
+-    * ``not_applicable`` — the fault family does not apply to this extraction (e.g. a return-swap
+-      on a helper with fewer than two returns). Nothing was tested; not evidence either way.
+-    * ``structurally_impossible`` — the fault produced source the runner could not even import.
+-      A τ′ that will not load is not one Τ_Detective could emit, so it does not bear on adequacy.
+-    * ``detected`` — the fault produced a loadable τ′ and the proof suite went RED. The adequacy
+-      claim HOLDS for this fault: a distinguishable rewrite was rejected.
+-    * ``undetected`` — the fault produced a loadable τ′ and the suite stayed GREEN. This is the
+-      finding: the μ-complete suite did not reject it. Surfaced for review (genuine no-op vs a
+-      real inadequacy), keyed by policy and transform class."""
+-    if not produced:
+-        return "not_applicable"
+-    if import_broke:
+-        return "structurally_impossible"
+-    return "detected" if not suite_passed else "undetected"
+-
+-
+-def bucket_is_finding(bucket: str) -> bool:
+-    """Whether an adequacy bucket is a REPORTABLE gap (#15, pure — pinned). Only ``undetected`` is:
+-    a fault the suite failed to reject. ``not_applicable`` and ``structurally_impossible`` are
+-    non-events, and ``detected`` is the claim holding — none of them is a gap."""
+-    return bucket == "undetected"
+-
+-
+-# ── the fault families: a buggy transformer's τ′, injected into the output ──
+-
+-
+-def _helper_def(tree: ast.Module, helper_name: str) -> ast.FunctionDef | None:
+-    for node in tree.body:
+-        if isinstance(node, ast.FunctionDef) and node.name == helper_name:
+-            return node
+-    return None
+-
+-
+-def _last_return_tuple(fn: ast.FunctionDef) -> ast.Return | None:
+-    """The helper's ``return a, b`` statement, if its value is a tuple of ≥2 elements."""
+-    for node in ast.walk(fn):
+-        if isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple) and len(node.value.elts) >= 2:
+-            return node
+-    return None
+-
+-
+-def drop_helper_param(source: str, helper_name: str) -> str | None:
+-    """Fault: emit the helper missing its LAST parameter, call site unchanged. A dropped param is
+-    one the finder proved the block reads, so the call now passes an argument the signature will
+-    not accept (or the body reads an unbound name) — a τ′ that must be rejected."""
+-    tree = ast.parse(source)
+-    fn = _helper_def(tree, helper_name)
+-    if fn is None or not fn.args.args:
+-        return None
+-    fn.args.args = fn.args.args[:-1]
+-    return ast.unparse(tree)
+-
+-
+-def swap_helper_returns(source: str, helper_name: str) -> str | None:
+-    """Fault: reverse the order of the helper's returned tuple. The call site unpacks positionally,
+-    so each output binds a sibling's value — a behavior change whenever the outputs are not
+-    interchangeable. Not applicable to a single-return helper."""
+-    tree = ast.parse(source)
+-    fn = _helper_def(tree, helper_name)
+-    if fn is None:
+-        return None
+-    ret = _last_return_tuple(fn)
+-    if ret is None or not isinstance(ret.value, ast.Tuple):
+-        return None
+-    ret.value.elts = list(reversed(ret.value.elts))
+-    return ast.unparse(tree)
+-
+-
+-def swap_call_unpacking(source: str, helper_name: str) -> str | None:
+-    """Fault: reverse the LHS tuple of the call-site assignment ``x, y = helper(...)`` → ``y, x``.
+-    Same distinguishing power as a return swap, injected at the OTHER end of the interface. Not
+-    applicable unless the call assigns to a tuple of ≥2 targets."""
+-    tree = ast.parse(source)
+-    for node in ast.walk(tree):
+-        if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+-            continue
+-        call, target = node.value, node.targets[0]
+-        if (
+-            isinstance(call, ast.Call)
+-            and isinstance(call.func, ast.Name)
+-            and call.func.id == helper_name
+-            and isinstance(target, ast.Tuple)
+-            and len(target.elts) >= 2
+-        ):
+-            target.elts = list(reversed(target.elts))
+-            return ast.unparse(tree)
+-    return None
+-
+-
+-def drop_ordered_effect(source: str, helper_name: str) -> str | None:
+-    """Fault: delete an ordered side-effect statement (a bare call ``log(x)``) from the helper body.
+-    If any test observes the effect, the suite must reject its removal. Not applicable to a helper
+-    with no discarded-call statement."""
+-    tree = ast.parse(source)
+-    fn = _helper_def(tree, helper_name)
+-    if fn is None:
+-        return None
+-    for i, stmt in enumerate(fn.body):
+-        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+-            del fn.body[i]
+-            if not fn.body:  # a helper cannot have an empty body
+-                return None
+-            return ast.unparse(tree)
+-    return None
+-
+-
+-# The registry the driver iterates. Each entry: (family name, injector). Order is stable so a
+-# report is byte-reproducible; the family name is what a finding is keyed and reported under.
+-FAULT_FAMILIES: tuple[tuple[str, Callable[[str, str], str | None]], ...] = (
+-    ("drop_helper_param", drop_helper_param),
+-    ("swap_helper_returns", swap_helper_returns),
+-    ("swap_call_unpacking", swap_call_unpacking),
+-    ("drop_ordered_effect", drop_ordered_effect),
+-)
+-
+-
+-# ── the report ──────────────────────────────────────────────────────────────
+-
+-
+-@dataclass(frozen=True)
+-class FaultOutcome:
+-    """One fault family's result against one proven extraction."""
+-
+-    family: str
+-    helper_name: str
+-    bucket: str  # not_applicable | structurally_impossible | detected | undetected
+-
+-
+-@dataclass(frozen=True)
+-class AdequacyReport:
+-    """The adequacy of ONE function's proof suite against every fault family, keyed by the two ids
+-    a PROVEN claim carries — a result minted under one rewrite model or policy is not another's."""
+-
+-    function: str
+-    policy_id: str | None
+-    transform_class_id: str | None
+-    outcomes: tuple[FaultOutcome, ...]
+-    abstain_reason: str = ""
+-
+-    @property
+-    def findings(self) -> tuple[FaultOutcome, ...]:
+-        """The undetected faults — dimensions the μ-complete suite failed to reject."""
+-        return tuple(o for o in self.outcomes if bucket_is_finding(o.bucket))
+-
+-    @property
+-    def adequate(self) -> bool:
+-        """The suite is adequate for the tested families when it ran and produced no finding. An
+-        abstention (no proven extraction, no generated proof suite) is NOT adequacy — it is the
+-        benchmark declining to make a claim, so it reads False and names why."""
+-        return not self.abstain_reason and not self.findings
+-
+-
+-def run_adequacy(file: str, function: str, project_root: str = ".") -> AdequacyReport:
+-    """Drive ``function`` to a PROVEN extraction, then falsify each fault family against its
+-    mutation-complete proof suite (#15).
+-
+-    Abstains — rather than claiming adequacy — when there is no proven extraction to attack or no
+-    Detective-generated proof suite to rerun (the pre-existing-suite case is a declared gap: this
+-    milestone reruns ``written_path`` only). The target file is written with each faulted source to
+-    run the real consumer pytest, then RESTORED in a finally, exactly as the trial loop does."""
+-    import os
+-
+-    from .certify import run_pytest_verification
+-    from .decompose_apply import apply_decomposition
+-    from .engine import _purge_stale_bytecode
+-
+-    root = os.path.abspath(project_root)
+-    full = file if os.path.isabs(file) else os.path.join(root, file)
+-
+-    result = apply_decomposition(file, function, project_root, write=False)
+-    proof = result.proof
+-    proof_suite = proof.written_path if proof is not None else None
+-    proven = [d.extraction for d in result.proposed if d.validated]
+-
+-    if not proven:
+-        reason = "no proven extraction to attack"
+-    elif not proof_suite:
+-        reason = "no generated proof suite (pre-existing-suite case not yet covered — milestone 1)"
+-    else:
+-        reason = ""
+-    if reason:
+-        return AdequacyReport(
+-            function,
+-            result.policy_id,
+-            result.transform_class_id,
+-            (),
+-            abstain_reason=reason,
+-        )
+-
+-    # The two abstain branches above return whenever proof_suite is falsy, so it is a non-None str
+-    # here. Stated rather than relied upon, so a later edit to the guard cannot silently feed None
+-    # into the runner (the invariant is three branches up, not adjacent).
+-    assert proof_suite is not None
+-
+-    with open(full, encoding="utf-8") as fh:
+-        original = fh.read()
+-
+-    outcomes: list[FaultOutcome] = []
+-    try:
+-        for extraction in proven:
+-            for family, inject in FAULT_FAMILIES:
+-                faulted = inject(extraction.new_source, extraction.helper_name)
+-                if faulted is None:
+-                    outcomes.append(FaultOutcome(family, extraction.helper_name, "not_applicable"))
+-                    continue
+-                with open(full, "w", encoding="utf-8") as fh:
+-                    fh.write(faulted)
+-                _purge_stale_bytecode(full)
+-                v = run_pytest_verification(root, proof_suite)
+-                import_broke = v.status == "collection_failed"
+-                bucket = adequacy_bucket(
+-                    produced=True, import_broke=import_broke, suite_passed=v.status == "passed"
+-                )
+-                outcomes.append(FaultOutcome(family, extraction.helper_name, bucket))
+-    finally:
+-        with open(full, "w", encoding="utf-8") as fh:
+-            fh.write(original)
+-        _purge_stale_bytecode(full)
+-
+-    return AdequacyReport(function, result.policy_id, result.transform_class_id, tuple(outcomes))
+diff --git a/Detective/plan.py b/Detective/plan.py
+index de415f2..7246d29 100644
+--- a/Detective/plan.py
++++ b/Detective/plan.py
+@@ -234,7 +234,6 @@ class PlanResolution:
+     assembly: PlanAssembly | None
+     detail: str = ""
+     regime: object = None
+-    file: str = ""
+     function: str = ""
+ 
+ 
+@@ -262,7 +261,7 @@ def resolve_plan(
+         except Exception:  # noqa: BLE001
+             regime = None
+         if regime is not None and regime.conflicts:
+-            return PlanResolution(REGIME_CONFLICT, None, regime=regime, file=file, function=function)
++            return PlanResolution(REGIME_CONFLICT, None, regime=regime, function=function)
+         full = file if os.path.isabs(file) else os.path.join(root, file)
+         region_key = f"{os.path.relpath(full, root)}::{function}"
+         scope_path = full
+@@ -275,7 +274,6 @@ def resolve_plan(
+                 NO_SUCH_FUNCTION,
+                 None,
+                 f"no function {function!r} in {file} — regions in that file: {names}",
+-                file=file,
+                 function=function,
+             )
+         assembly = PlanAssembly(
+@@ -291,7 +289,7 @@ def resolve_plan(
+             None,
+             f"nothing to read under {target} — no Python functions found (unmeasured, not clean)",
+         )
+-    return PlanResolution("", assembly, file=file, function=function)
++    return PlanResolution("", assembly, function=function)
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+diff --git a/tests/detective/test_Detective_adequacy_adequacy_bucket_23fd7b6ab3_synth.py b/tests/detective/test_Detective_adequacy_adequacy_bucket_23fd7b6ab3_synth.py
+deleted file mode 100644
+index 43c86a7..0000000
+--- a/tests/detective/test_Detective_adequacy_adequacy_bucket_23fd7b6ab3_synth.py
++++ /dev/null
+@@ -1,38 +0,0 @@
+-"""Auto-generated by Detective — warrant-classed tests for Detective/adequacy.py::adequacy_bucket.
+-
+-Regenerated wholesale by `detective converge`; hand edits will be
+-overwritten. Witness lines carry full fidelity on purpose — for the
+-per-glob lint-ignore snippet see "Generated tests & lint" in
+-Detective's README."""
+-
+-import pytest
+-
+-from Detective.adequacy import adequacy_bucket
+-
+-
+-@pytest.mark.detective
+-def test_adequacy_bucket_value_0():
+-    """VALUE survivor — golden capture (pure + deterministic) (confidence 0.9)."""
+-    result = adequacy_bucket(produced=True, import_broke=True, suite_passed=True)
+-    assert result == "structurally_impossible"
+-
+-
+-@pytest.mark.detective
+-def test_adequacy_bucket_value_1():
+-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
+-    result = adequacy_bucket(produced=True, import_broke=False, suite_passed=False)
+-    assert result == "detected"
+-
+-
+-@pytest.mark.detective
+-def test_adequacy_bucket_value_2():
+-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
+-    result = adequacy_bucket(produced=False, import_broke=False, suite_passed=False)
+-    assert result == "not_applicable"
+-
+-
+-@pytest.mark.detective
+-def test_adequacy_bucket_value_3():
+-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
+-    result = adequacy_bucket(produced=True, import_broke=False, suite_passed=True)
+-    assert result == "undetected"
+diff --git a/tests/detective/test_Detective_adequacy_bucket_is_finding_f12ef942a1_synth.py b/tests/detective/test_Detective_adequacy_bucket_is_finding_f12ef942a1_synth.py
+deleted file mode 100644
+index 342f320..0000000
+--- a/tests/detective/test_Detective_adequacy_bucket_is_finding_f12ef942a1_synth.py
++++ /dev/null
+@@ -1,24 +0,0 @@
+-"""Auto-generated by Detective — warrant-classed tests for Detective/adequacy.py::bucket_is_finding.
+-
+-Regenerated wholesale by `detective converge`; hand edits will be
+-overwritten. Witness lines carry full fidelity on purpose — for the
+-per-glob lint-ignore snippet see "Generated tests & lint" in
+-Detective's README."""
+-
+-import pytest
+-
+-from Detective.adequacy import bucket_is_finding
+-
+-
+-@pytest.mark.detective
+-def test_bucket_is_finding_value_0():
+-    """VALUE survivor — golden capture (pure + deterministic) (confidence 0.9)."""
+-    result = bucket_is_finding(bucket="abc")
+-    assert result is False
+-
+-
+-@pytest.mark.detective
+-def test_bucket_is_finding_value_1():
+-    """VALUE survivor — distinguishing witness (equivalence search) (confidence 0.95)."""
+-    result = bucket_is_finding(bucket="undetected")
+-    assert result is True
+diff --git a/tests/test_adequacy_native.py b/tests/test_adequacy_native.py
+deleted file mode 100644
+index d887b34..0000000
+--- a/tests/test_adequacy_native.py
++++ /dev/null
+@@ -1,203 +0,0 @@
+-"""Intent tests for the adversarial adequacy benchmark (issue #15).
+-
+-The benchmark falsifies #16's ``witnessed`` statuses: it injects a fault a buggy transformer could
+-emit into a PROVEN extraction and asks whether the mutation-complete proof suite REJECTS it. These
+-pin the fault families (AST surgery converge cannot ``--input``-synthesise) and the classification
+-meaning; the pure decisions ``adequacy_bucket`` / ``bucket_is_finding`` carry their own synth pins.
+-The heavy end-to-end run (a real converge + suite reruns) is exercised separately as the benchmark
+-executing, not from here.
+-"""
+-
+-from __future__ import annotations
+-
+-import ast
+-
+-from Detective.adequacy import (
+-    FAULT_FAMILIES,
+-    AdequacyReport,
+-    FaultOutcome,
+-    adequacy_bucket,
+-    bucket_is_finding,
+-    drop_helper_param,
+-    drop_ordered_effect,
+-    swap_call_unpacking,
+-    swap_helper_returns,
+-)
+-from Detective.certify import run_pytest_verification
+-
+-# A rendered two-output extraction with an ordered effect — every fault family applies.
+-_SRC = (
+-    "def _seg(a, b):\n"
+-    "    log(a)\n"
+-    "    lo = a - b\n"
+-    "    hi = a + b\n"
+-    "    return lo, hi\n"
+-    "\n\n"
+-    "def f(a, b):\n"
+-    "    lo, hi = _seg(a, b)\n"
+-    "    return hi - lo\n"
+-)
+-
+-
+-def _parses(src: str | None) -> ast.Module:
+-    assert src is not None
+-    return ast.parse(src)  # a fault must still yield loadable source, or it is untestable
+-
+-
+-# ── the fault families change what they claim to, and stay parseable ────────
+-
+-
+-def test_drop_helper_param_removes_the_last_parameter():
+-    tree = _parses(drop_helper_param(_SRC, "_seg"))
+-    seg = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_seg")
+-    assert [a.arg for a in seg.args.args] == ["a"]  # b was dropped; the call still passes it
+-
+-
+-def test_swap_helper_returns_reverses_the_returned_tuple():
+-    tree = _parses(swap_helper_returns(_SRC, "_seg"))
+-    seg = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_seg")
+-    ret = next(n for n in ast.walk(seg) if isinstance(n, ast.Return))
+-    assert isinstance(ret.value, ast.Tuple)
+-    assert [e.id for e in ret.value.elts] == ["hi", "lo"]  # was lo, hi
+-
+-
+-def test_swap_call_unpacking_reverses_the_assignment_targets():
+-    tree = _parses(swap_call_unpacking(_SRC, "_seg"))
+-    call_assign = next(
+-        n
+-        for n in ast.walk(tree)
+-        if isinstance(n, ast.Assign)
+-        and isinstance(n.value, ast.Call)
+-        and isinstance(n.value.func, ast.Name)
+-        and n.value.func.id == "_seg"
+-    )
+-    assert isinstance(call_assign.targets[0], ast.Tuple)
+-    assert [e.id for e in call_assign.targets[0].elts] == ["hi", "lo"]  # was lo, hi
+-
+-
+-def test_drop_ordered_effect_removes_a_bare_call_statement():
+-    tree = _parses(drop_ordered_effect(_SRC, "_seg"))
+-    seg = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_seg")
+-    assert not any(isinstance(s, ast.Expr) and isinstance(s.value, ast.Call) for s in seg.body)
+-
+-
+-# ── the families abstain (None) when they do not apply, never mis-fire ──────
+-
+-
+-def test_swap_families_not_applicable_to_a_single_output_helper():
+-    single = "def _g(a):\n    return a + 1\n\n\ndef f(a):\n    r = _g(a)\n    return r\n"
+-    assert swap_helper_returns(single, "_g") is None  # only one return value
+-    assert swap_call_unpacking(single, "_g") is None  # not a tuple unpack
+-
+-
+-def test_drop_effect_not_applicable_without_a_bare_call():
+-    pure = (
+-        "def _g(a, b):\n    lo = a - b\n    hi = a + b\n    return lo, hi\n\n\n"
+-        "def f(a, b):\n    lo, hi = _g(a, b)\n    return lo + hi\n"
+-    )
+-    assert drop_ordered_effect(pure, "_g") is None
+-
+-
+-def test_a_missing_helper_name_is_not_applicable():
+-    assert drop_helper_param(_SRC, "_does_not_exist") is None
+-    assert drop_ordered_effect(_SRC, "_does_not_exist") is None
+-
+-
+-# ── the classification meaning, from intent ─────────────────────────────────
+-
+-
+-def test_bucket_only_undetected_is_a_finding():
+-    assert adequacy_bucket(produced=False, import_broke=False, suite_passed=False) == "not_applicable"
+-    assert adequacy_bucket(produced=True, import_broke=True, suite_passed=False) == "structurally_impossible"
+-    assert adequacy_bucket(produced=True, import_broke=False, suite_passed=False) == "detected"
+-    assert adequacy_bucket(produced=True, import_broke=False, suite_passed=True) == "undetected"
+-    assert bucket_is_finding("undetected")
+-    assert not any(bucket_is_finding(b) for b in ("not_applicable", "structurally_impossible", "detected"))
+-
+-
+-# ── the report distinguishes an abstention from a proof of adequacy ─────────
+-
+-
+-def test_abstention_is_not_adequacy():
+-    # a run that could not attack anything must NOT read as "adequate" — it made no claim
+-    r = AdequacyReport("m.py::f", "pol", "1.abc", (), abstain_reason="no proven extraction to attack")
+-    assert not r.adequate
+-    assert not r.findings
+-
+-
+-def test_a_clean_run_with_all_detected_is_adequate():
+-    r = AdequacyReport(
+-        "m.py::f",
+-        "pol",
+-        "1.abc",
+-        (
+-            FaultOutcome("drop_helper_param", "_seg", "detected"),
+-            FaultOutcome("swap_helper_returns", "_seg", "detected"),
+-            FaultOutcome("drop_ordered_effect", "_seg", "not_applicable"),
+-        ),
+-    )
+-    assert r.adequate
+-    assert r.findings == ()
+-
+-
+-def test_an_undetected_fault_is_surfaced_and_blocks_adequacy():
+-    r = AdequacyReport(
+-        "m.py::f",
+-        "pol",
+-        "1.abc",
+-        (
+-            FaultOutcome("swap_helper_returns", "_seg", "detected"),
+-            FaultOutcome("swap_call_unpacking", "_seg", "undetected"),
+-        ),
+-    )
+-    assert not r.adequate
+-    assert [o.family for o in r.findings] == ["swap_call_unpacking"]
+-
+-
+-# ── end-to-end: a real pinning suite REJECTS every behavior-changing fault ───
+-
+-# A valid decomposition — f delegates a two-output segment with an ordered effect to _seg —
+-# and a suite tight enough to distinguish each fault: asymmetric outputs (a swap changes the
+-# result), both params used (a drop breaks the call), the effect counted (a drop changes len).
+-_E2E_MODULE = (
+-    "_EVENTS = []\n\n\n"
+-    "def _seg(a, b):\n"
+-    "    _EVENTS.append(a)\n"
+-    "    lo = a - b\n"
+-    "    hi = a + b\n"
+-    "    return lo, hi\n\n\n"
+-    "def f(a, b):\n"
+-    "    _EVENTS.clear()\n"
+-    "    lo, hi = _seg(a, b)\n"
+-    "    return hi * 100 + lo * 10 + len(_EVENTS)\n"
+-)
+-_E2E_SUITE = (
+-    "from m import f\n\n\n"
+-    "def test_values():\n"
+-    "    assert f(5, 2) == 100 * 7 + 10 * 3 + 1\n"
+-    "    assert f(9, 1) == 100 * 10 + 10 * 8 + 1\n"
+-)
+-
+-
+-def test_every_applicable_fault_is_detected_by_a_real_suite(tmp_path):
+-    """The benchmark's core claim, run through the REAL pytest runner: on this fixture every fault
+-    a family produces changes behaviour, and the mutation-pinning suite rejects each one — bucket
+-    ``detected``, never ``undetected``. This is what makes the ``witnessed`` statuses honest here."""
+-    (tmp_path / "m.py").write_text(_E2E_MODULE)
+-    (tmp_path / "test_m.py").write_text(_E2E_SUITE)
+-    root = str(tmp_path)
+-    suite = "test_m.py"
+-
+-    # baseline: the clean decomposition is green
+-    assert run_pytest_verification(root, suite).status == "passed"
+-
+-    for family, inject in FAULT_FAMILIES:
+-        faulted = inject(_E2E_MODULE, "_seg")
+-        assert faulted is not None, f"{family} should apply to this fixture"
+-        (tmp_path / "m.py").write_text(faulted)
+-        v = run_pytest_verification(root, suite)
+-        bucket = adequacy_bucket(
+-            produced=True, import_broke=v.status == "collection_failed", suite_passed=v.status == "passed"
+-        )
+-        assert bucket == "detected", f"{family}: suite failed to reject the fault ({v.status})"
+-        (tmp_path / "m.py").write_text(_E2E_MODULE)  # restore for the next family
+diff --git a/tests/test_field_consumption_intent.py b/tests/test_field_consumption_intent.py
+index 42cba77..7be1ff8 100644
+--- a/tests/test_field_consumption_intent.py
++++ b/tests/test_field_consumption_intent.py
+@@ -72,16 +72,6 @@ BY_DESIGN: dict[str, str] = {
+ }
+ 
+ OPEN: dict[str, str] = {
+-    "adequacy.FaultOutcome.family": (
+-        "`run_adequacy` has no caller outside adequacy.py (listed in ARCHITECTURE.md as the benchmark "
+-        "entry point), so no verb or page reads the report; only its test builds one. Wire it to a verb "
+-        "(`adequacy` on a proven extraction) or retire the benchmark."
+-    ),
+-    "adequacy.AdequacyReport.abstain_reason": (
+-        "Same unwired benchmark as FaultOutcome.family: `adequate` reads it inside the class, and nothing "
+-        "reads `adequate`. An abstention is the report declining to make a claim, and today no reader "
+-        "is told so."
+-    ),
+     "binding.TargetBinding.receiver_params": (
+         "Computed twice (`classify_target`, `binding_from_node`) as 'how many LEADING parameters are the "
+         "receiver, which input synthesis must skip', and read by nothing: about fifteen sites re-derive the "
+@@ -90,11 +80,6 @@ OPEN: dict[str, str] = {
+         "because the pinned classify_target golden (tests/detective) reprs it; the fix is to make those "
+         "sites consume the binding."
+     ),
+-    "plan.PlanResolution.file": (
+-        "Set at three construction sites beside `function`, read by no consumer (the renderer reads "
+-        "`refusal`, `assembly`, `detail`, `regime`). Only a test reads it. Delete it with its producers, "
+-        "or let the refusal page name the file."
+-    ),
+     "oracle_light.ExecutableProperty.confidence": (
+         "A hand-set number (0.2 to 0.95) at about thirty construction sites. `property_identity` states it "
+         "is DELIBERATELY EXCLUDED from identity and nothing ranks, filters or prints by it; pins.json "
+@@ -186,7 +171,9 @@ def test_the_number_of_reflected_only_fields_is_deliberate(sweep) -> None:
+     # 36 since D#80: `equivalence.SurvivorReport.unarmed_harvest` names the tests whose loop count ran past
+     # the probe cap, so the harvest took them under the wall alone. It changes no verdict and no page, so
+     # nothing reads it; `--json` reports it for a reader who asks which tests the count could not bound.
+-    assert len(reflected) == 36, f"{len(reflected)} reflected-only fields: {sorted(reflected)}"
++    # 37 since #94 retired the adequacy benchmark: `DecompositionApply.transform_class_id` was read only by
++    # `run_adequacy`, and now reaches `decompose --json` and a library caller by reflection alone.
++    assert len(reflected) == 37, f"{len(reflected)} reflected-only fields: {sorted(reflected)}"
+ 
+ 
+ # ---------------------------------------------------------------- the registries cannot rot
+@@ -236,7 +223,7 @@ def test_a_field_is_never_in_both_registries() -> None:
+ def test_the_open_gaps_are_exactly_what_we_know_about() -> None:
+     """`len(OPEN)` is the number this guard exists to make visible. A fix makes it go DOWN; a new finding
+     UP. Either is a deliberate edit here, never a silent drift."""
+-    assert len(OPEN) == 6
++    assert len(OPEN) == 3
+ 
+ 
+ # ---------------------------------------------------------------- the decision
+@@ -411,3 +398,15 @@ def test_the_b1_identity_types_that_nothing_instantiated_are_gone() -> None:
+     assert not hasattr(regime, "FileIdentity")
+     assert not hasattr(regime, "RevisionId")
+     assert hasattr(regime, "TestId") and hasattr(regime, "ModuleId")
++
++
++def test_the_adequacy_benchmark_with_no_caller_is_gone() -> None:
++    """#94: `run_adequacy` had no production caller, so two of its report fields were read by nothing.
++
++    The benchmark rewrites the user's TARGET FILE with an injected fault to rerun the proof suite and
++    restores it only in a `finally`: a harness, not a verb a person can be handed without a redesign (an
++    interrupted run leaves a faulted source). It is retired, not wired; the code is in git history at
++    e730818 (#15) for the day that redesign is chosen."""
++    import importlib.util
++
++    assert importlib.util.find_spec("Detective.adequacy") is None
+diff --git a/tests/test_plan_decisions_intent.py b/tests/test_plan_decisions_intent.py
+index 8deae36..ab7037a 100644
+--- a/tests/test_plan_decisions_intent.py
++++ b/tests/test_plan_decisions_intent.py
+@@ -159,7 +159,8 @@ def test_resolve_plan_path_form_and_region_form(tmp_path) -> None:
+     one = resolve_plan("pkg/scan.py::dedupe", str(root))
+     assert one.refusal == "" and one.assembly is not None
+     assert one.assembly.scope == "pkg/scan.py::dedupe" and len(one.assembly.regions) == 1
+-    assert (one.file, one.function) == ("pkg/scan.py", "dedupe")
++    # the file rides in the assembly's scope (`PlanResolution` kept no second copy of it, #94)
++    assert (one.assembly.scope, one.function) == ("pkg/scan.py::dedupe", "dedupe")
+ 
+ 
+ def test_resolve_plan_refusals_are_typed_and_carry_the_detail(tmp_path) -> None:
+@@ -207,3 +208,11 @@ def test_record_style_judgment_names_the_files_regions_on_a_missing_function(tmp
+     rec = record_style_judgment(str(root), "pkg/scan.py", "nope", False, True, False)
+     assert rec.refusal == NO_SUCH_FUNCTION and rec.regions_in_file == ("dedupe",)
+     assert not (root / ".detective" / "judgments.json").exists()
++
++
++def test_a_plan_resolution_keeps_no_second_copy_of_the_file() -> None:
++    """#94: `PlanResolution.file` was set at three sites and read by no renderer; the refusal's `detail`
++    and the assembly's `scope` already name it."""
++    from Detective.plan import PlanResolution
++
++    assert "file" not in PlanResolution.__dataclass_fields__
+-- 
+2.43.0
+

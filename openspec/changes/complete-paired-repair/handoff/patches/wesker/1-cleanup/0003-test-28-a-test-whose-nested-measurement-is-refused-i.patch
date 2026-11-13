@@ -1,0 +1,206 @@
+From 1814b05fda5c5176e5f286de84b1673c0a4ab827 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 04:58:10 +0000
+Subject: [PATCH 3/4] test(#28): a test whose nested measurement is refused is
+ never credited with a kill it did not earn
+
+Re-verification of the "narrow false-kill window" in the per-function _baseline_failures path. Reproduced
+five schedules through the real baseline and the real mutant loop; no window found, so no code change.
+
+  failure BEFORE the nested point under a mutant: a real kill (the original reached the point, so passed
+    the prefix; the control re-run is refused, which differs from the mutant's assertion: control_differs)
+  failure AFTER the nested point (a pin, a swallowed refusal then a pin, a red assertion the original also
+    has): never a kill; the mutant run is refused at the same point and the refusal outranks the outcome
+  red on the original BEFORE its nested point: not refused at all; the baseline bars it
+
+Sensitivity: with the refusal handling in evaluate_mutant disarmed, 3 of 5 fail (all three "past the nested
+point" schedules are credited a kill). 5 passed on 3.14 and 3.12. ruff clean under pinned 0.16.7
+---
+ tests/test_baseline_refused_window_intent.py | 175 +++++++++++++++++++
+ 1 file changed, 175 insertions(+)
+ create mode 100644 tests/test_baseline_refused_window_intent.py
+
+diff --git a/tests/test_baseline_refused_window_intent.py b/tests/test_baseline_refused_window_intent.py
+new file mode 100644
+index 0000000..d21761b
+--- /dev/null
++++ b/tests/test_baseline_refused_window_intent.py
+@@ -0,0 +1,175 @@
++"""Intent: a test whose nested measurement is refused can never be credited with a kill it did not earn (W#28).
++
++THE QUESTION (issue #28, open item). The per-function `_baseline_failures` path keeps a test whose
++nested measurement is refused: its outcome on the ORIGINAL cannot be observed past the nested point, so it
++is neither usable nor inert. The worry was a narrow false-kill window: a failure that belongs to the
++original, or to the refusal, credited to the mutant.
++
++The answer, by construction and now by test. A refused run's record travels on the worker
++(`JoinedWorker.refusal`), and `_run_test_with_timeout` reports `nested_measurement` whatever the test made
++of the exception, so:
++
++* a failure BEFORE the nested point, under a mutant, is a real kill: the original reached the point (that
++  is how the baseline learned it was refused), so it passed the prefix; the control re-run is refused at
++  the point, which is a different outcome from the mutant's assertion (`control_differs`), and the kill
++  stands;
++* a failure AFTER the nested point can never be observed under a mutant either: the mutant run is refused
++  at the same point, and the test's later fate (swallowed refusal, a red assertion the original also has)
++  is the refusal's, never the mutant's;
++* a test that is red on the original BEFORE its nested point is not refused at all: the baseline reads
++  its assertion and bars it.
++
++These are written from what the engine must do, run through the real baseline and the real mutant loop.
++"""
++
++from __future__ import annotations
++
++import ast
++import importlib.util
++import sys
++
++import pytest
++
++from Wesker.engine import (
++    _baseline_failures,
++    evaluate_mutant,
++    generate_mutants,
++)
++from Wesker.filter import filter_categories
++
++_SRC = "def compute(n):\n    return n * 2\n"
++
++
++@pytest.fixture
++def target(tmp_path):
++    path = tmp_path / "window_mod.py"
++    path.write_text(_SRC)
++    spec = importlib.util.spec_from_file_location("window_mod", str(path))
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules["window_mod"] = mod
++    spec.loader.exec_module(mod)
++    try:
++        yield mod, str(path)
++    finally:
++        sys.modules.pop("window_mod", None)
++
++
++def _mutants():
++    node = ast.parse(_SRC).body[0]
++    return generate_mutants(
++        node, filter_categories(node, True), max_per_category=0, pass_index=0
++    )
++
++
++def _tests(mod, path):
++    """Five tests that each run the engine at some point, differing in WHERE and in what else they do."""
++    inner = _mutants()[1]
++
++    def plain():
++        assert mod.compute(2) == 4
++
++    def nested():
++        evaluate_mutant(
++            inner, [plain], mod.compute, qualname="compute", source_path=path
++        )
++
++    def before_then_nested():
++        assert mod.compute(2) == 4  # the prefix: a real pin
++        nested()
++
++    def nested_then_pin():
++        nested()
++        assert mod.compute(2) == 4
++
++    def nested_swallowed_then_pin():
++        try:
++            nested()
++        # BLE001: the schedule under test is a test that swallows whatever the nested engine raises
++        except BaseException:  # noqa: BLE001, S110
++            pass
++        assert mod.compute(2) == 4
++
++    def nested_then_red():
++        nested()
++        raise AssertionError("red on the original too, past the nested point")
++
++    def red_then_nested():
++        raise AssertionError("red on the original before the nested point")
++
++    return {
++        "before_then_nested": before_then_nested,
++        "nested_then_pin": nested_then_pin,
++        "nested_swallowed_then_pin": nested_swallowed_then_pin,
++        "nested_then_red": nested_then_red,
++        "red_then_nested": red_then_nested,
++    }, plain
++
++
++def _real_mutants(mod, path, plain):
++    """The mutants the plain pin kills: the ones any honest test must kill."""
++    real = []
++    for m in _mutants():
++        r = evaluate_mutant(
++            m, [plain], mod.compute, qualname="compute", source_path=path
++        )
++        if r.killed:
++            real.append(m)
++    assert real, "the fixture has no killable mutant: this proves nothing"
++    return real
++
++
++def _run(mod, path, test, mutant):
++    inert, compromised = _baseline_failures([test], mod.compute, "compute")
++    assert not compromised
++    if id(test) in inert:
++        return inert, None
++    return inert, evaluate_mutant(
++        mutant,
++        [test],
++        mod.compute,
++        timeout_ms=5000,
++        qualname="compute",
++        source_path=path,
++    )
++
++
++def test_a_failure_before_the_nested_point_is_a_real_kill(target):
++    mod, path = target
++    tests, plain = _tests(mod, path)
++    for mutant in _real_mutants(mod, path, plain):
++        inert, result = _run(mod, path, tests["before_then_nested"], mutant)
++        assert not inert, "the baseline kept it: the original passes the prefix"
++        assert result.killed is True and result.killed_by == "assertion", result
++        assert result.refusal == "", (
++            "the nested point was never reached under the mutant"
++        )
++
++
++@pytest.mark.parametrize(
++    "name", ["nested_then_pin", "nested_swallowed_then_pin", "nested_then_red"]
++)
++def test_a_failure_past_the_nested_point_is_never_a_kill(target, name):
++    mod, path = target
++    tests, plain = _tests(mod, path)
++    for mutant in _real_mutants(mod, path, plain):
++        inert, result = _run(mod, path, tests[name], mutant)
++        assert not inert, "refused on the original: kept, neither usable nor inert"
++        assert result.killed is False, (
++            f"{name}: a refused test was credited with a kill"
++        )
++        assert result.killed_by is None
++        assert result.refusal == "nested_measurement"
++
++
++def test_a_test_red_on_the_original_before_its_nested_point_is_barred_not_refused(
++    target,
++):
++    mod, path = target
++    tests, _plain = _tests(mod, path)
++    test = tests["red_then_nested"]
++    outcomes: dict[str, str] = {}
++    inert, compromised = _baseline_failures(
++        [test], mod.compute, "compute", outcomes=outcomes
++    )
++    assert id(test) in inert and not compromised
++    assert list(outcomes.values()) != ["nested_measurement"]
+-- 
+2.43.0
+

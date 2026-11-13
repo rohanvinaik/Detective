@@ -1,0 +1,252 @@
+From 3af56335ff774d2c0d9c1840f36493165f9a2e92 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 04:41:54 +0000
+Subject: [PATCH 01/11] fix(#95): step_budget_divergent is read directly from
+ the types that declare it
+
+The defect, verbatim from the issue: "a DIRECT read, so a rename fails loudly ... where the object's
+type is known". Ten sites read `step_budget_divergent` with `getattr(x, "step_budget_divergent", ())`
+or `, 0`: a default that means "nothing diverged". A renamed property on SurvivorReport or SuiteAudit
+would have let `functionally_complete` / `mutant_complete` close over a loop that never terminated.
+
+Why the obvious fix is wrong: `reading()` with an ABSENT branch would be the wrong tool here. Every
+reader holds a SurvivorReport (`rep`, `report`, `survivor_report`) or a SuiteAudit (`a`), both of which
+declare the field; an absent answer is not a legitimate state of those objects, so the honest behaviour
+is to raise at the read, as `load_failed` already does.
+
+Converted: audit.audit_suite, converge._converge_impl, and cli._format_survivor_report,
+_format_converge_terse, _converge_blocked, _converge_routing, _converge_decision, _format_audit,
+_audit_code, _audit_closing_action. Test doubles of SurvivorReport gain the field.
+
+Not closed: the other 18 fault flags still carry their registry counts (63 open sites remain).
+
+FAULT_OPEN["step_budget_divergent"] 10 -> 0. Disarmed, the 2 new intent tests fail (2 of 2).
+tests/test_fault_flags_direct_intent.py and the four guard files: 92 passed under 3.14 and 3.12.
+ruff clean under pinned 0.16.7.
+---
+ Detective/audit.py                          |  2 +-
+ Detective/cli.py                            | 16 ++++-----
+ Detective/converge.py                       |  2 +-
+ tests/test_absorbed_rename_intent.py        |  2 +-
+ tests/test_converge_style_handoff_intent.py |  1 +
+ tests/test_decision_record_intent.py        |  1 +
+ tests/test_fault_flags_direct_intent.py     | 40 +++++++++++++++++++--
+ tests/test_shared_block_route_intent.py     |  1 +
+ 8 files changed, 52 insertions(+), 13 deletions(-)
+
+diff --git a/Detective/audit.py b/Detective/audit.py
+index bd70862..d13eea0 100644
+--- a/Detective/audit.py
++++ b/Detective/audit.py
+@@ -1108,7 +1108,7 @@ def audit_suite(
+         if refused_floor_standing([s[2] for s in write_refused_named], unclassified) == "floor":
+             refused_floor = tuple(s[0] for s in write_refused_named)
+         blocked_causes = tuple(report.blocked_causes)
+-        step_budget_divergent = len(getattr(report, "step_budget_divergent", ()))
++        step_budget_divergent = len(report.step_budget_divergent)
+         # An authored fence is an UNENFORCED must-not (Q8) — a gap like killable/unclassified, so it
+         # blocks mutant-completeness exactly as they do; never treated as a discharged equivalent.
+         # Deterministic step budget divergence likewise blocks completeness (#80).
+diff --git a/Detective/cli.py b/Detective/cli.py
+index 95f122d..31f9080 100644
+--- a/Detective/cli.py
++++ b/Detective/cli.py
+@@ -1886,7 +1886,7 @@ def _format_survivor_report(
+     ]
+     history = [v for v in rep.equivalent if not v.crash_only and v.history in _HISTORY_CODES]
+     identical = [v for v in rep.equivalent if not v.crash_only and v.identical]
+-    divergent = list(getattr(rep, "step_budget_divergent", ()))
++    divergent = list(rep.step_budget_divergent)
+     if (unproven or history) and not rep.killable and not rep.unclassified and not divergent:
+         lines.append(
+             "  ✓ every killable mutant killed — remaining survivors have no distinguishing "
+@@ -3224,7 +3224,7 @@ def _format_converge_terse(
+         lines.append(_unclassified_row(len(rep.unclassified), result.refused_floor))
+         lines.extend(_write_refused_rows(result.write_refused_survivors))
+         lines.extend(_blocked_cause_rows(result.blocked_causes))
+-    if rep is not None and getattr(rep, "step_budget_divergent", ()):
++    if rep is not None and rep.step_budget_divergent:
+         lines.append(
+             _row(
+                 "⚠ divergent",
+@@ -4015,7 +4015,7 @@ def _converge_blocked(result, rep) -> bool:
+     turn residual survivors into DONE — that was the exact measurement/decision split the routing
+     exists to prevent, and it produced "DONE" above `FINAL ... Incomplete` on a live run.
+     """
+-    if rep is not None and getattr(rep, "step_budget_divergent", ()):
++    if rep is not None and rep.step_budget_divergent:
+         # Only the divergent residual has its own hand-back. An ordinary incomplete
+         # result may still need a sample, an internal-condition input, or a fence repair.
+         return bool(rep.killable or rep.unclassified or getattr(rep, "authored_fence", ()))
+@@ -4109,7 +4109,7 @@ def _converge_routing(
+         and _rep_expressible is None
+         and bool(getattr(rep, "note", None))
+     )
+-    _has_diverged = bool(rep is not None and getattr(rep, "step_budget_divergent", ()))
++    _has_diverged = bool(rep is not None and rep.step_budget_divergent)
+     # Whether the open residual is ONLY survivors a file write kept the search from (#105), and whether
+     # the suite detects them, read off the one derivation both verbs name them from. Read only where an
+     # unclassified survivor exists, and then directly (§9.7): a renamed field must raise, never route.
+@@ -4833,7 +4833,7 @@ def _converge_decision(
+             residual = _settled_residual(rep, getattr(result, "param_names", None))
+             if residual[1] and _carried_argv(universe, "flag", fn, residual[1][0]) is None:
+                 withheld.append(("flag", _universe_code(universe, "flag")[1]))
+-    diverged = list(getattr(rep, "step_budget_divergent", ()) or ()) if rep is not None else []
++    diverged = list(rep.step_budget_divergent) if rep is not None else []
+     if code == "step_budget_divergent":
+         diverged_ids = tuple(getattr(v, "mutant_id", "") for v in diverged)
+         residual = ("step_budget_divergent", diverged_ids)
+@@ -7443,7 +7443,7 @@ def _format_audit(
+         lines.append(_unclassified_row(a.unclassified, a.refused_floor))
+         lines.extend(_write_refused_rows(a.write_refused_survivors))
+         lines.extend(_blocked_cause_rows(a.blocked_causes))
+-    if getattr(a, "step_budget_divergent", 0):
++    if a.step_budget_divergent:
+         lines.append(
+             _row(
+                 "⚠ divergent",
+@@ -7785,7 +7785,7 @@ def _audit_code(a, removing: bool = False) -> str:
+         gating_unclassified(
+             int(a.unclassified or 0), [survivor[2] for survivor in a.write_refused_survivors]
+         ),
+-        diverged=int(getattr(a, "step_budget_divergent", 0) or 0),
++        diverged=int(a.step_budget_divergent),
+         # A direct read (§9.7): a renamed field must raise, never read as "no errored test" and close DONE.
+         errored=len(a.errored_tests),
+         untyped=len(a.untyped_tests),
+@@ -8416,7 +8416,7 @@ def _audit_closing_action(a, kind: str, two_sign: bool = False) -> list[str]:
+             ),
+         ]
+     if kind == "done_divergent":
+-        n_div = getattr(a, "step_budget_divergent", 0)
++        n_div = a.step_budget_divergent
+         return [
+             f"INCOMPLETE:  {n_div} survivor(s) diverged deterministically (step budget exceeded).",
+             "",
+diff --git a/Detective/converge.py b/Detective/converge.py
+index 533c6cf..73f8b45 100644
+--- a/Detective/converge.py
++++ b/Detective/converge.py
+@@ -2940,7 +2940,7 @@ def _converge_impl(
+         and not survivor_report.killable
+         and (not survivor_report.unclassified or bool(refused_floor))
+         and not survivor_report.authored_fence
+-        and not getattr(survivor_report, "step_budget_divergent", ())
++        and not survivor_report.step_budget_divergent
+     )
+     # A CUT run measured only PART of the universe (issue #31): its "every killable mutant
+     # killed" is a claim about mutants that never ran. The wall makes the measurement
+diff --git a/tests/test_absorbed_rename_intent.py b/tests/test_absorbed_rename_intent.py
+index ee7872d..41f3bfd 100644
+--- a/tests/test_absorbed_rename_intent.py
++++ b/tests/test_absorbed_rename_intent.py
+@@ -230,7 +230,7 @@ FAULT_OPEN: dict[str, int] = {
+     "routing_error": 4,
+     "shape_hazards": 2,
+     "stale_target": 0,
+-    "step_budget_divergent": 10,
++    "step_budget_divergent": 0,
+     "trace_truncated": 0,
+     "unresolved_mutants": 2,
+     "unscored_records": 6,
+diff --git a/tests/test_converge_style_handoff_intent.py b/tests/test_converge_style_handoff_intent.py
+index 0682a62..552a137 100644
+--- a/tests/test_converge_style_handoff_intent.py
++++ b/tests/test_converge_style_handoff_intent.py
+@@ -44,6 +44,7 @@ def _rep(equivalent):
+         unclassified=[],
+         inputs_expressible=True,
+         load_failed=False,
++        step_budget_divergent=(),
+         note="",
+     )
+ 
+diff --git a/tests/test_decision_record_intent.py b/tests/test_decision_record_intent.py
+index e616055..f841bb1 100644
+--- a/tests/test_decision_record_intent.py
++++ b/tests/test_decision_record_intent.py
+@@ -404,6 +404,7 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
+         unclassified=[],
+         inputs_expressible=True,
+         load_failed=False,
++        step_budget_divergent=(),
+         note="",
+     )
+     d = _converge_decision(result, rep, render_tests=False)
+diff --git a/tests/test_fault_flags_direct_intent.py b/tests/test_fault_flags_direct_intent.py
+index dcc8bb3..941f56e 100644
+--- a/tests/test_fault_flags_direct_intent.py
++++ b/tests/test_fault_flags_direct_intent.py
+@@ -68,7 +68,13 @@ def test_a_result_that_cannot_say_which_lines_stand_open_is_not_read_as_having_n
+     res = _converge_like()
+     delattr(res, flag)
+     rep = types.SimpleNamespace(
+-        equivalent=[], killable=[], unclassified=[], inputs_expressible=True, load_failed=False, note=""
++        equivalent=[],
++        killable=[],
++        unclassified=[],
++        inputs_expressible=True,
++        load_failed=False,
++        note="",
++        step_budget_divergent=(),
+     )
+     with pytest.raises(AttributeError, match=flag):
+         _converge_decision(res, rep, render_tests=False)
+@@ -81,7 +87,13 @@ def test_a_result_that_cannot_say_whether_its_budget_ran_out_is_not_read_as_uncu
+     res = _converge_like()
+     del res.budget_exhausted
+     rep = types.SimpleNamespace(
+-        equivalent=[], killable=[], unclassified=[], inputs_expressible=True, load_failed=False, note=""
++        equivalent=[],
++        killable=[],
++        unclassified=[],
++        inputs_expressible=True,
++        load_failed=False,
++        note="",
++        step_budget_divergent=(),
+     )
+     with pytest.raises(AttributeError, match="budget_exhausted"):
+         _converge_decision(res, rep, render_tests=False)
+@@ -156,3 +168,27 @@ def test_environment_coupled_is_read_from_the_converge_result() -> None:
+     from Detective.converge import ConvergeResult
+ 
+     assert "environment_coupled" in ConvergeResult.__dataclass_fields__
++
++
++# ---------------------------------------------------------------- step_budget_divergent
++
++
++def test_a_survivor_report_that_cannot_say_which_survivors_diverged_is_not_read_as_none_diverged() -> None:
++    """`SurvivorReport.step_budget_divergent` is a declared property. A report without it (a renamed field,
++    a double that never carried it) must fail at the read: the old `getattr(rep, ..., ())` answered 'nothing
++    diverged' and let `functionally_complete` close over a loop that never terminated."""
++    from Detective.cli import _format_survivor_report
++
++    rep = types.SimpleNamespace(
++        equivalent=[], killable=[], unclassified=[], inputs_expressible=True, load_failed=False, note=""
++    )
++    with pytest.raises(AttributeError, match="step_budget_divergent"):
++        _format_survivor_report(rep)
++
++
++def test_a_suite_audit_that_cannot_say_how_many_diverged_is_not_read_as_zero() -> None:
++    from Detective.cli import _audit_closing_action
++
++    a = types.SimpleNamespace()
++    with pytest.raises(AttributeError, match="step_budget_divergent"):
++        _audit_closing_action(a, "done_divergent")
+diff --git a/tests/test_shared_block_route_intent.py b/tests/test_shared_block_route_intent.py
+index 5aad12c..4e91f79 100644
+--- a/tests/test_shared_block_route_intent.py
++++ b/tests/test_shared_block_route_intent.py
+@@ -138,6 +138,7 @@ def _loadfail_rep(note=_NOTE):
+         unclassified=[1, 2],
+         inputs_expressible=None,
+         load_failed=True,
++        step_budget_divergent=(),
+         note=note,
+     )
+ 
+-- 
+2.43.0
+

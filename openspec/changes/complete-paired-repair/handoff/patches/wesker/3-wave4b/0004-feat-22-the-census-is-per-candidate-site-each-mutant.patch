@@ -1,0 +1,1754 @@
+From 27ef91dd68c3c48ab7e0157a93bb0b9ff2108366 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 06:37:04 +0000
+Subject: [PATCH 4/4] feat(#22): the census is per candidate site, each mutant
+ is joined to its site, and kills are ledgered by the evidence they are
+ (annotation sites counted, #30)
+
+The defect, verbatim (Wesker 2fbd029): the census is 11 category rows of counts, with no stable
+candidate-site ids (source location + AST role + source digest) and no total disposition per site and
+operator; killed records carry `mutant_id`, `dimension`, `mutated_line` and `killed_by` but no site id and
+no join to reach / install / entry / detection evidence; detection kills are not separated from
+declared-contract kills in the ledger (the split exists only as the `killed_by` code); and annotation
+sites are not classified: ARITHMETIC reads `generated: 2, withheld: 0` on a function with three
+annotation BinOps (#30's one remaining item).
+
+Why the obvious fix is wrong: a second walk that decides "generated" per site would be the second predicate
+this repo treats as a defect class (#9). The site census runs the category's OWN recorders under a
+ContextVar sink (`_SITE_SINK`), so each `_note` also reports the site it was noted at: the per-site
+`generated` counts are the same notes the target count is made of, and the census checks that
+`site_targets + function_level == category_targets` for every category on the whole fingerprint corpus.
+The one class-level table (`CANDIDATE_CLASSES`, which node classes an operator reads) is guarded: no
+mutant is ever joined to a (site, operator) pair the census does not list.
+
+What each state of the pure decisions means. `site_disposition(candidate, annotation, targets, hold,
+absent_reason)`: `not_applicable:not_a_candidate_class` (the node is not this operator's to answer);
+`withheld:annotation` (in the annotation subtree #30 rules out, whatever else is true); `withheld:<hold>`
+(the operator produced mutants and a policy hold suppressed them: `purity_overlay`, `one_sign_policy`);
+`generated:`; else the reason the site gave nothing (`unsupported:name_sub_not_enrolled`,
+`not_applicable:docstring` / `bare_reraise` / `already_return_none` / `not_isinstance` / ...), default
+`not_applicable:no_alternative_at_site`. SWAP also records `withheld.pair_budget` and
+`not_applicable.identical_operands` (#53) per call, and an unobserved single-type handler records
+`withheld.unobserved_handler` (#37). `kill_class(killed_by, dimension, reach_dimensions)`: `contract`
+(assertion, declared exception), `detection` (crash), `reach` (a dimension in `REACH_CLASS_DIMENSIONS`,
+decided first so a reach-class kill can never be counted as a contract the suite declared), `unscored`
+(any other recorded reason), `none`. `REACH_CLASS_DIMENSIONS` holds `OUTPUT:raise_inject`, the place for
+the other lane's raise-inject kills.
+
+Carried: `Mutant.site` (resolved once per `generate_mutants` by `SiteIndex`; a Form B wrapper is
+`function`), `site` and `kill_class` on every killed/survivor/unscored record, and on `ProfilingResult` /
+`--json`: `site_census`, `kill_ledger` (every class present including at 0; `kills` reconciles with
+`total_killed`), and `mutant_ledger` (one row per executed mutant: site, disposition, outcome,
+`reach_tests`, kill class; `reach_tests` is None when no line was reported, never 0). The rollup carries
+`kill_ledger` merged over functions and `unledgered_functions` (a result with no ledger is counted, not
+read as zeros). `category_census` rows gain `withheld_by` (`annotation`, `purity_overlay`,
+`one_sign_policy`, `pair_budget`), appended after `disposition` so the row's existing key order and
+`_census_row`'s output are untouched: before, a function with `a: int | None`, `b: int | str = 1 + 1`, a
+`-> int | str` and an annotated local read ARITHMETIC `withheld: 0`; now `generated: 3, withheld: 4,
+withheld_by: {annotation: 4}`. The policy id moves with the observation text only (universe unchanged):
+10.2598eed3d331 -> 10.9a2fc78d0699, two-sign 10+neg.34638cf3c016 -> 10+neg.e3c781bee30b.
+
+What was NOT closed: the human page does not print the ledger or the census (they are in `--json`, the
+rollup and the result dict); a CLI line is the integrator's call. The census's `generated` per site is
+per node, not per operator index inside a node (a Compare with two operators is one site with two
+targets). `reach_tests` is the baseline's executed-line reach; admissible-vs-observed reach for each
+mutant is not split in the row. The census is computed per profile call, not cached. Detective consumes
+`killed_by` and `value_survivor_records` unchanged; whether declared-exception kills count in
+degree-of-freedom pinning is a Detective-side accounting that this ledger makes checkable but does not
+decide. The reach class has no producer until the other lane marks its raise-inject kills.
+
+Receipt: not pinned here (the integrator re-pins `site_disposition`, `kill_class` and `is_candidate_class`
+after Wesker's Wave 4 lands).
+Tests: tests/test_site_census_intent.py (91 cases) plus the policy, exception, swap, canonical-id,
+census, annotation, filter, engine, decorated-target, fresh-arguments, the generated `_census_row`
+golden and the guard files: 500 passed under 3.14.6 and under 3.12.13, PYTHONUNBUFFERED unset. With the
+annotation count, the site join and the kill split disarmed, 24 of the 91 fail. ruff clean under pinned
+0.16.7.
+---
+ CHANGELOG.md                                |  11 +
+ Wesker/ci.py                                |  14 +
+ Wesker/engine.py                            | 126 +++++
+ Wesker/filter.py                            |  29 +-
+ Wesker/kill_ledger.py                       | 149 ++++++
+ Wesker/policy.py                            |   7 +
+ Wesker/site_census.py                       | 381 +++++++++++++++
+ Wesker/site_ids.py                          | 107 +++++
+ tests/test_decorated_target_scope_intent.py |   1 +
+ tests/test_policy.py                        |   5 +-
+ tests/test_site_census_intent.py            | 504 ++++++++++++++++++++
+ 11 files changed, 1329 insertions(+), 5 deletions(-)
+ create mode 100644 Wesker/kill_ledger.py
+ create mode 100644 Wesker/site_census.py
+ create mode 100644 Wesker/site_ids.py
+ create mode 100644 tests/test_site_census_intent.py
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 774c6e5..23cdc6a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -10,6 +10,17 @@ changed three times, so the policy id moved three times.
+ 
+ ### Correctness
+ 
++- **The census is per candidate site, each mutant is joined to its site, and kills are ledgered by the kind of
++  evidence they are; annotation sites are counted.** The census was 11 category rows of counts. `site_census`
++  now gives every candidate site a stable id (source location, AST role, source digest) and one disposition per
++  operator it is a candidate for (`generated` / `withheld(reason)` / `unsupported(reason)` /
++  `not_applicable(reason)`, `site_disposition`), reconciled with the universe count per category, and
++  `category_census` rows carry `withheld_by` including `annotation` (before, ARITHMETIC read `generated: 2,
++  withheld: 0` beside three annotation BinOps). Each mutant carries its `site`, each killed record its
++  `kill_class` (`contract`: assertion or declared exception; `detection`: crash; `reach`: the dimensions in
++  `REACH_CLASS_DIMENSIONS`), and `to_dict` / the rollup carry `site_census`, `kill_ledger` and `mutant_ledger`
++  (one row per executed mutant with its disposition and reach). A result with no ledger is counted
++  `unledgered_functions`, never as zeros. (W#22, W#30)
+ - **The EXCEPTION operator narrows a handler, so a test that pins a handler's breadth is necessary.** Nothing asked
+   whether `except Exception:` still catches what it used to once it was narrowed: Detective #103 widened a parser
+   guard from `SyntaxError` for exactly that reason and its regression test was read as redundant and removed. The
+diff --git a/Wesker/ci.py b/Wesker/ci.py
+index 8746f06..0857ff2 100644
+--- a/Wesker/ci.py
++++ b/Wesker/ci.py
+@@ -38,6 +38,7 @@ from Wesker.engine import (
+     run_function_converged,
+ )
+ from Wesker.filter import filter_categories, prioritize_categories
++from Wesker.kill_ledger import merge_ledgers
+ from Wesker.write_authority import WRITE_OUTSIDE_AUTHORITY
+ 
+ # ── ANSI colors for terminal output ──────────────────────────────
+@@ -2653,6 +2654,10 @@ def profile_codebase(
+     unreached_functions: list[dict] = []
+     memory_standings: list[str] = []
+     memory_bounds: list[str] = []
++    # The kill ledger (#22): each function's kills by the kind of evidence they are. A result that
++    # carries no ledger (an older cached result) is counted as unledgered, never as a ledger of zeros.
++    kill_ledgers: list[dict] = []
++    unledgered_functions = 0
+     total_universe = 0
+     total_dof = 0
+     total_dof_covered = 0
+@@ -2720,6 +2725,10 @@ def profile_codebase(
+             unreached_functions.extend(unreached_entries(r))
+             memory_standings.append(str(r.get("memory_standing", "n/a")))
+             memory_bounds.append(str(r.get("memory_bound", "n/a")))
++            if isinstance(r.get("kill_ledger"), dict):
++                kill_ledgers.append(r["kill_ledger"])
++            else:
++                unledgered_functions += 1
+             cause = truncation_cause(
+                 r.get("coverage_depth", ""),
+                 bool(r.get("budget_exhausted")),
+@@ -2888,6 +2897,11 @@ def profile_codebase(
+         "memory_bounds": {
+             b: memory_bounds.count(b) for b in sorted(set(memory_bounds))
+         },
++        # Kills by the evidence they are (#22): a contract kill (an assertion, or a declared exception)
++        # states what the code does; a detection kill (a crash) shows it ran and broke; a reach kill shows
++        # only that a test reached it. `unledgered_functions` counts results that carried no ledger.
++        "kill_ledger": merge_ledgers(kill_ledgers),
++        "unledgered_functions": unledgered_functions,
+         "passes": passes,
+         "elapsed_ms": round(elapsed),
+         # Progress lines this run could not write (W#52): its stream was closed or redirected under
+diff --git a/Wesker/engine.py b/Wesker/engine.py
+index fc0bd3d..6cd5ec5 100644
+--- a/Wesker/engine.py
++++ b/Wesker/engine.py
+@@ -59,6 +59,12 @@ from .isolation import (
+     scope_fast_mode_standing,
+     should_recycle,
+ )
++from .kill_ledger import (
++    REACH_CLASS_DIMENSIONS,
++    kill_class,
++    kill_ledger,
++    mutant_ledger,
++)
+ from .line_coverage import admissible_coverage as _admissible_coverage
+ from .line_coverage import arcs_from_trace as _arcs_from_trace
+ from .line_coverage import coverage_from_trace as _coverage_from_trace
+@@ -80,6 +86,7 @@ from .memory_guard import reclaim as _reclaim
+ from .memory_guard import resolve_budget as _resolve_budget
+ from .memory_guard import run_baseline_bytes as _mem_baseline
+ from .mu_minus import GENERATOR_MATERIALIZE_CAP, YIELD_MODES, begin_test, form_b
++from .site_ids import SITE_FUNCTION, SiteIndex, SiteKey, site_key_of
+ from .subsumption import distinct_obligations as _distinct_obligations
+ from .subsumption import redundancy_groups
+ from .swap_plan import SWAP_PAIR_BUDGET, swap_label, swap_plan_keyed
+@@ -217,6 +224,11 @@ class Mutant:
+     wrapper_factory: Callable[..., Any] | None = field(
+         default=None, compare=False, repr=False
+     )
++    # Where the mutation fired (#22): the position key the mutator reported, and the stable candidate-site
++    # id `generate_mutants` resolves it to (:mod:`Wesker.site_ids`). "" when the mutator reported no node
++    # (SITE_FUNCTION for a whole-function wrapper). Excluded from eq: provenance, not identity.
++    site_key: SiteKey | None = field(default=None, compare=False, repr=False)
++    site: str = field(default="", compare=False)
+ 
+ 
+ @dataclass
+@@ -775,6 +787,16 @@ class ProfilingResult:
+     # is a reviewable judgement, not a silent gap). Keyed by MutationCategory; empty on the converged
+     # path and any construction that does not supply it. Serialized (enum -> str) in to_dict.
+     operator_census: dict = field(default_factory=dict)
++    # The PER-SITE census (#22, #30): every candidate site with a stable id and one disposition per operator
++    # it is a candidate for, annotation sites included as withheld(annotation). Empty when the profile did
++    # not supply it. See Wesker.site_census.
++    site_census: dict = field(default_factory=dict)
++    # Kills by the kind of evidence they are (#22): contract (assertion, declared exception), detection
++    # (crash) and reach, never one counter. Empty on a result that did not compute it, which is not a
++    # ledger of zeros.
++    kill_ledger: dict = field(default_factory=dict)
++    # One row per executed mutant, joined to its site and to its reach / entry / detection evidence.
++    mutant_ledger: list[dict] = field(default_factory=list)
+ 
+     # --- Value-specification view -------------------------------------------------
+     # An assertion kill pins WHAT the function returns; a crash kill only proves
+@@ -996,6 +1018,15 @@ class ProfilingResult:
+             d["operator_census"] = {
+                 cat.value: row for cat, row in self.operator_census.items()
+             }
++        # #22: the per-site census, the kill ledger (contract / detection / reach) and the per-mutant
++        # join. Emitted whenever present, with the ledger's zeros kept: a class that never fired and a
++        # class nobody counted must not read alike.
++        if self.site_census:
++            d["site_census"] = self.site_census
++        if self.kill_ledger:
++            d["kill_ledger"] = self.kill_ledger
++        if self.mutant_ledger:
++            d["mutant_ledger"] = self.mutant_ledger
+         if self.survivor_records:
+             d["survivor_records"] = self.survivor_records
+         # The value-unspecified set: true survivors PLUS crash kills. This is what a
+@@ -1109,6 +1140,7 @@ def _unscored_record(result: MutantResult, disposition: str) -> dict:
+         "category": mutant.category.value,
+         "mutated_line": mutant.mutated_line,
+         "dimension": mutant.dimension,
++        "site": mutant.site,
+         "change": _mutant_change(mutant),
+         "disposition": disposition,
+         "killed_by": result.killed_by,
+@@ -1194,6 +1226,14 @@ def _named_unscored_record(
+ # ── §6.4 Dispatch Table: Category → AST Transform ────────────────
+ 
+ 
++# While a site census records (:func:`Wesker.site_census.site_census`), every mutator's `_note` also reports
++# (dimension key, the site it was noted at) here. A ContextVar so a recording is private to its caller and
++# costs one lookup per visited node when nothing records.
++_SITE_SINK: ContextVar[list[tuple[str, SiteKey | None]] | None] = ContextVar(
++    "_SITE_SINK", default=None
++)
++
++
+ class _BaseMutator(ast.NodeTransformer):
+     """Base class for all category mutators — tracks ``applied`` state.
+ 
+@@ -1217,17 +1257,34 @@ class _BaseMutator(ast.NodeTransformer):
+         # test-impact scoping can run only the covering tests (verdict-preserving:
+         # a test that never runs the mutated line cannot kill the mutant).
+         self.mutated_lineno: int | None = None
++        # The position key of the node the mutation fired at (#22), and — only while a site census is
++        # recording — the node being visited, so a `_note` can say which candidate site it belongs to.
++        self.applied_key: SiteKey | None = None
++        self._visiting: ast.AST | None = None
++
++    def visit(self, node: ast.AST) -> Any:
++        if _SITE_SINK.get() is None:
++            return super().visit(node)
++        previous, self._visiting = self._visiting, node
++        try:
++            return super().visit(node)
++        finally:
++            self._visiting = previous
+ 
+     def _mark_applied(self, node: ast.AST) -> None:
+         """Record that the mutation fired at ``node`` — sets the applied flag and
+         the source line changed. Mutators call this in place of a bare applied-flag
+         set so every category reports WHERE it mutated with no per-category drift."""
+         self.applied, self.mutated_lineno = True, getattr(node, "lineno", None)
++        self.applied_key = site_key_of(node)
+ 
+     def _note(self, dim_key: str) -> None:
+         """Record the behavioral dimension of the current candidate site."""
+         if self.keys is not None:
+             self.keys.append(dim_key)
++            sink = _SITE_SINK.get()
++            if sink is not None:
++                sink.append((dim_key, site_key_of(self._visiting)))
+ 
+     # ── Option A (Wesker#30): Exclude annotation subtrees ─────────────
+     # Annotations are inert under PEP 563 / PEP 649 absent explicit
+@@ -2982,6 +3039,7 @@ def _generate_dataflow_mutants(
+                         mutant_id=mid,
+                         target_index=i,
+                         mutated_line=transformer.mutated_lineno,
++                        site_key=transformer.applied_key,
+                         dimension=keys[i] if i < len(keys) else "",
+                     )
+                 )
+@@ -3248,6 +3306,7 @@ def _generate_state_mutants(
+                         mutant_id=mid,
+                         target_index=i,
+                         mutated_line=transformer.mutated_lineno,
++                        site_key=transformer.applied_key,
+                         dimension=keys[i] if i < len(keys) else "",
+                     )
+                 )
+@@ -3827,6 +3886,7 @@ def _generate_output_wrappers(
+                 mutated_line=lineno,
+                 dimension=f"OUTPUT:{mode}:{lineno}",
+                 wrapper_factory=factory,
++                site=SITE_FUNCTION,
+             )
+         )
+     return mutants
+@@ -3931,6 +3991,7 @@ def _generate_output_perturbations(
+                         mutant_id=mid,
+                         target_index=i,
+                         mutated_line=transformer.mutated_lineno,
++                        site_key=transformer.applied_key,
+                         dimension=keys[i] if i < len(keys) else "",
+                     )
+                 )
+@@ -3992,6 +4053,7 @@ def _generate_exception_mutants(
+                         mutant_id=mid,
+                         target_index=i,
+                         mutated_line=transformer.mutated_lineno,
++                        site_key=transformer.applied_key,
+                         dimension=keys[i] if i < len(keys) else "",
+                     )
+                 )
+@@ -5786,10 +5848,31 @@ def generate_mutants(
+                         mutant_id=mid,
+                         target_index=i,
+                         mutated_line=transformer.mutated_lineno,
++                        site_key=transformer.applied_key,
+                         dimension=keys[i] if i < len(keys) else "",
+                     )
+                 )
+ 
++    return _join_sites(func_node, mutants)
++
++
++def _join_sites(
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef, mutants: list[Mutant]
++) -> list[Mutant]:
++    """Resolve every mutant's fire-site key to its stable candidate-site id (#22).
++
++    One index over the original tree serves them all. A whole-function wrapper has no node and is the
++    function itself (it set ``site`` when it was built); a mutant whose key the index does not hold is left
++    unjoined (""), which the census reports as unjoined and never as a site.
++    """
++    if not mutants:
++        return mutants
++    index = SiteIndex(func_node)
++    for mutant in mutants:
++        if mutant.site:
++            continue  # a whole-function wrapper names itself
++        if mutant.site_key is not None and index.node(mutant.site_key) is not None:
++            mutant.site = index.site_id(mutant.site_key)
+     return mutants
+ 
+ 
+@@ -10255,6 +10338,7 @@ def run_function_profiling(
+                         "category": mutant.category.value,
+                         "mutated_line": mutant.mutated_line,
+                         "dimension": mutant.dimension,
++                        "site": mutant.site,
+                         "change": _mutant_change(mutant),
+                         "diff_summary": _mutant_diff(mutant),
+                         "error": f"{type(exc).__name__}: {exc}",
+@@ -10346,8 +10430,14 @@ def run_function_profiling(
+                         "category": mutant.category.value,
+                         "mutated_line": mutant.mutated_line,
+                         "dimension": mutant.dimension,
++                        "site": mutant.site,
+                         "change": _mutant_change(mutant),
+                         "killed_by": result.killed_by,
++                        "kill_class": kill_class(
++                            result.killed_by or "",
++                            mutant.dimension,
++                            list(REACH_CLASS_DIMENSIONS),
++                        ),
+                         "test": result.test_name,
+                         "diff_summary": _mutant_diff(mutant),
+                         "elapsed_ms": round(result.elapsed_ms, 1),
+@@ -10363,6 +10453,7 @@ def run_function_profiling(
+                         "category": mutant.category.value,
+                         "mutated_line": mutant.mutated_line,
+                         "dimension": mutant.dimension,
++                        "site": mutant.site,
+                         "change": _mutant_change(mutant),
+                         "diff_summary": _mutant_diff(mutant),
+                         "elapsed_ms": round(result.elapsed_ms, 1),
+@@ -10625,8 +10716,14 @@ def run_function_profiling(
+                     "category": _mutant.category.value,
+                     "mutated_line": _mutant.mutated_line,
+                     "dimension": _mutant.dimension,
++                    "site": _mutant.site,
+                     "change": _mutant_change(_mutant),
+                     "killed_by": _res.killed_by,
++                    "kill_class": kill_class(
++                        _res.killed_by or "",
++                        _mutant.dimension,
++                        list(REACH_CLASS_DIMENSIONS),
++                    ),
+                     "test": _res.test_name,
+                     "diff_summary": _mutant_diff(_mutant),
+                     "elapsed_ms": round(_res.elapsed_ms, 1),
+@@ -10807,6 +10904,18 @@ def run_function_profiling(
+     from Wesker.filter import category_census
+ 
+     _operator_census = category_census(func_node, is_pure)
++    # The per-site census (#22) of the universe THIS run generated: the same purity assertion, the
++    # same two-sign standing (any OUTPUT mutant means the two-sign policy ran), and the same
++    # observations generation was given.
++    from Wesker.site_census import site_census as _site_census
++
++    _site_census_payload = _site_census(
++        func_node,
++        is_pure=is_pure,
++        two_sign=any(m.category is MutationCategory.OUTPUT for m in mutants),
++        observed=observed_return_types,
++        caught=observed_caught,
++    )
+ 
+     return ProfilingResult(
+         function_key=func_key,
+@@ -10878,6 +10987,11 @@ def run_function_profiling(
+         failing_tests=failing,
+         tests_discovered=len(test_functions),
+         operator_census=_operator_census,
++        site_census=_site_census_payload,
++        kill_ledger=kill_ledger(killed_records),
++        mutant_ledger=mutant_ledger(
++            killed_records, survivor_records, unscored_records, line_cov
++        ),
+         trace_truncated=sorted(_trace_truncated),
+         shared_arguments=_shared_arguments(test_functions),
+         containment_lost=_containment_lost(_baseline_uncontained, _uncontained_results),
+@@ -11640,6 +11754,7 @@ def run_function_converged(
+                     "category": mutant.category.value,
+                     "mutated_line": mutant.mutated_line,
+                     "dimension": mutant.dimension,
++                    "site": mutant.site,
+                     "change": _mutant_change(mutant),
+                     "diff_summary": _mutant_diff(mutant),
+                     "elapsed_ms": round(result.elapsed_ms, 1),
+@@ -11658,6 +11773,11 @@ def run_function_converged(
+                     record["reach"] = survivor_reach(result.tests_run)
+                 if result.killed:
+                     record["killed_by"] = result.killed_by
++                    record["kill_class"] = kill_class(
++                        result.killed_by or "",
++                        mutant.dimension,
++                        list(REACH_CLASS_DIMENSIONS),
++                    )
+                     record["test"] = result.test_name
+                     killed_records.append(record)
+                     # First-killer mode records the single killer; full-matrix mode
+@@ -11854,10 +11974,16 @@ def run_function_converged(
+                     "category": _mutant.category.value,
+                     "mutated_line": _mutant.mutated_line,
+                     "dimension": _mutant.dimension,
++                    "site": _mutant.site,
+                     "change": _mutant_change(_mutant),
+                     "diff_summary": _mutant_diff(_mutant),
+                     "elapsed_ms": round(_res.elapsed_ms, 1),
+                     "killed_by": _res.killed_by,
++                    "kill_class": kill_class(
++                        _res.killed_by or "",
++                        _mutant.dimension,
++                        list(REACH_CLASS_DIMENSIONS),
++                    ),
+                     "test": _res.test_name,
+                 }
+                 killed_records.append(_record)
+diff --git a/Wesker/filter.py b/Wesker/filter.py
+index 2d1f5ee..90c696b 100644
+--- a/Wesker/filter.py
++++ b/Wesker/filter.py
+@@ -27,6 +27,7 @@ from Wesker.engine import (
+     count_swap_withheld,
+     estimate_universe_size,
+ )
++from Wesker.site_census import annotation_site_counts
+ 
+ 
+ @dataclass
+@@ -153,7 +154,11 @@ def category_census(
+     unmeasured, and currently invisible.
+     """
+     census: dict[MutationCategory, dict] = {}
++    # Candidate sites inside annotation subtrees (Wesker #30, option A): outside the runtime universe by
++    # ruling, and COUNTED here as withheld(annotation) rather than dropped from every count.
++    annotation = annotation_site_counts(func_node)
+     for cat in MutationCategory:
++        by: dict[str, int] = {}
+         if cat is MutationCategory.STATE:
+             sub_modes: dict[str, dict] = {}
+             generated = withheld = 0
+@@ -171,22 +176,38 @@ def category_census(
+                     "withheld_by": "purity_overlay" if (suppressed and targets) else "",
+                 }
+             row = _census_row(generated, withheld, sub_modes)
++            by["purity_overlay"] = withheld
+         elif cat is MutationCategory.OUTPUT and not two_sign:
+             # μ⁻ is off under the one-sign default policy: candidate return sites may exist,
+             # but the policy withholds them. Shown as withheld (issue #22 auditability) — the
+             # reader sees the negative operator is available and disabled, not absent.
+-            row = _census_row(0, estimate_universe_size(func_node, {cat}))
++            sites = estimate_universe_size(func_node, {cat})
++            row = _census_row(0, sites)
++            by["one_sign_policy"] = sites
+         elif cat is MutationCategory.SWAP:
+             # The per-call-site budget can leave argument-order questions UNASKED (policy 7). Those
+             # are withheld by policy exactly as μ⁻ is above — the operator is available and some of
+             # its questions were declined — so the reader sees a narrowed universe as narrowed,
+             # never as a complete one. Both numbers come from the one plan generation used.
+-            row = _census_row(
+-                estimate_universe_size(func_node, {cat}), count_swap_withheld(func_node)
+-            )
++            over_budget = count_swap_withheld(func_node)
++            row = _census_row(estimate_universe_size(func_node, {cat}), over_budget)
++            by["pair_budget"] = over_budget
+         else:
+             generated, withheld = estimate_universe_size(func_node, {cat}), 0
+             row = _census_row(generated, withheld)
++        if annotation[cat.value]:
++            # Counted AFTER the policy rows so the reason is its own: an annotation site is not a
++            # purity or budget decision. The disposition is recomputed from the new totals.
++            by["annotation"] = annotation[cat.value]
++            row["withheld"] = int(row["withheld"]) + annotation[cat.value]  # type: ignore[call-overload]
++            row["disposition"] = operator_disposition(
++                int(row["generated"]),  # type: ignore[call-overload]
++                int(row["withheld"]),  # type: ignore[call-overload]
++            )
++        # WHY the withheld count is what it is, by reason (#22): a count with no reason is a number
++        # nobody can disagree with. Appended after `disposition`, so the row's existing key order is
++        # untouched for every reader of it.
++        row["withheld_by"] = {reason: n for reason, n in by.items() if n}
+         census[cat] = row
+     return census
+ 
+diff --git a/Wesker/kill_ledger.py b/Wesker/kill_ledger.py
+new file mode 100644
+index 0000000..80aefe4
+--- /dev/null
++++ b/Wesker/kill_ledger.py
+@@ -0,0 +1,149 @@
++"""Detection kills and declared-contract kills are different evidence (Wesker #22).
++
++``killed`` answers "did the suite fail under this mutant", and the failing test may have meant two very
++different things by it. A test that ASSERTS a value, or declares that an error is raised
++(``pytest.raises``), states what the function does: a contract kill. A test that merely crashes under the
++mutant, an unexpected exception from a test that expected none, proves the mutant was ENTERED and
++broke something, which is detection and not specification. And a mutant whose only possible kill is that
++any test reaching it fails (an injected raise) measures REACH. The three were one counter, so a
++specification figure and a "the suite noticed" figure could not be told apart in the ledger.
++
++The split is by the kill reason the engine already records, plus a registry of the dimensions whose kills
++are reach-class by construction whatever the reason says.
++"""
++
++from __future__ import annotations
++
++# The kill reasons the engine records (Wesker.engine: killed_by).
++KILL_ASSERTION = "assertion"
++KILL_EXCEPTION = "exception"
++KILL_CRASH = "crash"
++
++# The kill classes.
++CLASS_CONTRACT = (
++    "contract"  # a test stated the behaviour: an assertion, or a declared exception
++)
++CLASS_DETECTION = (
++    "detection"  # a test broke under the mutant without stating anything about it
++)
++CLASS_REACH = "reach"  # the kill is "a test reached the mutant and it fails there" and nothing more
++CLASS_UNSCORED = "unscored"  # no kill: the observation ended without a verdict
++CLASS_NONE = "none"  # not killed
++
++# Dimension keys (or key prefixes) whose kills are reach-class by construction: an injected raise fails
++# EVERY test that reaches the call, so its kill says the call was reached, not what it should do
++# (Wesker.mu_minus catalog, "raise"). A kill of one of these is CLASS_REACH whatever `killed_by` says.
++REACH_CLASS_DIMENSIONS: tuple[str, ...] = ("OUTPUT:raise_inject",)
++
++KILL_CLASSES = (CLASS_CONTRACT, CLASS_DETECTION, CLASS_REACH)
++
++
++def kill_class(killed_by: str, dimension: str, reach_dimensions: list[str]) -> str:
++    """Which kind of evidence a kill is (#22, pure — pinned).
++
++    * ``contract``  — ``assertion`` or ``exception``: the test said what the function does, or that it
++      raises. Unless the dimension is reach-class, in which case the failure is not a statement about
++      the function.
++    * ``reach``     — the dimension is in ``reach_dimensions`` (matched as a prefix): whatever the test
++      reported, the kill only shows the mutant was reached.
++    * ``detection`` — ``crash``: something broke; nothing was stated.
++    * ``unscored``  — any other recorded reason (``diverged``, ``undetermined``, ``memory_cut``…): the
++      observation ended with no verdict, so it is not a kill of any class.
++    * ``none``      — no reason: not killed.
++
++    Reach is decided first, so a reach-class dimension can never be counted as a contract the suite
++    declared.
++    """
++    if not killed_by:
++        return CLASS_NONE
++    if killed_by in (KILL_ASSERTION, KILL_EXCEPTION, KILL_CRASH) and any(
++        dimension.startswith(prefix) for prefix in reach_dimensions
++    ):
++        return CLASS_REACH
++    if killed_by in (KILL_ASSERTION, KILL_EXCEPTION):
++        return CLASS_CONTRACT
++    if killed_by == KILL_CRASH:
++        return CLASS_DETECTION
++    return CLASS_UNSCORED
++
++
++def kill_ledger(records: list[dict]) -> dict[str, int]:
++    """Count a run's kill records by class (the ledger carried to the rollup and ``--json``).
++
++    ``records`` are ``killed_records``-shaped dicts. Every class is present, including at 0, because a
++    class that never fired and a class nobody counted must not read alike. ``kills`` is the sum, so the
++    total can be reconciled against ``total_killed`` from the payload alone.
++    """
++    ledger = {cls: 0 for cls in (*KILL_CLASSES, CLASS_UNSCORED)}
++    for record in records:
++        cls = kill_class(
++            str(record.get("killed_by") or ""),
++            str(record.get("dimension") or ""),
++            list(REACH_CLASS_DIMENSIONS),
++        )
++        if cls in ledger:
++            ledger[cls] += 1
++    ledger["kills"] = sum(ledger[cls] for cls in KILL_CLASSES)
++    return ledger
++
++
++def merge_ledgers(ledgers: list[dict[str, int]]) -> dict[str, int]:
++    """Sum several functions' ledgers (the rollup). Every ledger must carry every class: a result with no
++    ledger is the caller's to count as unledgered, not a ledger of zeros."""
++    merged = {cls: 0 for cls in (*KILL_CLASSES, CLASS_UNSCORED)}
++    for one in ledgers:
++        for cls in merged:
++            merged[cls] += int(one[cls])
++    merged["kills"] = sum(merged[cls] for cls in KILL_CLASSES)
++    return merged
++
++
++def mutant_ledger(
++    killed: list[dict],
++    survivors: list[dict],
++    unscored: list[dict],
++    line_coverage: dict[str, list[int]],
++) -> list[dict]:
++    """One row per executed mutant, joined to its site and to the evidence of how it was handled (#22).
++
++    The records already carry the mutant, its dimension, its fire line and (since #22) its site id. This
++    row adds the rest of the chain: the disposition (which says how far the mutant got: killed or
++    survived after entry, or the earlier stage it stopped at), the kill class when it was killed, and
++    REACH: how many covering tests executed the mutated line in the baseline. ``reach_tests`` is None when
++    the mutator reported no line, never 0, because "no line reported" and "no test reaches it" are
++    different facts. Rows keep the order killed, survived, unscored.
++    """
++
++    def reach(record: dict) -> int | None:
++        line = record.get("mutated_line")
++        if not isinstance(line, int):
++            return None
++        return sum(1 for lines in line_coverage.values() if line in lines)
++
++    rows: list[dict] = []
++    for outcome, records, default in (
++        ("killed", killed, "killed_after_entry"),
++        ("survived", survivors, "survived_after_entry"),
++        ("unscored", unscored, ""),
++    ):
++        for record in records:
++            row = {
++                "mutant_id": record.get("mutant_id"),
++                "site": record.get("site", ""),
++                "category": record.get("category"),
++                "dimension": record.get("dimension"),
++                "mutated_line": record.get("mutated_line"),
++                "outcome": outcome,
++                "disposition": record.get("disposition") or default,
++                "reach_tests": reach(record),
++            }
++            if outcome == "killed":
++                row["killed_by"] = record.get("killed_by")
++                row["kill_class"] = record.get("kill_class") or kill_class(
++                    str(record.get("killed_by") or ""),
++                    str(record.get("dimension") or ""),
++                    list(REACH_CLASS_DIMENSIONS),
++                )
++                row["test"] = record.get("test")
++            rows.append(row)
++    return rows
+diff --git a/Wesker/policy.py b/Wesker/policy.py
+index 9b69514..d254258 100644
+--- a/Wesker/policy.py
++++ b/Wesker/policy.py
+@@ -557,6 +557,13 @@ def mutation_policy(two_sign: bool = False) -> MutationPolicy:
+                 "interpreter; an id issued by the earlier ast.dump derivation resolves through the "
+                 "recorded migration, never by guessing"
+             ),
++            (
++                "the operator census is per candidate site: each site carries a stable id (source "
++                "location, AST role, source digest) and one disposition per operator it is a candidate "
++                "for (generated, withheld, unsupported, not_applicable) with a named reason; each "
++                "executed mutant is joined to its site, and kills are ledgered as contract "
++                "(assertion, declared exception), detection (crash) or reach, never one counter"
++            ),
+         ],
+         "purity_overlay": (
+             "filter_categories(is_pure=True) suppresses the remove_assign "
+diff --git a/Wesker/site_census.py b/Wesker/site_census.py
+new file mode 100644
+index 0000000..86264a9
+--- /dev/null
++++ b/Wesker/site_census.py
+@@ -0,0 +1,381 @@
++"""The per-site operator census (Wesker #22, #30): what the policy did at every candidate site.
++
++``filter.category_census`` says what each CATEGORY did on a target in counts. A count cannot say which site
++a withheld alternative sat at, nor show a site the operator never considered, so a reader could not audit
++the decision, only the total. This census takes every positioned node of the function and, for every
++operator whose candidate class the node belongs to, states one disposition:
++
++* ``generated``       — the operator produced at least one mutant here (``targets`` counts them);
++* ``withheld``        — the site is a candidate and policy declined it, for a named reason
++  (``annotation``, ``purity_overlay``, ``one_sign_policy``, ``unobserved_handler``, ``pair_budget``);
++* ``unsupported``     — the operator is implemented but not enrolled for this site (``name_sub_not_enrolled``);
++* ``not_applicable``  — the site is of a class the operator reads and the site has nothing for it
++  (``docstring``, ``bare_reraise``, ``identical_operands``, ``no_alternative_at_site``…).
++
++Every other (node, operator) pair is ``not_applicable(not_a_candidate_class)`` by rule, stated once in the
++payload rather than as hundreds of rows. :func:`site_disposition` answers any pair, so the census is total
++over nodes x operators, and the mutants the generator produced are counted in the same pass that classifies
++the sites (one analysis: the notes each mutator records in record mode), so a site's ``generated`` count
++and the universe cannot disagree.
++
++Annotation sites (Wesker #30, option A) are candidates the runtime universe excludes by ruling, and they are
++SHOWN: a ``withheld(annotation)`` row per operator whose class matches, instead of the silent exclusion the
++category counts alone produce.
++"""
++
++from __future__ import annotations
++
++import ast
++from typing import Any
++
++from .caught_exceptions import (
++    CaughtObservation,
++    narrowing_standing,
++)
++from .engine import (
++    _SITE_SINK,
++    MutationCategory,
++    _count_targets,
++    _dataflow_candidates,
++    _deletable_stmt_ids,
++    _docstring_positions,
++    _scope_bindings,
++    _stmt_call_ids,
++    _swap_plan_of,
++    _SwapMutator,
++    _walk_behavioral,
++)
++from .site_ids import SiteIndex, SiteKey, site_key_of
++from .swap_plan import PAIR_IDENTICAL  # noqa: F401  (named in the payload's reasons)
++
++D_GENERATED = "generated"
++D_WITHHELD = "withheld"
++D_UNSUPPORTED = "unsupported"
++D_NOT_APPLICABLE = "not_applicable"
++
++R_ANNOTATION = "annotation"
++R_NOT_CANDIDATE = "not_a_candidate_class"
++R_NO_ALTERNATIVE = "no_alternative_at_site"
++
++# The node classes each operator reads, by category: the CANDIDATE classes. A node of one of them is a site
++# the operator is answerable for; a node of any other class is not_applicable(not_a_candidate_class). This
++# is the only class-level table: whether a candidate generated anything comes from the mutators' own
++# record-mode notes, and `tests/test_site_census_intent.py` checks that no note ever lands on a node
++# outside its category's classes.
++CANDIDATE_CLASSES: dict[str, tuple[str, ...]] = {
++    "VALUE": ("Constant",),
++    "BOUNDARY": ("Compare",),
++    "ARITHMETIC": ("BinOp", "AugAssign", "UnaryOp"),
++    "LOGICAL": ("BoolOp", "UnaryOp"),
++    "SWAP": ("Call",),
++    "TYPE": ("Call",),
++    "STATE": ("Assign", "AnnAssign", "AugAssign", "Return", "Break", "Continue"),
++    "EXCEPTION": ("Raise", "ExceptHandler"),
++    "DATAFLOW": ("Name",),
++    "OUTPUT": ("Return", "Yield", "YieldFrom"),
++}
++_STMT_CLASSES = tuple(c.__name__ for c in ast.stmt.__subclasses__())
++
++
++def is_candidate_class(category: str, node_class: str, is_root: bool) -> bool:
++    """Whether a node class is one the operator reads (pure — pinned)."""
++    if category == "STMT":
++        return node_class in _STMT_CLASSES and not is_root
++    return node_class in CANDIDATE_CLASSES.get(category, ())
++
++
++def site_disposition(
++    candidate: bool,
++    annotation: bool,
++    targets: int,
++    hold: str,
++    absent_reason: str,
++) -> str:
++    """The standing of one (site, operator) pair as ``<disposition>:<reason>`` (#22, pure — pinned).
++
++    Precedence is the order of the questions a reader asks: is the site this operator's to answer at all
++    (``not_applicable:not_a_candidate_class``); is it in the annotation subtree the ruling excludes
++    (``withheld:annotation``, whatever else is true, because the exclusion comes first and the operator
++    never saw it); did the operator produce mutants and a policy hold (``hold``, e.g. ``purity_overlay``)
++    suppress them (``withheld:<hold>``); did it produce any (``generated:``); and otherwise the reason
++    the site gave nothing, which arrives already spelled ``<disposition>:<reason>``.
++
++    The two states that read alike must not share a code: ``withheld`` is a judgement a reader may
++    disagree with, ``not_applicable`` is a structural fact. ``generated`` carries an empty reason.
++    """
++    if not candidate:
++        return f"{D_NOT_APPLICABLE}:{R_NOT_CANDIDATE}"
++    if annotation:
++        return f"{D_WITHHELD}:{R_ANNOTATION}"
++    if targets > 0 and hold:
++        return f"{D_WITHHELD}:{hold}"
++    if targets > 0:
++        return f"{D_GENERATED}:"
++    if absent_reason:
++        return absent_reason
++    return f"{D_NOT_APPLICABLE}:{R_NO_ALTERNATIVE}"
++
++
++def _absent_reason(
++    category: str,
++    node: ast.AST,
++    docstrings: set[tuple[int, int]],
++    name_sub_sites: set[SiteKey],
++) -> str:
++    """Why an unannotated candidate gave no mutants, spelled ``<disposition>:<reason>`` ("" if no more
++    specific reason is known). Specific only where the operator's own skip rule is a named one."""
++    if category == "VALUE" and isinstance(node, ast.Constant):
++        if (node.lineno, node.col_offset) in docstrings:
++            return f"{D_NOT_APPLICABLE}:docstring"
++        if node.value is None or isinstance(node.value, (bytes, complex, type(...))):
++            return f"{D_NOT_APPLICABLE}:constant_type_without_alternative"
++    if category == "DATAFLOW" and isinstance(node, ast.Name):
++        if not isinstance(node.ctx, ast.Load):
++            return f"{D_NOT_APPLICABLE}:not_a_load"
++        key = site_key_of(node)
++        if key is not None and key in name_sub_sites:
++            return f"{D_UNSUPPORTED}:name_sub_not_enrolled"
++        return f"{D_NOT_APPLICABLE}:no_compatible_candidate"
++    if (
++        category == "TYPE"
++        and isinstance(node, ast.Call)
++        and not (isinstance(node.func, ast.Name) and node.func.id == "isinstance")
++    ):
++        return f"{D_NOT_APPLICABLE}:not_isinstance"
++    if category == "EXCEPTION" and isinstance(node, ast.Raise) and node.exc is None:
++        return f"{D_NOT_APPLICABLE}:bare_reraise"
++    if (
++        category == "STATE"
++        and isinstance(node, ast.Return)
++        and (
++            node.value is None
++            or (isinstance(node.value, ast.Constant) and node.value.value is None)
++        )
++    ):
++        return f"{D_NOT_APPLICABLE}:already_return_none"
++    if category in ("ARITHMETIC", "LOGICAL") and isinstance(node, ast.UnaryOp):
++        is_not = isinstance(node.op, ast.Not)
++        if (category == "LOGICAL") != is_not:
++            return f"{D_NOT_APPLICABLE}:operator_belongs_to_the_other_family"
++    if category == "STMT":
++        return f"{D_NOT_APPLICABLE}:binds_a_new_name_or_not_deletable"
++    return ""
++
++
++def annotation_site_counts(
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++) -> dict[str, int]:
++    """How many candidate sites per operator sit in the function's annotation subtrees (#30).
++
++    The category census (:func:`Wesker.filter.category_census`) reads this so a category's row says
++    ``withheld(annotation)`` instead of leaving the excluded sites out of every count. The nodes are the
++    ones :func:`_walk_behavioral` does not visit, the same walk generation and counting share, so the
++    exclusion and its count cannot drift.
++    """
++    behavioral = {id(n) for n in _walk_behavioral(func_node)}
++    counts = {c.value: 0 for c in MutationCategory}
++    for node in ast.walk(func_node):
++        if id(node) in behavioral or site_key_of(node) is None:
++            continue
++        for category in MutationCategory:
++            if is_candidate_class(category.value, type(node).__name__, False):
++                counts[category.value] += 1
++    return counts
++
++
++def _record(
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    category: MutationCategory,
++    observed: frozenset[str] | None,
++    caught: CaughtObservation | None,
++) -> tuple[list[tuple[str, SiteKey | None]], int]:
++    """The notes the category's mutators record over the function, with the site each was noted at,
++    and the category's own target count (the reconciliation figure)."""
++    notes: list[tuple[str, SiteKey | None]] = []
++    token = _SITE_SINK.set(notes)
++    try:
++        count = _count_targets(func_node, category, observed, caught)
++    finally:
++        _SITE_SINK.reset(token)
++    return notes, count
++
++
++def site_census(
++    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
++    *,
++    is_pure: bool = False,
++    two_sign: bool = False,
++    observed: frozenset[str] | None = None,
++    caught: CaughtObservation | None = None,
++) -> dict[str, Any]:
++    """The per-site census of one function, JSON-ready (impure only in running the mutators' recorders).
++
++    ``is_pure``, ``two_sign``, ``observed`` and ``caught`` are the run's own, so the census is about the
++    universe that run generated: a census computed under other settings would be a different claim.
++    """
++    index = SiteIndex(func_node)
++    root_key = site_key_of(func_node)
++    behavioral = {id(n) for n in _walk_behavioral(func_node)}
++    annotation_keys: set[SiteKey] = set()
++    for node in ast.walk(func_node):
++        key = site_key_of(node)
++        if key is not None and id(node) not in behavioral:
++            annotation_keys.add(key)
++    docstrings = _docstring_positions(func_node)
++    name_sub_sites: set[SiteKey] = set()
++    for node_id, (mode, _orig, _cands) in _dataflow_candidates(func_node).items():
++        if mode == "name_sub":
++            node = next((n for n in ast.walk(func_node) if id(n) == node_id), None)
++            key = site_key_of(node)
++            if key is not None:
++                name_sub_sites.add(key)
++
++    # category value -> site key -> [targets, held targets, {reason: withheld count}]
++    per_category: dict[str, dict[SiteKey, dict[str, Any]]] = {}
++    reconcile: dict[str, dict[str, int]] = {}
++    for category in MutationCategory:
++        cat = category.value
++        sites: dict[SiteKey, dict[str, Any]] = {}
++        if category is MutationCategory.STMT:
++            deletable = _deletable_stmt_ids(func_node)
++            notes = [
++                ("STMT", site_key_of(node))
++                for node in ast.walk(func_node)
++                if isinstance(node, ast.stmt)
++                and (node.lineno, node.col_offset) in deletable
++            ]
++            count = len(notes)
++        elif category is MutationCategory.SWAP:
++            # Counted the way `_count_targets` counts it: the alternatives of every call.
++            stmt_ids = _stmt_call_ids(func_node)
++            bindings = _scope_bindings(func_node)
++            notes = []
++            for node in _walk_behavioral(func_node):
++                if isinstance(node, ast.Call):
++                    for _spec, label in _SwapMutator._alternatives(
++                        node, stmt_ids, bindings
++                    ):
++                        notes.append((label, site_key_of(node)))
++            count = len(notes)
++        else:
++            notes, count = _record(func_node, category, observed, caught)
++        for dim, key in notes:
++            if key is None:
++                continue
++            row = sites.setdefault(key, {"targets": 0, "held": 0, "withheld": {}})
++            row["targets"] += 1
++            if (
++                category is MutationCategory.STATE
++                and is_pure
++                and dim.startswith("STATE:remove_assign")
++            ) or (category is MutationCategory.OUTPUT and not two_sign):
++                row["held"] += 1
++        per_category[cat] = sites
++        reconcile[cat] = {
++            "site_targets": sum(r["targets"] for r in sites.values()),
++            "category_targets": count,
++            # Targets that belong to the function as a whole (a μ⁻ Form B wrapper), not to a node.
++            "function_level": count - sum(r["targets"] for r in sites.values()),
++        }
++
++    # Per-site withheld sub-questions that are not whole-site holds.
++    for node in ast.walk(func_node):
++        key = site_key_of(node)
++        if key is None or id(node) not in behavioral:
++            continue
++        if isinstance(node, ast.Call):
++            _asked, over_budget, identical = _swap_plan_of(node)
++            row = per_category["SWAP"].setdefault(
++                key, {"targets": 0, "held": 0, "withheld": {}}
++            )
++            if over_budget:
++                row["withheld"]["pair_budget"] = over_budget
++            if identical:
++                row["not_applicable"] = {"identical_operands": len(identical)}
++        if isinstance(node, ast.ExceptHandler) and node.type is not None:
++            names = (
++                [getattr(e, "id", getattr(e, "attr", "")) for e in node.type.elts]
++                if isinstance(node.type, ast.Tuple)
++                else [getattr(node.type, "id", getattr(node.type, "attr", ""))]
++            )
++            names = [n for n in names if n]
++            observed_here = (caught or {}).get(node.lineno, {})
++            standing = narrowing_standing(
++                names,
++                caught is not None,
++                sum(
++                    1
++                    for mro in observed_here.values()
++                    if mro and any(n in mro[1:] for n in names) and mro[0] not in names
++                ),
++                isinstance(node.type, ast.Tuple),
++                False,
++            )
++            if standing == "unobserved":
++                row = per_category["EXCEPTION"].setdefault(
++                    key, {"targets": 0, "held": 0, "withheld": {}}
++                )
++                row["withheld"]["unobserved_handler"] = 1
++
++    census_sites: list[dict[str, Any]] = []
++    by_operator: dict[str, dict[str, dict[str, int]]] = {
++        c.value: {} for c in MutationCategory
++    }
++    for key in index.site_keys():
++        kind = key[0]
++        node = index.node(key)
++        operators: dict[str, dict[str, Any]] = {}
++        for category in MutationCategory:
++            cat = category.value
++            if not is_candidate_class(cat, kind, key == root_key):
++                continue
++            row = per_category[cat].get(key, {"targets": 0, "held": 0, "withheld": {}})
++            hold = ""
++            if row["held"]:
++                hold = (
++                    "purity_overlay"
++                    if category is MutationCategory.STATE
++                    else "one_sign_policy"
++                )
++            annotation = key in annotation_keys
++            absent = (
++                _absent_reason(cat, node, docstrings, name_sub_sites)
++                if node is not None
++                else ""
++            )
++            code = site_disposition(True, annotation, row["targets"], hold, absent)
++            disposition, _, reason = code.partition(":")
++            entry: dict[str, Any] = {"disposition": disposition}
++            if reason:
++                entry["reason"] = reason
++            if row["targets"]:
++                entry["targets"] = row["targets"]
++            if row["withheld"] and not annotation:
++                entry["withheld"] = dict(row["withheld"])
++            if row.get("not_applicable") and not annotation:
++                entry["not_applicable"] = dict(row["not_applicable"])
++            operators[cat] = entry
++            bucket = by_operator[cat].setdefault(disposition, {})
++            label = reason or "-"
++            bucket[label] = bucket.get(label, 0) + 1
++        if operators:
++            census_sites.append(
++                {
++                    "id": index.site_id(key),
++                    "node": kind,
++                    "role": index.role(key),
++                    "line": key[1],
++                    "annotation": key in annotation_keys,
++                    "operators": operators,
++                }
++            )
++    return {
++        "rule": (
++            "every (node, operator) pair not listed under a site is "
++            f"{D_NOT_APPLICABLE}({R_NOT_CANDIDATE}); annotation subtrees are "
++            f"{D_WITHHELD}({R_ANNOTATION}) per Wesker #30, option A"
++        ),
++        "sites": census_sites,
++        "by_operator": by_operator,
++        "reconciliation": reconcile,
++    }
+diff --git a/Wesker/site_ids.py b/Wesker/site_ids.py
+new file mode 100644
+index 0000000..8cfa160
+--- /dev/null
++++ b/Wesker/site_ids.py
+@@ -0,0 +1,107 @@
++"""Stable candidate-site ids (Wesker #22): where a mutant came from, in a form a reader can audit.
++
++A mutant says WHAT changed; the census has to say WHICH candidate site it came from, and every
++site that produced nothing, so "the operator considered this site and declined it" is a fact that can be
++read and not an absence that has to be inferred. An id is three things joined, as the issue asks:
++
++* the source LOCATION: ``lineno:col_offset:end_lineno:end_col_offset``, the same coordinates the mutant's
++  ``mutated_line`` reports and the reader's editor shows;
++* the AST ROLE: the node's class and where its parent holds it (``Return.value``, ``Call.args``), which
++  tells two nodes that share a span apart (``-x`` and the ``x`` inside it);
++* the source DIGEST: a short hash of the node's position-free canonical form (:mod:`Wesker.canonical_ast`),
++  so the id changes when the code at the site changes and is the same under every interpreter.
++
++An id moves when a line is added above it, as the location part says it should; the digest part is what
++lets a reader tell "same site, moved" from "different code, same place".
++"""
++
++from __future__ import annotations
++
++import ast
++import hashlib
++from collections.abc import Iterator
++
++from .canonical_ast import canonical_ast
++
++# (node class name, lineno, col_offset, end_lineno, end_col_offset). The key a mutator reports at its fire
++# site, and the only handle that survives the deep copy a mutator works on.
++SiteKey = tuple[str, int, int, int, int]
++
++# The site of a mutant that rewrites the function as a whole (a μ⁻ Form B wrapper) rather than a node.
++SITE_FUNCTION = "function"
++
++
++def site_key_of(node: ast.AST | None) -> SiteKey | None:
++    """The position key of a node, or None for one that carries no position (``arguments``)."""
++    if node is None:
++        return None
++    lineno = getattr(node, "lineno", None)
++    col = getattr(node, "col_offset", None)
++    if lineno is None or col is None:
++        return None
++    return (
++        type(node).__name__,
++        lineno,
++        col,
++        getattr(node, "end_lineno", None) or lineno,
++        getattr(node, "end_col_offset", None) or col,
++    )
++
++
++class SiteIndex:
++    """Every positioned node of one function, addressable by :data:`SiteKey`.
++
++    Built from the ORIGINAL tree. Keys are unique in practice (a node and its only child can share a span,
++    but not a class); where two nodes do share a key the first in walk order is kept, which is the outer one.
++    """
++
++    def __init__(self, root: ast.AST):
++        self.root = root
++        self._nodes: dict[SiteKey, ast.AST] = {}
++        self._roles: dict[SiteKey, str] = {}
++        for parent in ast.walk(root):
++            for field, value in ast.iter_fields(parent):
++                children = (
++                    value
++                    if isinstance(value, list)
++                    else [value]
++                    if isinstance(value, ast.AST)
++                    else []
++                )
++                for child in children:
++                    if not isinstance(child, ast.AST):
++                        continue
++                    key = site_key_of(child)
++                    if key is not None and key not in self._nodes:
++                        self._nodes[key] = child
++                        self._roles[key] = f"{type(parent).__name__}.{field}"
++        root_key = site_key_of(root)
++        if root_key is not None and root_key not in self._nodes:
++            self._nodes[root_key] = root
++            self._roles[root_key] = "Module.body"
++        self._digests: dict[SiteKey, str] = {}
++
++    def site_keys(self) -> Iterator[SiteKey]:
++        return iter(self._nodes)
++
++    def node(self, key: SiteKey) -> ast.AST | None:
++        return self._nodes.get(key)
++
++    def role(self, key: SiteKey) -> str:
++        return self._roles.get(key, "")
++
++    def digest(self, key: SiteKey) -> str:
++        cached = self._digests.get(key)
++        if cached is None:
++            node = self._nodes.get(key)
++            text = canonical_ast(node, attributes=False) if node is not None else ""
++            cached = hashlib.sha1(
++                text.encode("utf-8", "surrogatepass"), usedforsecurity=False
++            ).hexdigest()[:8]
++            self._digests[key] = cached
++        return cached
++
++    def site_id(self, key: SiteKey) -> str:
++        """``Type@line:col-endline:endcol/Parent.field/<digest>`` for a site in this function."""
++        kind, lineno, col, end_lineno, end_col = key
++        return f"{kind}@{lineno}:{col}-{end_lineno}:{end_col}/{self.role(key)}/{self.digest(key)}"
+diff --git a/tests/test_decorated_target_scope_intent.py b/tests/test_decorated_target_scope_intent.py
+index cb3d0d2..80c7df9 100644
+--- a/tests/test_decorated_target_scope_intent.py
++++ b/tests/test_decorated_target_scope_intent.py
+@@ -238,6 +238,7 @@ def test_a_not_entered_record_carries_its_cause_and_scans_holders_once(modules):
+             category=types.SimpleNamespace(value="ARITHMETIC"),
+             mutated_line=8,
+             dimension="d",
++            site="Return@2:4-2:16/FunctionDef.body/00000000",
+             mutated_node=ast.parse("def fee(n):\n    return n\n").body[0],
+             original_node=ast.parse("def fee(n):\n    return n + 1\n").body[0],
+         ),
+diff --git a/tests/test_policy.py b/tests/test_policy.py
+index 8e4868b..16332a8 100644
+--- a/tests/test_policy.py
++++ b/tests/test_policy.py
+@@ -75,7 +75,9 @@ from Wesker.policy import (
+ # Wesker #53 (policy 10): SWAP no longer transposes two identical operands; the corpus gained fp_swap_identical (SWAP 4 -> 3 on it). 9.bd305bdfd9f8 -> 10.f7358643c7e0.
+ # Wesker #37 (policy 10): EXCEPTION gained handler_narrow (an observed subtype, or a tuple handler's drop-one); the corpus gained
+ # fp_exception_narrow and no existing row moved. 10.f7358643c7e0 -> 10.2598eed3d331.
+-GOLDEN_POLICY_ID = "10.2598eed3d331"
++# Wesker #22/#30: the observation text names the per-site census, the site join and the kill ledger (universe unchanged:
++# GOLDEN_FINGERPRINT holds). 10.2598eed3d331 -> 10.9a2fc78d0699.
++GOLDEN_POLICY_ID = "10.9a2fc78d0699"
+ 
+ # The same fact, readable: the engine's target counts over the fingerprint
+ # corpus. A failure here names the category and function that moved.
+@@ -142,6 +144,7 @@ GOLDEN_FINGERPRINT = {
+ # Policy change above (48) moved both ids: two-sign 9+neg.6035bc2f613d -> 9+neg.f2bb2b1e5f8b.
+ # Policy change above (53) moved both ids: two-sign 9+neg.f2bb2b1e5f8b -> 10+neg.cad6fd2aabb8.
+ # Policy change above (37) moved both ids: two-sign 10+neg.cad6fd2aabb8 -> 10+neg.34638cf3c016.
++# Policy change above (22) moved both ids: two-sign 10+neg.34638cf3c016 -> 10+neg.e3c781bee30b.
+ GOLDEN_TWO_SIGN_OUTPUT = {
+     "fp_annotations": 4,
+     "fp_value": 3,
+diff --git a/tests/test_site_census_intent.py b/tests/test_site_census_intent.py
+new file mode 100644
+index 0000000..a4f0c42
+--- /dev/null
++++ b/tests/test_site_census_intent.py
+@@ -0,0 +1,504 @@
++"""The census is per candidate site, joins each mutant to it, and ledgers kills by kind (Wesker #22, #30).
++
++THE DEFECTS, measured on Wesker 2fbd029. (1) The census was 11 category rows of counts: no stable site ids,
++no disposition per site and operator, so "the operator considered this site and declined it" could not be
++read, only inferred from a total. (2) A killed record carried ``mutant_id``, ``dimension``, ``mutated_line``
++and ``killed_by`` but no site id, and nothing joined the mutant to the evidence by which it was entered,
++detected or pinned. (3) Detection kills (a crash) and declared-contract kills (an assertion, a declared
++exception) were one counter, separable only by re-reading ``killed_by``. (4) Annotation sites (Wesker #30,
++option A) were excluded silently: ARITHMETIC read ``generated: 2, withheld: 0`` on a function with three
++annotation BinOps.
++
++These tests state the contract from intent: every candidate pair has exactly one disposition, a generated
++site's count reconciles with the universe, annotation sites are SHOWN as withheld and generate nothing, a
++mutant's site is a site of the census, and the ledger's classes sum to the kills.
++"""
++
++from __future__ import annotations
++
++import ast
++import importlib
++import sys
++
++import pytest
++
++from Wesker.caught_exceptions import observe_caught_exceptions
++from Wesker.engine import (
++    MutationCategory,
++    _count_targets,
++    generate_mutants,
++    run_function_profiling,
++)
++from Wesker.filter import category_census
++from Wesker.kill_ledger import (
++    CLASS_CONTRACT,
++    CLASS_DETECTION,
++    CLASS_NONE,
++    CLASS_REACH,
++    CLASS_UNSCORED,
++    REACH_CLASS_DIMENSIONS,
++    kill_class,
++    kill_ledger,
++    merge_ledgers,
++    mutant_ledger,
++)
++from Wesker.policy import _FINGERPRINT_CORPUS
++from Wesker.site_census import (
++    CANDIDATE_CLASSES,
++    D_GENERATED,
++    D_NOT_APPLICABLE,
++    D_WITHHELD,
++    annotation_site_counts,
++    is_candidate_class,
++    site_census,
++    site_disposition,
++)
++from Wesker.site_ids import SiteIndex, site_key_of
++
++_ANNOTATED = (
++    "from __future__ import annotations\n"
++    "def f(cap: int | None, xs: list[int | str] = [], *, k: 'a + b' = 1) -> int | str:\n"
++    "    y: tuple[int, 3 + 4] = (cap, 1)\n"
++    "    return y[0] + k\n"
++)
++
++
++def _fn(src: str, name: str | None = None) -> ast.FunctionDef:
++    for node in ast.parse(src).body:
++        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
++            name is None or node.name == name
++        ):
++            return node  # type: ignore[return-value]
++    raise AssertionError(name)
++
++
++_CORPUS_NODES = [_fn(src) for src in _FINGERPRINT_CORPUS] + [_fn(_ANNOTATED)]
++
++
++def _all_ops(census: dict) -> list[tuple[dict, str, dict]]:
++    return [
++        (site, cat, entry)
++        for site in census["sites"]
++        for cat, entry in site["operators"].items()
++    ]
++
++
++# ── #30: annotation sites are counted as withheld(annotation) ───────────────────────────────────────
++
++
++def test_the_category_census_counts_annotation_sites_as_withheld():
++    """The measured shape: ARITHMETIC read generated 2, withheld 0 beside three annotation BinOps."""
++    src = (
++        "from __future__ import annotations\n"
++        "def f(a: int | None, b: int | str = 1 + 1) -> int | str:\n"
++        "    x: int | str = a\n"
++        "    return a + b * 2\n"
++    )
++    node = _fn(src)
++    row = category_census(node)[MutationCategory.ARITHMETIC]
++    assert (
++        row["generated"] == 3
++    )  # the default `1 + 1`, `a + ...`, `b * 2`: behavioral targets
++    assert row["withheld"] == 4  # the four annotation `|`s: a, b, the return, x
++    assert row["withheld_by"] == {"annotation": 4}
++    assert (
++        row["disposition"] == "generated"
++    )  # generated wins; the withheld count still travels
++
++
++def test_an_annotation_only_category_reads_withheld_not_absent():
++    src = "def f(x: int | None):\n    return x\n"
++    row = category_census(_fn(src))[MutationCategory.ARITHMETIC]
++    assert (row["generated"], row["withheld"], row["disposition"]) == (0, 1, "withheld")
++    assert row["withheld_by"] == {"annotation": 1}
++
++
++def test_a_function_without_annotations_has_no_annotation_withheld():
++    row = category_census(_fn("def f(x):\n    return x + 1\n"))[
++        MutationCategory.ARITHMETIC
++    ]
++    assert row["withheld_by"] == {} and row["withheld"] == 0
++
++
++def test_the_annotation_count_is_the_complement_of_the_shared_behavioral_walk():
++    counts = annotation_site_counts(_fn(_ANNOTATED))
++    # `int | str`, `list[int | str]`'s `|`, `a + b` string, `tuple[int, 3 + 4]`'s `+`: BinOps in annotations
++    assert counts["ARITHMETIC"] == 4
++    assert counts["VALUE"] >= 2
++    assert sum(counts.values()) > 0
++
++
++def test_no_generated_mutant_comes_from_an_annotation_site():
++    node = _fn(_ANNOTATED)
++    census = site_census(node)
++    annotation_ids = {s["id"] for s in census["sites"] if s["annotation"]}
++    assert annotation_ids
++    for m in generate_mutants(node, set(MutationCategory) - {MutationCategory.OUTPUT}):
++        assert m.site not in annotation_ids, m.description
++
++
++def test_annotation_sites_are_withheld_for_every_operator_whose_class_matches():
++    census = site_census(_fn(_ANNOTATED))
++    flagged = [(s, c, e) for s, c, e in _all_ops(census) if s["annotation"]]
++    assert flagged
++    for site, cat, entry in flagged:
++        assert (entry["disposition"], entry["reason"]) == (D_WITHHELD, "annotation"), (
++            site["id"],
++            cat,
++        )
++
++
++# ── #22: stable site ids ────────────────────────────────────────────────────────────────────────────
++
++
++def test_a_site_id_carries_location_role_and_source_digest():
++    node = _fn("def f(x):\n    return x + 1\n")
++    index = SiteIndex(node)
++    key = next(k for k in index.site_keys() if k[0] == "BinOp")
++    ident = index.site_id(key)
++    assert ident.startswith("BinOp@2:11-2:16/")
++    assert "/Return.value/" in ident
++    assert len(ident.rsplit("/", 1)[1]) == 8
++
++
++def test_an_id_is_stable_across_calls_and_changes_with_the_code_at_the_site():
++    a = _fn("def f(x):\n    return x + 1\n")
++    b = _fn("def f(x):\n    return x + 2\n")
++    ids_a = [s["id"] for s in site_census(a)["sites"]]
++    assert ids_a == [s["id"] for s in site_census(a)["sites"]]
++    binop_a = next(i for i in ids_a if i.startswith("BinOp"))
++    binop_b = next(
++        s["id"] for s in site_census(b)["sites"] if s["id"].startswith("BinOp")
++    )
++    assert (
++        binop_a.rsplit("/", 1)[0] == binop_b.rsplit("/", 1)[0]
++    )  # same place, same role
++    assert binop_a != binop_b  # different code there
++
++
++def test_two_nodes_sharing_a_span_are_told_apart_by_role():
++    node = _fn("def f(x):\n    return -x\n")
++    ids = [s["id"] for s in site_census(node)["sites"]]
++    assert len(ids) == len(set(ids))
++
++
++# ── #22: a total disposition per site and operator ─────────────────────────────────────────────────
++
++
++@pytest.mark.parametrize("node", _CORPUS_NODES, ids=lambda n: n.name)
++def test_every_listed_pair_has_one_disposition_and_reconciles_with_the_universe(node):
++    census = site_census(node, two_sign=True)
++    allowed = {D_GENERATED, D_WITHHELD, "unsupported", D_NOT_APPLICABLE}
++    for site, cat, entry in _all_ops(census):
++        assert entry["disposition"] in allowed
++        assert cat in CANDIDATE_CLASSES or cat == "STMT"
++        if entry["disposition"] == D_GENERATED:
++            assert entry["targets"] > 0
++        else:
++            assert "reason" in entry, (site["id"], cat)
++    for cat, row in census["reconciliation"].items():
++        assert row["site_targets"] + row["function_level"] == row["category_targets"], (
++            cat
++        )
++        if cat != "OUTPUT":
++            assert row["function_level"] == 0, cat
++
++
++@pytest.mark.parametrize("node", _CORPUS_NODES, ids=lambda n: n.name)
++def test_the_census_target_total_is_the_universe_estimate(node):
++    census = site_census(node, two_sign=True)
++    for category in MutationCategory:
++        row = census["reconciliation"][category.value]
++        assert row["category_targets"] == _count_targets(node, category), category
++
++
++@pytest.mark.parametrize("node", _CORPUS_NODES, ids=lambda n: n.name)
++def test_a_note_only_lands_on_a_node_of_its_operators_candidate_classes(node):
++    """The class table is the only second predicate; this is its guard. If a mutator ever notes a
++    candidate on a node class the table does not list, that site would read not_a_candidate_class."""
++    census = site_census(node, two_sign=True)
++    index = SiteIndex(node)
++    listed = {(s["id"], cat) for s, cat, _e in _all_ops(census)}
++    for m in generate_mutants(
++        node,
++        set(MutationCategory),
++        max_per_category=0,
++        greedy=False,
++        observed_return_types=frozenset({"int", "str", "list"}),
++    ):
++        if not m.site or m.site == "function":
++            continue
++        assert (m.site, m.category.value) in listed, (m.description, m.site)
++        assert index.node(m.site_key) is not None
++
++
++@pytest.mark.parametrize("node", _CORPUS_NODES, ids=lambda n: n.name)
++def test_every_generated_mutant_is_joined_to_a_generated_site(node):
++    census = site_census(node, two_sign=True)
++    generated = {
++        (s["id"], cat)
++        for s, cat, e in _all_ops(census)
++        if e["disposition"] == D_GENERATED
++    }
++    for m in generate_mutants(
++        node, set(MutationCategory), max_per_category=0, greedy=False
++    ):
++        assert m.site, m.description
++        if m.site != "function":
++            assert (m.site, m.category.value) in generated, m.description
++
++
++def test_site_disposition_precedence():
++    sd = site_disposition
++    assert sd(False, True, 5, "h", "x:y") == "not_applicable:not_a_candidate_class"
++    assert sd(True, True, 5, "h", "") == "withheld:annotation"
++    assert sd(True, False, 5, "purity_overlay", "") == "withheld:purity_overlay"
++    assert sd(True, False, 5, "", "") == "generated:"
++    assert (
++        sd(True, False, 0, "purity_overlay", "")
++        == "not_applicable:no_alternative_at_site"
++    )
++    assert sd(True, False, 0, "", "unsupported:name_sub_not_enrolled") == (
++        "unsupported:name_sub_not_enrolled"
++    )
++    assert sd(True, False, 0, "", "") == "not_applicable:no_alternative_at_site"
++    assert sd(True, False, -3, "", "") == "not_applicable:no_alternative_at_site"
++
++
++def test_candidate_class_table():
++    assert is_candidate_class("ARITHMETIC", "BinOp", False)
++    assert not is_candidate_class("ARITHMETIC", "Call", False)
++    assert is_candidate_class("STMT", "Assign", False)
++    assert not is_candidate_class("STMT", "Assign", True)
++    assert not is_candidate_class("STMT", "Name", False)
++    assert not is_candidate_class("NOPE", "Name", False)
++
++
++def test_the_purity_overlay_withholds_remove_assign_sites_by_name():
++    node = _fn("def f(self, v):\n    self.a = v\n    return v\n")
++    impure = site_census(node)
++    pure = site_census(node, is_pure=True)
++
++    def state_assign(census):
++        return next(
++            e for s, c, e in _all_ops(census) if c == "STATE" and s["node"] == "Assign"
++        )
++
++    assert state_assign(impure)["disposition"] == D_GENERATED
++    held = state_assign(pure)
++    assert (held["disposition"], held["reason"]) == (D_WITHHELD, "purity_overlay")
++
++
++def test_output_is_withheld_under_one_sign_and_generated_under_two_sign():
++    node = _fn("def f(x):\n    return x\n")
++    one = site_census(node)["by_operator"]["OUTPUT"]
++    two = site_census(node, two_sign=True)["by_operator"]["OUTPUT"]
++    assert one == {"withheld": {"one_sign_policy": 1}}
++    assert D_GENERATED in two
++
++
++def test_swap_records_the_budget_withheld_pairs_and_the_identical_operands():
++    wide = _fn("def f(a, b, c, d, e, g):\n    return h(a, b, c, d, e, g)\n")
++    entry = next(
++        e
++        for s, c, e in _all_ops(site_census(wide))
++        if c == "SWAP" and e.get("withheld")
++    )
++    assert entry["withheld"] == {"pair_budget": 5}
++    same = _fn("def f(x):\n    return g(False, False, x)\n")
++    entry = next(
++        e
++        for s, c, e in _all_ops(site_census(same))
++        if c == "SWAP" and e["disposition"] == D_GENERATED
++    )
++    assert entry["not_applicable"] == {"identical_operands": 1}
++
++
++def test_a_single_type_handler_with_no_observation_is_withheld_not_clean():
++    node = _fn(
++        "def f(x):\n    try:\n        return int(x)\n    except Exception:\n        return 0\n"
++    )
++    line = node.body[0].handlers[0].lineno
++    unobserved = site_census(node)
++    entry = next(e for s, c, e in _all_ops(unobserved) if s["node"] == "ExceptHandler")
++    assert entry["withheld"] == {"unobserved_handler": 1}
++    observed = site_census(node, caught={line: {}})
++    entry = next(e for s, c, e in _all_ops(observed) if s["node"] == "ExceptHandler")
++    assert (
++        "withheld" not in entry
++    )  # observed, and nothing narrower arrived: nothing to narrow
++
++
++def test_name_loads_the_enrolled_slice_leaves_out_are_unsupported_by_name():
++    node = _fn("def f(a, b):\n    t = a + b\n    return t\n")
++    census = site_census(node)
++    reasons = {
++        e.get("reason")
++        for s, c, e in _all_ops(census)
++        if c == "DATAFLOW" and e["disposition"] != D_GENERATED
++    }
++    assert "name_sub_not_enrolled" in reasons
++
++
++def test_the_value_skips_are_named():
++    node = _fn('def f():\n    """doc"""\n    return None, b"x", 3\n')
++    reasons = [
++        e.get("reason")
++        for s, c, e in _all_ops(site_census(node))
++        if c == "VALUE" and e["disposition"] == D_NOT_APPLICABLE
++    ]
++    assert sorted(reasons) == [
++        "constant_type_without_alternative",
++        "constant_type_without_alternative",
++        "docstring",
++    ]
++
++
++def test_site_key_of_a_node_without_a_position_is_none():
++    assert site_key_of(None) is None
++    assert (
++        site_key_of(
++            ast.arguments(
++                args=[], posonlyargs=[], kwonlyargs=[], kw_defaults=[], defaults=[]
++            )
++        )
++        is None
++    )
++
++
++# ── #22: the ledger separates detection kills from declared-contract kills ──────────────────────────
++
++
++def test_kill_class_codes():
++    reach = list(REACH_CLASS_DIMENSIONS)
++    assert kill_class("assertion", "VALUE:int", reach) == CLASS_CONTRACT
++    assert kill_class("exception", "EXCEPTION:raise:X", reach) == CLASS_CONTRACT
++    assert kill_class("crash", "ARITHMETIC:Add", reach) == CLASS_DETECTION
++    assert kill_class("diverged", "ARITHMETIC:Add", reach) == CLASS_UNSCORED
++    assert kill_class("memory_cut", "", reach) == CLASS_UNSCORED
++    assert kill_class("", "ARITHMETIC:Add", reach) == CLASS_NONE
++    # a reach-class dimension is never a contract the suite declared, whatever the test reported
++    assert kill_class("assertion", "OUTPUT:raise_inject", reach) == CLASS_REACH
++    assert kill_class("crash", "OUTPUT:raise_inject:x", reach) == CLASS_REACH
++    assert kill_class("assertion", "OUTPUT:raise_swallow", reach) == CLASS_CONTRACT
++    assert kill_class("assertion", "OUTPUT:raise_inject", []) == CLASS_CONTRACT
++
++
++def test_the_ledger_counts_every_class_including_zero_and_sums_to_the_kills():
++    records = [
++        {"killed_by": "assertion", "dimension": "VALUE:int"},
++        {"killed_by": "exception", "dimension": "EXCEPTION:raise:X"},
++        {"killed_by": "crash", "dimension": "ARITHMETIC:Add"},
++        {"killed_by": "assertion", "dimension": "OUTPUT:raise_inject"},
++    ]
++    ledger = kill_ledger(records)
++    assert ledger == {
++        "contract": 2,
++        "detection": 1,
++        "reach": 1,
++        "unscored": 0,
++        "kills": 4,
++    }
++    empty = kill_ledger([])
++    assert empty == {
++        "contract": 0,
++        "detection": 0,
++        "reach": 0,
++        "unscored": 0,
++        "kills": 0,
++    }
++
++
++def test_merge_requires_every_class_and_sums_them():
++    a = kill_ledger([{"killed_by": "crash", "dimension": ""}])
++    b = kill_ledger([{"killed_by": "assertion", "dimension": ""}] * 2)
++    assert merge_ledgers([a, b]) == {
++        "contract": 2,
++        "detection": 1,
++        "reach": 0,
++        "unscored": 0,
++        "kills": 3,
++    }
++    assert merge_ledgers([])["kills"] == 0
++    with pytest.raises(KeyError):
++        merge_ledgers([{"contract": 1}])
++
++
++def test_a_mutants_reach_is_none_when_no_line_was_reported_never_zero():
++    rows = mutant_ledger(
++        [],
++        [
++            {"mutant_id": "A", "mutated_line": None},
++            {"mutant_id": "B", "mutated_line": 3},
++            {"mutant_id": "C", "mutated_line": 9},
++        ],
++        [],
++        {"t1": [3, 4], "t2": [3]},
++    )
++    assert [r["reach_tests"] for r in rows] == [None, 2, 0]
++    assert {r["outcome"] for r in rows} == {"survived"}
++
++
++def test_the_run_ledger_joins_each_mutant_to_its_site_and_sums_to_total_killed(
++    tmp_path, monkeypatch
++):
++    (tmp_path / "scmod.py").write_text(
++        "def parse_guard(text):\n    try:\n        return int(text)\n    except Exception:\n        return None\n"
++    )
++    (tmp_path / "sctests.py").write_text(
++        "from scmod import parse_guard\n\n\n"
++        "def test_a_number():\n    assert parse_guard('12') == 12\n\n\n"
++        "def test_syntax_like():\n    assert parse_guard('x') is None\n\n\n"
++        "def test_the_other_error():\n    assert parse_guard(None) is None\n"
++    )
++    monkeypatch.syspath_prepend(str(tmp_path))
++    for name in ("scmod", "sctests"):
++        sys.modules.pop(name, None)
++    mod = importlib.import_module("scmod")
++    tests_mod = importlib.import_module("sctests")
++    tests = []
++    for attr in sorted(a for a in vars(tests_mod) if a.startswith("test_")):
++        fn = getattr(tests_mod, attr)
++        fn.__qualname__ = f"sctests.py::{attr}"
++        tests.append(fn)
++    node = _fn((tmp_path / "scmod.py").read_text())
++    with observe_caught_exceptions(node, mod.parse_guard.__code__) as caught:
++        for t in tests:
++            t()
++    try:
++        res = run_function_profiling(
++            node,
++            "scmod.py::parse_guard",
++            set(MutationCategory) - {MutationCategory.OUTPUT},
++            tests,
++            mod.parse_guard,
++            scope_tests=False,
++            max_per_category=0,
++            observed_caught=caught,
++        )
++    finally:
++        for name in ("scmod", "sctests"):
++            sys.modules.pop(name, None)
++    payload = res.to_dict()
++    ledger = payload["kill_ledger"]
++    assert ledger["kills"] == payload["total_killed"]
++    assert ledger["contract"] + ledger["detection"] + ledger["reach"] == ledger["kills"]
++    assert (
++        ledger["detection"] >= 2
++    )  # the narrowings: a test's error escapes, nothing asserted
++    assert ledger["contract"] >= 1
++    site_ids = {s["id"] for s in payload["site_census"]["sites"]}
++    rows = payload["mutant_ledger"]
++    assert len(rows) == payload["total_mutants"]
++    for row in rows:
++        assert row["site"] in site_ids, row
++        assert row["reach_tests"] is not None
++    for row in rows:
++        if row["outcome"] == "killed":
++            assert row["kill_class"] in (CLASS_CONTRACT, CLASS_DETECTION, CLASS_REACH)
++            assert row["kill_class"] == kill_class(
++                row["killed_by"], row["dimension"], list(REACH_CLASS_DIMENSIONS)
++            )
++    for record in payload["killed_records"]:
++        assert record["site"] in site_ids
++        assert record["kill_class"] in (CLASS_CONTRACT, CLASS_DETECTION, CLASS_REACH)
+-- 
+2.43.0
+
