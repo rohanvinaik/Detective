@@ -11,7 +11,7 @@ best-pinned functions to ``converge`` forever, since converging them again write
 Measured 2026-09-05 on `behavior_status`, `admission_reason`, `controller_verdict` themselves.
 
 WHAT. ``<write-dir>/certificates.json`` — beside the generated suites, ``tests/detective/`` by
-default: ``{func_key: {"function_digest", "standing", "refusal", "cut_reasons", "floor"}}``. ``standing`` is
+default: ``{func_key: {"function_digest", "standing", "refusal", "cut_reasons"}}``. ``standing`` is
 `converge.certificate_standing`'s code, recorded VERBATIM — one derivation, consumed, never
 re-derived here (#17/#38/#60). ``refusal`` names why an incomplete run was a DECLINE rather than a
 gap (`certificate_refusal`, pure) — it is scoped to ``incomplete`` and says nothing about the other
@@ -142,7 +142,6 @@ def record_certificate(
     refusal: str,
     write_dir: str = DEFAULT_WRITE_DIR,
     cut_reasons: tuple[str, ...] = (),
-    floor: tuple[str, ...] = (),
 ) -> str:
     """Record ``func_key``'s terminal verdict for the definition ``function_digest`` (the I/O
     shell — unit-guarded, not pinned). Returns the ledger path, or "" when nothing was written.
@@ -167,11 +166,6 @@ def record_certificate(
         # "written before this field existed". A reader that cannot tell those apart re-acquires
         # the ambiguity the field was added to remove.
         "cut_reasons": list(cut_reasons),
-        # The mutants the verdict is CONDITIONAL on (#143): the refused survivors the suite detects by crash,
-        # which no search could classify. A LIST, always written, like ``cut_reasons``: `[]` is "recorded,
-        # none", a missing key "written before this field existed". A ``complete`` with a non-empty floor
-        # is a certificate modulo those, and a reader of this file must be able to see that.
-        "floor": list(floor),
     }
     path = _path(root, write_dir)
     try:

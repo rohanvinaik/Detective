@@ -104,7 +104,6 @@ def _cr(missing, standings):
         written_path=None,
         missing_lines=tuple(missing),
         missing_line_standings=tuple(standings),
-        refused_floor=(),
         line_complete=not missing,
         signature="scale(x)",
         param_names=("x",),

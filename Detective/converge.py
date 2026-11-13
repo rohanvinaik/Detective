@@ -427,11 +427,6 @@ class ConvergeResult:
     # `(mutant_id, change, standing, killer, cause)` (`audit.write_refused_survivors`, #105, D#141):
     # only an `open` one is a residual a written test closes.
     write_refused_survivors: tuple[tuple[str, str, str, str, str], ...] = ()
-    # The NAMED FLOOR (#143, `audit.refused_floor_standing`): the ids of the refused survivors this run's
-    # certificate is conditional on, non-empty exactly when every unclassified survivor is one the suite
-    # detects by crash. `functionally_complete` then holds modulo them; the FINAL line, the page, the
-    # decision record and the certificate ledger all name them. `()` is "no floor", never "unmeasured".
-    refused_floor: tuple[str, ...] = ()
     # `(mutant_id, cause)` for each unclassified survivor whose search names why it could not run
     # (`equivalence.BLOCKED_CAUSES`, Detective#80): the remedies differ, so the page names each.
     blocked_causes: tuple[tuple[str, str], ...] = ()
@@ -1764,20 +1759,6 @@ def _named_write_refused(report: Any, result: Any) -> tuple[tuple[str, str, str,
     return write_refused_survivors([list(r) for r in records], dict(getattr(result, "kill_matrix", {}) or {}))
 
 
-def _refused_floor(report: Any, result: Any) -> tuple[str, ...]:
-    """The ids of the NAMED FLOOR over a converge's survivor report (#143): `audit.refused_floor_standing`
-    reads ``floor`` when every unclassified survivor is a refused one the suite detects by crash. The
-    accessor unpacks the objects; the decision is audit's, so audit and converge name the floor alike."""
-    from .audit import refused_floor_standing
-
-    if report is None:
-        return ()
-    named = _named_write_refused(report, result)
-    if refused_floor_standing([survivor[2] for survivor in named], len(report.unclassified)) != "floor":
-        return ()
-    return tuple(survivor[0] for survivor in named)
-
-
 def _unobserved_reach(result: Any) -> dict[str, str]:
     """`audit.baseline_unobserved_reach` over a converge result: the tests whose reach was not observed."""
     from .audit import baseline_unobserved_reach
@@ -1990,8 +1971,6 @@ def converge(
         write_dir=write_dir or DEFAULT_WRITE_DIR,  # beside the suite — versioned with it, never purged
         # `validity_cut_reasons`, not the flattened field: the same source `standing` consumed.
         cut_reasons=certificate_cut_reasons(result.standing, result.validity_cut_reasons),
-        # The floor the certificate is conditional on, by name (#143): the ledger says what the page says.
-        floor=result.refused_floor,
     )
     return result
 
@@ -2931,14 +2910,10 @@ def _converge_impl(
     # human declared this survival a must-not, and the suite does not enforce it — an
     # unpinned negative DOF is a gap, never silently COMPLETE. Step budget divergence
     # likewise blocks completeness (#80).
-    # The NAMED FLOOR (#143): survivors whose search a write or process effect refused and the suite
-    # detects by crash cannot be classified by anything Detective runs, so a writer with an always-raising
-    # mutant could never complete. They are the certificate's named condition, not a hidden pass.
-    refused_floor = _refused_floor(survivor_report, final_result)
     functionally_complete = final == 0 or (
         survivor_report is not None
         and not survivor_report.killable
-        and (not survivor_report.unclassified or bool(refused_floor))
+        and not survivor_report.unclassified
         and not survivor_report.authored_fence
         and not getattr(survivor_report, "step_budget_divergent", ())
     )
@@ -3203,7 +3178,7 @@ def _converge_impl(
     # the basis's action and the certificate rest on the same answer. 0 equivalents when classification
     # did not run.
     _modulo = (
-        len(survivor_report.equivalent) + len(survivor_report.manual_equivalent) + len(refused_floor)
+        len(survivor_report.equivalent) + len(survivor_report.manual_equivalent)
         if survivor_report is not None
         else 0
     )
@@ -3233,9 +3208,6 @@ def _converge_impl(
         wiring=wiring,
         survivor_report=survivor_report,
         write_refused_survivors=_named_write_refused(survivor_report, final_result),
-        # Named only where completeness actually rests on it: a cut, unverified or floor-failing run claims
-        # nothing modulo anything, and its refused survivors are still named in `write_refused_survivors`.
-        refused_floor=refused_floor if functionally_complete else (),
         blocked_causes=tuple(survivor_report.blocked_causes) if survivor_report is not None else (),
         functionally_complete=functionally_complete,
         line_complete=not missing,

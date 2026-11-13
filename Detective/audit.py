@@ -141,12 +141,6 @@ class SuiteAudit:
     # (`write_refused_survivors`): the page names the open ones to pin, the crash-detected ones with the
     # test that detects them, and each by what its speculative run was refused (#105, D#141).
     write_refused_survivors: tuple[tuple[str, str, str, str, str], ...] = ()
-    # The NAMED FLOOR (#143, `refused_floor_standing`): the ids of the refused survivors the certificate is
-    # conditional on, non-empty exactly when every unclassified survivor is a refused one the suite detects
-    # by crash. Then `mutant_complete` holds modulo them, and the page, the gate and the record name them.
-    # `()` is "no floor", never "not measured": a report whose classification did not run has no
-    # unclassified survivors to be a floor of.
-    refused_floor: tuple[str, ...] = ()
     # `(mutant_id, cause)` for each unclassified survivor whose search names why it could not run
     # (`equivalence.BLOCKED_CAUSES`, Detective#80), the same derivation converge carries.
     blocked_causes: tuple[tuple[str, str], ...] = ()
@@ -782,47 +776,6 @@ def write_refused_survivors(
     return tuple(out)
 
 
-def refused_floor_standing(standings: list[str], unclassified: int) -> str:
-    """Whether a function's whole unclassified residual is refused survivors the suite detects by crash
-    (#143, pure — pinned).
-
-    ``standings`` are `write_refused_survivors`' standings over the final survivor report and
-    ``unclassified`` that report's unclassified count. A survivor whose search was refused (a write or a
-    process effect) can never be sorted into crash-only, killable or equivalent, because the sorting IS
-    the refused call, so a writer with an always-raising mutant could never reach COMPLETE. The decision
-    (docs/theory/operator_completeness/KNOWABILITY.md §10, a certificate conditional on what it names):
-    the NAMED FLOOR. Such a survivor is a floor, not a gap, exactly when the suite already detects it:
-    no input could add anything, and no test the reader writes could close it further than a crash.
-
-      "none"     no survivor is refused-and-detected: the residual, if any, is not this class
-      "floor"    every unclassified survivor is refused and detected by crash: the certificate holds
-                 MODULO these, named, never silently covered. Complete on the mutant axis
-      "partial"  some are, and another unclassified survivor remains (a refused one nothing detects, or
-                 one the search left for another cause): still incomplete, and the floor members are
-                 named beside what is open
-
-    The two cases a bool would fuse have different remedies: an open refused survivor is closed by a test
-    the reader writes (WRITE TEST), a floor member by nothing.
-    """
-    detected = sum(1 for standing in standings if standing == "crash_detected")
-    if detected == 0:
-        return "none"
-    return "floor" if detected == len(standings) == unclassified else "partial"
-
-
-def gating_unclassified(unclassified: int, standings: list[str]) -> int:
-    """How many unclassified survivors fail ``--check-strict`` (#143, pure — pinned).
-
-    The strict gate fails only on a cause the reader can fix (the founder's ruling of 2026-10-25 for
-    unresolved mutants, extended here). A refused survivor the suite detects by crash is named, not
-    gating: nothing the reader does classifies it. A refused one nothing detects gates, as does any
-    unclassified survivor that is not refused. Never negative: a standings list longer than the count it
-    came from is an inconsistent report, and reads as every survivor still gating.
-    """
-    detected = sum(1 for standing in standings if standing == "crash_detected")
-    return unclassified - detected if 0 <= detected <= unclassified else unclassified
-
-
 def baseline_typed_outcomes(result: Any) -> dict[str, str]:
     """The engine's typed baseline outcome per test id (#124), read off its trace ledger.
 
@@ -1045,7 +998,6 @@ def audit_suite(
     unclassified = 0
     write_refused = 0
     write_refused_named: tuple[tuple[str, str, str, str, str], ...] = ()
-    refused_floor: tuple[str, ...] = ()
     blocked_causes: tuple[tuple[str, str], ...] = ()
     classified = False
     # The measurement-block signals (Finding E), carried onto the audit so its next action names the
@@ -1103,10 +1055,6 @@ def audit_suite(
             [list(r) for r in getattr(report, "write_refused_records", ())], result.kill_matrix
         )
         write_refused = sum(1 for s in write_refused_named if s[2] == "open")
-        # The refused survivors the suite detects by crash are a FLOOR when they are the whole unclassified
-        # residual (#143): `mutant_complete` below holds modulo them, and they are named, never dropped.
-        if refused_floor_standing([s[2] for s in write_refused_named], unclassified) == "floor":
-            refused_floor = tuple(s[0] for s in write_refused_named)
         blocked_causes = tuple(report.blocked_causes)
         step_budget_divergent = len(getattr(report, "step_budget_divergent", ()))
         # An authored fence is an UNENFORCED must-not (Q8) — a gap like killable/unclassified, so it
@@ -1114,7 +1062,7 @@ def audit_suite(
         # Deterministic step budget divergence likewise blocks completeness (#80).
         mutant_complete = (
             not report.killable
-            and (not report.unclassified or bool(refused_floor))
+            and not report.unclassified
             and not report.authored_fence
             and not step_budget_divergent
         )
@@ -1199,9 +1147,7 @@ def audit_suite(
         validity,
         os.path.abspath(project_root),
         node,
-        # The refused floor is undischargeable residue like an unproven equivalent (#143): named, and not an
-        # open obligation, so the basis reads `complete` exactly where `mutant_complete` does.
-        candidate_equivalent=candidate_equivalent + manual_equivalent + len(refused_floor),
+        candidate_equivalent=candidate_equivalent + manual_equivalent,
         kill_matrix=relation.matrix,
         kill_attribution=relation.standing,
     )
@@ -1288,7 +1234,6 @@ def audit_suite(
         unclassified=unclassified,
         write_refused=write_refused,
         write_refused_survivors=write_refused_named,
-        refused_floor=refused_floor,
         blocked_causes=blocked_causes,
         step_budget_divergent=step_budget_divergent,
         unresolved_mutants=unresolved_mutant_records(getattr(result, "unscored_records", None) or ()),

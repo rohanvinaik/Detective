@@ -44,7 +44,6 @@ def test_unresolved_execution_keeps_its_reason_through_the_real_engine_adapter(
         functionally_complete=False,
         missing_lines=(),
         missing_line_standings=(),
-        refused_floor=(),
         not_consulted_dynamic=(),
         admits_certificate=validity.admits_certificate,
         cut_reasons=validity.cut_reasons,

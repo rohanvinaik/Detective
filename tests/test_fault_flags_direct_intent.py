@@ -35,7 +35,6 @@ def _converge_like(**over):
         "stale_target": False,
         "budget_exhausted": False,
         "missing_line_standings": (),
-        "refused_floor": (),
         "not_consulted_dynamic": (),
     }
     base.update(over)

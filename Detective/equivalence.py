@@ -1696,11 +1696,6 @@ def speculative_refusal(code: str) -> str:
       "effect_refused"  a process effect was refused: the outcome is `_OUTCOME_EFFECT_REFUSED`, never the
                         write marker, whose page reads "the function writes files"
       "abort"           anything else: the measurement stops, under its own name
-
-    What a refusal does NOT settle is the survivor behind it: it stays unclassified. The guard's boundary
-    and the standing such a survivor takes (the named floor, when the suite detects it by crash) are
-    written at `synthesis.characterization.block_fs_writes` and decided by `audit.refused_floor_standing`
-    (#143).
     """
     if code == "filesystem_write_blocked":
         return "write_refused"

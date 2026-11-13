@@ -95,18 +95,6 @@ BY_DESIGN: dict[str, str] = {
         "(the comment in `property_holds` says so). The distinction reaches a page through "
         "`_record_unavailable`, which distinguishes all three codes."
     ),
-    "audit.refused_floor_standing @ audit.audit_suite": (
-        "The site asks one question (#143): is the whole unclassified residual the refused floor? Only "
-        "`floor` earns it. `none` and `partial` both mean no floor is claimed, and the page needs no "
-        "second word for that: in `partial` the floor members are still named, with their standing, in "
-        "`SuiteAudit.write_refused_survivors`, and whatever else is unclassified blocks completeness on "
-        "its own and is named beside them."
-    ),
-    "audit.refused_floor_standing @ converge._refused_floor": (
-        "The same question on converge's side (#143): only `floor` yields ids for `refused_floor`. In "
-        "`none` and `partial` nothing is claimed modulo, and the survivors stay unclassified, named with "
-        "their standing in `ConvergeResult.write_refused_survivors`."
-    ),
     "audit.missing_line_standing @ audit.audit_suite": (
         "A carrier, not a branch (#139): each missing line's code is stored verbatim beside it in "
         "`SuiteAudit.missing_line_standings`, which `--json` emits whole. The page renders every code from "

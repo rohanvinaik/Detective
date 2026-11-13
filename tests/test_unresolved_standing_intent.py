@@ -112,7 +112,6 @@ def test_the_certificate_file_records_the_named_standing_and_its_reason(tmp_path
             "standing": standing,
             "refusal": "",
             "cut_reasons": list(reasons),
-            "floor": [],
         }
 
 
