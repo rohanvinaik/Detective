@@ -59,7 +59,11 @@ if TYPE_CHECKING:
 #    the original fails it only after a mutant's run left state behind) and `original_also_fails` keeps
 #    its own name for a record that establishes neither. It used to surface as
 #    `engine_refused_unspecified`.
-MEASUREMENT_VALIDITY_SCHEMA = 9
+# 10: `memory_cut` (Wesker #45: the isolated worker's address-space cap stopped ONE mutant, which has no
+#    verdict) joins the vocabulary as a per-mutant reason. The cap used to cut the whole function
+#    (`coverage_truncated`); it now reads as an unscored mutant beside a fully evaluated function, and an
+#    unscored disposition this version does not know reads `engine_refused_unspecified`.
+MEASUREMENT_VALIDITY_SCHEMA = 10
 
 # Every typed reason this module can emit. Exhaustive on purpose: a reason that is not in this
 # tuple cannot be rendered consistently across CLI, --json, MCP and receipts, which is the
@@ -72,6 +76,7 @@ CUT_REASONS: tuple[str, ...] = (
     "containment_unknown",
     "step_budget_exceeded",
     "mutant_wall_undetermined",
+    "memory_cut",
     "write_outside_authority",
     "original_also_fails_failing_test",
     "original_also_fails_shared_state",
@@ -142,6 +147,7 @@ UNSCORED_DISPOSITION_REASONS: dict[str, str] = {
     "not_entered": "mutant_not_entered",
     "diverged": "step_budget_exceeded",
     "undetermined": "mutant_wall_undetermined",
+    "memory_cut": "memory_cut",
     "nested_measurement": "nested_measurement",
     "write_outside_authority": "write_outside_authority",
     "original_also_fails": "original_also_fails",
@@ -156,6 +162,7 @@ PER_MUTANT_REASONS: frozenset[str] = frozenset(
     {
         "mutant_wall_undetermined",
         "step_budget_exceeded",
+        "memory_cut",
         "write_outside_authority",
         *ORIGINAL_ALSO_FAILS_CAUSE_REASONS.values(),
     }
@@ -451,6 +458,7 @@ def measurement_cut_reasons(
     write_outside_authority: bool = False,
     original_also_fails: bool = False,
     original_also_fails_causes: tuple[str, ...] | list[str] = (),
+    memory_cut: bool = False,
 ) -> tuple[str, ...]:
     """Every reason THIS measurement cannot support a certificate (#60, pure — pinned).
 
@@ -513,6 +521,10 @@ def measurement_cut_reasons(
     ``original_also_fails_causes`` are the causes the records' own facts establish
     (`original_also_fails_cause`); each earns its own reason, and the disposition counted with no cause
     established (an engine result carrying no records) is the cause-free `original_also_fails`.
+
+    ``memory_cut`` (Wesker #45) is a per-mutant disposition: the isolated worker's address-space cap stopped
+    that mutant. It used to cut the whole function (`coverage_truncated`, "the profile was cut"), which was
+    false of every other mutant; it is now one mutant with no verdict beside a fully evaluated function.
     """
     reasons: list[str] = []
     if target_load_failed:
@@ -529,6 +541,8 @@ def measurement_cut_reasons(
         reasons.append("step_budget_exceeded")
     if mutant_wall_undetermined:
         reasons.append("mutant_wall_undetermined")
+    if memory_cut:
+        reasons.append("memory_cut")
     if write_outside_authority:
         reasons.append("write_outside_authority")
     if original_also_fails or original_also_fails_causes:
@@ -610,6 +624,11 @@ def cut_reason_sentence(reason: str) -> str:
         "mutant_wall_undetermined": "one or more mutants reached a wall-clock execution bound without"
         " a verdict; this is neither a kill nor survival evidence — inspect the execution and its"
         " allowance before re-measuring",
+        "memory_cut": "one or more mutants went over the isolated worker's memory cap (--mem-limit-mb)"
+        " and were stopped there — a stop by a budget, which says nothing about their value, so they"
+        " are neither killed nor survived; every other mutant was evaluated. If the cap is below what"
+        " your tests legitimately need, raise --mem-limit-mb and re-measure; otherwise the mutant is a"
+        " runaway and the stop is the right outcome — no input, flag or test applies to it",
         "write_outside_authority": "one or more mutants made a test try to write outside its write"
         " authority (the session's pytest temporary directory, or a temporary entry the test created)"
         " — the working directory is the project root, so the write was prevented before it landed,"
@@ -935,6 +954,7 @@ def normalize_validity(
         routing_failed=bool(routing_failed) or getattr(result, "routing_outcome", "") == "routing_failed",
         step_budget_exceeded=_unscored_by(result, "diverged"),
         mutant_wall_undetermined=_unscored_by(result, "undetermined"),
+        memory_cut=_unscored_by(result, "memory_cut"),
         fast_mode=fast_mode,
         shape_hazards=shape_hazards,
         nondeterministic_baseline=getattr(result, "determinism", "") == "nondeterministic",

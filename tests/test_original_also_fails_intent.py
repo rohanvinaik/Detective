@@ -43,6 +43,7 @@ from Detective.cli import (
 from Detective.converge import certificate_standing
 from Detective.validity import (
     CUT_REASONS,
+    MEASUREMENT_VALIDITY_SCHEMA,
     PER_MUTANT_REASONS,
     cut_reason_sentence,
     floor_cause_standing,
@@ -170,7 +171,7 @@ def test_the_validity_reads_each_cause_off_the_records_and_the_typed_baseline():
     assert by_cause["failing_test"]["mutants"] == ["A"] and by_cause["failing_test"]["baseline"] == "failed"
     assert by_cause["shared_state"]["test"] == "t::leaky" and by_cause["shared_state"]["baseline"] == "passed"
     assert by_cause["unnamed"]["test"] == ""
-    assert validity.schema_version == 9
+    assert validity.schema_version == MEASUREMENT_VALIDITY_SCHEMA
 
 
 def test_the_no_verdict_mutants_carry_the_new_disposition_by_id():

@@ -365,6 +365,12 @@ def unresolved_gate_standing(reason: str) -> str:
                       or flag applies". Named, never gating.
       "machine_bound" ``undetermined``: a wall-clock bound fired, so whether it does depends on the
                       runner's speed until Wesker#27's calibrated liveness bound lands. Named, never gating.
+      "memory_floor"  ``memory_cut`` (Wesker #45): the isolated worker's memory cap stopped the mutant. Named,
+                      never gating. The reader's one repair, a larger ``--mem-limit-mb``, is right only if
+                      the cap is below what the TESTS legitimately need; for a mutant that allocates
+                      without bound (the case a cap exists for) no edit changes the outcome, and the stop
+                      is correct. The two cannot be told apart from the record, so the ratchet cannot
+                      call it repairable: it would redden for good on every runaway.
       "unknown"       a reason this version does not know: it cannot be called a floor, so it fails the
                       gate as could-not-measure.
     """
@@ -374,6 +380,8 @@ def unresolved_gate_standing(reason: str) -> str:
         return "budget_floor"
     if reason == "undetermined":
         return "machine_bound"
+    if reason == "memory_cut":
+        return "memory_floor"
     return "unknown"
 
 

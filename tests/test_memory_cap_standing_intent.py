@@ -4,7 +4,8 @@ THE DEFECT. No Detective source read Wesker's `memory_standing`, Detective had n
 `converge --isolated` passed no `worker_mem_limit_mb`, so its workers ran uncapped and a platform that
 refuses the limit (macOS) was never mentioned. A cap is a promise only if the OS keeps it.
 
-THE RULING (Detective tasks 14.3a, B4): a memory-cap stop is a named cut, never a kill; a cap that was
+THE RULING (Detective tasks 14.3a, B4): a memory-cap stop is never a kill (since Wesker #45 it is one mutant
+with no verdict, named by its own reason; see test_memory_cut_consumption_intent); a cap that was
 requested and refused is said, with what it means. Nothing requested is not a refusal, so it says
 nothing; a cap that held says nothing here (its cut is named by the measurement's own cut reasons).
 """

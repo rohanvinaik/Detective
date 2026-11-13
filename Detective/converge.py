@@ -39,6 +39,7 @@ from .capabilities import capability_identity, render_clock_freeze, render_env
 from .certificates import (
     MUTANTS_DIVERGED,
     MUTANTS_DIVERGED_AND_UNDETERMINED,
+    MUTANTS_MEMORY_CUT,
     MUTANTS_UNDETERMINED,
 )
 from .certify import (
@@ -197,10 +198,16 @@ def ungateable_standing(cut_reasons: tuple[str, ...]) -> str:
     * ``mutants_diverged``      — only ``step_budget_exceeded``: the loop budget stopped a mutant.
     * ``mutants_undetermined``  — only ``mutant_wall_undetermined``: a liveness wall fired.
     * ``mutants_diverged_and_undetermined`` — both, and nothing else.
+    * ``mutants_memory_cut``    — only ``memory_cut`` (Wesker #45): the isolated worker's memory cap stopped
+      a mutant. Its remedy (raise ``--mem-limit-mb`` only if the tests need more, else nothing) is neither
+      of the others', so it never shares their sign; beside either of them the standing is the umbrella
+      ``ungateable``, whose ``cut_reasons`` name each.
 
-    Neither state is a kill or a survivor, and they never share a sign: the remedies differ.
+    No state is a kill or a survivor, and they never share a sign: the remedies differ.
     """
     reasons = set(cut_reasons)
+    if reasons == {"memory_cut"}:
+        return MUTANTS_MEMORY_CUT
     diverged = "step_budget_exceeded" in reasons
     undetermined = "mutant_wall_undetermined" in reasons
     if not (diverged or undetermined) or reasons - {

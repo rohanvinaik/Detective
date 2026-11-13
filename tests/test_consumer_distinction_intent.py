@@ -110,10 +110,10 @@ BY_DESIGN: dict[str, str] = {
     ),
     "audit.unresolved_gate_standing @ cli._run_audit": (
         "The partition IS the decision (#80, founder's ruling 2026-10-25): `repairable` and `unknown` "
-        "fail `--check-strict`, `budget_floor` and `machine_bound` never do, and those two halves are the "
-        "only distinction the gate makes. No code is lost: every unresolved mutant's own standing is "
-        "forwarded verbatim into the gate's `--json` (`unmeasured.unresolved_mutants[*][2]`), so a "
-        "pipeline reads all four."
+        "fail `--check-strict`, `budget_floor`, `machine_bound` and `memory_floor` never do, and those two "
+        "halves are the only distinction the gate makes. No code is lost: every unresolved mutant's own "
+        "standing is forwarded verbatim into the gate's `--json` (`unmeasured.unresolved_mutants[*][2]`), "
+        "so a pipeline reads all five."
     ),
     "audit.baseline_failure_disposition @ audit.function_errored_tests": (
         "One half of a partition. `function_errored_tests` collects the `errored` code and its sibling "

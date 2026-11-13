@@ -53,14 +53,17 @@ CERTIFICATES_REL_PATH = os.path.join(DEFAULT_WRITE_DIR, CERTIFICATES_FILENAME)
 # run that was cut, uncontained, failed to load, and so on. These three are the same refusal with a
 # named cause, because the two causes have different remedies: a step-budget stop is deterministic and
 # for good (no input or flag applies), a wall bound that fired is machine-bound (raise
-# WESKER_COMPUTE_BUDGET_S, or run on a quieter machine).
+# WESKER_COMPUTE_BUDGET_S, or run on a quieter machine), and a mutant the isolated worker's memory cap
+# stopped (Wesker #45) is a runaway unless the cap is below what the tests need (raise --mem-limit-mb).
 MUTANTS_DIVERGED = "mutants_diverged"
 MUTANTS_UNDETERMINED = "mutants_undetermined"
 MUTANTS_DIVERGED_AND_UNDETERMINED = "mutants_diverged_and_undetermined"
+MUTANTS_MEMORY_CUT = "mutants_memory_cut"
 NO_VERDICT_STANDINGS: tuple[str, ...] = (
     MUTANTS_DIVERGED,
     MUTANTS_UNDETERMINED,
     MUTANTS_DIVERGED_AND_UNDETERMINED,
+    MUTANTS_MEMORY_CUT,
 )
 # Every standing that says "this measurement cannot support a certificate" (the umbrella and its named
 # specialisations): the places that used to compare `== "ungateable"` read this instead.

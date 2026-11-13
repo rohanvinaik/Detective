@@ -2252,6 +2252,7 @@ def _final_banner_status(result) -> str:
             _floor_bound_reasons = {
                 "budget_exhausted",
                 "step_budget_exceeded",
+                "memory_cut",
                 "coverage_truncated",
                 "sampled_universe",
             }
@@ -2614,7 +2615,8 @@ def memory_cap_text(standing: str, limit_mb: int) -> str:
 
     Rows exist for the one state the reader would otherwise misread: a cap was REQUESTED and the OS did
     not apply it ("telemetry_only"), so a runaway mutant was observed, not bounded. "" is nothing
-    requested, nothing reported, or a cap that held ("enforced" / "cut": a named cut, never a kill).
+    requested, nothing reported, or a cap that held ("enforced" / "cut"): a mutant it stopped is named by
+    `memory_cut_text`, from the unscored records, not by this standing (which is function-level).
     """
     if limit_mb <= 0 or standing != "telemetry_only":
         return ""
@@ -2624,9 +2626,43 @@ def memory_cap_text(standing: str, limit_mb: int) -> str:
     )
 
 
-def _memory_cap_rows(standing: str, limit_mb: int) -> list[str]:
+def memory_cut_text(limit_mb: int, mutant_ids: list[str]) -> str:
+    """The `⚠ memory cut` row's text: the mutants the memory cap stopped, by id (Wesker #45, pure — pinned).
+
+    "" when none was stopped. Read off the engine's unscored records (`unresolved_mutants`), never inferred
+    from a cut: since #45 the cap stops ONE mutant, and the function is evaluated in full and reads
+    ``profiled``. The remedy differs from the other no-verdict mutants' (`memory_cut_remedy`), so the
+    row names them apart from `⚠ no verdict` rather than leaving them to a generic line.
+    """
+    if not mutant_ids:
+        return ""
+    shown = ", ".join(mutant_ids[:5])
+    more = f", … +{len(mutant_ids) - 5}" if len(mutant_ids) > 5 else ""
+    cap = f"the {limit_mb} MB memory cap" if limit_mb > 0 else "the isolated worker's memory cap"
+    return (
+        f"{len(mutant_ids)} — {shown}{more}: went over {cap} and were stopped there; not kills, not survivors"
+    )
+
+
+def memory_cut_remedy(limit_mb: int) -> str:
+    """What to do about a mutant the memory cap stopped (Wesker #45, pure — pinned).
+
+    Two readers, two answers, and Detective cannot tell which this is: a cap below what the tests
+    legitimately need (raise ``--mem-limit-mb``) or a mutant that is a runaway (the stop is right and
+    nothing is owed). So it is a hand-back that states both, never a command.
+    """
+    cap = f"the {limit_mb} MB cap" if limit_mb > 0 else "the cap"
+    return (
+        f"raise --mem-limit-mb only if your tests legitimately need more memory than {cap}; "
+        "otherwise the mutant is a runaway and the stop is the right outcome"
+    )
+
+
+def _memory_cap_rows(standing: str, limit_mb: int, unresolved: tuple[tuple[str, str], ...] = ()) -> list[str]:
     text = memory_cap_text(standing, limit_mb)
-    return [_row("⚠ memory cap", text)] if text else []
+    rows = [_row("⚠ memory cap", text)] if text else []
+    cut = memory_cut_text(limit_mb, [mid for mid, disposition in unresolved if disposition == "memory_cut"])
+    return [*rows, _row("⚠ memory cut", cut)] if cut else rows
 
 
 def _shared_arguments_rows(shared: tuple[str, ...] | list[str]) -> list[str]:
@@ -3162,11 +3198,14 @@ def _format_converge_terse(
                 f"{len(rep.step_budget_divergent)} — loop iterations exceeded step budget",
             )
         )
-    if _no_verdict := tuple(getattr(result, "unresolved_mutants", ()) or ()):
-        lines.append(_row("⚠ no verdict", _no_verdict_text(_no_verdict)))
+    _no_verdict = tuple(getattr(result, "unresolved_mutants", ()) or ())
+    # The mutants the memory cap stopped have a row of their own below (`⚠ memory cut`, a different
+    # remedy); naming them here too would count the same mutants twice.
+    if _other_no_verdict := tuple(pair for pair in _no_verdict if pair[1] != "memory_cut"):
+        lines.append(_row("⚠ no verdict", _no_verdict_text(_other_no_verdict)))
         lines += _original_also_fails_rows(tuple(result.original_also_fails))
     lines += _shared_arguments_rows(result.shared_arguments)
-    lines += _memory_cap_rows(result.memory_standing, result.memory_limit_mb)
+    lines += _memory_cap_rows(result.memory_standing, result.memory_limit_mb, _no_verdict)
     # Not under a failing floor: classification was not RUN there (#114) — nothing it could classify
     # would be evidence about a suite that does not pass — so "produced no report" would misstate it.
     if rep is None and not result.functionally_complete and not floor:
@@ -3677,6 +3716,12 @@ def repair_measurement_route(
       * ``restore_shared_state`` — the same, but the test PASSES at baseline and fails the original only in
                              the state a mutant's run left behind: the repair is in the test;
                              --isolated does not clear it.
+      * ``execution_budget`` — a mutant reached a step budget or a wall-clock bound: inspect the execution and
+                             its allowance.
+      * ``memory_cap``     — a mutant went over the isolated worker's memory cap (Wesker #45): one mutant with
+                             no verdict, the function fully evaluated. Raise ``--mem-limit-mb`` only if the
+                             tests legitimately need more than the cap; otherwise the stop is the right
+                             outcome. A hand-back either way, never a command.
       * ``write_authority`` — a test run under some mutant tried to write outside its write authority
                              and was prevented (#105): those mutants have no verdict, and the remedy is
                              in the test (keep its writes in its temporary directory), never a re-run.
@@ -3761,6 +3806,11 @@ def repair_measurement_route(
         return "restore_shared_state"
     if "step_budget_exceeded" in cut_reasons or "mutant_wall_undetermined" in cut_reasons:
         return "execution_budget"
+    # A mutant the isolated worker's memory cap stopped (Wesker #45) is its own route: neither the
+    # execution bound's remedy (inspect the allowance) nor a re-run applies; the one repair, a larger cap,
+    # is right only if the tests need more than it.
+    if "memory_cut" in cut_reasons:
+        return "memory_cap"
     if "budget_exhausted" in cut_reasons or budget_exhausted:
         return "deadline"
     if "sampled_universe" in cut_reasons:
@@ -4062,7 +4112,8 @@ def converge_exit_code(standing: str) -> int:
     channels each spelled the rule inline from raw fields; it now consumes `certificate_standing`'s code:
 
       3  ``stale`` · ``ungateable`` (and its named specialisations ``mutants_diverged`` /
-         ``mutants_undetermined`` / ``mutants_diverged_and_undetermined``) · ``unverified`` — the
+         ``mutants_undetermined`` / ``mutants_diverged_and_undetermined`` / ``mutants_memory_cut``) ·
+         ``unverified`` — the
          measurement, or the basis it rests on, cannot be trusted: re-run once its named cause is
          resolved
       1  ``floor_failing`` — a typed refusal over a TRUSTWORTHY measurement: a test that is this
@@ -4158,6 +4209,7 @@ def converge_step(
             "mutant_phase",
             "inspect_refusal",
             "execution_budget",
+            "memory_cap",
             "write_authority",
             "fix_original_failure",
             "restore_shared_state",
@@ -4394,6 +4446,7 @@ def _converge_commands(
             "mutant_phase",
             "inspect_refusal",
             "execution_budget",
+            "memory_cap",
             "write_authority",
             "fix_original_failure",
             "restore_shared_state",
@@ -4883,6 +4936,19 @@ def _converge_action(
                 "",
                 _row("· Unresolved", "the execution bound did not establish a suite verdict."),
                 _row(_RESOLVE_ROW, "inspect the execution and its allowance before re-measuring."),
+                *(
+                    [_row("", "and for the memory cap: " + memory_cut_remedy(result.memory_limit_mb))]
+                    if "memory_cut" in reasons
+                    else []
+                ),
+                *_open_work_rows(result, rep),
+            ]
+        if route == "memory_cap":
+            return [
+                _INCOMPLETE_PREFIX + "; ".join(cut_reason_sentence(r) for r in reasons),
+                "",
+                _row("· Unresolved", "a mutant over the memory cap has no suite verdict."),
+                _row(_RESOLVE_ROW, memory_cut_remedy(result.memory_limit_mb)),
                 *_open_work_rows(result, rep),
             ]
         if route == "write_authority":
