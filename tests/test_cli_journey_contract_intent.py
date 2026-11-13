@@ -161,6 +161,7 @@ def test_line_gap_never_prints_an_unparseable_do_this_command():
 def test_missing_survivor_report_cannot_turn_an_incomplete_result_into_done():
     result = SimpleNamespace(
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
         function="p.py::quote",
         functionally_complete=False,
@@ -182,6 +183,7 @@ def test_missing_survivor_report_cannot_turn_an_incomplete_result_into_done():
 def test_an_ungateable_measurement_outranks_every_input_suggestion():
     result = SimpleNamespace(
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
         function="p.py::quote",
         functionally_complete=False,
@@ -204,6 +206,7 @@ def test_an_ungateable_measurement_outranks_every_input_suggestion():
 def test_an_input_that_already_failed_to_close_is_never_offered_again():
     result = SimpleNamespace(
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
         function="p.py::quote",
         functionally_complete=False,

@@ -25,6 +25,7 @@ def _complete_result():
         line_complete=True,
         missing_lines=(),
         missing_line_standings=(),
+        engine_ownership="ordinary",
         not_consulted_dynamic=(),
         stale_target=False,
         budget_exhausted=False,

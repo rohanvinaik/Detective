@@ -283,6 +283,9 @@ class SuiteAudit:
     # Tests whose reach the tracer could not fully observe, `(test id, reach code)` (Wesker#17): a line they
     # may run is `reach_unobserved`, unknown and never uncovered.
     unobserved_reach: tuple[tuple[str, str], ...] = ()
+    # `engine.engine_ownership`'s code for the target ("engine_owned": the target is part of the engine doing
+    # the measuring; audit always measures isolated, and the page says why that matters here).
+    engine_ownership: str = "unresolved"
 
     @property
     def complete(self) -> bool:
@@ -1154,6 +1157,7 @@ def audit_suite(
     _env_node = node if node is not None else _target_node(file, function, os.path.abspath(project_root))
     return SuiteAudit(
         function=result.function_key,
+        engine_ownership=getattr(result, "engine_ownership", "unresolved"),
         test_count=len(test_names),
         kill_pct=round(100 * result.total_killed / total, 1) if total else 100.0,
         mutant_complete=mutant_complete,

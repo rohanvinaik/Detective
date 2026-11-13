@@ -34,6 +34,7 @@ def _result():
         final_survivors=1,
         missing_lines=(),
         missing_line_standings=(),
+        engine_ownership="ordinary",
         not_consulted_dynamic=(),
         signature="f(text)",
         param_names=("text",),

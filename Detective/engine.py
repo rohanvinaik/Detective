@@ -1016,6 +1016,61 @@ def _session_baseline_scope_for(full: str) -> str:
     return session_baseline_scope(holder is not None, targets, os.path.realpath(full))
 
 
+def engine_ownership(target_file: str, engine_dirs: list[str]) -> str:
+    """Whether the target lives inside the engine that is measuring it (pure — pinned).
+
+    Wesker installs a mutant by patching the live module in `sys.modules`. When the target is part of the
+    package the running Detective or the running Wesker was imported from, that module is code the
+    measurement itself imports and runs, so an in-process mutant executes inside the measurement:
+    `Wesker/monitoring.py::harness_slowdown` (called by the liveness calibration the engine runs) left a
+    mutant a survivor in-process that `--isolated` killed with the suite's own first assertion (Wesker
+    #28 records the class). The accessor gathers the paths; this split exists so the decision is
+    pinnable, which a decision reading `sys.modules` and the filesystem is not. Both arguments are real
+    absolute paths: a package's DIRECTORY, compared by path component, so a renamed copy (`DetectiveUUT/`
+    at another path, the dogfood procedure) and a sibling whose name merely shares a prefix
+    (`Wesker_extra/`) are not inside it.
+
+      "engine_owned"  ``target_file`` is under one of ``engine_dirs``: measure it isolated.
+      "ordinary"      it is under none of them: the in-process measurement is as sound as ever.
+      "unresolved"    a path is empty, relative, or no engine directory is known: nothing was decided.
+                      Absence is not "ordinary" — the caller must not claim either.
+    """
+    if not target_file or not os.path.isabs(target_file):
+        return "unresolved"
+    dirs = [d for d in engine_dirs if d and os.path.isabs(d)]
+    if not dirs:
+        return "unresolved"
+    target = os.path.normpath(target_file)
+    for directory in dirs:
+        base = os.path.normpath(directory).rstrip(os.sep)
+        if target.startswith(base + os.sep):
+            return "engine_owned"
+    return "ordinary"
+
+
+def target_engine_ownership(full: str) -> str:
+    """`engine_ownership` over the packages this process imported Detective and Wesker from."""
+    import Wesker
+
+    wesker_file = getattr(Wesker, "__file__", None) or ""
+    engine_dirs = [os.path.dirname(os.path.realpath(__file__))]
+    if wesker_file:
+        engine_dirs.append(os.path.dirname(os.path.realpath(wesker_file)))
+    return engine_ownership(os.path.realpath(full), engine_dirs)
+
+
+_ENGINE_OWNED_NOTICE = (
+    "measured isolated: the target is part of the engine doing the measuring, so an in-process "
+    "mutant would run inside the measurement"
+)
+
+
+def engine_owned_notice(ownership: str) -> str:
+    """The one line a page prints for `engine_ownership`'s code: the reason for "engine_owned", and
+    "" for the codes that changed nothing (a page says nothing about a measurement it did not alter)."""
+    return _ENGINE_OWNED_NOTICE if ownership == "engine_owned" else ""
+
+
 class _ProfilingOptions(TypedDict, total=False):
     widen_tests: list[Callable[..., Any]] | None
     isolated: bool
@@ -1121,6 +1176,12 @@ def profile(
             )
         finally:
             _SESSION_BASELINE.reset(token)
+    # A target inside the engine doing the measuring is measured isolated, whatever the caller asked: an
+    # in-process mutant would run inside the measurement (`engine_ownership`). Decided BEFORE the cache
+    # gate below, which an isolated run bypasses.
+    _ownership = target_engine_ownership(full)
+    if _ownership == "engine_owned":
+        isolated = True
     # Before ANY import can touch the target — test discovery and the traced
     # baseline both import it transitively — retire a possibly-stale bytecode
     # cache, or every number below describes a file no longer on disk.
@@ -1215,6 +1276,7 @@ def profile(
             # known fields, not this Detective-side object) so a warm run reads it too (#X4).
             hit.measurement_basis = ck  # ty: ignore[unresolved-attribute]
             hit.profile_extra_test_dirs = extra_test_dirs  # ty: ignore[unresolved-attribute]
+            hit.engine_ownership = _ownership  # ty: ignore[unresolved-attribute]
             return _attach_function_basis(hit, root, node)
 
     # Pass the live target so Wesker seeds the mutant namespace from its
@@ -1445,6 +1507,7 @@ def profile(
     # declared fields (`asdict`), and these describe THIS measurement, not the verdict it caches.
     result.measurement_basis = ck  # ty: ignore[unresolved-attribute]
     result.profile_extra_test_dirs = extra_test_dirs  # ty: ignore[unresolved-attribute]
+    result.engine_ownership = _ownership  # ty: ignore[unresolved-attribute]
     _validity = normalize_validity(result)
     if _cache_allowed and verdict_cache.proof_cache_admits(
         gateable=_validity.admits_certificate,

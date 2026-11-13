@@ -185,6 +185,7 @@ def _converge(equivalent):
         policy_id="p",
         synthesized_only=False,
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
     )
     decision = _converge_decision(result, rep, render_tests=False)

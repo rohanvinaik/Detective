@@ -28,6 +28,7 @@ def _result(**overrides):
         functionally_complete=True,
         missing_lines=(),
         missing_line_standings=(),
+        engine_ownership="ordinary",
         not_consulted_dynamic=(),
         line_complete=True,
         stale_target=False,

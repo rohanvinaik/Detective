@@ -548,6 +548,9 @@ class ConvergeResult:
     # Wesker's coverage depth for the same measurement: "exhaustive" / "profiled" / "sampled" /
     # "cut". Carried for the report; the GATE reads `measurement_gateable`, never this string.
     coverage_depth: str = ""
+    # `engine.engine_ownership`'s code for the target ("engine_owned": measured isolated because the target
+    # is part of the engine doing the measuring; "unresolved": no decision was made).
+    engine_ownership: str = "unresolved"
     # Module names the live collection resolved to MORE THAN ONE FILE (#58). A distinct reason
     # for ungateability from a cut or an uncontained worker: the run finished cleanly and the
     # counts may be exact — they are simply about an ambiguous copy of the code. Named so the
@@ -3278,6 +3281,7 @@ def _converge_impl(
         validity=_validity,
         measurement_gateable=_validity.gateable,
         coverage_depth=str(getattr(final_result, "coverage_depth", "") or ""),
+        engine_ownership=getattr(final_result, "engine_ownership", "unresolved"),
         collection_conflicts=tuple(getattr(final_result, "collection_conflicts", ()) or ()),
         cut_reasons=_validity.cut_reasons,
         # The evidence for `routing_failed`, from every measurement `_validity` rests on (#91).

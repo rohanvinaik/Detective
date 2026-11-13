@@ -156,6 +156,10 @@ class ScopeMap:
     # way to tell them apart. A skip that cannot say which of two things happened is a dot in the
     # log, and S10b's whole finding was that such a dot hid the guard not running at all.
     cut_reasons: tuple[str, ...] = ()
+    # `engine.engine_ownership`'s code for the target: "engine_owned" means the target is part of the
+    # engine doing the measuring and the profile was measured isolated for that reason. "unresolved" is
+    # the absence of a decision (an older result), never "ordinary".
+    engine_ownership: str = "unresolved"
 
 
 def _kill_quality_warning(by_assertion: int, by_crash: int, total_killed: int) -> str | None:
@@ -243,6 +247,7 @@ def scope_from_profiling(result: ProfilingResult) -> ScopeMap:
         # `classify_survivors` (see `engine.diagnose`), so claiming it here would fabricate a reason
         # from a question nobody asked. Every other cut reason IS derivable from the result.
         cut_reasons=_cut_reasons(result),
+        engine_ownership=getattr(result, "engine_ownership", "unresolved"),
     )
 
 

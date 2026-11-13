@@ -275,6 +275,7 @@ def _format_scope(scope, universe: UniverseOptions | None = None) -> str:
     head = f"{scope.function} — diagnose · {spec.behavioral_variants} behaviours"
     head += f" · {spec.distinctions_pinned} pinned · {spec.unspecified_dof} unpinned"
     lines = [_RULE, head, ""]
+    lines += _engine_owned_rows(scope.engine_ownership)
 
     _attribution = no_tests_attribution(
         int(getattr(scope, "tests_discovered", -1)), bool(getattr(scope, "load_failure", ""))
@@ -2858,6 +2859,7 @@ def _format_converge(
     if floor := tuple(getattr(result, "floor_failing_tests", ()) or ()):
         # #114: named in the archive as on the page, so `--full`, the report file and `--json` agree.
         lines.append(f"  ⚠ FAILING NOW — fail on current code: {_first_n(floor, 8)}")
+    lines += _engine_owned_rows(result.engine_ownership)
     # STATS FLEX: make "mutant-complete" concrete. universe_size is the count of
     # behavioral degrees of freedom (total possible mutants); killed/universe is the
     # fraction of that DOF space converge actually pinned down. Fast mode greedily
@@ -3137,6 +3139,7 @@ def _format_converge_terse(
     stale = result.stale_target
     counts = "" if stale else _headline_counts(result, rep)
     lines = [_RULE, f"{fn} — converge{counts}", ""]
+    lines += _engine_owned_rows(result.engine_ownership)
 
     # A stale run's rows would describe an invalid measurement — survivor
     # counts and line gaps computed against a file that changed under the run
@@ -4834,6 +4837,7 @@ def _converge_decision(
         ],
         "crash_only": [getattr(v, "mutant_id", "") for v in equivalent if getattr(v, "crash_only", False)],
         "step_budget_divergent": [getattr(v, "mutant_id", "") for v in diverged],
+        "engine_ownership": result.engine_ownership,
     }
     return Decision(
         "converge",
@@ -5561,6 +5565,15 @@ _MAX_BATCH = 10
 def _row(label: str, text: str) -> str:
     """`  label...  text` on the report's single gutter."""
     return f"  {label:<{_LABEL_W}}{text}"
+
+
+def _engine_owned_rows(ownership: str) -> list[str]:
+    """The page's one line saying the run was measured isolated because the target is part of the engine
+    doing the measuring; no row for a code that changed nothing (`engine.engine_owned_notice`)."""
+    from .engine import engine_owned_notice
+
+    notice = engine_owned_notice(ownership)
+    return [_row("· isolated", notice)] if notice else []
 
 
 def _helper_sig(ex) -> str:
@@ -7271,6 +7284,7 @@ def _format_audit(
         f"{_rate}· {verdict}",
         "",
     ]
+    lines += _engine_owned_rows(a.engine_ownership)
     # FAN-IN, led with (issue #54): how many tests REACH this function vs how many PIN it. A wide
     # gap (79 reach · 5 pin) is the most decision-useful line the run produces — high fan-in + thin
     # contract is exactly where a rewrite is dangerous and converging pays off most. It also reframes
@@ -7835,7 +7849,7 @@ def _audit_decision(a, removing: bool = False, two_sign: bool = False) -> Decisi
     residual = (
         _audit_residual(a) if code in ("flag_equivalents", "done_identical", "supply_second_call") else None
     )
-    state: dict = {"headline": _audit_headline(a)}
+    state: dict = {"headline": _audit_headline(a), "engine_ownership": a.engine_ownership}
     if code == "consult_named_tests" or _unconsulted_gap(a) != "none":
         # The tests the open lines wait on, by id: the record names what the block names (#107, #77).
         state["not_consulted_dynamic"] = list(a.not_consulted_dynamic)

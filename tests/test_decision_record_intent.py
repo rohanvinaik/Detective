@@ -176,8 +176,9 @@ def test_the_record_carries_the_decided_state_each_verb_holds(walk):
         "history_dependent",
         "crash_only",
         "step_budget_divergent",
+        "engine_ownership",
     }
-    assert set(walk["json"]["audit"][1]["decision"]["state"]) == {"headline"}
+    assert set(walk["json"]["audit"][1]["decision"]["state"]) == {"headline", "engine_ownership"}
     assert set(walk["json"]["regime"][1]["decision"]["state"]) == {"blocked", "needed"}
 
 
@@ -224,6 +225,7 @@ def _gap_result(**overrides):
         environment_gated=(),
         admits_certificate=True,
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
     )
     base.update(overrides)
@@ -272,6 +274,7 @@ def test_supply_the_printed_rerun_is_the_records_then():
         admits_certificate=True,
         verification=None,
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
     )
     rep = SurvivorReport(verdicts=(), unclassified=())
@@ -325,6 +328,7 @@ def test_stop_names_its_remedy_and_the_printed_rerun_is_the_records_then():
         not_consulted_dynamic=(),
         line_complete=True,
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
         verification=types.SimpleNamespace(ok=False, status="tests_failed"),
         admits_certificate=True,
@@ -381,6 +385,7 @@ def test_done_names_no_command_and_its_optional_are_the_printed_next_commands():
         missing_line_standings=(),
         not_consulted_dynamic=(),
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
         admits_certificate=True,
         written_path="tests/detective/test_dsl_add_synth.py",
@@ -879,6 +884,7 @@ def _lines_result(line: int = 34, guard: str = "value > 3") -> types.SimpleNames
         admits_certificate=True,
         verification=None,
         stale_target=False,
+        engine_ownership="unresolved",
         budget_exhausted=False,
     )
 
