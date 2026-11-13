@@ -176,6 +176,14 @@ class SuiteAudit:
     # ``(mutant id, test)`` for each crash-only mutant a current test detects by crash (D#110, D#113): "" for
     # the test when the kill matrix named none. The page names them, so "detected by crash" says by what.
     crash_detected_by: tuple[tuple[str, str], ...] = ()
+    # The external state the function reads (`purity.environment_reads`): the clock, the process environment,
+    # the filesystem, the interpreter's own state. The closing block asks `environment_route` whether the
+    # converge it names writes tests or hands back to a fixture (#142); converge reads the same reads.
+    environment_gated: tuple[str, ...] = ()
+    # How many of `killable_gaps` a current test already KILLS by a crash (`MutantVerdict.suite_detected`): a
+    # value witness exists and no test pins it, but the suite is not blind to it. The `✗ real gaps` row says
+    # "no test kills" only of the rest (`real_gaps_text`, #101).
+    killable_crash_detected: int = 0
     # ``(mutant id, clause)`` for each mutant whose recorded `equivalent` flag an execution on record
     # contradicts (D#110): kept on disk, not counted as flagged, named on the page with the fact.
     contradicted_mutant_flags: tuple[tuple[str, str], ...] = ()
@@ -975,6 +983,7 @@ def audit_suite(
     crash_detected_by: tuple[tuple[str, str], ...] = ()
     contradicted_mutant_flags: tuple[tuple[str, str], ...] = ()
     crash_only_undetected = 0
+    killable_crash_detected = 0
     takes_arguments: bool | None = None
     boundary_probe = ""
     unclassified = 0
@@ -1016,6 +1025,7 @@ def audit_suite(
         candidate_equivalent_ids = tuple(v.mutant_id for v in report.equivalent)
         crash_only_equivalent = sum(1 for v in report.equivalent if v.crash_only)
         crash_only_ids = tuple(v.mutant_id for v in report.equivalent if v.crash_only)
+        killable_crash_detected = sum(1 for v in report.killable if v.suite_detected)
         history_dependent_ids = tuple(v.mutant_id for v in report.history_dependent)
         identical_ids = tuple(v.mutant_id for v in report.identical_to_original)
         from .equivalence import crash_only_status
@@ -1132,8 +1142,10 @@ def audit_suite(
         kill_matrix=relation.matrix,
         kill_attribution=relation.standing,
     )
+    from .purity import environment_reads
     from .suite_edit import removal_dispositions
 
+    _env_node = node if node is not None else _target_node(file, function, os.path.abspath(project_root))
     return SuiteAudit(
         function=result.function_key,
         test_count=len(test_names),
@@ -1200,6 +1212,8 @@ def audit_suite(
         candidate_equivalent_ids=candidate_equivalent_ids,
         crash_only_equivalent=crash_only_equivalent,
         crash_only_ids=crash_only_ids,
+        environment_gated=tuple(environment_reads(_env_node)) if _env_node is not None else (),
+        killable_crash_detected=killable_crash_detected,
         history_dependent_ids=history_dependent_ids,
         identical_ids=identical_ids,
         crash_detected_by=crash_detected_by,

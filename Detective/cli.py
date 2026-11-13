@@ -2468,6 +2468,30 @@ def universe_tail(fast: bool, cut_reasons: list[str]) -> str:
     return "exhaustive"
 
 
+def real_gaps_text(gaps: int, crash_detected: int) -> str:
+    """The `✗ real gaps` row's text (#101, pure — pinned).
+
+    Each gap is a killable mutant: a value witness exists and no test pins it. That is not the same as
+    "no test kills it": a test that fails under the mutant by a crash kills it, and the suite is not
+    blind to it, it merely asserts nothing about the value. The row used to say "no test kills" of every
+    gap, which is false of the crash-detected ones; it now splits the count by the fact it rests on
+    (`SuiteAudit.killable_crash_detected`, from `MutantVerdict.suite_detected`).
+
+      all undetected   "N killable mutant(s) no test kills"
+      none undetected  "N killable mutant(s) a test kills only by a crash: no test pins the value"
+      mixed            both clauses, each with its own count
+    """
+    undetected = gaps - crash_detected
+    if crash_detected <= 0:
+        return f"{gaps} killable mutant(s) no test kills"
+    if undetected <= 0:
+        return f"{gaps} killable mutant(s) a test kills only by a crash: no test pins the value"
+    return (
+        f"{gaps} killable mutant(s): {undetected} no test kills; {crash_detected} a test kills only by "
+        "a crash, and no test pins the value"
+    )
+
+
 def _no_verdict_text(pairs: tuple[tuple[str, str], ...]) -> str:
     """The `⚠ no verdict` row: each mutant that reached no verdict, by id and disposition (#126).
 
@@ -3507,6 +3531,49 @@ def env_gated_row_text(kind: str, reads: int) -> str:
     }.get(kind, f"unrecognised gate kind {kind}")
 
 
+def environment_route(env_gate: str, has_line_gap: bool, has_killable: bool) -> str:
+    """The route an external-state read forces on the next action, or "" for none (#142, pure — pinned).
+
+    Lifted out of `converge_next_action` so the verb that NAMES converge (`audit`'s closing block) asks the
+    same question converge answers, instead of promising what converge will not do.
+
+    A declarable capability (``declare_clock`` / ``declare_env``) is the precondition of ANY sound test of
+    the function (an uncovered clock or env read makes every golden inadmissible), so it outranks killable
+    mutants too; a fixture only outranks the gap ask when a line gap is open and no killable witness is left
+    to pin. A process-state read (``process_state``) outranks the witness as well: its goldens are all
+    refused (the value describes the interpreter that ran it), so the witness `--input` the gap ask would
+    print cannot be pinned, and a function that takes no argument is never asked for one (D#140 item 2).
+    """
+    gated = _ENV_GATE_ROUTE.get(env_gate, "")
+    if (
+        gated in ("declare_clock", "declare_env")
+        or (gated and has_line_gap and not has_killable)
+        or env_gate == "process_state"
+    ):
+        return gated
+    return ""
+
+
+def audit_writes_text(route: str) -> str:
+    """What audit's close_the_gap `· Writes` row may say of the converge it names (#142, pure — pinned).
+
+    ``route`` is `environment_route`'s code for the same function. "" means converge writes tests; the
+    others mean the converge it names hands back to the reader first, so "writes the missing tests" would be
+    false: it names the capability to declare, or the fixture a test must build, and writes nothing for that
+    part.
+    """
+    if route == "declare_clock":
+        return "nothing yet: the function reads the clock; converge asks for --clock first."
+    if route == "declare_env":
+        return "nothing yet: the function reads the environment; converge asks for --env first."
+    if route == "environment_fixture":
+        return (
+            "nothing for the part behind the external state it reads: converge names the fixture a test "
+            "must build and hands back."
+        )
+    return "the missing tests, and wires them into pytest."
+
+
 def converge_next_action(
     standing: str,
     session_reason: str,
@@ -3654,20 +3721,7 @@ def converge_next_action(
         #     This is the arc-dsl run-1 spiral — migrate re-prescribed over a suite just written.
         if not wrote_runnable_suite:
             return "fix_collection"
-    gated = _ENV_GATE_ROUTE.get(env_gate, "")
-    # A declarable capability is the precondition of ANY sound test of the function (an uncovered clock
-    # or env read makes every golden inadmissible), so it outranks killable mutants too; a fixture only
-    # outranks the gap ask when no killable witness is left to pin.
-    #
-    # A process-state read (`environment_gate_kind` ``process_state``) outranks the witness too: its goldens
-    # are all refused (the value describes the interpreter that ran it), so the witness `--input` the gap
-    # ask would print cannot be pinned, and a function that takes no argument is never asked for one
-    # (D#140 item 2). The measured case was `--input "()"` over a `sys.modules` gate.
-    if (
-        gated in ("declare_clock", "declare_env")
-        or (gated and has_line_gap and not has_killable)
-        or env_gate == "process_state"
-    ):
+    if gated := environment_route(env_gate, has_line_gap, has_killable):
         return gated
     if unconsulted_only and not has_killable:
         return "consult_named_tests"
@@ -7275,7 +7329,7 @@ def _format_audit(
         )
         lines.append(_row("", _first_n(_untyped, 4)))
     if a.killable_gaps:
-        lines.append(_row("✗ real gaps", f"{len(a.killable_gaps)} killable mutant(s) no test kills"))
+        lines.append(_row("✗ real gaps", real_gaps_text(len(a.killable_gaps), a.killable_crash_detected)))
     if a.missing_lines:
         # One row per standing (#139), in the renderer converge's page shares.
         lines += _missing_line_rows(list(a.missing_lines), getattr(a, "missing_line_standings", ()))
@@ -7882,7 +7936,16 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
             f"DO THIS:  {_command_text(decision.argv)}",
             "",
             _row("· Why", f"{why} — real gaps, not equivalents."),
-            _row("· Writes", "the missing tests, and wires them into pytest."),
+            _row(
+                "· Writes",
+                audit_writes_text(
+                    environment_route(
+                        environment_gate_kind(list(a.environment_gated), False, False),
+                        bool(lines),
+                        bool(gaps),
+                    )
+                ),
+            ),
             # Lines open only because named tests were not consulted are not converge's to close: they stay
             # open beside what it writes, named (#107, #77).
             *(
