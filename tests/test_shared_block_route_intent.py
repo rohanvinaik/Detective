@@ -114,6 +114,8 @@ def _ungateable_result(cut_reasons: tuple[str, ...]):
         verification=None,
         line_complete=False,
         missing_lines=(143,),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         stale_target=False,
         admits_certificate=False,
         written_path="",

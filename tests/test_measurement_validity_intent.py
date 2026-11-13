@@ -460,6 +460,8 @@ def test_isolate_action_identifies_affected_tests():
             self.measurement_gateable = False
             self.stale_target = False
             self.budget_exhausted = False
+            self.missing_line_standings = ()
+            self.not_consulted_dynamic = ()
             self.functionally_complete = False
             self.line_complete = True
             self.missing_lines = ()

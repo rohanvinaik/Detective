@@ -88,7 +88,7 @@ def test_removal_confirm_lines_carry_two_sign():
 
 def test_audit_plan_then_carries_two_sign():
     tier1 = SimpleNamespace(
-        tests_reaching=1, tests_total=1, covered_lines=1, executable_lines=1, mutant_count=3
+        tests_reaching=1, tests_total=1, covered_lines=1, executable_lines=1, mutant_count=3, two_sign=True
     )
     page = _format_audit_plan("m.py::scale", "", tier1, 1.0, TWO)
     assert "detective audit 'm.py::scale' --two-sign" in page

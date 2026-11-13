@@ -176,12 +176,16 @@ def _converge(equivalent):
         functionally_complete=True,
         final_survivors=0,
         missing_lines=(),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         signature="one(x)",
         param_names=("x",),
         environment_gated=(),
         admits_certificate=True,
         policy_id="p",
         synthesized_only=False,
+        stale_target=False,
+        budget_exhausted=False,
     )
     decision = _converge_decision(result, rep, render_tests=False)
     return decision, "\n".join(_converge_action(result, rep, decision=decision))

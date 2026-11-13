@@ -134,6 +134,8 @@ def test_line_gap_never_prints_an_unparseable_do_this_command():
         signature="quote(result: DomainObject)",
         param_names=("result",),
         missing_lines=(34,),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         missing_line_guards=((34, "result.reference_levels == ()"),),
     )
     rep = SurvivorReport(verdicts=(), unclassified=())
@@ -164,6 +166,8 @@ def test_missing_survivor_report_cannot_turn_an_incomplete_result_into_done():
         functionally_complete=False,
         final_survivors=2,
         missing_lines=(),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         signature="quote(value)",
         param_names=("value",),
         environment_gated=(),
@@ -183,6 +187,8 @@ def test_an_ungateable_measurement_outranks_every_input_suggestion():
         functionally_complete=False,
         final_survivors=1,
         missing_lines=(),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         admits_certificate=False,
         collection_conflicts=(),
     )
@@ -203,6 +209,8 @@ def test_an_input_that_already_failed_to_close_is_never_offered_again():
         functionally_complete=False,
         final_survivors=1,
         missing_lines=(),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         signature="quote(value)",
         param_names=("value",),
         environment_gated=(),
@@ -313,7 +321,7 @@ def test_archived_flag_command_retains_the_measured_two_sign_policy():
 
 
 def test_flag_can_address_output_survivors_in_the_two_sign_universe(monkeypatch, tmp_path):
-    from Detective import cli, engine, equivalents
+    from Detective import audit, cli, equivalents
 
     args = _build_parser().parse_args(
         [
@@ -339,7 +347,8 @@ def test_flag_can_address_output_survivors_in_the_two_sign_universe(monkeypatch,
             ],
         )
 
-    monkeypatch.setattr(engine, "profile", measured)
+    # `flag` measures through `audit.audit_profile` (#127), the one measurement audit shares.
+    monkeypatch.setattr(audit, "profile", measured)
     monkeypatch.setattr(equivalents, "add_flag", lambda *a, **kw: None)
     assert cli._run_flag(args, "m.py", "scale") == 0
     assert seen["two_sign"] is True

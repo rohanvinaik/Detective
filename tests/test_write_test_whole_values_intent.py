@@ -33,6 +33,8 @@ def _result():
         functionally_complete=False,
         final_survivors=1,
         missing_lines=(),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         signature="f(text)",
         param_names=("text",),
         environment_gated=(),

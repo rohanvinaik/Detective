@@ -4026,8 +4026,8 @@ def _converge_unconsulted_gap(result, rep) -> str:
 
     return unconsulted_gap_standing(
         1 if _converge_blocked(result, rep) else 0,
-        list(_line_standings(result.missing_lines, getattr(result, "missing_line_standings", ())).values()),
-        list(getattr(result, "not_consulted_dynamic", ()) or ()),
+        list(_line_standings(result.missing_lines, result.missing_line_standings).values()),
+        list(result.not_consulted_dynamic),
         [test for test, _ in getattr(result, "unobserved_reach", ()) or ()],
     )
 
@@ -7605,8 +7605,8 @@ def _unconsulted_gap(a) -> str:
 
     return unconsulted_gap_standing(
         len(a.killable_gaps),
-        list(_line_standings(a.missing_lines, getattr(a, "missing_line_standings", ())).values()),
-        list(getattr(a, "not_consulted_dynamic", ()) or ()),
+        list(_line_standings(a.missing_lines, a.missing_line_standings).values()),
+        list(a.not_consulted_dynamic),
         [test for test, _ in getattr(a, "unobserved_reach", ()) or ()],
     )
 
@@ -7718,7 +7718,7 @@ def _audit_decision(a, removing: bool = False, two_sign: bool = False) -> Decisi
     state: dict = {"headline": _audit_headline(a)}
     if code == "consult_named_tests" or _unconsulted_gap(a) != "none":
         # The tests the open lines wait on, by id: the record names what the block names (#107, #77).
-        state["not_consulted_dynamic"] = list(getattr(a, "not_consulted_dynamic", ()) or ())
+        state["not_consulted_dynamic"] = list(a.not_consulted_dynamic)
         # ... and the tests whose reach was not observed, each with its cause (Wesker#17).
         state["unobserved_reach"] = [list(pair) for pair in getattr(a, "unobserved_reach", ()) or ()]
     route = repair_measurement_route(tuple(a.cut_reasons)) if code == "repair_measurement" else ""
@@ -7801,7 +7801,7 @@ def _audit_action(a, removing: bool = False, decision: Decision | None = None) -
         return _failing_test_action(tuple(a.failing_tests), decision.then)
     if kind == "close_the_gap":
         gaps = len(a.killable_gaps)
-        by_line = _line_standings(a.missing_lines, getattr(a, "missing_line_standings", ()))
+        by_line = _line_standings(a.missing_lines, a.missing_line_standings)
         lines = sum(1 for standing in by_line.values() if standing not in _UNOBSERVED_STANDINGS)
         waiting = len(by_line) - lines
         why = ", ".join(
@@ -8016,9 +8016,9 @@ def _unconsulted_beside_rows(result) -> list[str]:
     """Beside a gap converge CAN write, the lines that stay open because named tests were not consulted
     (#107, #77) or a consulted test's reach was not observed (Wesker#17): named, so the ask above is not
     read as covering them."""
-    by_line = _line_standings(result.missing_lines, getattr(result, "missing_line_standings", ()))
+    by_line = _line_standings(result.missing_lines, result.missing_line_standings)
     waiting = [ln for ln, standing in by_line.items() if standing in _UNOBSERVED_STANDINGS]
-    named = getattr(result, "not_consulted_dynamic", ()) or ()
+    named = result.not_consulted_dynamic
     pairs = getattr(result, "unobserved_reach", ()) or ()
     if not waiting or not (named or pairs):
         return []

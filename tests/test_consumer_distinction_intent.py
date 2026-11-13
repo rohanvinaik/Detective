@@ -47,6 +47,18 @@ from Detective.distinction import (
 )
 
 BY_DESIGN: dict[str, str] = {
+    "audit.baseline_failure_disposition @ audit.function_untyped_tests": (
+        "This reader answers one question: which of the function's tests could not be typed on this "
+        "route (`untyped`). The other three codes are not merged into a verdict here; each has its own "
+        "reader (`function_failing_tests` for `failing`, the errored-test reader for `errored`), and "
+        "`not_failing` names no test at all."
+    ),
+    "cli.plan_policy_label @ cli._format_audit_plan": (
+        "The code IS the output here: the label is printed in brackets beside the mutant count "
+        "(`[one-sign universe]` / `[two-sign universe, static count — …]`), so each code yields different "
+        "text and neither is sent down the other's path. It reads as a collapse only because an "
+        "f-string interpolation is not a comparison."
+    ),
     "cli.trace_remedy @ cli._converge_decision": (
         "This site asks one question (D#142): is any trace bound left to lift? `none_left` means no "
         "trace flag can change the cut, so the route becomes the hand-back `inspect_refusal`; the three "

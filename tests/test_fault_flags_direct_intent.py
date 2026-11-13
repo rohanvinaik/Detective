@@ -34,6 +34,8 @@ def _converge_like(**over):
         "measurement_gateable": True,
         "stale_target": False,
         "budget_exhausted": False,
+        "missing_line_standings": (),
+        "not_consulted_dynamic": (),
     }
     base.update(over)
     return types.SimpleNamespace(**base)
@@ -53,6 +55,22 @@ def test_a_result_that_cannot_say_whether_it_is_stale_is_not_read_as_fresh() -> 
 
 def test_a_stale_result_still_overrides_the_headline() -> None:
     assert "STALE" in _final_banner_status(_converge_like(stale_target=True)).upper()
+
+
+# ---------------------------------------------------------------- the open-line standings (ConvergeResult)
+
+
+@pytest.mark.parametrize("flag", ["missing_line_standings", "not_consulted_dynamic"])
+def test_a_result_that_cannot_say_which_lines_stand_open_is_not_read_as_having_none(flag) -> None:
+    """Both are fault flags (a default of `()` means "no line is open for a named cause"). The ladder reads
+    them directly from the ConvergeResult, so a result that does not carry one fails at the read."""
+    res = _converge_like()
+    delattr(res, flag)
+    rep = types.SimpleNamespace(
+        equivalent=[], killable=[], unclassified=[], inputs_expressible=True, load_failed=False, note=""
+    )
+    with pytest.raises(AttributeError, match=flag):
+        _converge_decision(res, rep, render_tests=False)
 
 
 # ---------------------------------------------------------------- budget_exhausted (ConvergeResult)

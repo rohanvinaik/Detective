@@ -27,6 +27,8 @@ def _result(**overrides):
         function="p.py::quote",
         functionally_complete=True,
         missing_lines=(),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         line_complete=True,
         stale_target=False,
         budget_exhausted=False,

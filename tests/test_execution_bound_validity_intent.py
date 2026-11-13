@@ -43,6 +43,8 @@ def test_unresolved_execution_keeps_its_reason_through_the_real_engine_adapter(
         function="calc.py::target",
         functionally_complete=False,
         missing_lines=(),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         admits_certificate=validity.admits_certificate,
         cut_reasons=validity.cut_reasons,
         stale_target=False,

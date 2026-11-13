@@ -24,6 +24,8 @@ def _complete_result():
         verification=None,
         line_complete=True,
         missing_lines=(),
+        missing_line_standings=(),
+        not_consulted_dynamic=(),
         stale_target=False,
         budget_exhausted=False,
         admits_certificate=True,

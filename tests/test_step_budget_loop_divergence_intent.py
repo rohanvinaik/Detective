@@ -179,7 +179,8 @@ def test_flag_refusal_on_divergent_mutant(monkeypatch: pytest.MonkeyPatch) -> No
             }
         ]
 
-    monkeypatch.setattr("Detective.engine.profile", lambda *a, **kw: DummyResult())
+    # `flag` measures through `audit.audit_profile` (#127), the one measurement audit shares.
+    monkeypatch.setattr("Detective.audit.profile", lambda *a, **kw: DummyResult())
 
     args = argparse.Namespace(
         style=False,
@@ -215,6 +216,8 @@ def test_converge_divergence_action_and_decision() -> None:
         verification = None
         written_path = ""
         synthesized_only = False
+        missing_line_standings = ()
+        not_consulted_dynamic = ()
 
     res = DummyConvergeResult()
     decision = _converge_decision(res, rep, render_tests=False)
