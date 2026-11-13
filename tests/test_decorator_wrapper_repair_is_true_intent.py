@@ -3,7 +3,8 @@
 The defect: the page said "pin the undecorated callable (its __wrapped__)", which cannot work: the
 install rebinds module names and `functools.wraps` keeps the original object, so a test of `__wrapped__`
 enters no mutant. What moves it is a call by the module attribute; for a caller reaching the function only
-through the wrapper's closure no repair exists until Wesker's robust install mode (Wesker#18).
+through the wrapper's closure `--isolated` is the repair: Wesker's robust install mode (Wesker#18)
+installs the mutant at import.
 """
 
 from Detective.validity import cut_reason_sentence
@@ -17,10 +18,10 @@ def test_the_sentence_no_longer_recommends_pinning_the_wrapped_callable():
     assert "does NOT move it" in sentence and "functools.wraps" in sentence
 
 
-def test_the_sentence_names_the_repair_that_works_and_the_case_with_none():
+def test_the_sentence_names_the_repair_that_works():
     sentence = cut_reason_sentence(_REASON)
     assert "module.fn(...)" in sentence
-    assert "no repair exists yet" in sentence and "Wesker#18" in sentence
+    assert "--isolated" in sentence and "unbuilt" not in sentence and "no repair exists" not in sentence
 
 
 def test_the_sentence_is_still_its_own_and_recognised():

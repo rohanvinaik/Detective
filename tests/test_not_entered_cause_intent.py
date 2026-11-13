@@ -148,7 +148,11 @@ def test_only_a_function_no_test_calls_is_a_reach_gap(reasons, kind):
 
 @pytest.mark.parametrize("reason", sorted(NOT_ENTERED_REASONS))
 def test_every_not_entered_reason_routes_to_the_mutant_phase(reason):
-    assert repair_measurement_route((reason,)) == "mutant_phase"
+    # An in-process decorator capture routes to --isolated (the repair); an isolated run that still reads it
+    # has had that repair and stays a floor.
+    in_process = "isolate" if reason == "mutant_not_entered_decorator_wrapper" else "mutant_phase"
+    assert repair_measurement_route((reason,)) == in_process
+    assert repair_measurement_route((reason,), isolated=True) == "mutant_phase"
     # ...and a run-level blocker still outranks it.
     assert repair_measurement_route(("collection_incomplete", reason)) == "fix_collection"
 
