@@ -461,6 +461,7 @@ def test_isolate_action_identifies_affected_tests():
             self.stale_target = False
             self.budget_exhausted = False
             self.missing_line_standings = ()
+            self.refused_floor = ()
             self.engine_ownership = "ordinary"
             self.not_consulted_dynamic = ()
             self.functionally_complete = False

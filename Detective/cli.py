@@ -2321,7 +2321,8 @@ def _final_banner_status(result) -> str:
     # arbitrary amount is outside any finite family). The report body already carries
     # the qualifier ("every operator-universe mutant tested"); the banner is where
     # over-trust actually happens, so the banner says it too.
-    if result.complete and cand == 0 and crash_only == 0 and history == 0 and identical == 0:
+    refused = len(result.refused_floor)
+    if result.complete and cand == 0 and crash_only == 0 and history == 0 and identical == 0 and refused == 0:
         status = "✓ COMPLETE (operator universe)"
     elif result.complete:
         modulo = []
@@ -2333,6 +2334,10 @@ def _final_banner_status(result) -> str:
             modulo.append(f"{identical} identical to the original")
         if crash_only:
             modulo.append(f"{crash_only} crash-only value gap{'s' if crash_only != 1 else ''}")
+        if refused:
+            # The named floor (#143): survivors a write or process effect kept every search from, which the
+            # suite detects by crash. The certificate is conditional on them, so the line says so.
+            modulo.append(_refused_floor_clause(refused))
         status = f"✓ COMPLETE (operator universe · modulo {' · '.join(modulo)})"
     else:
         bits = []
@@ -3216,7 +3221,7 @@ def _format_converge_terse(
     if rep is not None and rep.killable:
         lines.append(_row("✗ still killable", f"{len(rep.killable)} — a witness exists for each"))
     if rep is not None and rep.unclassified:
-        lines.append(_row("⚠ unclassified", f"{len(rep.unclassified)} — the search could not run on them"))
+        lines.append(_unclassified_row(len(rep.unclassified), result.refused_floor))
         lines.extend(_write_refused_rows(result.write_refused_survivors))
         lines.extend(_blocked_cause_rows(result.blocked_causes))
     if rep is not None and getattr(rep, "step_budget_divergent", ()):
@@ -4852,6 +4857,8 @@ def _converge_decision(
         ],
         "crash_only": [getattr(v, "mutant_id", "") for v in equivalent if getattr(v, "crash_only", False)],
         "step_budget_divergent": [getattr(v, "mutant_id", "") for v in diverged],
+        # The named floor (#143): the certificate's stated condition, in the record as on the page.
+        "refused_floor": list(result.refused_floor),
         "engine_ownership": result.engine_ownership,
     }
     return Decision(
@@ -5311,6 +5318,18 @@ def _converge_action(
     # "optional". It names the WHOLE second beat (the fuller `plan` map, `decompose`, `survey`),
     # CONDITIONAL on this moment and never shown before correctness is done. The `flag` pointer in the
     # equivalent branch stays (it is correct WHEN unproven-equivalents exist); the handoff is additive.
+    # The named floor (#143): a certificate conditional on survivors no search could classify says what it is
+    # conditional on, in the block that tells the reader they are done.
+    floor_lines = (
+        [
+            f"       Modulo {_refused_floor_clause(len(result.refused_floor))}: a write or process effect",
+            "       kept every search from them (Detective never lets a speculative call do either), and the",
+            "       suite detects each by crash. Nothing to write, `flag` or supply; the certificate is",
+            "       conditional on them, and --json names each (`refused_floor`).",
+        ]
+        if result.refused_floor
+        else []
+    )
     style_handoff = [
         "",
         "       NEXT — the style pass (behaviour is pinned; this is the self-evident next move):",
@@ -5358,8 +5377,16 @@ def _converge_action(
         return [
             "DONE:  every killable behaviour Detective found is pinned.",
             *(f"       {line}" for line in residual_done_why(basis).split("\n")),
+            *floor_lines,
             *second_call,
             *flag_lines,
+            *style_handoff,
+            *review,
+        ]
+    if floor_lines:
+        return [
+            "DONE:  every behaviour Detective could search is pinned; the rest is a named floor.",
+            *floor_lines,
             *style_handoff,
             *review,
         ]
@@ -7190,6 +7217,7 @@ def audit_headline_verdict(
     candidate_equivalent: int,
     crash_only_equivalent: int,
     total_mutants: int = 1,
+    refused_floor: int = 0,
 ) -> str:
     """Which verdict shape the audit headline may claim (#36, pure — pinned).
 
@@ -7213,6 +7241,12 @@ def audit_headline_verdict(
     gets pinned: ``incomplete``, ``complete``, ``complete_modulo_unproven``,
     ``complete_modulo_crash_only``, ``complete_modulo_both``.
 
+    ``complete_modulo_refused`` / ``complete_modulo_refused_and_equivalent`` (#143) name the refused floor:
+    ``refused_floor`` survivors whose search a write or process effect refused and the suite detects by
+    crash (`audit.refused_floor_standing`). They are not a sub-count of ``candidate_equivalent`` (no search
+    judged them), so they are a term of their own: the first when nothing else is open, the second beside
+    unproven or crash-only residue, which the renderer then lists in the same sentence.
+
     ``inconsistent`` names the state where crash-only exceeds its own parent count. That cannot
     happen while the sub-count invariant holds — which is exactly why it is worth a name rather
     than an unchecked subtraction: if the invariant ever breaks, the alternative is a headline
@@ -7233,6 +7267,12 @@ def audit_headline_verdict(
     unproven = candidate_equivalent - crash_only_equivalent
     if unproven < 0:
         return "inconsistent"
+    if refused_floor > 0:
+        return (
+            "complete_modulo_refused_and_equivalent"
+            if unproven or crash_only_equivalent
+            else "complete_modulo_refused"
+        )
     if unproven and crash_only_equivalent:
         return "complete_modulo_both"
     if unproven:
@@ -7273,6 +7313,16 @@ def _format_audit(
         # NOT "unproven-equivalent": an input DOES distinguish these, by crash. Calling them
         # unproven sends the reader hunting for an input that already exists.
         verdict = f"complete, modulo {_crash_only} crash-only value gap{'s' if _crash_only != 1 else ''}"
+    elif _shape == "complete_modulo_refused":
+        verdict = f"complete, modulo {_refused_floor_clause(len(a.refused_floor))}"
+    elif _shape == "complete_modulo_refused_and_equivalent":
+        _clauses = []
+        if _unproven:
+            _clauses.append(f"{_unproven} unproven-equivalent")
+        if _crash_only:
+            _clauses.append(f"{_crash_only} crash-only value gap{'s' if _crash_only != 1 else ''}")
+        _clauses.append(_refused_floor_clause(len(a.refused_floor)))
+        verdict = f"complete, modulo {' and '.join(_clauses)}"
     elif _shape == "nothing_measured":
         verdict = "nothing measured — no mutants in this function's universe; no certificate"
     elif _shape == "inconsistent":
@@ -7390,7 +7440,7 @@ def _format_audit(
         lines += _detected_by_rows(a.crash_detected_by)
     lines += _flag_contradiction_rows(a.contradicted_mutant_flags)
     if a.unclassified:
-        lines.append(_row("⚠ unclassified", f"{a.unclassified} — the search could not run on them"))
+        lines.append(_unclassified_row(a.unclassified, a.refused_floor))
         lines.extend(_write_refused_rows(a.write_refused_survivors))
         lines.extend(_blocked_cause_rows(a.blocked_causes))
     if getattr(a, "step_budget_divergent", 0):
@@ -7719,6 +7769,8 @@ def _audit_measurement_block(a) -> str:
 
 def _audit_code(a, removing: bool = False) -> str:
     """`audit_next_action`'s code for one audit report — the one reading the page and the record share."""
+    from .audit import gating_unclassified
+
     return audit_next_action(
         _audit_measurement_block(a),
         bool(a.failing_tests),
@@ -7728,7 +7780,11 @@ def _audit_code(a, removing: bool = False) -> str:
         removing,
         int(a.candidate_equivalent or 0),
         bool(a.candidate_equivalent_ids),
-        int(a.unclassified or 0),
+        # The refused floor is named by the headline and is not an open residual (#143): the ladder's
+        # `done_unclassified` is for survivors nothing explains.
+        gating_unclassified(
+            int(a.unclassified or 0), [survivor[2] for survivor in a.write_refused_survivors]
+        ),
         diverged=int(getattr(a, "step_budget_divergent", 0) or 0),
         # A direct read (§9.7): a renamed field must raise, never read as "no errored test" and close DONE.
         errored=len(a.errored_tests),
@@ -7781,6 +7837,7 @@ def _audit_headline(a) -> str:
         a.candidate_equivalent - len(getattr(a, "identical_ids", ()) or ()),
         getattr(a, "crash_only_equivalent", 0),
         a.total_mutants,
+        refused_floor=len(a.refused_floor),
     )
 
 
@@ -11064,6 +11121,24 @@ def _blocked_cause_rows(causes: tuple[tuple[str, str], ...]) -> list[str]:
     return rows
 
 
+def _refused_floor_clause(count: int) -> str:
+    """The refused floor as the verdict and the banner name it (#143): ``N refused crash-detected
+    survivor(s)``. One wording for audit's headline, converge's FINAL and the closing block."""
+    return f"{count} refused crash-detected survivor(s)"
+
+
+def _unclassified_row(count: int, refused_floor: tuple[str, ...]) -> str:
+    """The first row of the unclassified group (#143). A residual that is wholly the refused floor
+    (`audit.refused_floor_standing`) is not a ``⚠``: nothing the reader does classifies it and the
+    certificate is conditional on it, so the row says that. Every other residual keeps the warning."""
+    if refused_floor:
+        return _row(
+            "· refused floor",
+            f"{count} — completeness holds modulo these; the suite detects each by crash",
+        )
+    return _row("⚠ unclassified", f"{count} — the search could not run on them")
+
+
 def _write_refused_rows(survivors: tuple[tuple[str, str, str, str, str], ...]) -> list[str]:
     """The continuation rows under ``⚠ unclassified`` naming the survivors a file write or a process
     effect kept the search from (#105, D#141), from `audit.write_refused_survivors`. One renderer for
@@ -11204,6 +11279,7 @@ def _run_audit(args, file, function) -> int:
             audit_check_failed,
             audit_gate_exit,
             audit_measurement_incomplete,
+            gating_unclassified,
             unresolved_gate_standing,
         )
 
@@ -11222,8 +11298,15 @@ def _run_audit(args, file, function) -> int:
         )
         _gating = tuple(u for u in _unresolved if u[2] in ("repairable", "unknown"))
         _untyped = tuple(report.untyped_tests)
+        # A refused survivor the suite detects by crash is named, never gating (#143): nothing the reader
+        # does classifies it. A refused one nothing detects gates, as does any other unclassified survivor.
+        _standings = [survivor[2] for survivor in report.write_refused_survivors]
+        _gating_unclassified = gating_unclassified(report.unclassified, _standings)
+        _refused_detected = [
+            survivor[0] for survivor in report.write_refused_survivors if survivor[2] == "crash_detected"
+        ]
         meas_incomplete = audit_measurement_incomplete(
-            report.unclassified, len(_errored), len(_gating), len(_untyped)
+            _gating_unclassified, len(_errored), len(_gating), len(_untyped)
         )
         gate_exit = audit_gate_exit(spec_gap, meas_incomplete, strict)
         payload["gate"] = {
@@ -11231,6 +11314,8 @@ def _run_audit(args, file, function) -> int:
             "measurement_incomplete": meas_incomplete,
             "unmeasured": {
                 "unclassified": report.unclassified,
+                "gating_unclassified": _gating_unclassified,
+                "refused_crash_detected": _refused_detected,
                 "errored_tests": list(_errored),
                 "untyped_tests": list(_untyped),
                 "unresolved_mutants": [list(entry) for entry in _unresolved],
@@ -11262,11 +11347,19 @@ def _run_audit(args, file, function) -> int:
             else _format_audit(report, removing=removing, decision=decision, with_action=not _ladder_last)
         )
     if check:
+        if _refused_detected:
+            # Named whatever the gate decides (#143): the certificate is conditional on them, and a gate that
+            # said nothing would read as "measured none".
+            print(
+                f"  · {_refused_floor_clause(len(_refused_detected))}, named and not gating: "
+                f"{', '.join(_refused_detected)}",
+                file=sys.stderr,
+            )
         if meas_incomplete and not spec_gap:
             # Surfaced always; fatal only under --check-strict (audit_gate_exit). A shorter search or an
             # errored fixture is a measurement limit, not a finding — the default gate stays a claim
             # about the code. Each cause is named apart (`_unmeasured_clause`).
-            _why = _unmeasured_clause(report.unclassified, len(_errored), len(_gating), len(_untyped))
+            _why = _unmeasured_clause(_gating_unclassified, len(_errored), len(_gating), len(_untyped))
             print(
                 f"  ⚠ measurement incomplete — {_why}; "
                 "NOT a specification gap. Use --check-strict to gate on it.",

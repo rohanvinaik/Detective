@@ -26,6 +26,8 @@ THE RULING:
 - When every write-refused survivor is detected, converge's code is `write_refused_detected`: an
   INCOMPLETE hand-back with no command and no `flag`. FINAL reads Incomplete, since none of them is
   classified, and a DONE above it is a recorded contradiction. Audit keeps `done_unclassified`.
+  SUPERSEDED for the case where they are the WHOLE residual (#143): that is the named floor, COMPLETE
+  modulo them. The hand-back survives where another reason keeps the run incomplete.
 - "detected by crash; whether a value pins them was not searched", never "no value pins them": for two
   of the five, `assert target.exists()` over a pre-existing target is a value kill.
 """
@@ -236,6 +238,10 @@ def test_writing_the_test_the_block_names_closes_the_open_survivor_and_ends_in_a
     converge = _detective(project, "converge", "m.py::atomic_write_text")
     assert converge.returncode == 0, converge.stdout + converge.stderr
     page = converge.stdout
-    assert "INCOMPLETE:  5 survivor(s) the suite detects only by crash" in page, page
-    assert "WRITE TEST" not in page and "AUTHOR INPUT" not in page and "DONE" not in page, page
-    assert "FINAL m.py::atomic_write_text: Incomplete" in page, page
+    # Superseded by #143 (tasks.md 14.3a): a function whose only open survivors are refused AND detected
+    # by crash is COMPLETE modulo them, named. The hand-back's "INCOMPLETE" is now reached only where
+    # another reason keeps the run from completing (see `tests/test_refused_floor_intent.py`).
+    assert "WRITE TEST" not in page and "AUTHOR INPUT" not in page, page
+    assert "· refused floor" in page and "INCOMPLETE" not in page, page
+    assert "FINAL m.py::atomic_write_text: ✓ COMPLETE" in page, page
+    assert "modulo 5 refused crash-detected survivor(s)" in page, page

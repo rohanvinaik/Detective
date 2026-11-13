@@ -116,6 +116,7 @@ def test_the_recorded_reason_survives_a_round_trip_through_the_ledger(tmp_path) 
         "standing": "ungateable",
         "refusal": "",
         "cut_reasons": ["mutant_not_entered"],
+        "floor": [],
     }
 
 

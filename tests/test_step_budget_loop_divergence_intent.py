@@ -218,6 +218,7 @@ def test_converge_divergence_action_and_decision() -> None:
         written_path = ""
         synthesized_only = False
         missing_line_standings = ()
+        refused_floor = ()
         not_consulted_dynamic = ()
 
     res = DummyConvergeResult()

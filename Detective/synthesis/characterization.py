@@ -464,6 +464,20 @@ def block_fs_writes():
     `_PROCESS_EFFECT_EVENTS` (D#141), not reads, and only where installed. An effect made from a thread
     the target itself starts escapes the ContextVar, as a write does, and a spawned child's own
     effects are its own: refusing the spawn is what keeps them out.
+
+    THE REFUSAL'S BOUNDARY (#143, written where the guard is described):
+
+    * A refusal is the INPUT's outcome, never a verdict on a mutant: the search that would sort a survivor
+      into crash-only, killable or equivalent is exactly the call refused, so such a survivor is never
+      classified. What the page may then say of it is decided by `audit.refused_floor_standing`: one the
+      suite already detects by crash is the NAMED FLOOR (the certificate reads "complete modulo N refused
+      crash-detected survivor(s)", and `--check-strict` names them without failing); one nothing detects
+      stays open, with a test to write that fails under its change. No speculative run that may write or
+      spawn inside a sandbox is built.
+    * The remedy asks for a test that STUBS the call. A test that really spawns runs under Wesker's write
+      authority, which contains IN-PROCESS writes only, never a child process's.
+    * Effects CPython does not audit are outside the hook, whatever the target does: a C extension's own
+      system calls, `os.setuid`, and a handler installed with `signal.signal` raise no audit event here.
     """
     _install_open_watch()
     sink = _EffectSink(block=True)

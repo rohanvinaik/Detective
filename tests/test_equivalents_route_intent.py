@@ -177,6 +177,7 @@ def _converge(equivalent):
         final_survivors=0,
         missing_lines=(),
         missing_line_standings=(),
+        refused_floor=(),
         not_consulted_dynamic=(),
         signature="one(x)",
         param_names=("x",),
